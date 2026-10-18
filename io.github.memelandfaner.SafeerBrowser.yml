@@ -27,17 +27,10 @@ finish-args:
   - --filesystem=xdg-config/safeer-mint:create
   # Samo branje: ali je Safeer privzeti brskalnik (core/default_browser.privzeti_v_flatpaku).
   - --filesystem=xdg-config/mimeapps.list:ro
-  # Samo branje, samo ob kliku »Uvozi«: zaznamki in odprti zavihki iz brskalnikov na tem racunalniku
-  # (core/bookmarks_importer.py, core/uvoz_zavihkov.py) - Firefox (.deb in Snap) in brskalniki Chromium.
-  - --filesystem=~/.mozilla/firefox:ro
-  - --filesystem=~/snap/firefox/common/.mozilla/firefox:ro
-  - --filesystem=xdg-config/google-chrome:ro
-  - --filesystem=xdg-config/chromium:ro
-  - --filesystem=~/snap/chromium/common/chromium:ro
-  - --filesystem=xdg-config/BraveSoftware:ro
-  - --filesystem=xdg-config/microsoft-edge:ro
-  - --filesystem=xdg-config/vivaldi:ro
-  - --filesystem=xdg-config/opera:ro
+  # Brez dostopa do profilov drugih brskalnikov (pregled 18. 10. 2026: stalno branje cele mape profila je dajalo tudi
+  # nesifrirane piskotke Firefoxa, cookies.sqlite). »Uvozi« odpre izbirnik mape (portal) v mapi izbranega brskalnika;
+  # dostop je samo do mape, ki jo uporabnik potrdi, iz nje pa beremo samo zaznamke in odprte zavihke
+  # (core/os_splet._uvozi_prek_portala, core/bookmarks_importer.uvozi_iz_mape).
   - --env=GTK_USE_PORTAL=1
 modules:
   # Nas WebKitGTK s popravki, API 6.0 za GTK4 - ista datoteka modula kot v io.github.memelandfaner.SafeerOS.yml.

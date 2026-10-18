@@ -308,6 +308,62 @@ class UvozZavihkov(unittest.TestCase):
             (mapa / "Session_1").write_bytes(b"SNSS")
             self.assertEqual(list(najdi_seje(d)), ["Opera"])
 
+    def test_zavihki_iz_izbrane_mape(self):
+        """Flatpak: seja iz mape, ki jo izbere uporabnik (portal), do globine 3."""
+        import struct
+        from core.uvoz_zavihkov import odprti_zavihki_v_mapi
+        p = b"SNSS" + struct.pack("<i", 3) + self._ukaz(6, self._nav(1, 0, "https://a.si/"))
+        with tempfile.TemporaryDirectory() as d:
+            mapa = Path(d, "Brave-Browser/Default/Sessions"); mapa.mkdir(parents=True)
+            (mapa / "Session_1").write_bytes(p)
+            self.assertEqual(odprti_zavihki_v_mapi(os.path.join(d, "Brave-Browser"), "Brave"), {"Brave": ["https://a.si/"]})
+            self.assertEqual(odprti_zavihki_v_mapi(os.path.join(d, "Brave-Browser/Default/Sessions"), "Brave"), {})
+
+
+class UvozIzIzbraneMape(unittest.TestCase):
+    """Pregled 18. 10. 2026: Flatpak brskalnika nima stalnega dostopa do profilov drugih brskalnikov; uvoz bere samo
+    zaznamke v mapi, ki jo uporabnik izbere v izbirniku (portal dokumentov)."""
+
+    def test_firefox_in_chromium(self):
+        import json
+        import sqlite3
+        from core.bookmarks_importer import uvozi_iz_mape
+        with tempfile.TemporaryDirectory() as d:
+            profil = Path(d, "firefox/abcd.default-release"); profil.mkdir(parents=True)
+            con = sqlite3.connect(profil / "places.sqlite")
+            con.executescript("""
+                CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT);
+                CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, parent INTEGER,
+                                            title TEXT, dateAdded INTEGER);
+                INSERT INTO moz_places VALUES (1, 'https://ff.example/');
+                INSERT INTO moz_bookmarks VALUES (10, 2, NULL, 0, 'Meni', 0);
+                INSERT INTO moz_bookmarks VALUES (11, 1, 1, 10, 'FF', 1);""")
+            con.commit(); con.close()
+            (profil / "cookies.sqlite").write_text("ne beremo")
+            chrome = Path(d, "google-chrome/Default"); chrome.mkdir(parents=True)
+            (chrome / "Bookmarks").write_text(json.dumps({"roots": {"bookmark_bar": {"type": "folder", "name": "Vrstica",
+                "children": [{"type": "url", "name": "CR", "url": "https://cr.example/"}]}}}))
+            zaznamki, viri = uvozi_iz_mape(os.path.join(d, "firefox"))
+            self.assertEqual([z["url"].rstrip("/") for z in zaznamki], ["https://ff.example"])
+            self.assertEqual(viri, {"Firefox": 1})
+            zaznamki, viri = uvozi_iz_mape(os.path.join(d, "google-chrome"))
+            self.assertEqual([z["url"].rstrip("/") for z in zaznamki], ["https://cr.example"])
+            self.assertEqual(viri, {"Chrome/Brave": 1})
+            self.assertEqual(uvozi_iz_mape(os.path.join(d, "ni-je")), ([], {}))
+
+    def test_splet_v_peskovniku_gre_prek_portala(self):
+        """V Flatpaku brskalnika _uvozi ne bere domacih map drugih brskalnikov, ampak odpre izbiro brskalnika."""
+        from core import gostitelj, os_splet
+        klici = []
+        lazni = type("S", (), {"_uvozi_prek_portala": lambda self: klici.append("portal")})()
+        with mock.patch.object(gostitelj, "v_peskovniku", return_value=True), \
+                mock.patch("core.bookmarks_importer.auto_import_all_profiles", side_effect=AssertionError("dom")):
+            os_splet.VdelaniSplet._uvozi(lazni)
+        self.assertEqual(klici, ["portal"])
+        for j in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertIn("{ime}", os_splet.BESEDILA[j]["uvoz_mapa"], j)
+            self.assertTrue(os_splet.BESEDILA[j]["uvoz_izberi"], j)
+
 
 class Zgodovina(unittest.TestCase):
     def test_dodaj_isci(self):

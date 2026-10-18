@@ -477,3 +477,37 @@ def auto_import_all_profiles() -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
 
     return merged, stats
 
+
+# Uvoz iz mape, ki jo uporabnik izbere v izbirniku (Flatpak brskalnika, pregled 18. 10. 2026): brez stalnega dostopa do
+# profilov drugih brskalnikov (tam so tudi piskotki in gesla). Portal dokumentov da dostop samo do izbrane mape (pot
+# /run/user/<uid>/doc/...); v njej poiscemo samo datoteke zaznamkov. Globina 3: npr. BraveSoftware/Brave-Browser/Default.
+GLOBINA_MAPE = 3
+
+
+def _v_globini(mapa: str, ime: str) -> List[str]:
+    najdene = []
+    for globina in range(GLOBINA_MAPE + 1):
+        najdene += glob.glob(os.path.join(glob.escape(mapa), *(["*"] * globina), ime))
+    return sorted(set(najdene))
+
+
+def uvozi_iz_mape(mapa: str) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Zaznamki iz mape brskalnika, ki jo je izbral uporabnik (Firefox: places.sqlite, Chromium: Bookmarks)."""
+    ff, cr = [], []
+    for pot in _v_globini(mapa, "places.sqlite"):
+        ff += import_from_firefox_profiles(pot)
+    for pot in _v_globini(mapa, "Bookmarks"):
+        if os.path.isfile(pot):
+            cr += import_from_chromium_profiles(pot)
+    stats = {}
+    if ff:
+        stats["Firefox"] = len(ff)
+    if cr:
+        stats["Chrome/Brave"] = len(cr)
+    merged, seen = [], set()
+    for item in ff + cr:
+        norm = re.sub(r"/+$", "", item.get("url", "")).lower()
+        if norm not in seen:
+            seen.add(norm)
+            merged.append(item)
+    return merged, stats

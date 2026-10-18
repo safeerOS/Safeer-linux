@@ -28,11 +28,11 @@ DOVOLJENA = {
     "--filesystem=xdg-download",
     "--filesystem=xdg-config/safeer-mint:create",
     "--filesystem=xdg-config/mimeapps.list:ro",
-    "--filesystem=~/.mozilla/firefox:ro", "--filesystem=~/snap/firefox/common/.mozilla/firefox:ro",
-    "--filesystem=xdg-config/google-chrome:ro", "--filesystem=xdg-config/chromium:ro",
-    "--filesystem=~/snap/chromium/common/chromium:ro", "--filesystem=xdg-config/BraveSoftware:ro",
-    "--filesystem=xdg-config/microsoft-edge:ro", "--filesystem=xdg-config/vivaldi:ro", "--filesystem=xdg-config/opera:ro",
 }
+
+#: Profili drugih brskalnikov (piskotki, gesla): nikoli stalno dovoljenje - uvoz gre prek portala (pregled 18. 10. 2026).
+PROFILI_BRSKALNIKOV = re.compile(r"^--filesystem=.*(mozilla|google-chrome|chromium|BraveSoftware|microsoft-edge|vivaldi|opera)",
+                                 re.I)
 
 
 def dovoljenja(besedilo: str) -> list:
@@ -51,6 +51,11 @@ class Manifest(unittest.TestCase):
             if x.startswith("--filesystem=") and x != "--filesystem=xdg-download" and \
                     x != "--filesystem=xdg-config/safeer-mint:create":
                 self.assertTrue(x.endswith(":ro"), x)
+
+    def test_brez_stalnega_dostopa_do_profilov_brskalnikov(self):
+        d = dovoljenja(MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual([x for x in d if PROFILI_BRSKALNIKOV.match(x)], [])
+        self.assertTrue(PROFILI_BRSKALNIKOV.match("--filesystem=~/.mozilla/firefox:ro"))
 
     def test_prepovedana_se_zaznajo(self):
         """Varovalo samo: vzorec res ujame, kar je bilo v manifestu do 1.0.126."""
