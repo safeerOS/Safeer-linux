@@ -22,6 +22,8 @@ def _tunel(odjemalec, vrata, pot=li.POT_MOBILNA, okna=None, cas=5.0, host="127.0
     a, b = socket.socketpair()
     tok, razlog = odjemalec.odpri("tel", host, vrata, b, pot, cas=cas, okna=okna)
     if tok is None:
+        # pytest izpis pokaze samo ob padcu: preizkus, ki je tok pricakoval, tako takoj pove zakaj ga ni.
+        print("[preizkus] _tunel %s:%s: tok se ni odprl, razlog %r" % (host, vrata, razlog), flush=True)
         a.close()
         b.close()
         return None, None, razlog
@@ -42,12 +44,17 @@ class Osnova(unittest.TestCase):
     def setUp(self):
         self.strezniki = []
         self.zice = []
+        self.konci = []
 
     def tearDown(self):
         for s in self.strezniki:
             s.zapri()
         for z in self.zice:
             z.zapri()
+        # Tokovi, ki jih preizkus ni zaprl, ne smejo teci v naslednje preizkuse (niti obeh koncev, vticnice).
+        for odjemalec, ponudnik in self.konci:
+            ponudnik.zapri_vse()
+            odjemalec.zapri_vse()
 
     def streznik(self, obravnava):
         s = pi.Streznik(obravnava)
@@ -57,6 +64,7 @@ class Osnova(unittest.TestCase):
     def povezi(self, zamik=0.0, **kw):
         odjemalec, ponudnik, zica = pi.povezi(zamik, **kw)
         self.zice.append(zica)
+        self.konci.append((odjemalec, ponudnik))
         self.assertIsNotNone(odjemalec.vprasaj("tel", 2.0) if kw.get("protokol", 2) >= 2 else {})
         return odjemalec, ponudnik, zica
 
@@ -349,7 +357,39 @@ class Napake(Osnova):
 
     def test_izgubljen_kos_konca_tok_namesto_da_ga_pokvari(self):
         """Povezava med srediscema se sredi prenosa obnovi in en kos se izgubi. Program ne sme dobiti toka z
-        luknjo (pokvarjena datoteka brez napake): tok se konca, kar je ze prislo pred luknjo, je pravilno."""
+        luknjo (pokvarjena datoteka brez napake): tok se konca, kar je ze prislo pred luknjo, je pravilno.
+
+        Izgubi se prvi kos za prvim oknom (odmik >= OKNO_TOKA). Ponudnik ga sme poslati sele po potrditvi, ta pa
+        pride sele, ko tok tece (po zazeni()) - luknja je sredi prenosa po vzrocnosti, ne po casu. Prej se je izgubil
+        5. kos, ki je se v prvem oknu (ponudnik ga poslje takoj za internet.opened): ce se je nit v odpri() zbudila
+        sele za nitjo zice, je luknjo videl ze odpri() in vrnil (None, "gap") - pravilno vedenje izdelka, preizkus pa
+        je padel v ~1 od 6 tekov cele datoteke (18. 10. 2026). Luknjo pred zagonom preveri naslednji preizkus."""
+        podatki = os.urandom(600 * 1024)
+        s = self.streznik(lambda c: c.sendall(podatki))
+        odjemalec, ponudnik, zica = self.povezi()
+        luknja = {}
+
+        def izgubi(sporocilo):
+            if sporocilo.get("type") != "internet.data" or luknja or sporocilo.get("off", 0) < li.OKNO_TOKA:
+                return False
+            luknja["off"] = sporocilo["off"]
+            return True
+        zica.dol.izgubi = izgubi
+        a, tok, razlog = _tunel(odjemalec, s.vrata)
+        self.assertIsNotNone(a, "tok se ni odprl: %r" % razlog)
+        prejeto = pi.preberi_vse(a, 20)
+        self.assertTrue(tok.pocakaj(5))
+        self.assertIn("off", luknja, "noben kos se ni izgubil")
+        self.assertEqual(tok.razlog, "gap")
+        self.assertEqual(prejeto, podatki[:len(prejeto)], "pred luknjo mora biti tok nepokvarjen")
+        self.assertLessEqual(len(prejeto), luknja["off"], "nic za luknjo ne sme do programa")
+        self.assertTrue(_pocakaj(lambda: not ponudnik.tokovi), "ponudnik mora izvedeti, da je tok koncan")
+        a.close()
+
+    def test_luknja_preden_program_izve_za_tok(self):
+        """Kos prvega okna se izgubi, se preden je klicatelj programu odgovoril in poklical zazeni() (posrednik
+        med odpri() in zazeni()). Tok se konca z »gap«, zazeni() vticnico programa zapre in program ne dobi
+        niti bajta - nobenega toka z luknjo."""
         podatki = os.urandom(600 * 1024)
         s = self.streznik(lambda c: c.sendall(podatki))
         odjemalec, ponudnik, zica = self.povezi()
@@ -359,15 +399,23 @@ class Napake(Osnova):
             if sporocilo.get("type") != "internet.data":
                 return False
             kosi["n"] += 1
-            return kosi["n"] == 5
+            return kosi["n"] == 2
         zica.dol.izgubi = izgubi
-        a, tok, _ = _tunel(odjemalec, s.vrata)
-        prejeto = pi.preberi_vse(a, 20)
-        self.assertTrue(tok.pocakaj(5))
+
+        def prejmi(sporocilo):
+            # Za internet.opened zica obstane, zato odpri() vrne tok, preden pride kateri koli kos (doloceno).
+            odjemalec.obdelaj(sporocilo)
+            if sporocilo.get("type") == "internet.opened":
+                zica.dol.ustavljena = True
+        zica.dol.prejemnik = prejmi
+        a, b = socket.socketpair()
+        tok, razlog = odjemalec.odpri("tel", "127.0.0.1", s.vrata, b, li.POT_MOBILNA, cas=5.0)
+        self.assertIsNotNone(tok, "tok se ni odprl: %r" % razlog)
+        zica.dol.ustavljena = False
+        self.assertTrue(tok.pocakaj(5), "luknja mora koncati tudi tok, ki se ne tece")
         self.assertEqual(tok.razlog, "gap")
-        self.assertLess(len(prejeto), len(podatki))
-        self.assertEqual(prejeto, podatki[:len(prejeto)], "pred luknjo mora biti tok nepokvarjen")
-        self.assertLessEqual(len(prejeto), 4 * li.NAJVEC_KOS, "nic za luknjo ne sme do programa")
+        tok.zazeni()                    # klicatelj je programu medtem odgovoril: vticnica je zdaj toka, zapre jo
+        self.assertEqual(pi.preberi_vse(a, 5), b"")
         self.assertTrue(_pocakaj(lambda: not ponudnik.tokovi), "ponudnik mora izvedeti, da je tok koncan")
         a.close()
 

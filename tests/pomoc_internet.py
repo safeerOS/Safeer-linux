@@ -429,10 +429,13 @@ class Streznik:
                 pass
 
     def zapri(self) -> None:
-        try:
-            self.s.close()
-        except OSError:
-            pass
+        # Sam close() niti v accept() ne zbudi (Linux): streznik je po zapri() se poslusal in odgovarjal, niti in
+        # vrata vseh preizkusov so ostala do konca procesa (izmerjeno 18. 10. 2026). shutdown() accept() prekine.
+        for korak in (lambda: self.s.shutdown(socket.SHUT_RDWR), self.s.close):
+            try:
+                korak()
+            except OSError:
+                pass
 
 
 def odmev(c: socket.socket) -> None:
