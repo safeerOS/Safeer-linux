@@ -29,3 +29,9 @@ sources:
   - type: archive
     url: https://download.gnome.org/sources/libsoup/3.8/libsoup-3.8.0.tar.xz
     sha256: bbf08fa3e03a88c31a3d27a0d87cb422e9490f2d08e149211103df6d638a2238
+  # Nas popravek (12. 10. 2026, Launchpad #2170998): popravek CVE-2026-5119 je ob vsakem CONNECT skozi posrednik HTTP
+  # pustil en SoupConnection (vticnica, TLS, medpomnilniki). Splet z vklopljenim DoH gre vedno skozi nas posrednik
+  # (core/doh_proxy.py), zato je omrezni proces rasel (izmerjeno 25 -> 57 MiB v 9 min). Velja tudi za glavno vejo libsoup;
+  # ko bo popravek v izdaji libsoup, ga odstranimo.
+  - type: patch
+    path: soup-cookie-jar-connect-leak.patch

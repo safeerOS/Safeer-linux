@@ -1,0 +1,122 @@
+From c81d28d134dad457e393d8027e52e9d90aec5515 Mon Sep 17 00:00:00 2001
+From: Safeer <info@safeer.si>
+Date: Mon, 12 Oct 2026 07:35:50 +0200
+Subject: [PATCH] cookie-jar: fix SoupConnection leak when checking for
+ tunnelled CONNECT
+
+allow_cookies_for_request(), added for #502 (CVE-2026-5119), passes the
+result of soup_message_get_connection() straight to
+soup_connection_is_tunnelled(). soup_message_get_connection() returns a
+new reference (g_weak_ref_get), so every CONNECT message that goes
+through the cookie jar leaks one SoupConnection, together with its
+socket stream, TLS connection and buffers.
+
+Any session with a cookie jar and an HTTP proxy is affected: a WebKitGTK
+browser using an HTTP proxy grows its network process by several MiB per
+minute of normal browsing (measured: 25 -> 57 MiB in 9 minutes, while
+without a proxy or without this check it stays flat).
+
+Only look up the connection for CONNECT messages and drop the reference
+after use, as auth_msg_starting() already does. Extend the secure-cookies
+proxy test to check that the tunnel connection is finalized.
+---
+ libsoup/cookies/soup-cookie-jar.c | 15 +++++++++++++--
+ tests/proxy-test.c                | 27 +++++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+), 2 deletions(-)
+
+diff --git a/libsoup/cookies/soup-cookie-jar.c b/libsoup/cookies/soup-cookie-jar.c
+index 2fdd534..f611e34 100644
+--- a/libsoup/cookies/soup-cookie-jar.c
++++ b/libsoup/cookies/soup-cookie-jar.c
+@@ -898,8 +898,19 @@ process_set_cookie_header (SoupMessage *msg, gpointer user_data)
+ static gboolean
+ allow_cookies_for_request (SoupMessage *msg)
+ {
+-        /* Do not send cookies to a HTTP proxy for a HTTPS request */
+-        return soup_message_get_method (msg) != SOUP_METHOD_CONNECT || !soup_connection_is_tunnelled (soup_message_get_connection (msg));
++        SoupConnection *conn;
++        gboolean tunnelled;
++
++        if (soup_message_get_method (msg) != SOUP_METHOD_CONNECT)
++                return TRUE;
++
++        /* Do not send cookies to a HTTP proxy for a HTTPS request.
++         * soup_message_get_connection() returns a new reference. */
++        conn = soup_message_get_connection (msg);
++        tunnelled = conn && soup_connection_is_tunnelled (conn);
++        g_clear_object (&conn);
++
++        return !tunnelled;
+ }
+ 
+ static void
+diff --git a/tests/proxy-test.c b/tests/proxy-test.c
+index 945de2c..43d4b82 100644
+--- a/tests/proxy-test.c
++++ b/tests/proxy-test.c
+@@ -1,6 +1,8 @@
+ /* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*- */
+ 
+ #include "test-utils.h"
++#include "soup-connection.h"
++#include "soup-message-private.h"
+ 
+ #include <gio/gio.h>
+ 
+@@ -420,6 +422,25 @@ connect_message_wrote_headers_cb (SoupMessage *msg, guint *counter)
+                 g_assert_nonnull (soup_message_headers_get_one (hdrs, "Cookie"));
+ }
+ 
++static void
++connect_message_starting_cb (SoupMessage *msg, SoupConnection **conn)
++{
++        if (soup_message_get_method (msg) != SOUP_METHOD_CONNECT || *conn)
++                return;
++
++        *conn = soup_message_get_connection (msg);
++        if (*conn) {
++                g_object_add_weak_pointer (G_OBJECT (*conn), (gpointer *)conn);
++                g_object_unref (*conn);
++        }
++}
++
++static void
++request_queued_conn_cb (SoupSession *session, SoupMessage *msg, SoupConnection **conn)
++{
++        g_signal_connect (msg, "starting", G_CALLBACK (connect_message_starting_cb), conn);
++}
++
+ static void
+ request_queued_cb (SoupSession *session, SoupMessage *msg, guint *counter)
+ {
+@@ -433,12 +454,14 @@ do_proxy_secure_cookies_test (void)
+         SoupMessage *msg;
+         SoupCookieJar *jar;
+         guint counter = 0;
++        SoupConnection *tunnel_conn = NULL;
+ 
+         SOUP_TEST_SKIP_IF_NO_APACHE;
+         SOUP_TEST_SKIP_IF_NO_TLS;
+ 
+         session = soup_test_session_new ("proxy-resolver", proxy_resolvers[SIMPLE_PROXY], NULL);
+         g_signal_connect (session, "request-queued", G_CALLBACK (request_queued_cb), &counter);
++        g_signal_connect (session, "request-queued", G_CALLBACK (request_queued_conn_cb), &tunnel_conn);
+ 
+         soup_session_add_feature_by_type (session, SOUP_TYPE_COOKIE_JAR);
+         jar = SOUP_COOKIE_JAR (soup_session_get_feature (session, SOUP_TYPE_COOKIE_JAR));
+@@ -448,8 +471,12 @@ do_proxy_secure_cookies_test (void)
+         soup_test_session_send_message (session, msg);
+         soup_test_assert_message_status (msg, SOUP_STATUS_OK);
+         g_assert_cmpuint (counter, ==, 2);
++        g_object_unref (msg);
+ 
++        /* The cookie jar must not leak a reference to the tunnel connection */
++        g_assert_nonnull (tunnel_conn);
+         soup_test_session_abort_unref (session);
++        g_assert_null (tunnel_conn);
+ }
+ 
+ int
+-- 
+2.43.0
+

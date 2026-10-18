@@ -991,6 +991,16 @@ sys.exit("neznan ukaz")
         self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true'\n",posel[shrani:])
         self.assertNotIn('if: always()',posel)
 
+    def test_libsoup_s_popravkom_puscanja_connect(self):
+        """Nas popravek libsoup (Launchpad #2170998): CONNECT skozi posrednik (DoH v Spletu) ne pusca SoupConnection.
+        Isti modul gradita .deb (zgradi.sh) in Flatpak."""
+        modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
+        self.assertIn('path: soup-cookie-jar-connect-leak.patch',modul)
+        popravek=(ROOT/'packaging/libsoup/soup-cookie-jar-connect-leak.patch').read_text()
+        self.assertIn('+        g_clear_object (&conn);',popravek)
+        for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
+            self.assertIn('packaging/libsoup/libsoup3-safeer.yml',(ROOT/manifest).read_text())
+
     def test_plugins_good_je_odvisnost(self):
         """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""
         os_=(ROOT/'build_os_deb.sh').read_text()
