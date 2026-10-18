@@ -53,7 +53,9 @@ class MostSkladbe(unittest.TestCase):
                 time.sleep(0.01)
         self.assertEqual(pogled.get_title(), "ni")    # skripta strani mostu ne vidi
         self.assertTrue(prejeto)
-        self.assertTrue(all(x == {"stanje": 1, "v": "59o4m222aVw"} for x in prejeto), prejeto)
+        # Most od 1.0.127 pove tudi, ali je posnetek prenos v zivo (»V zivo« na seznamih); ponarejena sporocila imajo stanje 0.
+        self.assertTrue(all({k: v for k, v in x.items() if k != "zivo"} == {"stanje": 1, "v": "59o4m222aVw"}
+                            and isinstance(x.get("zivo", False), bool) for x in prejeto), prejeto)
 
 
 if __name__ == "__main__":
