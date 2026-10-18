@@ -1454,55 +1454,41 @@
     if (S.mediaFilter === "vse") { S.mediaIskanje = ""; $("mediaIskanje").value = ""; }
     izberiMedijskoKategorijo(k); naloziMedije();
   }
-  // ---- leva navigacija: skrci na ikone ali povsem skrij (lastnik, 14. 10. 2026: »ali se da stransko vrstico skriti in
-  // jo zlahka spet pokazati«). Kot stranska vrstica Safeer OS (vrsticaPreklopi, vrsticaSkrij): gumb na vrhu navigacije,
-  // »Skrij meni« na dnu, rocaj na levem robu in tipke - v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska vrstica), v
-  // Safeer Playerju tudi Ctrl+B. Zapomni si vsaka vrsta okna posebej (udobje tega uporabnika: localStorage).
+  // ---- leva navigacija: gumb na vrhu jo skrci na ikone in razsiri nazaj (ime v namigu). Lastnik 18. 10. 2026: samo ena
+  // moznost (»Skrij meni« in rocaj odstranjena, brez podvajanja). Tipke: v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska
+  // vrstica), v Safeer Playerju tudi Ctrl+B. Zapomni si vsaka vrsta okna posebej (udobje tega uporabnika: localStorage).
   var NAV_KLJUC = "safeer_media_nav_" + (PREDVAJALNIK ? "player" : "glavno");
   function navTipka() { return PREDVAJALNIK ? "Ctrl+B" : "Ctrl+Shift+B"; }
-  function navStanje() {
-    var r = $("r-media");
-    return !r ? "" : r.classList.contains("nav-skrita") ? "skrita" : r.classList.contains("nav-skrcena") ? "skrcena" : "";
-  }
-  function navNastavi(stanje, fokus) {
+  function navSkrcena() { var r = $("r-media"); return !!r && r.classList.contains("nav-skrcena"); }
+  function navNastavi(skrcena) {
     var r = $("r-media"); if (!r) return;
-    var prej = navStanje();
-    r.classList.toggle("nav-skrcena", stanje === "skrcena");
-    r.classList.toggle("nav-skrita", stanje === "skrita");
-    try { localStorage.setItem(NAV_KLJUC, stanje); } catch (e) {}
+    r.classList.toggle("nav-skrcena", !!skrcena);
+    try { localStorage.setItem(NAV_KLJUC, skrcena ? "skrcena" : ""); } catch (e) {}
     navNapisi();
-    if (!fokus) return;
-    if (stanje === "skrita") { var rocaj = $("mediaNavRocaj"); if (rocaj) rocaj.focus(); }
-    else if (prej === "skrita") { var izbran = document.querySelector(".media-nav-kategorija.izbrana") || $("mediaNavSkrci"); if (izbran) izbran.focus(); }
   }
   function navNapisi() {
-    var s = navStanje(), g = $("mediaNavSkrci"), rocaj = $("mediaNavRocaj"), skrij = $("mediaNavSkrij"), pril = $("mediaNavPrilagodi");
+    var s = navSkrcena(), g = $("mediaNavSkrci"), pril = $("mediaNavPrilagodi");
     if (!g) return;
-    g.title = t(s === "skrcena" ? "mediaNavRazsiri" : "mediaNavSkrci", { tipka: navTipka() });
+    g.title = t(s ? "mediaNavRazsiri" : "mediaNavSkrci", { tipka: navTipka() });
     g.setAttribute("aria-label", g.title);
-    g.setAttribute("aria-expanded", s === "skrcena" ? "false" : "true");
-    rocaj.title = t("mediaNavPokazi", { tipka: navTipka() });
-    rocaj.setAttribute("aria-label", rocaj.title);
-    rocaj.setAttribute("aria-expanded", s === "skrita" ? "false" : "true");
-    skrij.setAttribute("aria-label", t("mediaNavSkrij")); skrij.title = t("mediaNavSkrij");
+    g.setAttribute("aria-expanded", s ? "false" : "true");
     pril.setAttribute("aria-label", t("mediaPrilagodiMeni")); pril.title = t("mediaPrilagodiMeni");
   }
   function poveziNav() {
     if (!$("mediaNavSkrci")) return;
-    try { var shranjeno = localStorage.getItem(NAV_KLJUC); if (shranjeno === "skrcena" || shranjeno === "skrita") navNastavi(shranjeno, false); } catch (e) {}
+    // Prej shranjena »skrita« (odstranjena moznost) se pokaze kot skrcena: meni ostane dosegljiv.
+    try { var shranjeno = localStorage.getItem(NAV_KLJUC); if (shranjeno === "skrcena" || shranjeno === "skrita") navNastavi(true); } catch (e) {}
     navNapisi();
-    $("mediaNavSkrci").addEventListener("click", function () { navNastavi(navStanje() === "skrcena" ? "" : "skrcena", false); });
-    $("mediaNavSkrij").addEventListener("click", function () { navNastavi("skrita", true); });
-    $("mediaNavRocaj").addEventListener("click", function () { navNastavi("", true); });
+    $("mediaNavSkrci").addEventListener("click", function () { navNastavi(!navSkrcena()); });
     document.addEventListener("keydown", function (e) {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || (e.key !== "b" && e.key !== "B")) return;
       if (!(e.shiftKey || PREDVAJALNIK)) return;          // Ctrl+B v glavnem oknu ostane stranski vrstici
       var r = $("r-media"); if (!r || r.offsetParent === null || (!PREDVAJALNIK && S.razdelek !== "media")) return;
       e.preventDefault();
-      // Skrita navigacija se najprej pokaze (kot stranska vrstica), sicer se skrci ali razsiri.
-      if (navStanje() === "skrita") navNastavi("", true); else navNastavi(navStanje() === "skrcena" ? "" : "skrcena", false);
+      navNastavi(!navSkrcena());
     });
   }
+
   // ---- prilagojen meni (lastnik, 14. 10. 2026: »skrij, kar uporabnik ne potrebuje«): vsak zavihek razen Domov in vsak
   // vir v levi navigaciji (in v vodoravnih zavihkih) se da skriti - desni klik, tipka Meni, Shift+F10, dolg pritisk ali
   // gumb Y na ploscku, ali v plosci »Prilagodi meni«. Skrito je samo v meniju: podatki in viri ostanejo, iskanje najde

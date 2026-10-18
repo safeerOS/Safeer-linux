@@ -1152,7 +1152,6 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 #r-media { container: mediji / inline-size; }
 .media-nav { display: none; }
 .media-vsebina { min-width: 0; }
-.media-nav-rocaj { display: none; }
 @container mediji (min-width: 980px) {
   .media-telo { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
   /* Skrcena navigacija: samo ikone (ime v namigu in za bralnik zaslona), vsebina dobi sirino. */
@@ -1163,14 +1162,6 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
   #r-media.nav-skrcena .media-nav-prilagodi { justify-content: center; padding-left: 0; padding-right: 0; }
   #r-media.nav-skrcena .media-nav-glava { justify-content: center; }
   #r-media.nav-skrcena .media-nav-skrci svg { transform: scaleX(-1); }
-  /* Povsem skrita: tanek rocaj na levem robu (kot rocaj stranske vrstice), vsebina cez vso sirino. */
-  #r-media.nav-skrita .media-telo { grid-template-columns: 16px minmax(0, 1fr); gap: 12px; }
-  #r-media.nav-skrita .media-nav { display: none; }
-  #r-media.nav-skrita .media-nav-rocaj { position: sticky; top: 30vh; display: block; width: 16px; height: 96px; padding: 0; border: 0;
-    background: transparent; cursor: pointer; }
-  .media-nav-rocaj::before { content: ""; position: absolute; left: 4px; top: 12px; width: 6px; height: 72px; border-radius: 3px;
-    background: var(--zelena); opacity: .6; transition: opacity .15s, width .15s; }
-  .media-nav-rocaj:hover::before, .media-nav-rocaj:focus-visible::before { opacity: 1; width: 8px; }
   .media-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 120px);
     padding: 2px 0 8px 2px; }
   /* Glava z gumbom Skrci ostane zunaj drsnega dela; desni odmik, da drsnik ne prekrije vsebine. */
@@ -1314,7 +1305,6 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-nav-prilagodi { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; margin-top: -8px; padding: 8px 14px;
   border-radius: 12px; color: var(--medlo); font-size: 14px; text-align: left; }
 .media-nav-prilagodi svg { width: 18px; height: 18px; }
-.media-nav-skrij { margin-top: -20px; }
 .media-nav-glava { flex: none; display: flex; justify-content: flex-end; padding-right: 14px; }
 /* Gumb Skrci brez kvadrata za ikono, ikona cez ves gumb (lastnik, 18. 10. 2026); poudarek ob miski je samo barva. */
 .media-nav-skrci, .media-nav-skrci:hover { width: 36px; height: 36px; padding: 0; color: var(--medlo); background: transparent; }
