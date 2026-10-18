@@ -430,14 +430,18 @@ class Zaznava(unittest.TestCase):
 
 
 class MejeSej(unittest.TestCase):
-    """Pregled 18. 10. 2026: vsaka nova seja kopira celo datoteko v zgodovino (trenutne razlicice so zascitene) in prva
-    prijava tece v svoji niti. Brez meja je ena naprava s files.session za vse deljene datoteke napolnila disk in
-    zagnala neomejeno niti, ki berejo cele datoteke."""
+    """Lastnik, 18. 10. 2026: sej in prvih prijav clanov ne omejuje nobena stevilka (prej 32 sej na napravo, 8 prvih
+    prijav, 16 niti files.session). Disk varuje rezerva zgodovine (link_viri.rezerva_diska), proces pa viri
+    (core/link_viri.py) - ob pomanjkanju odgovor ni_virov in obvestilo udelezencu, ne tiha zavrnitev."""
+
+    SEJ = 42        # vec kot prejsnja meja 32
 
     def setUp(self):
+        from core import link_viri
+        link_viri.ponastavi()
         self.tmp = tempfile.mkdtemp()
         self.poti = {}
-        for i in range(tw.NAJVEC_SEJ_NA_NAPRAVO + 2):
+        for i in range(self.SEJ):
             p = os.path.join(self.tmp, "f%d.txt" % i)
             with open(p, "w") as f:
                 f.write("vsebina %d" % i)
@@ -447,22 +451,16 @@ class MejeSej(unittest.TestCase):
                              ukaz=None, okna=lambda: [], mapa=os.path.join(self.tmp, "tw"), procesi=None, zdaj=self.ura)
 
     def tearDown(self):
+        from core import link_viri
+        link_viri.ponastavi()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_najvec_sej_na_napravo(self):
-        for i in range(tw.NAJVEC_SEJ_NA_NAPRAVO):
-            self.assertTrue(self.t.prijava("n-zlo", {"id": "id%d" % i})["ok"])
-        r = self.t.prijava("n-zlo", {"id": "id%d" % tw.NAJVEC_SEJ_NA_NAPRAVO})
-        self.assertEqual(r["koda"], "prevec_sej")
-        self.assertEqual(len(self.t._seje), tw.NAJVEC_SEJ_NA_NAPRAVO, "nad mejo ni nove kopije v zgodovini")
-        # Obstojeca seja (javljanje) gre naprej, druga naprava ima svojo mejo.
-        self.assertTrue(self.t.prijava("n-zlo", {"id": "id0"})["ok"])
-        self.assertTrue(self.t.prijava("n-druga", {"id": "id%d" % tw.NAJVEC_SEJ_NA_NAPRAVO})["ok"])
-        # Ko naprava seje dlje ne javlja, mesto se sprosti.
-        self.ura.t += tw.SEJA_VELJA_S + 1
-        self.assertTrue(self.t.prijava("n-zlo", {"id": "id%d" % (tw.NAJVEC_SEJ_NA_NAPRAVO + 1)})["ok"])
+    def test_ena_naprava_brez_meje_sej(self):
+        for i in range(self.SEJ):
+            self.assertTrue(self.t.prijava("n-sodelavec", {"id": "id%d" % i})["ok"], i)
+        self.assertEqual(len(self.t._seje), self.SEJ)
 
-    def test_prve_prijave_nad_mejo_zasedeno(self):
+    def test_prve_prijave_hkrati_brez_meje(self):
         izvirna = tw._sha
         sprosti = threading.Event()
 
@@ -470,34 +468,60 @@ class MejeSej(unittest.TestCase):
             sprosti.wait(10)
             return izvirna(pot)
         tw._sha = pocasi
-        niti = []
+        niti, izidi = [], []
         try:
-            for i in range(tw.NAJVEC_PRVIH_PRIJAV):
-                n = threading.Thread(target=self.t.prijava, args=("n-%d" % i, {"id": "id%d" % i}), daemon=True)
+            for i in range(12):                      # prej najvec 8 hkrati, nad tem »zasedeno«
+                n = threading.Thread(target=lambda i=i: izidi.append(self.t.prijava("n-%d" % i, {"id": "id%d" % i})),
+                                     daemon=True)
                 n.start()
                 niti.append(n)
             konec = time.monotonic() + 5
-            while self.t._v_ustvarjanju < tw.NAJVEC_PRVIH_PRIJAV and time.monotonic() < konec:
+            while self.t._v_ustvarjanju < 12 and time.monotonic() < konec:
                 time.sleep(0.01)
-            r = self.t.prijava("n-x", {"id": "id%d" % tw.NAJVEC_PRVIH_PRIJAV})
-            self.assertEqual(r, {"ok": False, "koda": "zasedeno"})
+            self.assertEqual(self.t._v_ustvarjanju, 12)
         finally:
             sprosti.set()
             for n in niti:
                 n.join(10)
             tw._sha = izvirna
+        self.assertEqual(len(izidi), 12)
+        self.assertTrue(all(r["ok"] for r in izidi), izidi)
         self.assertEqual(self.t._v_ustvarjanju, 0)
-        self.assertTrue(self.t.prijava("n-x", {"id": "id%d" % tw.NAJVEC_PRVIH_PRIJAV})["ok"])
+
+    def test_ob_pomanjkanju_virov_ni_virov_in_obvestilo(self):
+        from core import link_viri
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK):
+            r = self.t.prijava("n-x", {"id": "id0"})
+        self.assertEqual(r, {"ok": False, "koda": link_viri.KODA})
+        self.assertEqual(link_viri.stanje()["kje"], "teamwork")
+        self.assertEqual(len(self.t._seje), 0)
+        self.assertTrue(self.t.prijava("n-x", {"id": "id0"})["ok"], "ko so viri spet na voljo, gre")
+        # Udelezenec: obvestilo enkrat, ne ob vsakem javljanju.
+        obvestila = []
+        u = tw._Udelezba({"naprava": "n-lastnik", "ime_naprave": "Pisarna", "oznaka": "x",
+                          "pot": self.poti["id1"]})
+        t2 = tw.Teamwork(razresi=lambda o: "", ime_naprave=lambda i: i, obvesti=lambda k, p: obvestila.append((k, p)),
+                         ukaz=lambda *a: {"ok": False, "koda": link_viri.KODA}, okna=lambda: [],
+                         mapa=os.path.join(self.tmp, "tw2"), procesi=None, zdaj=self.ura)
+        self.assertIsNone(t2._ping(u, odprto=True))
+        self.assertIsNone(t2._ping(u, odprto=True))
+        self.assertEqual(obvestila, [("brez_virov", {"ime": "f1.txt", "kdo": "Pisarna"})])
+        self.assertTrue(u.podprto, "lastnik Teamwork zna - samo zdaj nima virov")
+        for jezik in tw.BESEDILA:
+            naslov, besedilo = tw.besedilo(jezik, "brez_virov", ime="f1.txt", kdo="Pisarna")
+            self.assertIn("Pisarna", besedilo)
 
     def test_zgodovina_pusti_rezervo_diska(self):
+        from core import link_viri
         z = tw.Zgodovina(os.path.join(self.tmp, "z"))
         prosto = shutil.disk_usage(self.tmp).free
-        with mock.patch.object(tw, "REZERVA_DISKA", prosto + 1):
+        with mock.patch.object(link_viri, "rezerva_diska", lambda _m: prosto + 1):
             self.assertEqual(z.shrani("k", "a" * 64, self.poti["id0"]), "")
-        self.assertTrue(z.shrani("k", "a" * 64, self.poti["id0"]))
+        with mock.patch.object(link_viri, "rezerva_diska", lambda _m: 0):
+            self.assertTrue(z.shrani("k", "a" * 64, self.poti["id0"]))
 
-    def test_niti_files_session_omejene(self):
-        from core import link_daljinec
+    def test_files_session_niti_brez_meje(self):
+        from core import link_daljinec, link_viri
         sprosti = threading.Event()
 
         class Tw:
@@ -511,18 +535,21 @@ class MejeSej(unittest.TestCase):
             def streznik_za(self, *_a):
                 return {}
         odgovori = []
-        link_daljinec._niti_teamwork = None
         try:
-            for _ in range(link_daljinec.NAJVEC_NITI_TEAMWORK + 1):
+            for _ in range(24):                     # prej najvec 16 hkrati, nad tem »zasedeno«
                 link_daljinec.izvedi_control("files.session", {"id": "x"}, lambda u: None, odgovori.append,
                                              datoteke=Datoteke(), posiljatelj="n-1")
-            self.assertEqual([r.get("code") for r in odgovori], ["zasedeno"])
+            self.assertEqual(odgovori, [])
+            with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.DESKRIPTORJI):
+                link_daljinec.izvedi_control("files.session", {"id": "x"}, lambda u: None, odgovori.append,
+                                             datoteke=Datoteke(), posiljatelj="n-1")
+            self.assertEqual([r.get("code") for r in odgovori], [link_viri.KODA])
         finally:
             sprosti.set()
         konec = time.monotonic() + 5
-        while len(odgovori) < link_daljinec.NAJVEC_NITI_TEAMWORK + 1 and time.monotonic() < konec:
+        while len(odgovori) < 25 and time.monotonic() < konec:
             time.sleep(0.01)
-        self.assertEqual(sum(1 for r in odgovori if r.get("ok")), link_daljinec.NAJVEC_NITI_TEAMWORK)
+        self.assertEqual(sum(1 for r in odgovori if r.get("ok")), 24)
 
 
 if __name__ == "__main__":

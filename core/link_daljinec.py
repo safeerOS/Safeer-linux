@@ -117,10 +117,11 @@ def izvedi(app, dejanje: str, parametri: dict, odpri_naslov: Callable[[str], Non
 
 DEJANJA_CONTROL = ["open_url", "volume", "status"]
 DEJANJA_DATOTEKE = ["files.list", "files.open", "files.open_locen", "files.session"]
-#: Najvec toliko niti za files.session hkrati (Teamwork). Javljanje obstojece seje traja milisekunde; prve prijave
-#: omeji Teamwork sam (link_teamwork.NAJVEC_PRVIH_PRIJAV = 8). Ta meja (dvojna) varuje proces pred poplavo niti.
-NAJVEC_NITI_TEAMWORK = 16
-_niti_teamwork = None
+#: files.session (Teamwork) tece v svoji niti. Prej najvec 16 hkrati - podjetje z mnogo sodelavci, ki vsak javlja
+#: vsakih 5 s, bi dobivalo `zasedeno` (lastnik, 18. 10. 2026: clanov ne omejuje stevilka). Zdaj odlocajo viri
+#: (core/link_viri.py: nit, deskriptor, pomnilnik nad rezervo); ob pomanjkanju odgovor `ni_virov`, ne tiho.
+DESKRIPTORJEV_NITI_TEAMWORK = 1
+POMNILNIK_NITI_TEAMWORK = 1024 * 1024
 DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.launch_locen", "apps.close", "apps.running"]
 DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
@@ -269,13 +270,11 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             # V svoji niti: izvedi_control tece na glavni niti (core/safeer_link), prva prijava pa prebere in kopira
             # celo datoteko (do 1 GB), seznam oken pa caka na glavno nit - na njej bi Safeer zamrznil ob vsakem
             # javljanju (vsakih 5 s). Odgovor gre prek koncaj kot pri ostalih ukazih v nitih.
-            import threading
-            global _niti_teamwork
-            if _niti_teamwork is None:
-                _niti_teamwork = threading.BoundedSemaphore(NAJVEC_NITI_TEAMWORK)
-            mesto = _niti_teamwork
-            if not mesto.acquire(blocking=False):
-                koncaj(izid(False, "Teamwork", {"ok": False, "koda": "zasedeno"}, koda="zasedeno"))
+            from core import link_viri
+            razlog = link_viri.preveri(DESKRIPTORJEV_NITI_TEAMWORK, POMNILNIK_NITI_TEAMWORK)
+            if razlog:
+                link_viri.zabelezi(razlog, "teamwork")
+                koncaj(izid(False, "Teamwork", {"ok": False, "koda": link_viri.KODA}, koda=link_viri.KODA))
                 return
 
             def prijava() -> None:
@@ -289,14 +288,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne izteka casa
                     print("[Teamwork] prijava:", e, file=sys.stderr)
                     stanje = {"ok": False, "koda": "napaka"}
-                finally:
-                    mesto.release()
                 koncaj(izid(bool(stanje.get("ok")), "Teamwork", stanje, koda=str(stanje.get("koda") or "")))
-            try:
-                threading.Thread(target=prijava, name="safeer-teamwork-prijava", daemon=True).start()
-            except RuntimeError:
-                mesto.release()
-                koncaj(izid(False, "Teamwork", {"ok": False, "koda": "zasedeno"}, koda="zasedeno"))
+            if not link_viri.zazeni_nit(prijava, ime="safeer-teamwork-prijava", kje="teamwork"):
+                koncaj(izid(False, "Teamwork", {"ok": False, "koda": link_viri.KODA}, koda=link_viri.KODA))
         elif d in ("files.open", "files.open_locen"):
             # Datoteko odpre racunalnik s svojim programom; televizor jo nato vidi prek zaslona.
             if datoteke is None:

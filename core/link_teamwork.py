@@ -40,7 +40,7 @@ import threading
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from core import link_delta
+from core import link_delta, link_viri
 
 #: Udelezenec z odprto datoteko javlja tako pogosto (obvestilo o novi razlicici pride najkasneje v tem casu).
 PING_ODPRTO_S = 5.0
@@ -65,21 +65,23 @@ SEJA_VELJA_S = 600.0
 TIK_S = 2.0
 #: Najvec toliko kopij ob sporu na sejo (ista vsebina se nikoli ne zapise dvakrat).
 NAJVEC_KOPIJ = 20
-#: Ena naprava ima pri lastniku najvec toliko sej hkrati (pregled 18. 10. 2026: vsaka nova seja kopira celo datoteko
-#: v zgodovino, trenutne razlicice so pred ciscenjem zascitene - brez meje je naprava s files.session za vse deljene
-#: datoteke napolnila disk). Seja zivi, dokler naprava javlja (tudi zaprta datoteka se SPREMLJAJ_S), zato meja ni nizka:
-#: 32 datotek z ene naprave v enem dnevu. Nad mejo nova datoteka ostane navadna delovna kopija, dokler katera ne potece.
-NAJVEC_SEJ_NA_NAPRAVO = 32
-#: Najvec toliko prvih prijav hkrati (vsaka prebere in kopira celo datoteko: izmerjeno 18. 10. 2026 256 MiB v 1,1 s,
-#: 1 GiB ~4,5 s); nad tem odgovor `zasedeno` in naprava poskusi ob naslednjem javljanju (PING_ODPRTO_S/PING_SPREMLJAM_S).
-NAJVEC_PRVIH_PRIJAV = 8
-#: Kopija v zgodovino samo, ce na disku potem ostane vsaj toliko prostora (brez kopije spor ostane brez razlicice
-#: - obvestilo spor_brez_kopije - disk pa se ne napolni).
-REZERVA_DISKA = 1024 ** 3
+#: Sej in prvih prijav clanov ne omejuje nobena stevilka (lastnik, 18. 10. 2026: prej 32 sej na napravo in 8 prvih
+#: prijav hkrati - podjetje z mnogo sodelavci na isti mapi bi to obcutilo). Disk varuje rezerva v Zgodovina.shrani
+#: (kopija samo, ce potem ostane link_viri.rezerva_diska; brez kopije spor ostane brez razlicice - obvestilo
+#: spor_brez_kopije - disk pa se ne napolni), proces pa viri: prva prijava (prebere in kopira celo datoteko - izmerjeno
+#: 18. 10. 2026 256 MiB v 1,1 s, 1 GiB ~4,5 s) se zacne samo, ce ima racunalnik nad rezervo se deskriptorja za branje
+#: in kopijo ter pomnilnik za dva medpomnilnika po 1 MiB. Sicer odgovor `ni_virov` (link_viri.KODA): udelezenec dobi
+#: obvestilo in poskusi ob naslednjem javljanju (PING_ODPRTO_S/PING_SPREMLJAM_S).
+DESKRIPTORJEV_PRVE_PRIJAVE = 2
+POMNILNIK_PRVE_PRIJAVE = 4 * 1024 * 1024
 
 
-class Zasedeno(Exception):
-    """Prvih prijav je ze NAJVEC_PRVIH_PRIJAV."""
+class BrezVirov(Exception):
+    """Racunalnik nima virov za prvo prijavo (razlog iz link_viri)."""
+
+    def __init__(self, razlog: str) -> None:
+        super().__init__(razlog)
+        self.razlog = razlog
 #: Po trajni napaki (prevelika datoteka, ni prostora pri lastniku) udelezenec toliko casa ne posilja znova.
 PREMOR_PO_NAPAKI_S = 300.0
 MAGIJA = b"SFTW1\n"
@@ -97,6 +99,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork: obe različici sta ohranjeni", "{kdo} je shranil »{ime}« iz starejše različice. "
                        "Njegova različica je shranjena kot »{kopija}«."),
         "spor_brez_kopije": ('Teamwork: različica ni ohranjena', 'Različice »{ime}« z naprave {kdo} ni bilo mogoče ohraniti kot kopije (ni je več v zgodovini).'),
+        "brez_virov": ("Teamwork počaka", "{kdo} ima zdaj premalo virov (povezav ali pomnilnika), da bi začel urejati »{ime}« skupaj. Poskusim znova sam."),
         "tukaj": "ta računalnik",
     },
     "en": {
@@ -109,6 +112,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork: both versions kept", "{kdo} saved “{ime}” from an older version. "
                        "Their version is saved as “{kopija}”."),
         "spor_brez_kopije": ('Teamwork: version not kept', 'The version of “{ime}” from {kdo} could not be kept as a copy (it is no longer in the history).'),
+        "brez_virov": ("Teamwork is waiting", "{kdo} has too few resources (connections or memory) right now to start editing “{ime}” together. I will try again by myself."),
         "tukaj": "this computer",
     },
     "de": {
@@ -121,6 +125,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork: beide Versionen behalten", "{kdo} hat „{ime}“ aus einer älteren Version gespeichert. "
                        "Diese Version ist als „{kopija}“ gespeichert."),
         "spor_brez_kopije": ('Teamwork: Version nicht behalten', 'Die Version von „{ime}“ von {kdo} konnte nicht als Kopie behalten werden (nicht mehr im Verlauf).'),
+        "brez_virov": ("Teamwork wartet", "{kdo} hat gerade zu wenige Ressourcen (Verbindungen oder Arbeitsspeicher), um „{ime}“ gemeinsam zu bearbeiten. Ich versuche es selbst erneut."),
         "tukaj": "diesem Computer",
     },
     "es": {
@@ -133,6 +138,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork: se conservan ambas versiones", "{kdo} guardó «{ime}» desde una versión anterior. "
                        "Su versión se guardó como «{kopija}»."),
         "spor_brez_kopije": ('Teamwork: versión no conservada', 'La versión de «{ime}» de {kdo} no se pudo conservar como copia (ya no está en el historial).'),
+        "brez_virov": ("Teamwork espera", "{kdo} tiene ahora pocos recursos (conexiones o memoria) para empezar a editar «{ime}» juntos. Lo volveré a intentar yo solo."),
         "tukaj": "este ordenador",
     },
     "fr": {
@@ -145,6 +151,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork : les deux versions sont conservées", "{kdo} a enregistré « {ime} » depuis une version "
                        "plus ancienne. Sa version est enregistrée sous « {kopija} »."),
         "spor_brez_kopije": ('Teamwork : version non conservée', "La version de « {ime} » de {kdo} n'a pas pu être conservée en copie (elle n'est plus dans l'historique)."),
+        "brez_virov": ("Teamwork attend", "{kdo} manque pour l'instant de ressources (connexions ou mémoire) pour commencer à modifier « {ime} » ensemble. Je réessaierai tout seul."),
         "tukaj": "cet ordinateur",
     },
     "it": {
@@ -157,6 +164,7 @@ BESEDILA = {
         "spor_drugi": ("Teamwork: entrambe le versioni conservate", "{kdo} ha salvato «{ime}» da una versione precedente. "
                        "La sua versione è salvata come «{kopija}»."),
         "spor_brez_kopije": ('Teamwork: versione non conservata', 'La versione di «{ime}» da {kdo} non è stata conservata come copia (non è più nella cronologia).'),
+        "brez_virov": ("Teamwork attende", "{kdo} ha ora poche risorse (connessioni o memoria) per iniziare a modificare «{ime}» insieme. Riproverò da solo."),
         "tukaj": "questo computer",
     },
 }
@@ -479,7 +487,7 @@ class Zgodovina:
                 return ""
             m = self._mapa(kljuc)
             os.makedirs(m, exist_ok=True)
-            if shutil.disk_usage(m).free - velikost < REZERVA_DISKA:
+            if shutil.disk_usage(m).free - velikost < link_viri.rezerva_diska(m):
                 print("[Teamwork] ni prostora za razlicico v zgodovini:", os.path.basename(vir), file=sys.stderr)
                 return ""
             fd, zac = tempfile.mkstemp(prefix=".", dir=m)
@@ -585,6 +593,7 @@ class _Udelezba:
         self.videni_spori: Optional[set] = None
         self.poslano_spor = ""                      # kopija, o kateri je obvestil ze odgovor na popravek
         self.premor_do = 0.0                        # po trajni napaki lastnika do takrat ne posiljamo
+        self.obvescen_brez_virov = -1e18            # kdaj je uporabnik izvedel, da lastnik nima virov (ni_virov)
         self.zaklep = threading.Lock()
 
     @property
@@ -636,7 +645,7 @@ class Teamwork:
         #: Oznaka -> kljucavnica, dokler se seja ustvarja (zgoscena vrednost in kopija velike datoteke): drugi klic za
         #: isto datoteko pocaka nanjo, namesto da bi datoteko bral in kopiral se enkrat.
         self._ustvarjanje: Dict[str, threading.Lock] = {}
-        #: Niti v prvi prijavi (ustvarjajo sejo ali cakajo nanjo) - NAJVEC_PRVIH_PRIJAV; in po napravah (meja sej).
+        #: Niti v prvi prijavi (ustvarjajo sejo ali cakajo nanjo), skupaj in po napravah - samo stetje (meje ni).
         self._v_ustvarjanju = 0
         self._ustvarja: Dict[str, int] = {}
         self._udelezbe: Dict[str, _Udelezba] = {}
@@ -685,8 +694,9 @@ class Teamwork:
             s = self._seje.get(oznaka)
             if s is not None or not ustvari:
                 return s
-            if self._v_ustvarjanju >= NAJVEC_PRVIH_PRIJAV:
-                raise Zasedeno()
+            razlog = link_viri.preveri(DESKRIPTORJEV_PRVE_PRIJAVE, POMNILNIK_PRVE_PRIJAVE)
+            if razlog:
+                raise BrezVirov(razlog)
             self._v_ustvarjanju += 1
             self._ustvarja[naprava] = self._ustvarja.get(naprava, 0) + 1
             ustvarjanje = self._ustvarjanje.setdefault(oznaka, threading.Lock())
@@ -720,15 +730,6 @@ class Teamwork:
                     self._ustvarja[naprava] = ostane
                 else:
                     self._ustvarja.pop(naprava, None)
-
-    def _sej_naprave(self, naprava: str) -> int:
-        """Seje, v katerih naprava v zadnjih SEJA_VELJA_S javlja, in seje, ki jih zanjo ravno ustvarjamo."""
-        zdaj = self.zdaj()
-        with self._zaklep:
-            seje = list(self._seje.values())
-            v_teku = self._ustvarja.get(naprava, 0)
-        return v_teku + sum(1 for s in seje if zdaj - float((s.udelezenci.get(naprava) or {}).get("cas", -1e18))
-                            <= SEJA_VELJA_S)
 
     def _razresi(self, oznaka: str) -> str:
         try:
@@ -765,12 +766,11 @@ class Teamwork:
             self._opusti(s)
             s = None
         if s is None:
-            if self._sej_naprave(posiljatelj) >= NAJVEC_SEJ_NA_NAPRAVO:
-                return {"ok": False, "koda": "prevec_sej", "najvec": NAJVEC_SEJ_NA_NAPRAVO}
             try:
                 s = self._seja(oznaka, ustvari=True, naprava=posiljatelj)
-            except Zasedeno:
-                return {"ok": False, "koda": "zasedeno"}
+            except BrezVirov as e:
+                link_viri.zabelezi(e.razlog, "teamwork")
+                return {"ok": False, "koda": link_viri.KODA}
         if s is None:
             return {"ok": False, "koda": "ni_datoteke"}
         with s.zaklep:
@@ -981,20 +981,33 @@ class Teamwork:
         r = self.ukaz(u.naprava, "files.session", {"id": u.oznaka, "odprto": bool(odprto), "program": u.program,
                                                     "osnova": u.osnova})
         u.naslednji_ping = self.zdaj() + (PING_ODPRTO_S if odprto else PING_SPREMLJAM_S)
+        d = r.get("data") if isinstance(r.get("data"), dict) else {}
         if not r.get("ok"):
             # Naprava lastnika Teamworka ne zna (starejsa razlicica) ali ji datotek ne dovoli: delovna kopija ostane
             # navadna kopija (kot pred Teamworkom), nic se ne posilja.
             if r.get("koda") in ("ni_dovoljeno", "neznano", "neznano_dejanje", "unknown_action", "ni_datoteke"):
                 u.podprto = False
+            self._ob_brez_virov(u, r.get("koda") or d.get("koda"))
             return None
-        d = r.get("data") if isinstance(r.get("data"), dict) else {}
         if not d.get("ok", True):
+            self._ob_brez_virov(u, d.get("koda"))
             return None
         u.podprto = True
         if isinstance(d.get("streznik"), dict):
             u.streznik = d["streznik"]
         self._iz_odgovora(u, d)
         return d
+
+    def _ob_brez_virov(self, u: _Udelezba, koda) -> None:
+        """Lastnik nima virov za prvo prijavo (link_viri.KODA): uporabnik to izve (enkrat na datoteko na
+        link_viri.OBVESTILO_VSAKIH_S), Teamwork pa poskusi ob naslednjem javljanju sam."""
+        if koda != link_viri.KODA:
+            return
+        zdaj = self.zdaj()
+        if zdaj - u.obvescen_brez_virov < link_viri.OBVESTILO_VSAKIH_S:
+            return
+        u.obvescen_brez_virov = zdaj
+        self.obvesti("brez_virov", {"ime": os.path.basename(u.pot), "kdo": u.ime_naprave or u.naprava})
 
     def _iz_odgovora(self, u: _Udelezba, d: dict) -> None:
         ime = os.path.basename(u.pot)
