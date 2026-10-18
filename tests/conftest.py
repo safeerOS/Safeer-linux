@@ -5,11 +5,23 @@ uporabnika. Obstojeci preizkusi preverjajo druge stvari (usmerjanje, prenos dato
 zato so te v njih v ozjem krogu racunalnika. Preizkus, ki preverja sama dovoljenja, se oznaci s
 `@pytest.mark.pravi_dostop` in dobi prava pravila nad praznim zacasnim zapisom.
 """
+import gc
+
 import pytest
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "pravi_dostop: preizkus s pravimi pravili dostopa naprav (core/link_dostop)")
+    # Vsi preizkusi tecejo v enem procesu (GTK4 + WebKit, 18. 10. 2026). Samodejno zbiranje smeti bi lahko v delovni
+    # niti (npr. doh_proxy._accept_loop) unicilo predmet GTK/WebKit - GObject sme koncati samo glavna nit, sicer
+    # segfault (izmerjeno pri polnem teku). Zato smeti pobiramo sami, na glavni niti, po vsakem preizkusu.
+    gc.disable()
+
+
+@pytest.fixture(autouse=True)
+def _smeti_na_glavni_niti():
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)
