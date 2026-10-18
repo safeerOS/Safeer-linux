@@ -12,13 +12,16 @@ grep -rqs "packages.linuxmint.com" /etc/apt/sources.list /etc/apt/sources.list.d
 echo "== Linux Mint: $(grep -rhs "packages.linuxmint.com" /etc/apt/sources.list.d/ | head -1 | awk '{print $3}')"
 
 paket() { local p; p="$(ls /paketi/$1 2>/dev/null | head -1)"; [ -f "$p" ] || { echo "NAPAKA: manjka paket $1" >&2; exit 1; }; echo "$p"; }
-razlicica() { dpkg-deb -f "$1" Version; }
+# Razlicica programa (kot jo izpise --version) iz polja paketa: beta je v paketu 1.0.128~beta.1, program pa pove
+# 1.0.128-beta.1 (packaging/deb_razlicica.sh); stabilna je enaka.
+v_program() { sed -E 's/~((alpha|beta|rc)(\.[0-9]+)?)$/-\1/'; }
+razlicica() { dpkg-deb -f "$1" Version | v_program; }
 # Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK in libsoup v /usr/lib/<paket>/webkit, packaging/webkit-deb).
 BRSKALNIK="$(paket 'safeer-browser_*_amd64.deb')"
 # Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh).
 OS="$(paket 'safeer-os_*_amd64.deb')"
 VSEBNIK_OS="$(dpkg-deb -c "$OS" | awk '{print $6}' | sed -n 's|^\./||p')"
-razlicica_v() { dpkg-deb -f "$OS" Provides | tr ',' '\n' | sed -n "s/^ *$1 (= \(.*\))\$/\1/p"; }
+razlicica_v() { dpkg-deb -f "$OS" Provides | tr ',' '\n' | sed -n "s/^ *$1 (= \(.*\))\$/\1/p" | v_program; }
 
 echo "== 1. namestitev (odvisnosti razresi apt iz skladisc Minta in Ubuntuja)"
 apt-get update -q >/dev/null

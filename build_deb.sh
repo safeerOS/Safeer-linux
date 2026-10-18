@@ -10,6 +10,8 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_NAME="safeer-browser"
 VERSION="$(cat "$DIR/packaging/VERSION")"
+# Polje Version: beta 1.0.128-beta.1 kot 1.0.128~beta.1, da jo koncna 1.0.128 posodobi (packaging/deb_razlicica.sh).
+DEB_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$VERSION")"
 # Nas WebKitGTK 6.0 in libsoup 3.8 (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka): arhiv iz
 # packaging/webkit-deb/zgradi.sh za predpono /usr/lib/safeer-browser/webkit (CI: posel webkit-deb). Z njim je paket amd64.
 # SAFEER_DAV1D=MAPA (CI: posel dav1d-deb) doda dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
@@ -66,7 +68,7 @@ if [ -x "$BUILD_ROOT/usr/lib/safeer-browser/safeer-drm/safeer-drm" ]; then
 fi
 cat << EOF > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-browser
-Version: ${VERSION}
+Version: ${DEB_VERSION}
 Section: web
 Priority: optional
 Architecture: ${ARCH}

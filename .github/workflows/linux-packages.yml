@@ -349,8 +349,10 @@ jobs:
           if dpkg-deb -c "$OS" | grep -E 'WidevineCdm|libwidevinecdm'; then echo "::error::Widevine CDM je v paketu"; exit 1; fi
           dpkg-deb -f "$OS" Depends | grep -F 'libnss3'
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
-          dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(cat packaging/VERSION_CONTROL))"
-          dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(cat packaging/VERSION_CINNAMON))"
+          # Polja paketa so v obliki dpkg (beta 2.1.83-beta.1 -> 2.1.83~beta.1, packaging/deb_razlicica.sh; stabilna enaka).
+          dpkg-deb -f "$OS" Version | grep -Fx "$(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_OS)")"
+          dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_CONTROL)"))"
+          dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_CINNAMON)"))"
           # Node.js 22 LTS (lastnik: nacin »deb«): v zasebni predponi z licenco, nikoli v PATH (sistemski node ostane svoj).
           dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/node/bin/node'
           dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/nodejs/LICENSE'
@@ -1000,7 +1002,8 @@ jobs:
       - name: Shield against a real systemd-resolved and NetworkManager
         run: bash tools/scit_lab/lab.sh preizkus
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Beta oznake (v1.0.128-beta.1) gredo v posel beta-izdaja (osnutek predizdaje), nikoli v stabilno izdajo.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta.')
     needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint]
     runs-on: ubuntu-24.04
     concurrency:
@@ -1032,6 +1035,54 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --verify-tag --title "Safeer Browser $TAG" --notes 'Linux packages. Complete the desktop acceptance checklist before publishing.'
           fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "Release $TAG is already published; its packages are not replaced."
+            exit 0
+          fi
+          gh release upload "$TAG" release/* --clobber
+  beta-izdaja:
+    # Beta kanal (lastnik, 18. 10. 2026: »manjse in pogostejse izdaje za navdusence«, docs/BETA.md): oznaka vX.Y.Z-beta.N
+    # dobi OSNUTEK PREDIZDAJE (draft + prerelease) z istimi paketi in po istih preizkusih kot stabilna. Nic se ne objavi
+    # samo: objavo naredi lastnik. Predizdaje GitHub ne steje za »latest« (preizkus nadgradnje v poslu mint in povezave na
+    # zadnjo izdajo ostanejo na stabilni), Safeer OS pa jo ponudi samo uporabnikom z vklopljenim Beta kanalom - in sele,
+    # ko je beta seznam (razlicice-beta.json, tools/beta_seznam.py) podpisan in na safeer.si.
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')
+    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Beta tag shape (vX.Y.Z-beta.N)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || { echo "::error::beta oznaka mora biti vX.Y.Z-beta.N: $TAG"; exit 1; }
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Both Flatpaks (WebKitGTK with PGO) are present
+        run: ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak
+      - name: Attach packages to the beta pre-release draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) -exec mv -t release {} +
+          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --prerelease --verify-tag --title "Safeer $TAG (beta)" \
+              --notes 'Beta (pre-release) Linux packages for the Safeer beta channel. Not for general use. Complete the desktop acceptance checklist before publishing; then sign the beta list (docs/BETA.md).'
+          fi
+          # Beta paketi nikoli v izdajo, ki ni predizdaja (ta bi postala »latest« za vse uporabnike).
+          if [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" != "true" ]; then
+            echo "::error::izdaja $TAG ni predizdaja - beta paketov ne pripnemo"; exit 1
+          fi
+          # Objavljena izdaja je dokoncna: njene datoteke so preizkusene in v podpisanem beta seznamu.
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
             echo "Release $TAG is already published; its packages are not replaced."
             exit 0

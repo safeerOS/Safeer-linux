@@ -32,37 +32,55 @@ os_opis = "".join(os_izdaja.itertext())
 assert "Safeer Control" not in os_opis or ("Safeer Control " + v_control) in os_opis, \
     "Safeer OS AppStream release names another Safeer Control than packaging/VERSION_CONTROL (%s)" % v_control
 
+# --- beta kanal (docs/BETA.md): vse tri razlicice so beta z isto stevilko ali nobena ---------------------------------
+# Beta izdaja z oznako v1.0.128-beta.2 mora imeti tudi Safeer OS 0.4.86-beta.2 in Control 2.1.83-beta.2: odjemalec
+# (core/os_posodobitve) primerja razlicico Safeer OS - »stabilna« stevilka v beti bi kasnejso pravo stabilno izdajo z
+# isto stevilko skrila (ni novejsa) in beta uporabnik je ne bi dobil.
+_BETA = re.compile(r"\d+\.\d+\.\d+(-beta\.\d+)")
+_predizdaja = re.compile(r".*[-~.](alpha|beta|rc)\b.*")
+konci = {ime: (_BETA.fullmatch(x).group(1) if _BETA.fullmatch(x) else None)
+         for ime, x in (("VERSION", v), ("VERSION_OS", v_os), ("VERSION_CONTROL", v_control))}
+for ime, x in (("VERSION", v), ("VERSION_OS", v_os), ("VERSION_CONTROL", v_control)):
+    assert konci[ime] or not _predizdaja.fullmatch(x), \
+        "packaging/%s: predizdaja samo v obliki X.Y.Z-beta.N (%s)" % (ime, x)
+assert len(set(konci.values())) == 1, \
+    "beta: VERSION, VERSION_OS in VERSION_CONTROL morajo imeti isti konec -beta.N ali nobenega (%s)" % konci
+beta = konci["VERSION"] is not None
+
 # --- mesta, kjer README in PACKAGING.md uporabniku povejo, kaj naj prenese -----
 napake = []
 
-readme = (r / "README.md").read_text(encoding="utf-8")
-PRICAKOVANO = [
-    (f"badge/Release-v{v}-", "znacka Release v README"),
-    (f"releases/tag/v{v}", "povezava na izdajo v README"),
-    # Od 15. 10. 2026 je paket amd64 (nas WebKitGTK v paketu, packaging/webkit-deb).
-    (f"safeer-browser_{v}_amd64.deb", "ukaz apt install v README"),
-]
-for niz, opis in PRICAKOVANO:
-    if niz not in readme:
-        napake.append(f"README.md: manjka {opis} za razlicico {v} ({niz})")
+# Beta README in PACKAGING.md ne spremeni: uporabnikom se naprej kazeta zadnjo stabilno izdajo (beta je samo za
+# tiste, ki jo vklopijo v Nastavitvah, docs/BETA.md).
+if not beta:
+    readme = (r / "README.md").read_text(encoding="utf-8")
+    PRICAKOVANO = [
+        (f"badge/Release-v{v}-", "znacka Release v README"),
+        (f"releases/tag/v{v}", "povezava na izdajo v README"),
+        # Od 15. 10. 2026 je paket amd64 (nas WebKitGTK v paketu, packaging/webkit-deb).
+        (f"safeer-browser_{v}_amd64.deb", "ukaz apt install v README"),
+    ]
+    for niz, opis in PRICAKOVANO:
+        if niz not in readme:
+            napake.append(f"README.md: manjka {opis} za razlicico {v} ({niz})")
 
-# Stara oznaka izdaje v povezavah ali ukazu je napaka; omembe v zgodovinskih
-# odsekih (»## Popravki v1.0.14«, RELEASE_NOTES_*.md) pustimo pri miru.
-for vrstica in readme.splitlines():
-    if vrstica.lstrip().startswith("#") or "RELEASE_NOTES_" in vrstica:
-        continue
-    for stara in re.findall(r"releases/tag/v(\d+\.\d+\.\d+)", vrstica):
-        if stara != v:
-            napake.append(f"README.md kaze na izdajo v{stara}, koda je {v}: {vrstica.strip()[:90]}")
-    for stara in re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", vrstica):
-        if stara != v:
-            napake.append(f"README.md namescа {stara}, koda je {v}: {vrstica.strip()[:90]}")
+    # Stara oznaka izdaje v povezavah ali ukazu je napaka; omembe v zgodovinskih
+    # odsekih (»## Popravki v1.0.14«, RELEASE_NOTES_*.md) pustimo pri miru.
+    for vrstica in readme.splitlines():
+        if vrstica.lstrip().startswith("#") or "RELEASE_NOTES_" in vrstica:
+            continue
+        for stara in re.findall(r"releases/tag/v(\d+\.\d+\.\d+)", vrstica):
+            if stara != v:
+                napake.append(f"README.md kaze na izdajo v{stara}, koda je {v}: {vrstica.strip()[:90]}")
+        for stara in re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", vrstica):
+            if stara != v:
+                napake.append(f"README.md namescа {stara}, koda je {v}: {vrstica.strip()[:90]}")
 
-pack = (r / "PACKAGING.md").read_text(encoding="utf-8")
-for stara in set(re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", pack)) | \
-             set(re.findall(r"Safeer-Browser-(\d+\.\d+\.\d+)-x86_64", pack)):
-    if stara != v:
-        napake.append(f"PACKAGING.md navaja {stara}, koda je {v}")
+    pack = (r / "PACKAGING.md").read_text(encoding="utf-8")
+    for stara in set(re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", pack)) | \
+                 set(re.findall(r"Safeer-Browser-(\d+\.\d+\.\d+)-x86_64", pack)):
+        if stara != v:
+            napake.append(f"PACKAGING.md navaja {stara}, koda je {v}")
 
 if napake:
     print("Verzije se ne ujemajo:")
@@ -73,4 +91,4 @@ if napake:
 if os.environ.get("GITHUB_REF_TYPE") == "tag":
     assert os.environ["GITHUB_REF_NAME"] == "v" + v, "Release tag differs"
 
-print("Version:", v, "| Safeer OS:", v_os, "| Safeer Control:", v_control)
+print("Version:", v, "| Safeer OS:", v_os, "| Safeer Control:", v_control, *(["| beta"] if beta else []))
