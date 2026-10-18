@@ -90,14 +90,17 @@ fi
 # mint-themes obstaja samo v Linux Mintu - ostane priporocilo, da se paket namesti tudi na Ubuntu in Debianu
 # (tam tema Safeer Cinnamon nima obrob oken Mint-Y, vse ostalo deluje).
 # poppler-utils (pdftoppm): slika prve strani PDF - slicica priponke v Sporocilih in predogled v Datotekah.
+# Wayland (Ubuntu 24.04 GNOME, 18. 10. 2026): libwayland-* za vticnik Qt wayland (lupina QML nativno, ldd libqwayland.so
+# PySide6 6.11.2); gstreamer1.0-pipewire (pipewiresrc) za deljenje zaslona v Linku prek portala ScreenCast
+# (core/portal_zaslon.py); xdg-desktop-portal je na Ubuntu in Mintu ze namescen, zato samo priporocilo.
 cat << EOF2 > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-os
 Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-image0, libxcb-randr0, libxcb-render-util0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-util1, libxcb-xfixes0, libxcb-xkb1, libxcb1, libx11-xcb1, libxkbcommon0, libgl1, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils${DRM_ODVISNOSTI}${NODE_ODVISNOSTI}
-Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
+Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-image0, libxcb-randr0, libxcb-render-util0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-util1, libxcb-xfixes0, libxcb-xkb1, libxcb1, libx11-xcb1, libxkbcommon0, libgl1, libegl1, libfontconfig1, libwayland-client0, libwayland-cursor0, libwayland-egl1, gstreamer1.0-pipewire, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils${DRM_ODVISNOSTI}${NODE_ODVISNOSTI}
+Recommends: mint-themes, cinnamon, xdg-desktop-portal, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon

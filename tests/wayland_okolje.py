@@ -74,11 +74,15 @@ def _zivi(pid: int) -> bool:
 
 
 class Sway:
-    def __init__(self, merilo: float = 1.0, sirina: int = 1920, visina: int = 1080, xwayland: bool = False) -> None:
+    def __init__(self, merilo: float = 1.0, sirina: int = 1920, visina: int = 1080, xwayland: bool = False,
+                 pipewire: bool = False) -> None:
         self.merilo, self.sirina, self.visina, self.xwayland = merilo, sirina, visina, xwayland
+        #: PipeWire, WirePlumber in xdg-desktop-portal-wlr (ScreenCast brez vprasanja: chooser_type=none)
+        self.pipewire = pipewire
         self.mapa = ""
         self.okolje: dict = {}
         self._procesi: List[subprocess.Popen] = []
+        self._programov = 0
         self._sway: Optional[subprocess.Popen] = None
         self._dbus: Optional[subprocess.Popen] = None
 
@@ -126,10 +130,36 @@ class Sway:
                                 "XDG_DATA_HOME": os.path.join(self.mapa, "data"),
                                 "LIBGL_ALWAYS_SOFTWARE": "1", "SAFEER_OS_BREZ_FLATPAKA": "1"})
             self._pocakaj_izhod()
+            if self.pipewire:
+                self._zazeni_pipewire()
         except Exception:
             self.__exit__(None, None, None)
             raise
         return self
+
+    def _zazeni_pipewire(self) -> None:
+        """PipeWire in WirePlumber (otroka tega preizkusa) ter okolje aktivacije D-Bus za portal wlr."""
+        mapa = os.path.join(self.okolje["XDG_CONFIG_HOME"], "xdg-desktop-portal-wlr")
+        os.makedirs(mapa)
+        with open(os.path.join(mapa, "config"), "w") as f:
+            f.write("[screencast]\nchooser_type=none\noutput_name=HEADLESS-1\n")
+        for program in ("pipewire", "wireplumber"):
+            dnevnik = open(os.path.join(self.mapa, program + ".log"), "w")
+            self._procesi.append(subprocess.Popen([program], env=self.okolje, stdout=dnevnik, stderr=dnevnik,
+                                                  stdin=subprocess.DEVNULL))
+            dnevnik.close()
+            time.sleep(0.5)
+        spremenljivke = ["%s=%s" % (k, self.okolje[k]) for k in ("WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP",
+                                                                  "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "SWAYSOCK")]
+        subprocess.run(["dbus-update-activation-environment"] + spremenljivke, env=self.okolje, timeout=10,
+                       capture_output=True)
+        konec = time.monotonic() + 10
+        while time.monotonic() < konec:
+            r = subprocess.run(["pw-cli", "info", "0"], env=self.okolje, capture_output=True, timeout=5)
+            if r.returncode == 0:
+                return
+            time.sleep(0.2)
+        raise RuntimeError("PipeWire se ni zagnal")
 
     def _pocakaj_izhod(self) -> None:
         konec = time.monotonic() + 5
@@ -161,7 +191,8 @@ class Sway:
 
     # ------------------------------------------------------------------ programi in sway
     def zazeni(self, ukaz: List[str], **okolje) -> subprocess.Popen:
-        dnevnik = open(os.path.join(self.mapa, "program-%d.log" % len(self._procesi)), "w")
+        dnevnik = open(os.path.join(self.mapa, "program-%d.log" % self._programov), "w")
+        self._programov += 1
         p = subprocess.Popen(ukaz, env=dict(self.okolje, **okolje), cwd=KOREN, stdout=dnevnik, stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL)
         dnevnik.close()
@@ -226,3 +257,188 @@ class Sway:
 
     def odstrani_izhod(self, ime: str) -> None:
         self.msg("output", ime, "unplug")
+
+
+def gnome_na_voljo() -> bool:
+    return bool(shutil.which("mutter") and shutil.which("pipewire") and shutil.which("wireplumber")
+                and shutil.which("dbus-daemon")
+                and os.path.exists("/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.gnome.service"))
+
+
+class Mutter:
+    """Brezglavi GNOME 46 (mutter --headless, kot Ubuntu 24.04) s PipeWire in portalom GNOME.
+
+    posnetek() in tipke() gresta mimo portala, neposredno v mutter (org.gnome.Mutter.ScreenCast/RemoteDesktop) -
+    kot preizkusni robot, ki v dialogu portala klikne »Deli«, ker za brezglavim racunalnikom ni nikogar."""
+
+    def __init__(self, sirina: int = 1920, visina: int = 1080) -> None:
+        self.sirina, self.visina = sirina, visina
+        self.mapa = ""
+        self.okolje: dict = {}
+        self._procesi: List[subprocess.Popen] = []
+        self._programov = 0
+        self._dbus: Optional[subprocess.Popen] = None
+        self._rd = ""
+
+    def __enter__(self) -> "Mutter":
+        self.mapa = tempfile.mkdtemp(prefix="safeer-gnome-")
+        run = os.path.join(self.mapa, "run")
+        os.makedirs(run, mode=0o700)
+        for m in ("cfg", "cache", "data"):
+            os.makedirs(os.path.join(self.mapa, m))
+        osnova = {k: v for k, v in os.environ.items()
+                  if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK", "DBUS_SESSION_BUS_ADDRESS")}
+        osnova.update({"XDG_RUNTIME_DIR": run, "XDG_CURRENT_DESKTOP": "GNOME", "XDG_SESSION_TYPE": "wayland",
+                       "XDG_CONFIG_HOME": os.path.join(self.mapa, "cfg"),
+                       "XDG_CACHE_HOME": os.path.join(self.mapa, "cache"),
+                       "XDG_DATA_HOME": os.path.join(self.mapa, "data"), "LIBGL_ALWAYS_SOFTWARE": "1",
+                       "SAFEER_OS_BREZ_FLATPAKA": "1", "GSETTINGS_BACKEND": "memory"})
+        try:
+            self._dbus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"],
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=osnova, text=True)
+            osnova["DBUS_SESSION_BUS_ADDRESS"] = self._dbus.stdout.readline().strip()
+            self.okolje = dict(osnova, WAYLAND_DISPLAY="wayland-safeer")
+            for ukaz in (["pipewire"], ["wireplumber"],
+                         ["mutter", "--wayland", "--headless", "--no-x11", "--wayland-display=wayland-safeer",
+                          "--virtual-monitor", "%dx%d" % (self.sirina, self.visina)]):
+                self._ozadje(ukaz, osnova)
+                time.sleep(0.5)
+            konec = time.monotonic() + 15
+            while time.monotonic() < konec and not os.path.exists(os.path.join(run, "wayland-safeer")):
+                time.sleep(0.1)
+            subprocess.run(["dbus-update-activation-environment"] + ["%s=%s" % (k, self.okolje[k]) for k in (
+                "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "GSETTINGS_BACKEND")],
+                env=self.okolje, capture_output=True, timeout=10)
+            if not self._ime_na_vodilu("org.gnome.Mutter.ScreenCast", 15):
+                raise RuntimeError("mutter se ni zagnal")
+        except Exception:
+            self.__exit__(None, None, None)
+            raise
+        return self
+
+    def _ozadje(self, ukaz: List[str], okolje: dict) -> None:
+        dnevnik = open(os.path.join(self.mapa, os.path.basename(ukaz[0]) + ".log"), "w")
+        self._procesi.append(subprocess.Popen(ukaz, env=okolje, stdout=dnevnik, stderr=dnevnik,
+                                              stdin=subprocess.DEVNULL))
+        dnevnik.close()
+
+    def __exit__(self, *_a) -> None:
+        povezava, self._povezava = getattr(self, "_povezava", None), None
+        if povezava is not None:
+            try:
+                povezava.close_sync(None)
+            except Exception:  # noqa: BLE001
+                pass
+        for p in reversed(self._procesi):
+            koncaj_drevo(p.pid)
+        if self._dbus is not None:
+            koncaj_drevo(self._dbus.pid)
+        for p in self._procesi + ([self._dbus] if self._dbus is not None else []):
+            try:
+                p.wait(timeout=2)
+            except Exception:  # noqa: BLE001
+                pass
+            if p.stdout is not None:
+                p.stdout.close()
+        if self.mapa:
+            shutil.rmtree(self.mapa, ignore_errors=True)
+
+    # ------------------------------------------------------------------ vodilo
+    def _gdbus(self, *argumenti: str, rok: int = 10) -> str:
+        r = subprocess.run(["gdbus", "call", "--session"] + list(argumenti), capture_output=True, text=True,
+                           timeout=rok, env=self.okolje)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip())
+        return r.stdout.strip()
+
+    def _ime_na_vodilu(self, ime: str, rok_s: float) -> bool:
+        konec = time.monotonic() + rok_s
+        while time.monotonic() < konec:
+            try:
+                if ime in self._gdbus("--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus",
+                                      "--method", "org.freedesktop.DBus.ListNames"):
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.2)
+        return False
+
+    def zazeni(self, ukaz: List[str], **okolje) -> subprocess.Popen:
+        dnevnik = open(os.path.join(self.mapa, "program-%d.log" % self._programov), "w")
+        self._programov += 1
+        p = subprocess.Popen(ukaz, env=dict(self.okolje, **okolje), cwd=KOREN, stdout=dnevnik, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL)
+        dnevnik.close()
+        self._procesi.append(p)
+        return p
+
+    def dnevnik(self, i: int = 0) -> str:
+        try:
+            with open(os.path.join(self.mapa, "program-%d.log" % i), errors="replace") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    # ------------------------------------------------------------------ robot: tipke in posnetek mimo portala
+    def _vodilo(self):
+        """Lastna povezava tega preizkusa z vodilom seje: seja RemoteDesktop v mutterju zivi, dokler zivi povezava."""
+        if getattr(self, "_povezava", None) is None:
+            from gi.repository import Gio
+            self._povezava = Gio.DBusConnection.new_for_address_sync(
+                self.okolje["DBUS_SESSION_BUS_ADDRESS"],
+                Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+                None, None)
+        return self._povezava
+
+    def _rd_klic(self, pot: str, metoda: str, argumenti=None, vrne: str = ""):
+        from gi.repository import Gio, GLib
+        vmesnik = "org.gnome.Mutter.RemoteDesktop" + (".Session" if pot != "/org/gnome/Mutter/RemoteDesktop" else "")
+        return self._vodilo().call_sync("org.gnome.Mutter.RemoteDesktop", pot, vmesnik, metoda, argumenti,
+                                        GLib.VariantType(vrne) if vrne else None, Gio.DBusCallFlags.NONE, 5000, None)
+
+    def tipke(self, *keysymi: int, zamik_s: float = 0.15) -> None:
+        """Pritisne tipke (keysym) prek org.gnome.Mutter.RemoteDesktop - kot uporabnik za tipkovnico."""
+        from gi.repository import GLib
+        if not self._rd:
+            self._rd = self._rd_klic("/org/gnome/Mutter/RemoteDesktop", "CreateSession", None, "(o)").unpack()[0]
+            self._rd_klic(self._rd, "Start")
+        for k in keysymi:
+            for dol in (True, False):
+                self._rd_klic(self._rd, "NotifyKeyboardKeysym", GLib.Variant("(ub)", (int(k), dol)))
+            time.sleep(zamik_s)
+
+    def posnetek(self, pot: str) -> bool:
+        """PNG zaslona prek org.gnome.Mutter.ScreenCast (RecordMonitor) in GStreamer (pipewiresrc, en kader)."""
+        koda = r'''
+import sys, gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gio, GLib, Gst
+Gst.init(None)
+v = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+def klic(pot, vm, m, a=None, vrne=None):
+    return v.call_sync("org.gnome.Mutter.ScreenCast", pot, vm, m, a, GLib.VariantType(vrne) if vrne else None,
+                       Gio.DBusCallFlags.NONE, 5000, None)
+s = klic("/org/gnome/Mutter/ScreenCast", "org.gnome.Mutter.ScreenCast", "CreateSession",
+         GLib.Variant("(a{sv})", ({},)), "(o)").unpack()[0]
+t = klic(s, "org.gnome.Mutter.ScreenCast.Session", "RecordMonitor",
+         GLib.Variant("(sa{sv})", ("", {"cursor-mode": GLib.Variant("u", 1)})), "(o)").unpack()[0]
+izid = {}
+v.signal_subscribe(None, "org.gnome.Mutter.ScreenCast.Stream", "PipeWireStreamAdded", t, None, 0,
+                   lambda *a: izid.setdefault("vozlisce", a[5].unpack()[0]))
+klic(s, "org.gnome.Mutter.ScreenCast.Session", "Start")
+ctx = GLib.MainContext.default()
+import time
+k = time.monotonic() + 10
+while "vozlisce" not in izid and time.monotonic() < k:
+    ctx.iteration(False); time.sleep(0.02)
+cev = Gst.parse_launch("pipewiresrc path=%d num-buffers=3 ! videoconvert ! pngenc snapshot=true ! filesink location=%s"
+                       % (izid["vozlisce"], sys.argv[1]))
+cev.set_state(Gst.State.PLAYING)
+s2 = cev.get_bus().timed_pop_filtered(15 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+cev.set_state(Gst.State.NULL)
+klic(s, "org.gnome.Mutter.ScreenCast.Session", "Stop")
+sys.exit(0 if s2 is not None and s2.type == Gst.MessageType.EOS else 1)
+'''
+        import sys as _sys
+        r = subprocess.run([_sys.executable, "-c", koda, pot], env=self.okolje, capture_output=True, timeout=40)
+        return r.returncode == 0

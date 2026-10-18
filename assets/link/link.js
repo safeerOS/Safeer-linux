@@ -858,6 +858,7 @@
   var BESEDILA_DELJENJE = {
     sl: {
       napDovoljenje: "Deljenje zaslona ni bilo dovoljeno.",
+      napZajemPotrdi: "Potrdi deljenje zaslona v oknu sistema na tem računalniku – izbira se zapomni.",
       napZaslonNiNaVoljo: "Ta naprava zaslona še ne zna prikazati. Posodobi Safeer na njej.",
       zaslonKonecPriNapravi: "Naprava zaslona ne prikazuje več, zato se je deljenje končalo.",
       zasedenoKratko: "Zasedeno",
@@ -932,6 +933,7 @@
     },
     en: {
       napDovoljenje: "Screen sharing was not allowed.",
+      napZajemPotrdi: "Confirm screen sharing in the system dialog on this computer – the choice is remembered.",
       napZaslonNiNaVoljo: "This device cannot show the screen yet. Update Safeer on it.",
       zaslonKonecPriNapravi: "The device is no longer showing the screen, so sharing has ended.",
       zasedenoKratko: "Busy",
@@ -1006,6 +1008,7 @@
     },
     de: {
       napDovoljenje: "Die Bildschirmfreigabe wurde nicht erlaubt.",
+      napZajemPotrdi: "Bestätige die Bildschirmfreigabe im Systemdialog dieses Computers – die Auswahl wird gespeichert.",
       napZaslonNiNaVoljo: "Dieses Gerät kann den Bildschirm noch nicht anzeigen. Aktualisiere Safeer auf dem Gerät.",
       zaslonKonecPriNapravi: "Das Gerät zeigt den Bildschirm nicht mehr an; die Freigabe wurde beendet.",
       zasedenoKratko: "Belegt",
@@ -1073,6 +1076,7 @@
     },
     es: {
       napDovoljenje: "No se permitió compartir la pantalla.",
+      napZajemPotrdi: "Confirma compartir la pantalla en el diálogo del sistema de este equipo; la elección se recuerda.",
       napZaslonNiNaVoljo: "Este dispositivo todavía no puede mostrar la pantalla. Actualiza Safeer en él.",
       zaslonKonecPriNapravi: "El dispositivo ya no muestra la pantalla; se ha dejado de compartir.",
       zasedenoKratko: "Ocupado",
@@ -1140,6 +1144,7 @@
     },
     fr: {
       napDovoljenje: "Le partage d’écran n’a pas été autorisé.",
+      napZajemPotrdi: "Confirme le partage d’écran dans la fenêtre du système de cet ordinateur – le choix est mémorisé.",
       napZaslonNiNaVoljo: "Cet appareil ne peut pas encore afficher l’écran. Mettez Safeer à jour sur cet appareil.",
       zaslonKonecPriNapravi: "L’appareil n’affiche plus l’écran ; le partage est terminé.",
       zasedenoKratko: "Occupé",
@@ -1207,6 +1212,7 @@
     },
     it: {
       napDovoljenje: "La condivisione dello schermo non è stata consentita.",
+      napZajemPotrdi: "Conferma la condivisione dello schermo nella finestra di sistema di questo computer: la scelta viene ricordata.",
       napZaslonNiNaVoljo: "Questo dispositivo non può ancora mostrare lo schermo. Aggiorna Safeer su quel dispositivo.",
       zaslonKonecPriNapravi: "Il dispositivo non mostra più lo schermo; la condivisione è terminata.",
       zasedenoKratko: "Occupato",
@@ -3573,6 +3579,8 @@
     if (p.koda === "preklicano") return t("posiljanjePreklicano");
     if (p.koda === "napacen_odtis") return t("napOdtis");
     if (p.koda === "dovoljenje_zavrnjeno") return t("napDovoljenje");
+    // Wayland: portal sistema (GNOME »Deli zaslon«) ni bil potrjen v roku (core/portal_zaslon.py).
+    if (p.koda === "zajem_ni_potrjen") return t("napZajemPotrdi");
     if (p.koda === "zaslon_ni_na_voljo") return t("napZaslonNiNaVoljo");
     if (p.koda === "konec_pri_napravi") return t("zaslonKonecPriNapravi");
     if (p.koda === "naprava_ni_povezana") return t("niDosegljiv", { ime: t("naprava") });

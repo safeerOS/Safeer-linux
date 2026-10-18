@@ -24,12 +24,14 @@ def _posli():
 
 
 class QtXcb(unittest.TestCase):
-    def _zazeni(self, ldd_izpis: str, glx: bool = True) -> subprocess.CompletedProcess:
+    def _zazeni(self, ldd_izpis: str, glx: bool = True, wayland: bool = True) -> subprocess.CompletedProcess:
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             qt = d / "vendor" / "PySide6" / "Qt" / "plugins"
             (qt / "platforms").mkdir(parents=True)
             (qt / "platforms" / "libqxcb.so").write_bytes(b"\x7fELF")
+            if wayland:
+                (qt / "platforms" / "libqwayland.so").write_bytes(b"\x7fELF")
             if glx:
                 (qt / "xcbglintegrations").mkdir()
                 (qt / "xcbglintegrations" / "libqxcb-glx-integration.so").write_bytes(b"\x7fELF")
@@ -45,6 +47,13 @@ class QtXcb(unittest.TestCase):
         r = self._zazeni("\tlibxcb-cursor.so.0 => /lib/x86_64-linux-gnu/libxcb-cursor.so.0 (0x1)")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("v redu: plugins/platforms/libqxcb.so", r.stdout)
+        self.assertIn("v redu: plugins/platforms/libqwayland.so", r.stdout)
+
+    def test_brez_vticnika_wayland_ustavi(self):
+        """Ubuntu 24.04 GNOME (Wayland): lupina tece prek vticnika wayland - brez njega ali njegovih knjiznic napaka."""
+        r = self._zazeni("\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x1)", wayland=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("libqwayland.so", r.stdout)
 
     def test_manjkajoca_knjiznica_ustavi(self):
         r = self._zazeni("\tlibxcb-cursor.so.0 => not found\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x1)")

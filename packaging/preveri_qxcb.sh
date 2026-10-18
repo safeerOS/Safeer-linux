@@ -7,7 +7,10 @@
 set -euo pipefail
 QT="${1:-/usr/lib/safeer-os/vendor}/PySide6/Qt"
 shopt -s nullglob
-vticniki=("$QT/plugins/platforms/libqxcb.so" "$QT"/plugins/xcbglintegrations/*.so)
+# Wayland (Ubuntu 24.04 GNOME): lupina tece nativno prek vticnika wayland (core/os_lupina.platforma_qt) - tudi ta mora
+# imeti vse knjiznice (libwayland-*), sicer Qt tiho pade na xcb prek XWaylanda.
+integracije=("$QT"/plugins/xcbglintegrations/*.so)
+vticniki=("$QT/plugins/platforms/libqxcb.so" "$QT/plugins/platforms/libqwayland.so" "${integracije[@]}")
 napaka=0
 for so in "${vticniki[@]}"; do
     if [ ! -f "$so" ]; then
@@ -25,5 +28,5 @@ for so in "${vticniki[@]}"; do
         echo "v redu: ${so#"$QT"/} ($(printf '%s\n' "$izpis" | grep -c '=> /') knjiznic)"
     fi
 done
-[ "${#vticniki[@]}" -ge 2 ] || { echo "NAPAKA: ni integracij GL za xcb v $QT/plugins/xcbglintegrations"; napaka=1; }
+[ "${#integracije[@]}" -ge 1 ] || { echo "NAPAKA: ni integracij GL za xcb v $QT/plugins/xcbglintegrations"; napaka=1; }
 exit "$napaka"

@@ -575,9 +575,17 @@ def _je_brskalnik(pid: int) -> bool:
     return _ime_brskalnika(prvi)
 
 
+def _namizje_x11() -> bool:
+    """Ali je namizje uporabnika X11 (core/seja_prikaza): samo tam wmctrl vidi in premika vsa okna."""
+    from core import seja_prikaza
+    return seja_prikaza.je_x11()
+
+
 def _pidi_na_namizju() -> Optional[set]:
-    """PID-i oken na namizju racunalnika (X); None, kadar tega ne moremo ugotoviti."""
-    if not os.environ.get("DISPLAY") or not shutil.which("wmctrl"):
+    """PID-i oken na namizju racunalnika (X); None, kadar tega ne moremo ugotoviti.
+
+    Wayland: wmctrl vidi samo okna XWayland - nepopoln seznam bi lazno rekel »program ni odprt na namizju«."""
+    if not _namizje_x11() or not shutil.which("wmctrl"):
         return None
     try:
         r = subprocess.run(["wmctrl", "-lp"], capture_output=True, text=True, timeout=5)
@@ -648,8 +656,8 @@ def razberi_okna(izpis: str) -> List[dict]:
 
 
 def _okna_namizja() -> Optional[List[dict]]:
-    """Okna na namizju racunalnika (X); None, kadar tega ne moremo ugotoviti."""
-    if not os.environ.get("DISPLAY") or not shutil.which("wmctrl"):
+    """Okna na namizju racunalnika (X); None, kadar tega ne moremo ugotoviti (tudi Wayland, glej _pidi_na_namizju)."""
+    if not _namizje_x11() or not shutil.which("wmctrl"):
         return None
     try:
         r = subprocess.run(["wmctrl", "-lpx"], capture_output=True, text=True, timeout=5)
@@ -1079,7 +1087,7 @@ class DrugiZaslon:
     def pokazi_na_namizju(self) -> bool:
         """Okno programa, ki se je namesto tu odprl (ali je ze bil odprt) na namizju, postavi v ospredje."""
         okno = str((self._zagon or {}).get("okno") or "")
-        if not okno or not shutil.which("wmctrl"):
+        if not okno or not shutil.which("wmctrl") or not _namizje_x11():
             return False
         try:
             return subprocess.run(["wmctrl", "-ia", okno], capture_output=True, timeout=5).returncode == 0
