@@ -1523,6 +1523,7 @@
   function naloziSkripte() {
     klic("mediaSkripte").then(function (r) {
       SKR.seznam = (r && r.skripte) || [];
+      SKR.primer = (r && r.primer) || "";
       if ($("slojPrilagodi") && $("slojPrilagodi").classList.contains("viden")) narisiPrilagodi();
     }, function () { SKR.seznam = SKR.seznam || []; });
   }
@@ -1600,7 +1601,7 @@
     // Pot vpisana rocno (lastnik, 18. 10. 2026): kdor datoteke v oknu za izbiro ne najde, jo vpise, npr. ~/Prejemi/x.js.
     var vrsticaPot = el("div", "skripta-pot");
     var pot = document.createElement("input"); pot.type = "text"; pot.spellcheck = false; pot.autocomplete = "off";
-    pot.placeholder = t("skriptaPotPrimer"); pot.setAttribute("aria-label", t("skriptaPot"));
+    pot.placeholder = SKR.primer ? t("skriptaPotPrimerPot", { pot: SKR.primer }) : t("skriptaPotPrimer"); pot.setAttribute("aria-label", t("skriptaPot"));
     var poPoti = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaUvoziPot")) + "</span>"); poPoti.type = "button";
     function uvoziSPoti() {
       var v = String(pot.value || "").trim(); if (!v) { pot.focus(); return; }
@@ -8006,6 +8007,12 @@
     if (vrsta === "mediaYtNapaka" && zaAktivno) {
       // Lastnik posnetka vgradnje ne dovoli (ali posnetka ni več): poiščemo drug posnetek iste skladbe, sicer naslednja.
       var skladba = kat.aktivni;
+      if (podatki && podatki.zamenjaj === false) {
+        // Napaka dekoderja ali nastavitve: posnetka ne zamenjamo (18. 10. 2026), gremo na naslednjo skladbo.
+        obvesti(t("ytNiPredvajan", { ime: skladba.naslov || "" }));
+        if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
+        return;
+      }
       klic("mediaSeznamZamenjava", [skladba.id]).then(function (nova) {
         if (kat.aktivni !== skladba) return;
         if (nova && nova.youtube && nova.youtube !== skladba.youtube) { kat.izVrste = true; odpriKatalogVnos(skladba.id); return; }

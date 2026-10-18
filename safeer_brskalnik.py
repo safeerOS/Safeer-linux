@@ -29,6 +29,8 @@ if os.environ.get("FLATPAK_ID"):
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
 zasebni_webkit.nastavi(KOREN)
+from core import video_dekoderji  # noqa: E402
+video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
 

@@ -49,6 +49,8 @@ VIDEO = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".mpeg", ".mpg", ".ts"
 IMAGES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 MEDIA_EXT = AUDIO | VIDEO | IMAGES
 MAX_FILES = 500
+#: ID posnetka YouTube (11 znakov).
+YOUTUBE_ID_VZOREC = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MAX_SOURCE_ITEMS = 1500
 MAX_DOWNLOAD = 6 * 1024 * 1024
 TRACKING_QUERY = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source"}
@@ -1944,6 +1946,39 @@ class MediaCenter:
                     except OSError:
                         pass
                 vsi = [dict(x, skladbe=[viri_sink.cista_skladba(s) for s in x["skladbe"]]) for x in vsi]
+        if not getattr(self, "_zavrnjeni_obnovljeni", False):
+            self._zavrnjeni_obnovljeni = True
+            vsi = self._obnovi_zavrnjene(vsi)
+        return vsi
+
+    def _obnovi_zavrnjene(self, vsi: list[dict]) -> list[dict]:
+        """Enkratna selitev (18. 10. 2026): do 1.0.127 je napaka strojnega dekoderja (VA-API) veljala za »vgradnja ni
+        dovoljena« in posnetek s seznama YouTube je bil trajno zamenjan z drugim zadetkom iskanja. Na seznamih YouTube
+        (tocni posnetki, vir YouTube) vrnemo izvirni posnetek (prvi zavrnjeni) in pozabimo zavrnitve."""
+        spremenjeni = False
+        for x in vsi:
+            if x.get("vir") != "YouTube":
+                continue
+            popravljen = False
+            for s in x["skladbe"]:
+                zavrnjeni = s.get("zavrnjeni") if isinstance(s, dict) else None
+                if not zavrnjeni or not isinstance(zavrnjeni, list) or not isinstance(zavrnjeni[0], str):
+                    continue
+                izvirni = zavrnjeni[0]
+                if YOUTUBE_ID_VZOREC.match(izvirni):
+                    s["youtube"] = izvirni
+                    s["slika"] = "https://i.ytimg.com/vi/%s/mqdefault.jpg" % izvirni
+                s.pop("zavrnjeni", None)
+                popravljen = True
+            if popravljen:
+                x["cas"] = self._nov_cas(x["ime"], int(x.get("cas") or 0))
+                spremenjeni = True
+        if spremenjeni:
+            with self._lock:
+                try:
+                    self._seznami_pisi(vsi)
+                except OSError:
+                    pass
         return vsi
 
     @staticmethod
@@ -2524,6 +2559,10 @@ class MediaCenter:
             # Posnetek je znan (ali pa ima skladba svoj neposredni naslov): nic ne iscemo. Skladba s streznika dobi
             # prijavo sele zdaj (shranjena je brez nje).
             return self._seznam_vnos_s_prijavo(sz["ime"], sz.get("vir") or "", s)
+        if zamenjaj and stari and sz.get("vir") == "YouTube":
+            # Seznam YouTube ima tocno izbrane posnetke uporabnika: nikoli jih ne zamenjamo z zadetkom iskanja
+            # (lastnik, 18. 10. 2026). Ce se posnetek ne predvaja, stran gre na naslednjo skladbo.
+            return None
         zavrnjeni = tuple(x for x in (list(s.get("zavrnjeni") or []) + ([stari] if stari else [])) if x)
         if zamenjaj and len(zavrnjeni) > 3:
             return None

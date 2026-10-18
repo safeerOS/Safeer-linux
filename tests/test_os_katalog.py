@@ -209,10 +209,33 @@ class MostKatalogaTests(unittest.TestCase):
         # Tudi stran ne gre (izbrisan ali zaseben posnetek): naprej, brez zanke.
         self.dogodki.clear()
         self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "vgradnja"}))
-        self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a"})])
+        self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "vgradnja", "zamenjaj": True})])
         self.assertEqual(len(self.yt), 2)
         self.k.yt_sporocilo(json.dumps({"stanje": 1}))     # po napaki skladba ni vec aktivna
         self.assertEqual(len(self.dogodki), 1)
+
+    def test_napaka_dekoderja_ni_prepoved_vgradnje(self):
+        """18. 10. 2026: napaka strojnega dekoderja je veljala za »vgradnja ni dovoljena« in posnetek je bil zamenjan.
+        Zdaj: isti posnetek se enkrat nalozi znova, nato naprej brez zamenjave; 153 (nasa nastavitev) nikoli ne zamenja."""
+        self._vnosi(**{"seznam:a": {"id": "seznam:a", "vrsta": "glasba", "naslov": "Pesem", "youtube": "59o4m222aVw"}})
+        self.k.izvedi("mediaPredvajaj", ["seznam:a"])
+        prej = len(self.yt)
+        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "dekodiranje"}))
+        self.assertEqual(self.dogodki, [])
+        self.assertEqual(len(self.yt), prej + 1)
+        self.assertTrue(self.yt[-1][0].startswith("https://www.youtube.com/embed/59o4m222aVw"))
+        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt5"}))
+        self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "yt5", "zamenjaj": False})])
+        self.dogodki.clear()
+        self.k.izvedi("mediaPredvajaj", ["seznam:a"])
+        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt153"}))
+        self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "yt153", "zamenjaj": False})])
+        self.dogodki.clear()
+        self.k.izvedi("mediaPredvajaj", ["seznam:a"])
+        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt150"}))
+        self.assertEqual(self.dogodki, [])                 # najprej stran posnetka
+        self.assertEqual(self.yt[-1][0], "https://www.youtube.com/watch?v=59o4m222aVw")
+        self.assertIn('addEventListener("onError"', K.SKRIPT_SKLADBE)
 
     def test_naslov_strani_posnetka(self):
         self.assertEqual(K.naslov_strani("59o4m222aVw"), "https://www.youtube.com/watch?v=59o4m222aVw")

@@ -86,6 +86,24 @@ def vrsta_iz_imena(ime: str) -> str:
     return k if k in VRSTE else ""
 
 
+def primer_poti() -> str:
+    """Celotna pot za primer v polju (lastnik, 18. 10. 2026: »~« uporabniku nic ne pove) - mapa Prejemi tega uporabnika
+    (XDG_DOWNLOAD_DIR iz ~/.config/user-dirs.dirs, sicer ~/Downloads) in ime skripta.js."""
+    dom = os.path.expanduser("~")
+    mapa_prejemov = os.path.join(dom, "Downloads")
+    try:
+        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "user-dirs.dirs"),
+                  encoding="utf-8") as f:
+            for vrstica in f:
+                m = re.match(r'\s*XDG_DOWNLOAD_DIR="([^"]+)"', vrstica)
+                if m:
+                    mapa_prejemov = m.group(1).replace("$HOME", dom)
+                    break
+    except OSError:
+        pass
+    return os.path.join(mapa_prejemov, "skripta.js")
+
+
 def preberi_pot(pot: Any) -> Dict[str, Any]:
     """Prebere skripto s poti, ki jo uporabnik vpise v vmesnik (npr. ~/Prejemi/skripta.js) - za tiste, ki datoteke v
     oknu za izbiro ne najdejo (lastnik, 18. 10. 2026). Samo branje: uvoz gre se vedno skozi opozorilo in uvozi().

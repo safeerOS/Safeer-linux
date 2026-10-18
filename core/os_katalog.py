@@ -227,8 +227,18 @@ SKRIPT_SKLADBE = """
   document.addEventListener("error", function (e) {
     if (e.target && e.target.tagName === "VIDEO") napakaVidea = Date.now();
   }, true);
+  // Koda napake predvajalnika YouTube (2 parameter, 5 HTML5/dekodiranje, 100 ni posnetka, 101/150 vgradnja ni
+  // dovoljena, 153 izvor): Safeer po njej loci prepoved vgradnje od napake dekoderja (18. 10. 2026).
+  var poslusa = false;
+  function poslusajNapake() {
+    var p = predvajalnik();
+    if (poslusa || !p || typeof p.addEventListener !== "function") return;
+    poslusa = true;
+    try { p.addEventListener("onError", function (c) { javiNapako("yt" + (c && c.data !== undefined ? c.data : c)); }); } catch (e) {}
+  }
   setInterval(function () {
     if (napaka) return;
+    poslusajNapake();
     if (stran && posnetek && new URLSearchParams(location.search).get("v") !== posnetek) {
       try { var v0 = document.querySelector("video"); if (v0) v0.pause(); } catch (e) {}
       if (zadnje !== 0) { zadnje = 0; javi({ stanje: 0 }); }
@@ -1030,7 +1040,7 @@ class Katalog:
         return {"pot": plakati_predpomnilnik.predpomni(self._niz(a, 0))}
 
     def _skripte_seznam(self, _a: list) -> Any:
-        return {"skripte": uporabniske_skripte.seznam()}
+        return {"skripte": uporabniske_skripte.seznam(), "primer": uporabniske_skripte.primer_poti()}
 
     def _skripta_uvozi(self, a: list) -> Any:
         return uporabniske_skripte.uvozi(a[0] if a else "", a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "")
@@ -1104,7 +1114,15 @@ class Katalog:
         if not isinstance(d, dict):
             return
         if d.get("napaka") is True:
-            if (not yt.get("stran") and str(d.get("koda") or "").startswith("vgradnja")
+            koda = re.sub(r"[^\w.-]", "", str(d.get("koda") or ""))[:12]
+            if koda in ("dekodiranje", "yt5") and not yt.get("ponovljen") and naslov_vgradnje(yt.get("posnetek", "")):
+                # Napaka dekoderja (18. 10. 2026: strojni dekoder VA-API) ni prepoved vgradnje: isti posnetek se enkrat
+                # nalozi znova, preden gre stran naprej. Posnetek se zaradi tega nikoli ne zamenja.
+                yt["ponovljen"], yt["igra"] = True, False
+                print("[SafeerMedia] napaka dekodiranja, isti posnetek znova", file=sys.stderr, flush=True)
+                if self._youtube(naslov_vgradnje(yt["posnetek"]), yt.get("ime", "")):
+                    return
+            if (not yt.get("stran") and (koda.startswith("vgradnja") or koda in ("yt101", "yt150"))
                     and naslov_strani(yt.get("posnetek", ""))):
                 # Lastnik posnetka vgradnje ne dovoli: isti posnetek na obicajni strani YouTube v istem pogledu
                 # (lastnik, 18. 10. 2026 - posnetek se ne preskoci, uporabnik ostane v Medijskem centru).
@@ -1116,7 +1134,10 @@ class Katalog:
             self._yt = None
             print("[SafeerMedia] vgradni predvajalnik: napaka %s" % re.sub(r"[^\w.-]", "", str(d.get("koda") or ""))[:12],
                   file=sys.stderr, flush=True)
-            self.dogodek("mediaYtNapaka", {"id": yt["id"]})
+            # Zamenjava z drugim zadetkom iskanja samo, ce posnetka res ni (100) ali ga ni mogoce vgraditi (101/150,
+            # tudi stran ni pomagala) - nikoli zaradi napake dekoderja ali nase nastavitve (153).
+            self.dogodek("mediaYtNapaka", {"id": yt["id"], "koda": koda,
+                                           "zamenjaj": koda.startswith("vgradnja") or koda in ("yt100", "yt101", "yt150")})
             return
         stanje = d.get("stanje")
         if stanje == 1 and not yt["igra"]:
