@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from typing import Callable, List, Optional
@@ -390,16 +391,31 @@ def ukaz_run(a, klic, izpis) -> int:
     return IZHOD_OK
 
 
+#: Natancen id naprave (kot link_nemo._VARNA_OZNAKA): samo tak gre Controlu, ce naprave zdaj ni v Linku.
+_VARNA_OZNAKA = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
 def ukaz_send(a, klic, izpis, napredek: Optional[Callable[[str], None]] = None, spi: Callable[[float], None] = time.sleep) -> int:
-    n = najdi_napravo(naprave(klic), a.to)
-    zahtevaj_zmoznost(n, "file")
+    try:
+        n = najdi_napravo(naprave(klic), a.to)
+        zahtevaj_zmoznost(n, "file")
+    except Napaka as e:
+        # Naprava, ki je zdaj ni v Linku (Nemo jo ponudi s pripisom »ko bo dosegljiva«, pregled 18. 10. 2026): po
+        # natancnem id-ju gre posiljka Controlu, ki odloci sam (samo znana naprava iz kroga zaupanja, sicer ni_naprave)
+        # in pocaka nanjo. Ime, del imena ali naprava brez zmoznosti "file" ostanejo napaka kot prej.
+        cilj = str(a.to or "")
+        if e.koda != "ni_naprave" or not _VARNA_OZNAKA.match(cilj) or cilj.startswith("-"):
+            raise
+        n = {"id": cilj, "ime": ""}
     poti = [os.path.abspath(os.path.expanduser(p)) for p in a.datoteke]
     obvesti = bool(getattr(a, "notify", False))
     # --notify (Nemo): Control poslje v ozadju in obvesti namizno; ta ukaz ne caka (posiljka lahko caka na napravo).
     izid = klic("Poslji", n["id"], json.dumps({"poti": poti, "obvesti": True} if obvesti else poti))
     if not izid.get("ok"):
+        if not n.get("ime") and izid.get("koda") == "ni_naprave":
+            raise Napaka(t("ni_naprave", ime=n["id"]), IZHOD_NEUSPEH, "ni_naprave")
         raise Napaka(t("ni_uspelo", razlog=razlog(izid)), IZHOD_NEUSPEH, str(izid.get("koda") or "napaka"))
-    ime = n.get("ime") or n["id"]
+    ime = n.get("ime") or str(izid.get("naprava") or "") or n["id"]
     if obvesti:
         izpis(json.dumps({"ok": True, "id": n["id"], "name": ime, "files": izid.get("datotek"), "background": True,
                           "transfer": izid.get("id")}, ensure_ascii=False) if a.json else t("v_ozadju", naprava=ime))

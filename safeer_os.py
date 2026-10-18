@@ -3364,15 +3364,10 @@ class SafeerOS(Gtk.Application):
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(\"vleceneDatoteke\", %s);"
                      % json.dumps({"stevilo": len(self._vlecene_poti)}), pogled)
 
-        def prebrano(spust, izid) -> None:
-            try:
-                seznam = spust.read_value_finish(izid)
-                naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
-                poti = os_datoteke.poti_iz_naslovov(naslovi)
-                if poti and spust is self._vleceno_kontekst:
-                    self._vlecene_poti = poti
-            except Exception:  # noqa: BLE001 - vlecenje brez datotek ali preklicano
-                pass
+        def prebrano(spust, poti) -> None:
+            # Tudi vlecenje iz programov v drugem procesu (XWayland, Electron) in iz portala dokumentov (Flatpak).
+            if poti and spust is self._vleceno_kontekst:
+                self._vlecene_poti = poti
             javi()
 
         try:
@@ -3380,10 +3375,7 @@ class SafeerOS(Gtk.Application):
                 return
             if kontekst is not self._vleceno_kontekst:
                 self._vleceno_kontekst, self._vlecene_poti = kontekst, []
-            if kontekst.get_formats().contain_gtype(Gdk.FileList.__gtype__):
-                kontekst.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebrano)
-            else:
-                javi()
+            os_datoteke.preberi_vlecene(kontekst, prebrano)
         except Exception:
             pass
 

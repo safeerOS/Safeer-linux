@@ -593,6 +593,21 @@ def postrezi_slicico(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_g
 NAJVEC_OPISOV = 32
 #: Najvec toliko opisov hkrati se racuna (vsak prebere celo datoteko): mapa s sto zahtevami ne zasede vseh jeder in diska.
 _OPISI_HKRATI = threading.BoundedSemaphore(2)
+#: Na mesto za racunanje opisa zahteva pocaka najvec toliko, nato 503 (zasedeno; odjemalec prenese celo datoteko).
+#: Prej je cakala brez roka: dva opisa pocasnih datotek (zaspan disk USB, omrezna mapa) sta za vedno ustavila vse
+#: naslednje zahteve /kosi/ (pregled 18. 10. 2026). 30 s kot mesto za popravek Teamworka (_POPRAVKI_HKRATI).
+CAKAJ_NA_OPIS_S = 30.0
+#: Opis se racuna najvec toliko: odjemalec (core/link_nadaljuj.ROK_OPISA_S) dlje ne caka, delo po roku bi bilo zaman.
+#: Izmerjeno 18. 10. 2026 (256 MiB, 2 deljeni jedri): z numpy 35-38 MB/s (4 GiB v ~120 s), cisti Python 5-6 MB/s
+#: (v roku ~1,6 GB; vecja datoteka brez opisa pride v celoti - kot prej, ko je odjemalec po 300 s nehal cakati).
+ROK_RACUNANJA_OPISA_S = 300.0
+#: Rok tisine pri pisanju odgovora (opis datoteke 4 GiB je nekaj MB JSON): naprava, ki ne bere vec, ne drzi niti za
+#: vedno - enako kot ROK_BRANJA_POPRAVKA_S pri sprejemu popravka.
+ROK_PISANJA_OPISA_S = 60.0
+
+
+class OpisZaseden(Exception):
+    """Mesta za racunanje opisa ni bilo v CAKAJ_NA_OPIS_S."""
 _opisi: "collections.OrderedDict[tuple, bytes]" = collections.OrderedDict()
 _opisi_kljuc = threading.Lock()
 
@@ -618,9 +633,13 @@ def opis_kosov(pot: str) -> Optional[bytes]:
         if znan is not None:
             _opisi.move_to_end(kljuc)
             return znan
-    with _OPISI_HKRATI:
+    if not _OPISI_HKRATI.acquire(timeout=CAKAJ_NA_OPIS_S):
+        raise OpisZaseden("ni mesta za opis kosov")
+    try:
         # Budnosti tu ne podaljsujemo: opis je kratko branje, kose naprava nato prenese z /d/ (ta jo podaljsa).
-        opis = link_delta.manifest(pot)
+        opis = link_delta.manifest(pot, konec=time.monotonic() + ROK_RACUNANJA_OPISA_S)
+    finally:
+        _OPISI_HKRATI.release()
     if _kljuc_opisa(pot) != kljuc or opis["velikost"] != kljuc[1]:
         return None                      # datoteka se je med branjem spremenila: opis ne velja
     telo = json.dumps(opis, separators=(",", ":")).encode("utf-8")
@@ -644,27 +663,37 @@ def postrezi_kose(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_glav
         _napaka_http(obravnava, 404, "datoteke ni")
         return
     telo = None
+    zacetek = time.monotonic()
     for _ in range(2):
         try:
             telo = opis_kosov(r[1])
+        except (OpisZaseden, TimeoutError):
+            # Ni mesta ali opis ni koncan v roku: odjemalec brez opisa prenese celo datoteko (link_nadaljuj).
+            _napaka_http(obravnava, 503, "zasedeno")
+            return
         except OSError:
             telo = None
-        if telo is not None:
+        if telo is not None or time.monotonic() - zacetek > ROK_RACUNANJA_OPISA_S / 2:
             break
     if telo is None:
         _napaka_http(obravnava, 409, "datoteka se spreminja ali je prevelika")
         return
-    obravnava.send_response(200)
-    obravnava.send_header("Content-Type", "application/json")
-    obravnava.send_header("Content-Length", str(len(telo)))
-    obravnava.send_header("Cache-Control", "no-store")
-    obravnava.end_headers()
-    if samo_glava:
-        return
     try:
-        obravnava.wfile.write(telo)
-    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+        # Prek Huba po glavah povezava nima roka (link_hub_streznik.parse_request): odgovor brez roka bi drzal nit.
+        obravnava.connection.settimeout(ROK_PISANJA_OPISA_S)
+    except (OSError, AttributeError):
         pass
+    try:
+        obravnava.send_response(200)
+        obravnava.send_header("Content-Type", "application/json")
+        obravnava.send_header("Content-Length", str(len(telo)))
+        obravnava.send_header("Cache-Control", "no-store")
+        obravnava.end_headers()
+        if samo_glava:
+            return
+        obravnava.wfile.write(telo)
+    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout, TimeoutError):
+        obravnava.close_connection = True
 
 
 # ------------------------------------------------------------------ ena vrata za streznik datotek in Hub

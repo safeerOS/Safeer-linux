@@ -155,6 +155,11 @@ mesh.trust     {type, id, payload: <krog json>}     (zdruzi s preverjanjem podpi
   pošilja `mesh.route` z `relay: true`; vmesni Hub preda naprej samo napravi svojega neposrednega soseda
   in samo v imenu naprave, ki je lokalna pri prosilcu. Največ en vmesni skok, brez zank; neposredna pot
   ima vedno prednost, ob njenem izpadu promet takoj steče prek vmesnega (in obratno).
+- Nastavitev »Pomagaj drugim napravam v Linku pri povezavi« (18. 10. 2026, `link_mesh.pomaga_pri_povezavi`,
+  `link-pomoc.json` ob nastavitvah Linka): privzeto vklopljena, stran Linka uporabnika ob seznanitvi enkrat vpraša
+  (fokus na »Da«), stikalo je v razdelku »Povezava zdoma«. Izklopljena: Hub sosedom ne pošilja `relay` (naprav
+  drugih sosedov ne predstavi) in `mesh.route` z `relay: true` zavrže. Lastne naprave te naprave in njena pot
+  prek drugih vozlišč ostanejo enake; sprememba velja takoj (`Hub.osvezi_pomoc`).
 - `share.file` prek huba (stari telefonski rele): pot `path` velja na hubu pošiljatelja; oddaljeni
   prejemnik dobi še `hub_address` in `hub_fp`. Stari prejemniki tega ne poznajo — zato novi pošiljatelji
   uporabljajo neposredno pot (Protocol v1).
@@ -194,7 +199,8 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
 - **Vhod (središče):** trk pred TLS (id iz ključa + čas ±120 s + nonce enkrat + podpis ECDSA nad id-jem središča)
   → TLS (1.3; najmanj 1.2 zaradi Androida 9) s ključem središča → izziv (podpis nad izzivom, odtisom potrdila in namenom). Neznan id, napačen
   podpis, star ali ponovljen trk: tiho zaprto, brez bajta odgovora (pregledovalnik ne vidi ne TLS ne potrdila
-  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj in 64 tunelov.
+  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj (z enega naslova največ 8, 4 mesta samo za naslove, ki so se v zadnjih 10 min
+  izkazali kot člani kroga – pregled 18. 10. 2026: en naslov s tihimi trki je zasedel vsa mesta) in 64 tunelov.
   Šele nato tunel na `127.0.0.1:<vrata Huba>` – skozenj nespremenjen TLS Linka, prijava, vstopnica in pravila
   dostopa (`link_dostop`). Novih končnih točk ni.
 - **Oglas:** javni IPv4 iz STUN (`stun.cloudflare.com`, isti ponudnik kot rele), podpisan s ključem središča, rok
@@ -213,6 +219,17 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
   `poti_sosedov` in razdelek »Povezava zdoma« kažeta »Lokalno«, »Neposredno (internet)« ali »Prek releja« z
   izmerjenim zamikom (brez naslovov IP).
 - Izklop ne glede na nastavitev: `SAFEER_NEPOSREDNO=0`.
+
+## Meje in roki, ki jih uporabnik lahko občuti (pregled 18. 10. 2026)
+
+| Kje | Meja | Zakaj (meritev) |
+|---|---|---|
+| Tiha sosednja povezava (`TIHI_SOSED_S`) | 40 s brez prejetega bajta | Pong prek počasnega releja z oddajo na isti poti: 2,4–8,8 s; 30 s je pongu po pingu (25 s) pustilo 5 s. Vsak prejeti bajt (tudi sredi dolgega okvirja) šteje kot življenje. |
+| Opis kosov `/kosi` | mesto 30 s, računanje 300 s, pisanje 60 s tišine | Opis: 35–38 MB/s z numpy, 5–6 MB/s brez; odjemalec (`link_nadaljuj.ROK_OPISA_S`) dlje kot 300 s ne čaka. Ob preseženem roku 503 – naprava prenese celo datoteko. |
+| Neposredni vhod od zunaj | 8 rokovanj na naslov, 4 od 16 mest za naslove, ki so se v 10 min izkazali kot člani | Prava naprava odpre do ~6 hkrati (OkHttp 5 + WebSocket); zavrnjeno rokovanje odjemalca za 5 min vrne na rele. |
+| Teamwork pri lastniku | 32 sej na napravo, 8 prvih prijav hkrati (`zasedeno`), 1 GiB rezerve diska za zgodovino | Prva prijava kopira celo datoteko (256 MiB v 1,1 s). |
+| Pošiljanje (Control) | čakanje na napravo 24 h, tudi čez ponovni zagon; vrsta največ 50 pošiljk | `posiljanje-vrsta.json` ob nastavitvah Controla (0600, samo poti, id, rok). |
+| Nemo | do 8 naprav, znane brez povezave 90 dni po zadnjem videnju | Naprava mora biti v krogu zaupanja; pripis »(ko bo dosegljiva)«. |
 
 ## Združljivost
 

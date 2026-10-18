@@ -215,6 +215,10 @@ class Povezava:
             kos = self.vticnik.recv(65536)
             if not kos:
                 raise ConnectionError("povezava je zaprta")
+            # Vsak prejeti bajt pove, da druga stran zivi - tudi sredi dolgega okvirja. Prej je cas veljal samo ob
+            # glavi okvirja: sporocilo 1 MiB prek pocasnega releja (0,25 Mbit/s = 34 s) je Hub zaprl kot tiho
+            # sosednjo povezavo (TIHI_SOSED_S), ceprav so bajti ves cas prihajali (meritev 18. 10. 2026).
+            self.zadnji_prejem = time.monotonic()
             self._medpomnilnik += kos
         izhod, self._medpomnilnik = self._medpomnilnik[:koliko], self._medpomnilnik[koliko:]
         return izhod

@@ -556,7 +556,8 @@ def poti_iz_naslovov(naslovi) -> list:
     poti: list = []
     for naslov in list(naslovi or []):
         try:
-            deli = urllib.parse.urlsplit(str(naslov).strip())
+            # Programi X11 (tudi prek XWayland) in Electron seznam vcasih koncajo z znakom NUL ali presledki.
+            deli = urllib.parse.urlsplit(str(naslov).strip().strip("\x00").strip())
         except ValueError:
             continue
         if deli.scheme.lower() != "file" or (deli.netloc or "").lower() not in tukaj:
@@ -570,6 +571,130 @@ def poti_iz_naslovov(naslovi) -> list:
         if len(poti) >= NAJVEC_NAENKRAT:
             break
     return poti
+
+
+def poti_iz_seznama_naslovov(besedilo) -> list:
+    """Poti iz surovega text/uri-list (RFC 2483): vrstice s CRLF ali LF, komentarji #, NUL na koncu (X11, Electron).
+    Nekateri programi namesto naslova posljejo kar absolutno pot - sprejmemo jo, ce na tem racunalniku obstaja."""
+    if isinstance(besedilo, (bytes, bytearray)):
+        besedilo = bytes(besedilo).decode("utf-8", "replace")
+    naslovi, poti = [], []
+    for vrstica in str(besedilo or "").replace("\x00", "\n").splitlines():
+        v = vrstica.strip()
+        if not v or v.startswith("#"):
+            continue
+        if v.startswith("/"):
+            if os.path.lexists(v) and v not in poti:
+                poti.append(os.path.normpath(v))
+            continue
+        naslovi.append(v)
+    for p in poti_iz_naslovov(naslovi):
+        if p not in poti:
+            poti.append(p)
+    return poti[:NAJVEC_NAENKRAT]
+
+
+#: Oblike, v katerih vlecenje prinese seznam datotek. GTK iz text/uri-list (in v Flatpaku iz portala dokumentov,
+#: application/vnd.portal.filetransfer) sam sestavi Gdk.FileList; surovo beremo samo, ce ga ne zna.
+VLECENJE_SUROVO = ("text/uri-list", "text/x-uri-list")
+
+
+def vrsta_vlecenja(formati) -> str:
+    """Kako iz Gdk.Drop dobiti datoteke: "seznam" (Gdk.FileList), "surovo" (text/uri-list beremo sami) ali "" (brez
+    datotek). Program iz drugega procesa (Nemo, XWayland, Electron) ponudi samo vrste MIME, brez GType - preverjanje
+    contain_gtype(Gdk.FileList) na samem Gdk.Drop je zato zanj vedno False (pregled 18. 10. 2026); GTK zna FileList
+    sestaviti iz teh vrst, zato vprasamo po zdruzitvi z vrstami, ki jih zna pretvoriti (union_deserialize_gtypes)."""
+    if formati is None:
+        return ""
+    try:
+        from gi.repository import Gdk
+        if formati.contain_gtype(Gdk.FileList.__gtype__) or \
+                formati.union_deserialize_gtypes().contain_gtype(Gdk.FileList.__gtype__):
+            return "seznam"
+    except Exception:  # noqa: BLE001 - brez GTK ali stara razlicica: po vrstah MIME
+        pass
+    try:
+        vrste = [str(m).split(";")[0].strip().lower() for m in (formati.get_mime_types() or [])]
+    except Exception:  # noqa: BLE001
+        vrste = []
+    return "surovo" if any(v in VLECENJE_SUROVO for v in vrste) else ""
+
+
+def preberi_vlecene(spust, ob_poteh, najvec_bajtov: int = 1024 * 1024) -> None:
+    """Poti datotek iz Gdk.Drop, asinhrono (podatki vlecenja pridejo prek glavne zanke - branje na njej ne sme cakati).
+    ob_poteh(spust, poti) se poklice natanko enkrat, tudi s praznim seznamom. Najprej Gdk.FileList; ce ga GTK ne
+    zna sestaviti ali je prazen, surovi text/uri-list."""
+    from gi.repository import GLib
+
+    def koncaj(poti) -> None:
+        try:
+            ob_poteh(spust, list(poti or []))
+        except Exception as e:  # noqa: BLE001
+            print("[Safeer] vlecenje:", e, flush=True)
+
+    def surovo() -> None:
+        try:
+            spust.read_async(list(VLECENJE_SUROVO), GLib.PRIORITY_DEFAULT, None, prebran_tok)
+        except Exception:  # noqa: BLE001
+            koncaj([])
+
+    def prebran_tok(s, izid) -> None:
+        try:
+            tok, _vrsta = s.read_finish(izid)
+        except Exception:  # noqa: BLE001 - vlecenje brez text/uri-list ali preklicano
+            koncaj([])
+            return
+        zbrano = bytearray()
+
+        def kos(t, izid2) -> None:
+            try:
+                podatki = t.read_bytes_finish(izid2)
+            except Exception:  # noqa: BLE001
+                podatki = None
+            if podatki is not None and podatki.get_size() and len(zbrano) < najvec_bajtov:
+                zbrano.extend(podatki.get_data() or b"")
+                tok.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, kos)
+                return
+            try:
+                tok.close(None)
+            except Exception:  # noqa: BLE001
+                pass
+            koncaj(poti_iz_seznama_naslovov(bytes(zbrano[:najvec_bajtov])))
+        tok.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, kos)
+
+    def prebran_seznam(s, izid) -> None:
+        try:
+            seznam = s.read_value_finish(izid)
+            naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
+            poti = poti_iz_naslovov(naslovi)
+        except Exception:  # noqa: BLE001 - GTK seznama ni znal sestaviti
+            poti = []
+        if poti:
+            koncaj(poti)
+        elif vrsta_vlecenja_surovo(spust):
+            surovo()
+        else:
+            koncaj([])
+
+    try:
+        from gi.repository import Gdk
+        vrsta = vrsta_vlecenja(spust.get_formats())
+        if vrsta == "seznam":
+            spust.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebran_seznam)
+        elif vrsta == "surovo":
+            surovo()
+        else:
+            koncaj([])
+    except Exception:  # noqa: BLE001
+        koncaj([])
+
+
+def vrsta_vlecenja_surovo(spust) -> bool:
+    try:
+        vrste = [str(m).split(";")[0].strip().lower() for m in (spust.get_formats().get_mime_types() or [])]
+    except Exception:  # noqa: BLE001
+        return False
+    return any(v in VLECENJE_SUROVO for v in vrste)
 
 
 def naslovi_iz_poti(poti) -> list:

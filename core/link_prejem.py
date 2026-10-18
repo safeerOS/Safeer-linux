@@ -245,9 +245,11 @@ class Prejem:
             telo = self._t("ponudba_ena", ime=prva, velikost=velikost(skupaj, jezik_velikost))
         else:
             telo = self._t("ponudba_vec", n=len(datoteke), ime=prva, velikost=velikost(skupaj, jezik_velikost))
+        # Varna izbira prva (levo, prva za tipkovnico in daljinec - core/link_fokus), klik na obvestilo ne sprejme nicesar
+        # (privzeto=None): datoteke naprave zunaj ozjega kroga sprejme samo izrecen pritisk na »Sprejmi«.
         self._obvesti_omejeno(_ident(posiljatelj, "ponudba"), self._t("ponudba_naslov", od=od), telo,
-                              gumbi=[("sprejmi", self._t("sprejmi"), lambda: self.odgovori(posiljatelj, True)),
-                                     ("zavrni", self._t("zavrni"), lambda: self.odgovori(posiljatelj, False))],
+                              gumbi=[("zavrni", self._t("zavrni"), lambda: self.odgovori(posiljatelj, False)),
+                                     ("sprejmi", self._t("sprejmi"), lambda: self.odgovori(posiljatelj, True))],
                               privzeto=None, prioriteta="high")
 
     def odgovori(self, posiljatelj: str, sprejmi: bool) -> int:

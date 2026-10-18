@@ -808,3 +808,70 @@ def test_tunel_ima_keepalive_mrtva_stran_ne_drzi_mesta(naprave, monkeypatch):
     finally:
         v.zapri()
         odmev.zapri()
+
+
+def _iz_naslova(monkeypatch, naslov: str) -> None:
+    """Odjemalec odpira povezave z drugega naslova zanke (127.0.0.x): tako je vir za vhod drug naslov."""
+    izvirna = socket.create_connection
+
+    def s_virom(cilj, timeout=None, source_address=None, **kw):
+        return izvirna(cilj, timeout, source_address or (naslov, 0), **kw)
+    monkeypatch.setattr(ln.socket, "create_connection", s_virom)
+
+
+def _tihi_trki(stevilo: int, naslov: str = "127.0.0.1", vrata: int = 0) -> list:
+    """Pocasen trk (slowloris): povezava odprta, nic poslano - drzi mesto za rokovanje do ROK_VHODA_S."""
+    vticnice = []
+    for _ in range(stevilo):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((naslov, 0))
+        s.connect(("127.0.0.1", vrata))
+        vticnice.append(s)
+    return vticnice
+
+
+def test_en_naslov_ne_zasede_vseh_mest_za_rokovanje(naprave, monkeypatch):
+    """Pregled 18. 10. 2026: en naslov je s 16 tihimi trki zasedel vsa mesta - clan kroga z drugega naslova ni prisel
+    skozi, dokler trki niso potekli (ROK_VHODA_S)."""
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    tihi = []
+    try:
+        tihi = _tihi_trki(ln.NAJVEC_ROKOVANJ, "127.0.0.1", v.vrata)
+        assert _pocakaj(lambda: v._rokovanj == ln.NAJVEC_ROKOVANJ_NA_VIR), v._rokovanj
+        _iz_naslova(monkeypatch, "127.0.0.2")
+        a, hub = naprave["a"], naprave["hub"]
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        assert krog(0, t) == b"safeer"
+        t.close()
+    finally:
+        for s in tihi:
+            s.close()
+        v.zapri()
+        odmev.zapri()
+
+
+def test_mnogo_naslovov_ne_izrine_zaupane_naprave(naprave, monkeypatch):
+    """REZERVA_ZAUPANIM mest ostane naslovom, ki so se v zadnjem casu izkazali kot clani kroga."""
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    tihi = []
+    try:
+        a, hub = naprave["a"], naprave["hub"]
+        _iz_naslova(monkeypatch, "127.0.0.9")
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        t.close()                                  # 127.0.0.9 je zdaj zaupan (obramba.zaupaj)
+        assert v.obramba.zaupa("127.0.0.9")
+        prosta = ln.NAJVEC_ROKOVANJ - ln.REZERVA_ZAUPANIM
+        for i in range(prosta // ln.NAJVEC_ROKOVANJ_NA_VIR + 1):
+            tihi += _tihi_trki(ln.NAJVEC_ROKOVANJ_NA_VIR, "127.0.1.%d" % (i + 1), v.vrata)
+        assert _pocakaj(lambda: v._rokovanj == prosta), v._rokovanj
+        assert not v.obramba.zaupa("127.0.1.1")
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        assert krog(0, t) == b"safeer"
+        t.close()
+    finally:
+        for s in tihi:
+            s.close()
+        v.zapri()
+        odmev.zapri()

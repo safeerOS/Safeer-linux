@@ -1674,6 +1674,57 @@
     for (var _kg in BESEDILA_GL[_jg]) BESEDILA[_jg][_kg] = BESEDILA_GL[_jg][_kg];
   }
 
+  // »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi): vprasanje ob seznanitvi in
+  // stikalo v razdelku »Povezava zdoma«.
+  var BESEDILA_POMOC = {
+    sl: {
+      pomocIme: "Pomagaj drugim napravam v Linku pri povezavi",
+      pomocVprasanje: "Pomagaj drugim napravam v Linku pri povezavi?",
+      pomocOpis: "Ko se dve tvoji napravi ne dosežeta neposredno (npr. ena je za drugim usmerjevalnikom), ju poveže ta naprava: predstavi ju drugo drugi in preda njuna sporočila naprej. Velja samo za naprave iz tvojega kroga zaupanja. Ko je izklopljeno, se taki napravi prek te naprave ne vidita.",
+      pomocDa: "Da, pomagaj",
+      pomocNe: "Ne"
+    },
+    en: {
+      pomocIme: "Help other devices in Link connect",
+      pomocVprasanje: "Help other devices in Link connect?",
+      pomocOpis: "When two of your devices cannot reach each other directly (e.g. one is behind another router), this device connects them: it introduces them to each other and passes their messages on. Only for devices in your circle of trust. When off, such devices do not see each other through this device.",
+      pomocDa: "Yes, help",
+      pomocNe: "No"
+    },
+    de: {
+      pomocIme: "Anderen Geräten in Link beim Verbinden helfen",
+      pomocVprasanje: "Anderen Geräten in Link beim Verbinden helfen?",
+      pomocOpis: "Wenn sich zwei deiner Geräte nicht direkt erreichen (z. B. eines hinter einem anderen Router), verbindet sie dieses Gerät: Es stellt sie einander vor und leitet ihre Nachrichten weiter. Nur für Geräte aus deinem Vertrauenskreis. Ausgeschaltet sehen sich solche Geräte über dieses Gerät nicht.",
+      pomocDa: "Ja, helfen",
+      pomocNe: "Nein"
+    },
+    es: {
+      pomocIme: "Ayudar a otros dispositivos de Link a conectarse",
+      pomocVprasanje: "¿Ayudar a otros dispositivos de Link a conectarse?",
+      pomocOpis: "Cuando dos de tus dispositivos no pueden alcanzarse directamente (p. ej., uno está detrás de otro router), este dispositivo los conecta: los presenta entre sí y les pasa los mensajes. Solo para dispositivos de tu círculo de confianza. Si está desactivado, esos dispositivos no se ven a través de este.",
+      pomocDa: "Sí, ayudar",
+      pomocNe: "No"
+    },
+    fr: {
+      pomocIme: "Aider les autres appareils de Link à se connecter",
+      pomocVprasanje: "Aider les autres appareils de Link à se connecter ?",
+      pomocOpis: "Quand deux de tes appareils ne peuvent pas se joindre directement (p. ex. l'un est derrière un autre routeur), cet appareil les relie : il les présente l'un à l'autre et transmet leurs messages. Uniquement pour les appareils de ton cercle de confiance. Désactivé, ces appareils ne se voient pas par cet appareil.",
+      pomocDa: "Oui, aider",
+      pomocNe: "Non"
+    },
+    it: {
+      pomocIme: "Aiuta gli altri dispositivi di Link a connettersi",
+      pomocVprasanje: "Aiutare gli altri dispositivi di Link a connettersi?",
+      pomocOpis: "Quando due tuoi dispositivi non riescono a raggiungersi direttamente (ad es. uno è dietro un altro router), questo dispositivo li collega: li presenta l'uno all'altro e inoltra i loro messaggi. Solo per i dispositivi della tua cerchia di fiducia. Se disattivato, questi dispositivi non si vedono tramite questo.",
+      pomocDa: "Sì, aiuta",
+      pomocNe: "No"
+    }
+  };
+  for (var _jp in BESEDILA_POMOC) {
+    if (!BESEDILA[_jp]) BESEDILA[_jp] = {};
+    for (var _kp in BESEDILA_POMOC[_jp]) BESEDILA[_jp][_kp] = BESEDILA_POMOC[_jp][_kp];
+  }
+
   var jezik = (function () {
     var oznaka = "";
     try {
@@ -2356,10 +2407,53 @@
     try { return JSON.parse(most.globalLinkStanje() || "null"); } catch (e) { return null; }
   }
 
+  // ---------- Pomoc drugim napravam pri povezavi (core/link_mesh.pomaga_pri_povezavi) ----------
+
+  function pomocStanje() {
+    if (!(most && most.pomocStanje)) return null;
+    try { return JSON.parse(most.pomocStanje() || "null"); } catch (e) { return null; }
+  }
+
+  var pomocVprasanjeFokus = false;
+
+  function narisiPomoc() {
+    var p = pomocStanje();
+    var povezan = !!p && stanje.znan && (stanje.seznanjen || stanje.vKrogu);
+    var stikalo = el("glPomoc");
+    if (stikalo && document.activeElement !== stikalo) stikalo.checked = !!(p && p.vklopljeno);
+    pokazi("pomocVrstica", povezan);
+    // Ob seznanitvi enkrat vprasamo; odgovor velja takoj in se zapomni (vprasano).
+    var vprasaj = povezan && !p.vprasano;
+    pokazi("panelPomocVprasanje", vprasaj);
+    if (vprasaj && !pomocVprasanjeFokus) {
+      // Pricakovano in varno dejanje (privzeto vklopljeno) ima fokus: na daljincu je dovolj en pritisk na V redu.
+      pomocVprasanjeFokus = true;
+      setTimeout(function () {
+        var da = el("gumbPomocDa");
+        if (da && da.offsetParent !== null) { try { da.focus(); } catch (e) {} }
+      }, 80);
+    }
+    if (!vprasaj) pomocVprasanjeFokus = false;
+  }
+
+  function odgovoriPomoc(vklop) {
+    if (most && most.nastaviPomoc) most.nastaviPomoc(!!vklop);
+    pokazi("panelPomocVprasanje", false);
+  }
+
   function narisiGlobalLink() {
     var gl = globalLinkStanje();
-    pokazi("panelGlobalLink", !!gl && stanje.znan && (stanje.seznanjen || stanje.vKrogu));
-    if (!gl) return;
+    var povezan = stanje.znan && (stanje.seznanjen || stanje.vKrogu);
+    pokazi("panelGlobalLink", (!!gl || !!pomocStanje()) && povezan);
+    narisiPomoc();
+    pokazi("glNeposrednoVrstica", !!gl);
+    if (!gl) {
+      pokazi("seznamGlobalLink", false);
+      pokazi("opombaGlobalLink", false);
+      besedilo("glNeposrednoStanje", "");
+      return;
+    }
+    pokazi("seznamGlobalLink", true);
     var seznam = el("seznamGlobalLink");
     if (seznam) {
       seznam.innerHTML = "";
@@ -3095,7 +3189,7 @@
         } else {
           besedilo("opombaSync", t("syncUgasnjena"));
         }
-      } else if (vrsta === "globalLink") {
+      } else if (vrsta === "globalLink" || vrsta === "pomoc") {
         narisiGlobalLink();
       } else if (vrsta === "deljeneMape") {
         stanje.deljeneMape = (podatki && podatki.mape) || [];
@@ -3583,6 +3677,12 @@
     if (glStikalo) glStikalo.addEventListener("change", function () {
       if (most && most.nastaviNeposredno) most.nastaviNeposredno(!!glStikalo.checked);
     });
+    var pomocStikalo = el("glPomoc");
+    if (pomocStikalo) pomocStikalo.addEventListener("change", function () {
+      if (most && most.nastaviPomoc) most.nastaviPomoc(!!pomocStikalo.checked);
+    });
+    naKlik("gumbPomocDa", function () { odgovoriPomoc(true); });
+    naKlik("gumbPomocNe", function () { odgovoriPomoc(false); });
     naKlik("gumbDodajMapo", function () {
       if (most && most.dodajDeljenoMapo) most.dodajDeljenoMapo();
     });
@@ -3792,6 +3892,12 @@
     var potrdi = document.querySelector("#seznamPrijav button[data-potrdi]");
     if (potrdi) {
       try { potrdi.focus(); } catch (err) {}
+      return;
+    }
+    // Vprasanje ob seznanitvi (pomoc drugim napravam): fokus na pricakovano dejanje.
+    var pomocDa = el("gumbPomocDa");
+    if (pomocDa && pomocDa.offsetParent !== null) {
+      try { pomocDa.focus(); } catch (err) {}
       return;
     }
     var kandidati = ["gumbSeznani", "gumbPoisci", "gumbHubVklopi", "gumbHubIzklopi",

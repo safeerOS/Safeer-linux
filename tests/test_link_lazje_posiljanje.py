@@ -235,6 +235,9 @@ class Prejem(unittest.TestCase):
         self.assertEqual(o["naslov"], "Telefon gosta ti pošilja datoteke")
         self.assertIn("Datotek: 2 (3 MB)", o["besedilo"])
         self.assertNotIn("prejem", "".join(self.obvestila), "nic se ni prevzelo")
+        # Varna izbira prva (tipkovnica, daljinec) in klik na obvestilo ne sprejme (pregled 18. 10. 2026).
+        self.assertEqual(list(o["gumbi"]), ["zavrni", "sprejmi"])
+        self.assertIsNone(o["privzeto"])
         o["gumbi"]["sprejmi"][1]()
         self.assertTrue(self.umaknjena[0].startswith("safeer-ponudba-"))
         self.assertTrue(self._eno("prejem")["besedilo"].startswith("Prejetih datotek: 2"))
@@ -276,6 +279,137 @@ class Prejem(unittest.TestCase):
         self.assertEqual(link_prejem.velikost(2_500_000, "sl"), "2,5 MB")
 
 
+class VrstaPreziviZagon(unittest.TestCase):
+    """Pregled 18. 10. 2026: cakajoca posiljka je bila samo v pomnilniku - ponovni zagon Controla (posodobitev, odjava)
+    jo je tiho izgubil. Zdaj gre v shrambo in se nadaljuje pri prvi neposlani datoteki, ko je naprava spet v Linku."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        for ime, vrednost in (("PREVERI_S", 0.02), ("RAZMIKI_S", (0.0,)), ("SHRANI_NAJVEC_VSAKIH_S", 0.0)):
+            p = mock.patch.object(link_posiljanje, ime, vrednost)
+            p.start()
+            self.addCleanup(p.stop)
+        self.shramba = os.path.join(self.tmp.name, "cfg", "posiljanje-vrsta.json")
+        self.tu = False
+        self.klici = []
+        self.izidi = []
+        self.spremembe = []
+
+    def _datoteka(self, ime):
+        pot = os.path.join(self.tmp.name, ime)
+        with open(pot, "wb") as f:
+            f.write(b"x" * 10)
+        return pot
+
+    def _poslji(self, naprava, pot, napredek, mapa=""):
+        self.klici.append((naprava, os.path.basename(pot), mapa))
+        napredek(100)
+        return self.izidi.pop(0) if self.izidi else (True, {})
+
+    def _p(self):
+        return link_posiljanje.Posiljanje(self._poslji, lambda i: "Tablica", dosegljiva=lambda i: self.tu,
+                                          ob_spremembi=self.spremembe.append, shramba=self.shramba)
+
+    def test_nadaljuje_po_ponovnem_zagonu(self):
+        prvi = self._p()
+        ni = (False, {"koda": "naprava_ni_povezana", "sporocilo": "", "zasedenaOd": ""})
+        self.izidi = [(True, {}), ni]
+        a, b, c = self._datoteka("a.txt"), self._datoteka("b.txt"), self._datoteka("c.txt")
+        r = prvi.zacni("n-aaaaaaaaaaaaaaaa", [a, b, c], obvesti=True)
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "caka"))
+        self.assertEqual(os.stat(self.shramba).st_mode & 0o777, 0o600, "vrsta samo za uporabnika")
+        with open(self.shramba, encoding="utf-8") as f:
+            zapis = f.read()
+        self.assertNotIn("a.txt", zapis, "poslana datoteka ni vec v vrsti")
+        self.assertIn("b.txt", zapis)
+        # Control se ustavi (proces izgine): prva vrsta ne pise vec.
+        prvi._shramba = None
+        prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
+        drugi = self._p()
+        self.assertEqual(drugi.obnovi(), 1)
+        time.sleep(0.15)
+        self.assertEqual([k[1] for k in self.klici], ["a.txt", "b.txt"], "dokler naprave ni, ne poskusa")
+        cakajoce = [x for x in self.spremembe if x["stanje"] == "caka" and x["datotek"] == 3]
+        self.assertTrue(cakajoce and cakajoce[-1]["obvesti"] and cakajoce[-1]["poslanih"] == 1, self.spremembe[-1:])
+        self.tu = True
+        drugi.zbudi()
+        self.assertTrue(_pocakaj(lambda: self.spremembe and self.spremembe[-1]["stanje"] == "poslano"))
+        self.assertEqual([k[1] for k in self.klici], ["a.txt", "b.txt", "b.txt", "c.txt"])
+        self.assertEqual(self.spremembe[-1]["poslanih"], 3)
+        self.assertFalse(os.path.exists(self.shramba), "koncana vrsta ne ostane na disku")
+
+    def test_naprava_ze_tu_posilja_takoj(self):
+        prvi = self._p()
+        self.izidi = [(False, {"koda": "naprava_ni_povezana"})]
+        r = prvi.zacni("tab", [self._datoteka("a.txt")])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "caka"))
+        prvi._shramba = None
+        prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
+        self.spremembe.clear()
+        self.tu = True
+        drugi = self._p()
+        self.assertEqual(drugi.obnovi(), 1)
+        self.assertTrue(_pocakaj(lambda: self.spremembe and self.spremembe[-1]["stanje"] == "poslano"))
+        self.assertEqual([x["stanje"] for x in self.spremembe][-2:], ["posiljam", "poslano"])
+
+    def test_neveljavni_zapisi_izpadejo(self):
+        import json
+        os.makedirs(os.path.dirname(self.shramba))
+        a = self._datoteka("a.txt")
+        zdaj = time.time()
+        zapisi = [
+            {"naprava": "x; rm -rf /", "poti": [a], "podmape": [""], "rok": zdaj + 99},
+            {"naprava": "-x", "poti": [a], "podmape": [""], "rok": zdaj + 99},
+            {"naprava": "tab", "poti": ["relativna.txt"], "podmape": [""], "rok": zdaj + 99},
+            {"naprava": "tab", "poti": [a], "podmape": [""], "rok": zdaj - 1},
+            {"naprava": "tab", "poti": [os.path.join(self.tmp.name, "ni.txt")], "podmape": [""], "rok": zdaj + 99},
+            {"naprava": "tab", "poti": [a, a], "podmape": [""], "rok": zdaj + 99},
+            "niz",
+        ]
+        with open(self.shramba, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "posiljke": zapisi}, f)
+        self.assertEqual(self._p().obnovi(), 0)
+        self.assertEqual(self.klici, [])
+        self.assertFalse(os.path.exists(self.shramba))
+
+    def test_control_vrsta_ob_nastavitvah_in_cilj(self):
+        """Safeer Control: vrsta je ob nastavitvah Controla in se ob prvi uporabi obnovi; cilj je samo naprava v Linku
+        ali znana naprava iz kroga zaupanja (core/safeer_link.SafeerLink.sme_posiljati)."""
+        import types
+        from core import safeer_link
+        nast = _Nastavitve()
+        nast.pot = os.path.join(self.tmp.name, "control", "link.json")
+        lazni = types.SimpleNamespace(control=True, nastavitve=nast, naprave=[], naprave_vse=[], _posiljanje=None,
+                                      poslji_datoteko_napravi=self._poslji, _ob_posiljanju=lambda s: None,
+                                      _zabelezi_zadnjo=lambda i: None, _ime_znane=lambda i: "")
+        lazni._ustvari_posiljanje = lambda: safeer_link.SafeerLink._ustvari_posiljanje(lazni)
+        p = safeer_link.SafeerLink.posiljanje_datotek(lazni)
+        self.assertIs(safeer_link.SafeerLink.posiljanje_datotek(lazni), p, "ena vrsta na proces")
+        self.assertEqual(p._shramba, os.path.join(self.tmp.name, "control", "posiljanje-vrsta.json"))
+        lazni.naprave = [{"id": "n-aaaaaaaaaaaaaaaa"}]
+        lazni.naprave_za_nemo = lambda: [{"id": "n-bbbbbbbbbbbbbbbb", "dosegljiva": False}]
+        self.assertTrue(safeer_link.SafeerLink.sme_posiljati(lazni, "n-aaaaaaaaaaaaaaaa"))
+        self.assertTrue(safeer_link.SafeerLink.sme_posiljati(lazni, "n-bbbbbbbbbbbbbbbb"))
+        self.assertFalse(safeer_link.SafeerLink.sme_posiljati(lazni, "n-cccccccccccccccc"))
+        self.assertFalse(safeer_link.SafeerLink.sme_posiljati(lazni, ""))
+
+    def test_rok_ostane_isti_po_zagonu(self):
+        prvi = self._p()
+        self.izidi = [(False, {"koda": "naprava_ni_povezana"})]
+        r = prvi.zacni("tab", [self._datoteka("a.txt")])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "caka"))
+        prvi._shramba = None
+        prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
+        import json
+        with open(self.shramba, encoding="utf-8") as f:
+            rok = json.load(f)["posiljke"][0]["rok"]
+        self.assertAlmostEqual(rok, time.time() + link_posiljanje.CAKA_NAJVEC_S, delta=5)
+
+
 class Nemo(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -313,6 +447,58 @@ class Nemo(unittest.TestCase):
         link_nemo.zapisi([{"id": "n%d" % i, "ime": str(i)} for i in range(20)], self.mapa, nemo=True)
         self.assertEqual(len(os.listdir(self.mapa)), link_nemo.NAJVEC)
 
+    def test_naprava_ki_je_zdaj_ni(self):
+        """Pregled 18. 10. 2026: Nemo naj ponudi tudi znano napravo, ki je zdaj ni - posiljka pocaka nanjo."""
+        nast = _Nastavitve()
+        tab = {"id": "n-aaaaaaaaaaaaaaaa", "ime": "Tablica", "zmoznosti": ["file"]}
+        tv = {"id": "n-bbbbbbbbbbbbbbbb", "ime": "TV", "zmoznosti": ["file"]}
+        self.assertTrue(link_posiljanje.zabelezi_znane(nast, [tab, tv], zdaj=1000.0))
+        self.assertFalse(link_posiljanje.zabelezi_znane(nast, [tab, tv], zdaj=1060.0), "brez spremembe ne pisemo")
+        link_posiljanje.zabelezi_zadnjo(nast, tv["id"], zdaj=900.0)
+        clani = {tab["id"], tv["id"]}
+        meni = link_posiljanje.za_meni([dict(tab, zadnjic=0.0)], nast, lambda i: i in clani)
+        self.assertEqual([(n["id"], n["dosegljiva"]) for n in meni], [(tv["id"], False), (tab["id"], True)],
+                         "zadnja uporabljena prva, tudi ce je zdaj ni")
+        # Naprava, ki ni vec v krogu zaupanja, izpade (o tem odloca ta racunalnik).
+        clani.discard(tv["id"])
+        self.assertEqual([n["id"] for n in link_posiljanje.za_meni([], nast, lambda i: i in clani)], [tab["id"]])
+        self.assertEqual(link_posiljanje.ime_znane(nast, tv["id"]), "TV")
+        # Dolgo neviden izpade.
+        link_posiljanje.zabelezi_znane(nast, [tab], zdaj=1000.0 + link_posiljanje.ZNANA_VELJA_S + 1)
+        self.assertEqual(link_posiljanje.ime_znane(nast, tv["id"]), "")
+        link_nemo.zapisi([dict(tv, dosegljiva=False)], self.mapa, nemo=True)
+        with open(os.path.join(self.mapa, "safeer-poslji-01.nemo_action"), encoding="utf-8") as f:
+            besedilo = f.read()
+        self.assertIn("Name[sl]=Pošlji na »TV« (ko bo dosegljiva)\n", besedilo)
+        self.assertIn("Name=Send to “TV” (when it is back)\n", besedilo)
+        for j in ("de", "es", "fr", "it"):
+            self.assertIn("Name[%s]=" % j, besedilo)
+            self.assertIn("Comment[%s]=" % j, besedilo)
+
+    def test_flatpak_ukaz_in_mapa_racunalnika(self):
+        """Pregled 18. 10. 2026: v Flatpaku safeerctl ni na poti racunalnika, XDG_DATA_HOME pa je mapa peskovnika."""
+        app = "io.github.memelandfaner.SafeerOS"
+        link_nemo.zapisi([{"id": "n-aaaaaaaaaaaaaaaa", "ime": "Tablica"}], self.mapa, nemo=True, flatpak=app)
+        with open(os.path.join(self.mapa, "safeer-poslji-01.nemo_action"), encoding="utf-8") as f:
+            besedilo = f.read()
+        self.assertIn("Exec=flatpak run --file-forwarding --command=safeerctl %s send --notify --to n-aaaaaaaaaaaaaaaa "
+                      "@@ %%F @@\n" % app, besedilo)
+        self.assertIn("Dependencies=flatpak;\n", besedilo)
+        # Nevaren id aplikacije ne gre v ukazno vrstico.
+        link_nemo.zapisi([{"id": "n-aaaaaaaaaaaaaaaa", "ime": "Tablica"}], self.mapa, nemo=True, flatpak="x; rm -rf /")
+        with open(os.path.join(self.mapa, "safeer-poslji-01.nemo_action"), encoding="utf-8") as f:
+            self.assertIn("Exec=safeerctl send --notify --to n-aaaaaaaaaaaaaaaa %F\n", f.read())
+        from core import gostitelj
+        with mock.patch.object(gostitelj, "v_flatpaku", lambda: True), \
+                mock.patch.dict(os.environ, {"FLATPAK_ID": app, "HOST_XDG_DATA_HOME": "/home/x/.local/share",
+                                             "XDG_DATA_HOME": "/home/x/.var/app/%s/data" % app}):
+            self.assertEqual(link_nemo.flatpak_id(), app)
+            self.assertEqual(link_nemo.mapa_dejanj(app), "/home/x/.local/share/nemo/actions")
+            with mock.patch("os.path.exists", lambda p: p == "/run/host/usr/bin/nemo"):
+                self.assertTrue(link_nemo.ima_nemo(app))
+            with mock.patch("os.path.exists", lambda p: False), mock.patch("shutil.which", lambda p: "/app/host-bin/nemo"):
+                self.assertFalse(link_nemo.ima_nemo(app), "ovoj /app/host-bin/nemo obstaja vedno - ne steje")
+
 
 class MapaPrenosov(unittest.TestCase):
     def test_xdg_prejemi(self):
@@ -340,6 +526,12 @@ class StranLinka(unittest.TestCase):
         # Samo kjer GTK pove poti (GTK4): brez tega vrstica spusta ne sprejme.
         self.assertIn("window.__safeerLinkSpust = ", self.py)
         self.assertIn("var znaSpust = !!(most && most.znaSpust", self.js)
+
+    def test_control_ob_zagonu_obnovi_vrsto(self):
+        with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
+            control = f.read()
+        pripravi = control.split("    def _pripravi_link(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("self.link.posiljanje_datotek()", pripravi)
 
     def test_ni_vec_okna_za_vsako_prejeto_datoteko(self):
         self.assertNotIn("def _obvesti(self", self.py, "modalno okno »V redu« za vsako prejeto datoteko je umaknjeno")

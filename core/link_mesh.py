@@ -678,6 +678,59 @@ def _tcp_dosegljiv(naslov: str, rok_s: float = SONDA_SOSEDA_S) -> bool:
     return True
 
 
+# ------------------------------------------------------------------ pomoc drugim napravam pri povezavi
+#: »Pomagaj drugim napravam v Linku pri povezavi« (pregled 18. 10. 2026). Pomoc je v kodi natanko dvoje (LINK-MESH.md,
+#: »Dostava prek vmesnega vozlisca«): nas Hub sosedom predstavi naprave svojih neposrednih sosedov (`relay` v
+#: mesh.devices) in sporocilo `mesh.route` z `relay: true` preda naprej (en vmesni skok, samo med clani kroga, vsebina
+#: ostane sifrirana do cilja). Brez tega se napravi, ki druga druge ne dosezeta neposredno (pozarni zid, druga podmreza,
+#: ena je zdoma), prek te naprave ne vidita. Privzeto vklopljeno; uporabnika vprasamo ob seznanitvi (stran Linka).
+#: Na lastno povezavo te naprave nastavitev ne vpliva: njej drugi se vedno pomagajo, ce sami to dovolijo.
+DATOTEKA_POMOCI = "link-pomoc.json"
+_pomoc_predpomnilnik: dict = {}
+
+
+def _pot_pomoci() -> str:
+    return os.path.join(link_krog._mapa_nastavitev(), DATOTEKA_POMOCI)
+
+
+def nastavitve_pomoci(pot: Optional[str] = None) -> dict:
+    """{"vklopljeno": bool, "vprasano": bool} - privzeto vklopljeno, uporabnik se ni bil vprasan."""
+    try:
+        with open(pot or _pot_pomoci(), encoding="utf-8") as d:
+            v = json.load(d)
+    except (OSError, ValueError):
+        v = {}
+    if not isinstance(v, dict):
+        v = {}
+    return {"vklopljeno": v.get("vklopljeno") is not False, "vprasano": bool(v.get("vprasano"))}
+
+
+def shrani_pomoc(vklopljeno: bool, pot: Optional[str] = None) -> dict:
+    """Uporabnikova izbira (stran Linka ali vprasanje ob seznanitvi): velja takoj, vprasanje se ne ponovi."""
+    pot = pot or _pot_pomoci()
+    os.makedirs(os.path.dirname(pot), exist_ok=True)
+    zacasna = pot + ".tmp"
+    with open(zacasna, "w", encoding="utf-8") as d:
+        json.dump({"vklopljeno": bool(vklopljeno), "vprasano": True}, d)
+    os.replace(zacasna, pot)
+    _pomoc_predpomnilnik.clear()
+    return nastavitve_pomoci(pot)
+
+
+def pomaga_pri_povezavi(pot: Optional[str] = None) -> bool:
+    """Ali Hub te naprave pomaga drugim napravam pri povezavi. Bere se ob vsakem seznamu za sosede, zato si vrednost
+    zapomnimo do spremembe datoteke (cas spremembe)."""
+    pot = pot or _pot_pomoci()
+    try:
+        kljuc = (pot, os.stat(pot).st_mtime_ns)
+    except OSError:
+        kljuc = (pot, None)
+    if _pomoc_predpomnilnik.get("kljuc") != kljuc:
+        _pomoc_predpomnilnik.clear()
+        _pomoc_predpomnilnik.update(kljuc=kljuc, vrednost=nastavitve_pomoci(pot)["vklopljeno"])
+    return bool(_pomoc_predpomnilnik.get("vrednost", True))
+
+
 def brez_neposredne() -> set:
     """Samo za preizkus dostave prek vmesnega vozlisca: SAFEER_MESH_BREZ=id1,id2 (brez neposredne povezave)."""
     return {i.strip() for i in os.environ.get("SAFEER_MESH_BREZ", "").split(",") if i.strip()}
