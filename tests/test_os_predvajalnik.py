@@ -86,6 +86,35 @@ class PredvajalnikTests(unittest.TestCase):
         self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
         self.assertEqual((self.player.stanje, self.player.napaka), ("ustavljeno", ""))
 
+    def test_samodejni_prehod_preskoci_prenose_v_zivo(self):
+        """Lastnik 18. 10. 2026: prenos v zivo v vrsti nima konca - samodejni prehod ga preskoci (uporabnik ga izbere sam)."""
+        self.player.dodaj("https://example.test/ena.mp3")
+        self.player.dodaj("https://example.test/radio", vrsta="radio", naslov="Radio")
+        self.player.dodaj("https://example.test/kanal.m3u8", vrsta="tv", naslov="Kanal")
+        self.player.dodaj("https://example.test/dve.flac")
+        self.player._sporocilo(None, SimpleNamespace(type="eos"))
+        self.assertEqual(self.player.trenutna.naslov, "dve.flac")
+        self.player.predvajaj(1)                       # uporabnik izbere postajo: igra
+        self.assertEqual((self.player.trenutna.naslov, self.player.stanje), ("Radio", "predvaja"))
+
+    def test_samo_prenosi_v_zivo_do_konca_vrste_ustavi(self):
+        self.player.dodaj("https://example.test/ena.mp3")
+        self.player.dodaj("https://example.test/radio", vrsta="radio", naslov="Radio")
+        self.player._sporocilo(None, SimpleNamespace(type="eos"))
+        self.assertEqual((self.player.trenutna.naslov, self.player.stanje), ("ena.mp3", "ustavljeno"))
+
+    def test_tok_brez_dolzine_je_v_zivo(self):
+        self.player.dodaj("https://example.test/pesem.mp3")
+        self.assertFalse(self.player.podatki()["zivo"])          # dolzina 180 s
+        self.element.query_duration = lambda _f: (False, 0)
+        self.assertFalse(self.player.podatki()["zivo"])          # se ni nalozen
+        self.player._sporocilo(None, SimpleNamespace(type="async_done"))
+        self.assertTrue(self.player.podatki()["zivo"])           # nalozen, 25 s brez dolzine
+        self.element.query_position = lambda _f: (True, 1_000_000_000)
+        self.assertFalse(self.player.podatki()["zivo"])          # sele 1 s: lahko se racuna dolzino
+        self.player.dodaj("https://example.test/radio", predvajaj=True, vrsta="radio")
+        self.assertTrue(self.player.podatki()["zivo"])
+
     def test_napake_so_razumljive_kode(self):
         from core.os_predvajalnik import vrsta_napake, NAPAKE
         tok = SimpleNamespace(domain="gst-stream-error-quark", code=1)   # souphttpsrc: Internal data stream error

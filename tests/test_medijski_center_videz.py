@@ -501,8 +501,10 @@ class SamodejniSeznamiStran(unittest.TestCase):
 
     def test_predvajanje_skozi_obstojeco_vrsto_brez_mesanja(self):
         telo = _funkcija(self.js, "predvajajSamodejni")
-        self.assertIn("kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0;", telo)
-        self.assertIn("odpriKatalogVnos(vnosi[0].id);", telo)
+        # Vrsta strani (novaVrsta) od prve skladbe; izvor seznama za »Nazadnje predvajano« (18. 10. 2026).
+        self.assertIn('novaVrsta(vnosi, 0, { tip: "samodejni", ref: sz.id, vrsta: sz.vrsta, ime: sz.ime || "" });', telo)
+        self.assertIn("kat.vrsta = seznam.map(function (x) { return x.id; });", _funkcija(self.js, "novaVrsta"))
+        self.assertIn("odpriKatalogVnos(kat.vrsta[kat.vrstaMesto]);", telo)
         for f in ("predvajajSamodejni", "narisiSamodejne", "kolaz"):
             self.assertNotIn("Math.random", _funkcija(self.js, f))
         self.assertIn('klic("mediaSamodejniShrani", [sz.id, ime])', _funkcija(self.js, "shraniSamodejni"))
