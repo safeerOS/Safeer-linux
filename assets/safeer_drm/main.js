@@ -12,9 +12,11 @@
 //   seje (Safeer OS jo prebere in izbrise) - ne v events.jsonl, ki je z vsebino strani rasel brez meje (pregled
 //   18. 10. 2026). events.jsonl seje Spotify ima najvec ~1 MB (nato se zamenja: events.jsonl.1 je prejsnji del).
 // Samostojni način (za preizkus): safeer-drm <https-URL>
+// Widevine CDM je od 1.0.127 v paketu (core/safeer_drm.py, packaging/safeer_drm_paket.py): med delovanjem se nič ne
+// prenaša - ne CDM ne slovarji črkovalnika.
 const fs = require('fs');
 const path = require('path');
-const { app, components, BrowserWindow, session, webFrameMain } = require('electron');
+const { app, BrowserWindow, session, webFrameMain } = require('electron');
 
 const argumenti = {};
 for (const a of process.argv.slice(1)) {
@@ -66,8 +68,47 @@ function zacetniUrl() {
 const prviUrl = zacetniUrl();
 if ((vdelan || argumenti.url) && !prviUrl) { process.exitCode = 2; app.quit(); }
 
-// Profil (piškotki, predpomnilnik) je za vsako sejo svoj, kot pri WebView2; Widevine modul ostane v
-// skupni mapi aplikacije, da se ne prenaša ob vsakem predvajanju.
+// Widevine CDM v paketu (lastnik, 18. 10. 2026: DRM je del paketa, med delovanjem se nič ne prenaša): samo za branje v
+// <mapa programa>/WidevineCdm/<verzija>/ (manifest.json, _platform_specific/linux_x64/libwidevinecdm.so). Chromium ga
+// najde prek datoteke namiga v <userData>/WidevineCdm (chrome/common/media/component_widevine_cdm_hint_file_linux.cc), ki
+// jo zapišemo ob vsakem zagonu - prejšnji namig na kopijo, ki jo je ECS prenesel v uporabnikovo mapo, se prepiše in te
+// kopije ne uporabljamo več (ostane, ne brišemo je). Posodobitve komponent (Googlov strežnik) so izklopljene.
+// Izmerjeno 18. 10. 2026 (ECS 44.5.1, CDM 4.10.3112.0, peskovnik Chromiuma, svež profil): EME ok že ob prvem zagonu,
+// CDM naložen iz paketa (/proc/<pid>/maps), v 40 s nobene povezave na update.googleapis.com.
+const MAPA_CDM = path.join(path.dirname(process.execPath), 'WidevineCdm');
+function vgrajenCdm() {
+  let izbran = '', najvisja = [];
+  try {
+    for (const ime of fs.readdirSync(MAPA_CDM)) {
+      if (!/^\d+(\.\d+){3}$/.test(ime)) continue;
+      const mapa = path.join(MAPA_CDM, ime);
+      if (!fs.existsSync(path.join(mapa, 'manifest.json')) ||
+          !fs.existsSync(path.join(mapa, '_platform_specific', 'linux_x64', 'libwidevinecdm.so'))) continue;
+      const v = ime.split('.').map(Number);
+      const vecja = v.findIndex((x, i) => x !== (najvisja[i] || 0));
+      if (!izbran || (vecja >= 0 && v[vecja] > (najvisja[vecja] || 0))) { izbran = mapa; najvisja = v; }
+    }
+  } catch (_) {}
+  return izbran;
+}
+const CDM = vgrajenCdm();
+(function zapisiNamig() {
+  const dat = path.join(app.getPath('userData'), 'WidevineCdm', 'latest-component-updated-widevine-cdm');
+  try {
+    fs.mkdirSync(path.dirname(dat), { recursive: true });
+    const zacasna = dat + '.' + process.pid;      // dva zagona hkrati (Spotify in zavihek): zamenjava je atomarna
+    fs.writeFileSync(zacasna, JSON.stringify({ Path: CDM }));
+    fs.renameSync(zacasna, dat);
+  } catch (_) {}
+})();
+app.commandLine.appendSwitch('disable-component-update');
+// Electron sicer ob nastanku seje prenese slovar črkovalnika z redirector.gvt1.com (izmerjeno 18. 10. 2026); okno Safeer
+// DRM ga ne potrebuje. Izklop mora biti ob nastanku seje - ob »ready« je prenos že stekel.
+app.on('session-created', (ses) => {
+  try { ses.setSpellCheckerEnabled(false); ses.setSpellCheckerLanguages([]); } catch (_) {}
+});
+
+// Profil (piškotki, predpomnilnik) je za vsako sejo svoj, kot pri WebView2.
 if (argumenti.profile) { fs.mkdirSync(argumenti.profile, { recursive: true }); app.setPath('sessionData', argumenti.profile); }
 // Samo za meritve: SAFEER_DRM_CDP=<vrata> odpre razhroščevanje na 127.0.0.1 (Safeer OS te spremenljivke nikoli ne nastavi).
 if (/^\d{4,5}$/.test(process.env.SAFEER_DRM_CDP || '')) { app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1'); app.commandLine.appendSwitch('remote-debugging-port', process.env.SAFEER_DRM_CDP); }
@@ -441,7 +482,8 @@ function odpri(url) {
     // Vdelan: brez okvirja, brez gumba v opravilni vrstici, zunaj zaslona, dokler ga Safeer OS ne vstavi v svoje okno.
     frame: !vdelan, skipTaskbar: vdelan, x: vdelan ? -32000 : undefined, y: vdelan ? -32000 : undefined,
     show: !vdelan && !skrit, focusable: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false }
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false,
+      spellcheck: false }
   });
   okno.setMenu(null);
   if (vdelan) {
@@ -458,7 +500,7 @@ function odpri(url) {
     if (storitev && cilj.startsWith('https:') && /(^|\.)(accounts\.google\.com|appleid\.apple\.com|facebook\.com)$/.test(gost)) {
       zapisi('POPUP_LOGIN', varenGostitelj(cilj));
       return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, title: 'Safeer',
-        parent: okno, modal: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } } };
+        parent: okno, modal: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } } };
     }
     // Storitev: drugo novo okno odpremo v istem predvajalniku; drugje pojavna okna zapremo.
     if (storitev && cilj.startsWith('https:')) { wc.loadURL(cilj); zapisi('POPUP_IN_PLACE', varenGostitelj(cilj)); }
@@ -514,18 +556,11 @@ function odpri(url) {
 }
 
 if (prviUrl) {
-  app.whenReady().then(async () => {
+  app.whenReady().then(() => {
     nastaviSejo(session.defaultSession);
-    try {
-      // Prvi zagon prenese Widevine (nekaj sekund); brez omrezja do Googla ne cakamo v nedogled.
-      await Promise.race([components.whenReady(), new Promise((_, ne) => setTimeout(() => ne(new Error('Widevine ni pripravljen v 15 s')), 15000))]);
-      const s = components.status();
-      const wv = Object.values(s).find(c => /widevine/i.test(c.title || '')) || {};
-      zapisi('DRM_READY', `widevine ${wv.version || '?'} ${wv.status || ''}`.trim());
-    } catch (e) {
-      // Brez Widevine se odprta stran vseeno naloži (video brez DRM dela naprej).
-      zapisi('DRM_FAILED', String(e && e.message || e).slice(0, 200));
-    }
+    // CDM je v paketu: brez čakanja na prenos. Brez njega se stran vseeno naloži (video brez DRM dela naprej).
+    if (CDM) zapisi('DRM_READY', 'widevine ' + path.basename(CDM) + ' v paketu');
+    else zapisi('DRM_FAILED', 'Widevine CDM ni v paketu');
     odpri(prviUrl);
   }).catch(e => { zapisi('START_FAILED', String(e && e.message || e).slice(0, 200)); app.exit(3); });
   app.on('window-all-closed', () => app.quit());

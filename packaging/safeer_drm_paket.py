@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""Safeer DRM v paketu: pripet castLabs ECS in pripet Widevine CDM, preverjena s SHA-256, ob gradnji paketa.
+
+Lastnik, 18. 10. 2026: licenca DRM prek nasega posrednika je na ime Safeer in to dovoli - DRM je del paketov kot vse
+drugo, med delovanjem se nic ne prenasa (prej se je Safeer DRM tiho prenesel po zagonu, Widevine CDM pa je ECS prenesel
+z Googlovega streznika v $XDG_CONFIG_HOME/Safeer DRM/WidevineCdm).
+
+Uporaba:
+  safeer_drm_paket.py pripravi CILJ [--zip ZIP] [--crx CRX3] [--prenosi MAPA]
+      Pripravi mapo Safeer DRM za paket: ECS iz pripetega zip (packaging/safeer-drm.json), logika predvajalnika iz
+      assets/safeer_drm (resources/app), Widevine CDM iz pripetega CRX3 v WidevineCdm/<verzija>/ (manifest.json,
+      LICENSE, _platform_specific/linux_x64/libwidevinecdm.so) in OBVESTILO.txt. Brez --zip/--crx datoteki prenese
+      (gradnja .deb in AppImage v CI); Flatpak ju dobi kot vira flatpak-builderja (brez omrezja med gradnjo).
+      Vsaka datoteka se preveri s SHA-256 iz packaging/safeer-drm.json, tudi ce je podana.
+  safeer_drm_paket.py preveri MAPA
+      Preveri namesceno mapo (npr. /usr/lib/safeer-os/safeer-drm): program in CDM s pripetimi odtisi, brez setuid.
+  safeer_drm_paket.py odvisnosti-deb
+      Paketi sistema, ki jih ECS potrebuje (za Depends paketov .deb, ko je Safeer DRM v paketu).
+  safeer_drm_paket.py novejsi
+      Samo porocilo (CI): ali Googlova storitev posodobitev ze ponuja novejsi CDM od pripetega (zamenjavo pina naredimo
+      v izdaji, ne med delovanjem).
+
+Mapo nato namestita packaging/install_payload.sh in install_os_payload.sh (SAFEER_DRM_TOVOR=CILJ) v <tovor>/safeer-drm.
+Samo standardna knjiznica Pythona (tece tudi v SDK-ju Flatpaka).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import stat
+import struct
+import sys
+import tempfile
+import urllib.request
+import zipfile
+from pathlib import Path
+
+KOREN = Path(__file__).resolve().parent.parent
+#: SAFEER_DRM_PIN samo za preizkuse (tests/test_safeer_drm_paket.py: majhen lazni paket brez omrezja).
+PIN = Path(os.environ.get("SAFEER_DRM_PIN") or KOREN / "packaging" / "safeer-drm.json")
+LOGIKA = KOREN / "assets" / "safeer_drm"
+OZNAKA = ".safeer-drm-tovor"
+CDM_KNJIZNICA = "_platform_specific/linux_x64/libwidevinecdm.so"
+CDM_DATOTEKE = ("manifest.json", "LICENSE", CDM_KNJIZNICA)
+
+
+def pin() -> dict:
+    return json.loads(PIN.read_text(encoding="utf-8"))
+
+
+def _sha256(pot: Path) -> str:
+    h = hashlib.sha256()
+    with open(pot, "rb") as f:
+        for kos in iter(lambda: f.read(1 << 20), b""):
+            h.update(kos)
+    return h.hexdigest()
+
+
+def _preveri_datoteko(pot: Path, vnos: dict) -> None:
+    velikost = pot.stat().st_size
+    if velikost != vnos["velikost"]:
+        raise SystemExit(f"safeer_drm_paket: {pot.name}: velikost {velikost}, pricakovana {vnos['velikost']}")
+    odtis = _sha256(pot)
+    if odtis != vnos["sha256"]:
+        raise SystemExit(f"safeer_drm_paket: {pot.name}: SHA-256 {odtis} ni pripeti {vnos['sha256']}")
+
+
+def prenesi(vnos: dict, mapa: Path) -> Path:
+    """Pripeto datoteko prenese v mapo (ce je tam ze prava, je ne prenasa znova) in jo preveri."""
+    mapa.mkdir(parents=True, exist_ok=True)
+    cilj = mapa / vnos["datoteka"]
+    if cilj.is_file():
+        try:
+            _preveri_datoteko(cilj, vnos)
+            return cilj
+        except SystemExit:
+            cilj.unlink()
+    zacasna = cilj.with_name(cilj.name + ".part")
+    zahteva = urllib.request.Request(vnos["url"], headers={"User-Agent": "Safeer-gradnja"})
+    with urllib.request.urlopen(zahteva, timeout=120) as odziv, open(zacasna, "wb") as izhod:
+        shutil.copyfileobj(odziv, izhod, 1 << 20)
+    try:
+        _preveri_datoteko(zacasna, vnos)
+    except SystemExit:
+        zacasna.unlink()
+        raise
+    os.replace(zacasna, cilj)
+    return cilj
+
+
+def _pravice(pravice_v_arhivu: int, mapa: bool) -> int:
+    """Samo branje za vse, izvajanje samo tam, kjer ga je imel arhiv; nikoli setuid/setgid (chrome-sandbox ni potreben,
+    Chromium uporabi uporabniske imenske prostore)."""
+    if mapa:
+        return 0o755
+    return 0o755 if pravice_v_arhivu & 0o111 else 0o644
+
+
+def razpakiraj_ecs(zip_pot: Path, cilj: Path) -> None:
+    with zipfile.ZipFile(zip_pot) as arhiv:
+        for info in arhiv.infolist():
+            pot = Path(info.filename)
+            if pot.is_absolute() or ".." in pot.parts:
+                raise SystemExit(f"safeer_drm_paket: nevarna pot v paketu: {info.filename}")
+            if (info.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+                raise SystemExit(f"safeer_drm_paket: simbolna povezava v paketu: {info.filename}")
+        for info in arhiv.infolist():
+            arhiv.extract(info, cilj)
+            os.chmod(cilj / info.filename, _pravice((info.external_attr >> 16) & 0o7777, info.is_dir()))
+    if not (cilj / "safeer-drm").is_file():
+        raise SystemExit("safeer_drm_paket: v paketu ni programa safeer-drm")
+
+
+def razpakiraj_cdm(crx_pot: Path, vnos: dict, cilj: Path) -> Path:
+    """CRX3 (glava Cr24, verzija 3, dolzina glave, nato zip): samo tri datoteke CDM v WidevineCdm/<verzija>/."""
+    with open(crx_pot, "rb") as f:
+        glava = f.read(12)
+    if len(glava) < 12 or glava[:4] != b"Cr24" or struct.unpack("<I", glava[4:8])[0] != 3:
+        raise SystemExit("safeer_drm_paket: datoteka CDM ni CRX3")
+    mapa = cilj / "WidevineCdm" / vnos["verzija"]
+    with zipfile.ZipFile(crx_pot) as arhiv:
+        manifest = json.loads(arhiv.read("manifest.json"))
+        if manifest.get("version") != vnos["verzija"] or manifest.get("name") != "WidevineCdm":
+            raise SystemExit(f"safeer_drm_paket: manifest CDM {manifest.get('name')} {manifest.get('version')} "
+                             f"ni pripeti {vnos['verzija']}")
+        for ime in CDM_DATOTEKE:
+            pot = mapa / ime
+            pot.parent.mkdir(parents=True, exist_ok=True)
+            pot.write_bytes(arhiv.read(ime))
+            os.chmod(pot, 0o755 if ime == CDM_KNJIZNICA else 0o644)
+    if _sha256(mapa / CDM_KNJIZNICA) != vnos["knjiznica_sha256"]:
+        raise SystemExit("safeer_drm_paket: libwidevinecdm.so nima pripetega SHA-256")
+    for d in (cilj / "WidevineCdm", mapa, mapa / "_platform_specific", mapa / "_platform_specific" / "linux_x64"):
+        os.chmod(d, 0o755)
+    return mapa
+
+
+OBVESTILO = """Safeer DRM - obvestila o licencah / licence notices
+=====================================================
+
+Safeer DRM je predvajalnik zascitenih vsebin (Widevine) v paketih Safeer. Sestavljen je iz:
+
+1. Electron for Content Security (ECS) {ecs}, castLabs GmbH: Electron (licenca MIT, datoteka LICENSE v tej mapi) in
+   Chromium s komponentami tretjih oseb (licence v LICENSES.chromium.html v tej mapi).
+2. Google Widevine Content Decryption Module (CDM) {cdm}: lastniska programska oprema Google LLC, ni odprta koda.
+   Safeer jo distribuira na podlagi licence za distribucijo; pogoji Googla so v WidevineCdm/{cdm}/LICENSE.
+   Widevine je blagovna znamka Google LLC.
+3. Logika predvajalnika Safeer (resources/app): projekt Safeer.
+
+Safeer DRM is the protected-content (Widevine) player in Safeer packages. It consists of:
+
+1. Electron for Content Security (ECS) {ecs} by castLabs GmbH: Electron (MIT licence, file LICENSE in this folder)
+   and Chromium with third-party components (licences in LICENSES.chromium.html in this folder).
+2. Google Widevine Content Decryption Module (CDM) {cdm}: proprietary software of Google LLC, not open source.
+   Safeer distributes it under a distribution licence; Google's terms are in WidevineCdm/{cdm}/LICENSE.
+   Widevine is a trademark of Google LLC.
+3. The Safeer player logic (resources/app): the Safeer project.
+
+Nothing in this folder is downloaded or updated while Safeer runs; it changes only with a Safeer package update.
+"""
+
+
+def pripravi(cilj: Path, zip_pot: "Path | None" = None, crx_pot: "Path | None" = None,
+             prenosi: "Path | None" = None) -> Path:
+    p = pin()
+    prenosi = prenosi or KOREN / "build" / "safeer-drm-prenosi"
+    zip_pot = Path(zip_pot) if zip_pot else prenesi(p["safeer_drm"], prenosi)
+    crx_pot = Path(crx_pot) if crx_pot else prenesi(p["widevine"], prenosi)
+    _preveri_datoteko(zip_pot, p["safeer_drm"])
+    _preveri_datoteko(crx_pot, p["widevine"])
+    cilj = Path(cilj)
+    if cilj.exists():
+        if any(cilj.iterdir()) and not (cilj / OZNAKA).is_file():
+            raise SystemExit(f"safeer_drm_paket: {cilj} ni prazna in ni mapa Safeer DRM - ne prepisem je")
+        shutil.rmtree(cilj)
+    cilj.parent.mkdir(parents=True, exist_ok=True)
+    zacasna = Path(tempfile.mkdtemp(prefix=".safeer-drm-", dir=str(cilj.parent)))
+    try:
+        razpakiraj_ecs(zip_pot, zacasna)
+        if _sha256(zacasna / "safeer-drm") != p["safeer_drm"]["program_sha256"]:
+            raise SystemExit("safeer_drm_paket: program safeer-drm nima pripetega SHA-256")
+        # Logika predvajalnika iz tega izvora (ne tista v zip): paket in koda Safeerja sta vedno ista razlicica.
+        app = zacasna / "resources" / "app"
+        app.mkdir(parents=True, exist_ok=True)
+        for ime in ("main.js", "package.json"):
+            shutil.copyfile(LOGIKA / ime, app / ime)
+            os.chmod(app / ime, 0o644)
+        os.chmod(app, 0o755)
+        razpakiraj_cdm(crx_pot, p["widevine"], zacasna)
+        (zacasna / "OBVESTILO.txt").write_text(OBVESTILO.format(ecs=p["safeer_drm"]["ecs"], cdm=p["widevine"]["verzija"]),
+                                               encoding="utf-8")
+        shutil.copyfile(PIN, zacasna / "safeer-drm.json")
+        (zacasna / OZNAKA).write_text("", encoding="utf-8")
+        for ime in ("OBVESTILO.txt", "safeer-drm.json", OZNAKA):
+            os.chmod(zacasna / ime, 0o644)
+        # Mape, ki jih zip nima kot vnose (nastanejo ob razpakiranju), dobijo pravice po umask - vse na 755.
+        for koren, mape, _ in os.walk(zacasna):
+            for ime in mape:
+                os.chmod(os.path.join(koren, ime), 0o755)
+        os.chmod(zacasna, 0o755)
+        os.replace(zacasna, cilj)
+    except BaseException:
+        shutil.rmtree(zacasna, ignore_errors=True)
+        raise
+    return cilj
+
+
+def preveri(mapa: Path) -> list:
+    """Napake namescene mape Safeer DRM (prazen seznam = v redu)."""
+    p, mapa, napake = pin(), Path(mapa), []
+    exe = mapa / "safeer-drm"
+    if not (exe.is_file() and os.access(exe, os.X_OK)):
+        napake.append("program safeer-drm manjka ali ni izvrsljiv")
+    elif _sha256(exe) != p["safeer_drm"]["program_sha256"]:
+        napake.append("program safeer-drm nima pripetega SHA-256")
+    cdm = mapa / "WidevineCdm" / p["widevine"]["verzija"]
+    for ime in CDM_DATOTEKE:
+        if not (cdm / ime).is_file():
+            napake.append(f"WidevineCdm/{p['widevine']['verzija']}/{ime} manjka")
+    if (cdm / CDM_KNJIZNICA).is_file() and _sha256(cdm / CDM_KNJIZNICA) != p["widevine"]["knjiznica_sha256"]:
+        napake.append("libwidevinecdm.so nima pripetega SHA-256")
+    for ime in ("resources/app/main.js", "resources/app/package.json", "OBVESTILO.txt", "LICENSE",
+                "LICENSES.chromium.html"):
+        if not (mapa / ime).is_file():
+            napake.append(f"{ime} manjka")
+    for koren, mape, datoteke in os.walk(mapa):
+        for ime in mape + datoteke:
+            st = os.lstat(os.path.join(koren, ime))
+            if st.st_mode & (stat.S_ISUID | stat.S_ISGID):
+                napake.append(f"setuid/setgid: {os.path.relpath(os.path.join(koren, ime), mapa)}")
+            if stat.S_ISLNK(st.st_mode):
+                napake.append(f"simbolna povezava: {os.path.relpath(os.path.join(koren, ime), mapa)}")
+    return napake
+
+
+def novejsi(odpri=urllib.request.urlopen) -> dict:
+    """Kaj ta trenutek ponuja Googlova storitev posodobitev komponent (protokol 3.1) za Chromium iz ECS."""
+    p = pin()
+    zahteva = {"request": {
+        "@os": "linux", "@updater": "chromium", "acceptformat": "crx3", "arch": "x64", "nacl_arch": "x86-64",
+        "os": {"platform": "Linux", "arch": "x86_64"}, "prodversion": p["safeer_drm"]["chromium"],
+        "updaterversion": p["safeer_drm"]["chromium"], "protocol": "3.1", "ismachine": False, "dedup": "cr",
+        "app": [{"appid": p["widevine"]["id_komponente"], "version": "0.0.0.0", "updatecheck": {}}]}}
+    r = urllib.request.Request("https://update.googleapis.com/service/update2/json", method="POST",
+                               data=json.dumps(zahteva).encode(), headers={"Content-Type": "application/json"})
+    with odpri(r, timeout=30) as odziv:
+        besedilo = odziv.read().decode("utf-8")
+    odgovor = json.loads(besedilo.split("\n", 1)[1] if besedilo.startswith(")]}'") else besedilo)
+    preverba = odgovor["response"]["app"][0]["updatecheck"]
+    verzija = preverba.get("manifest", {}).get("version", "")
+    return {"pripeta": p["widevine"]["verzija"], "ponujena": verzija,
+            "novejsa": bool(verzija) and tuple(map(int, verzija.split("."))) > tuple(
+                map(int, p["widevine"]["verzija"].split(".")))}
+
+
+def main(argv: list) -> int:
+    if len(argv) >= 2 and argv[0] == "pripravi":
+        moznosti = {"--zip": None, "--crx": None, "--prenosi": None}
+        cilj, i = None, 1
+        while i < len(argv):
+            if argv[i] in moznosti and i + 1 < len(argv):
+                moznosti[argv[i]] = Path(argv[i + 1]); i += 2
+            elif cilj is None and not argv[i].startswith("--"):
+                cilj = Path(argv[i]); i += 1
+            else:
+                print(__doc__, file=sys.stderr); return 2
+        if cilj is None:
+            print(__doc__, file=sys.stderr); return 2
+        mapa = pripravi(cilj, moznosti["--zip"], moznosti["--crx"], moznosti["--prenosi"])
+        p = pin()
+        print(f"Safeer DRM {p['safeer_drm']['verzija']} (ECS {p['safeer_drm']['ecs']}) in Widevine CDM "
+              f"{p['widevine']['verzija']} pripravljena v {mapa}")
+        return 0
+    if len(argv) == 2 and argv[0] == "preveri":
+        napake = preveri(Path(argv[1]))
+        for n in napake:
+            print("napaka:", n, file=sys.stderr)
+        if not napake:
+            print(f"Safeer DRM v {argv[1]}: v redu")
+        return 1 if napake else 0
+    if argv == ["odvisnosti-deb"]:
+        print(", ".join(pin()["safeer_drm"]["deb_odvisnosti"]))
+        return 0
+    if argv == ["novejsi"]:
+        izid = novejsi()
+        print(json.dumps(izid))
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

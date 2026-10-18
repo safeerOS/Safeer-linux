@@ -18,6 +18,12 @@ APPDIR="$ROOT/build/Safeer.AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR" "$ROOT/dist"
 cp -a build/stage/usr "$APPDIR/"
+# Safeer DRM iz tovora (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) izven usr/, kot PySide6: linuxdeploy razresuje
+# knjiznice pod usr/ (tudi libwidevinecdm.so, libffmpeg.so) in jih ne sme spreminjati. AppRun poda pot v SAFEER_DRM_MAPA.
+if [ -d "$APPDIR/usr/lib/safeer-browser/safeer-drm" ]; then
+    mkdir -p "$APPDIR/opt"
+    mv "$APPDIR/usr/lib/safeer-browser/safeer-drm" "$APPDIR/opt/safeer-drm"
+fi
 python3 packaging/prepare_appdir.py "$APPDIR"
 install -m755 packaging/AppRun "$APPDIR/AppRun"
 # Resolve ELF dependencies and emit the AppImage in one pass.

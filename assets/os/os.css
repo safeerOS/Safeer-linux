@@ -1339,6 +1339,24 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-samodejni-kartica .media-kolaz.ena { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .media-samodejni-kartica .media-kolaz.prazen { grid-template-columns: 1fr; grid-template-rows: 1fr; place-items: center; color: var(--zelena); }
 .media-samodejni-kartica .media-kolaz.prazen svg { width: 44px; height: 44px; }
+/* Nazadnje predvajano (lastnik, 18. 10. 2026): junak Domov z zadnjim seznamom - isti kolaz pravih naslovnic kot kartica
+   samodejnega seznama, merilo pove, kje v seznamu je uporabnik ostal. */
+.media-junak-seznam .media-kolaz { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  overflow: hidden; background: var(--media-povrsina); }
+.media-junak-seznam .media-kolaz > img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+.media-junak-seznam .media-kolaz.ena, .media-junak-seznam .media-kolaz.prazen { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.media-junak-seznam .media-kolaz.prazen { place-items: center; color: var(--zelena); }
+.media-junak-seznam .media-kolaz.prazen svg { width: 56px; height: 56px; }
+.media-junak-seznam .kat-merilo { z-index: 1; }
+/* Plosca vrste: oznaka nakljucnega vrstnega reda (lastnik, 18. 10. 2026) in prenosi v zivo, ki jih samodejni prehod preskoci. */
+.media-vrsta-nacin { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px 0 auto; padding: 3px 10px; border-radius: 999px;
+  color: var(--zelena); background: var(--media-poudarek); font-size: 12px; font-weight: 650; }
+.media-vrsta-nacin[hidden] { display: none; }
+/* Glava plosce vrste ostane vidna, ko se plosca pomakne do skladbe, ki igra (oznaka nakljucnega reda je vedno na ocem). */
+.media-vrsta-plosca > .media-cakalna-glava { position: sticky; top: -16px; z-index: 1; margin: -16px -16px 0; padding: 16px 16px 8px;
+  background: var(--media-meni); }
+.media-vrsta-nacin svg { width: 14px; height: 14px; }
+.media-vrsta-vnos.zivo small { color: var(--zelena); }
 .media-samodejni-shrani { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 10px;
   border: 1px solid var(--rob); border-radius: 999px; color: var(--medlo); font-size: 13px; }
 .media-samodejni-shrani svg { width: 16px; height: 16px; flex: none; }

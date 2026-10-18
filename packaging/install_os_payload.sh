@@ -17,7 +17,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
 # Lazy imports count too: core/os_splet.py is imported only when the user opens Splet, and it needs
 # filter_lists -> webkit_filters. tests/test_tovor_uvozi.py walks every import in the payload.
-for modul in budnost en_proces obvestila priljubljeno pladenj_sni uvoz_zavihkov zgodovina iskalni_kljuc os_datoteke os_dock pomnilnik zasebni_webkit video_dekoderji runtime_safety os_iskalnik os_odpri_z os_knjiznica os_police samodejni_seznami os_media_besedila os_medijska_plast os_mediji os_mpris os_oblak_igre os_ponudniki_programov os_github_programi os_posodobitve os_predvajalnik os_pretvorba_datotek os_torrent os_torrent_tok podnapisi os_dvd os_okna x11 os_lupina os_omrezje os_govor os_lupa os_programi os_scit os_sistem os_sporocila os_predogled predogled_datotek gostitelj os_spletne os_stabilnost os_deskriptorji os_tema_namizja os_zapiski os_zvok \
+for modul in budnost en_proces obvestila priljubljeno pladenj_sni uvoz_zavihkov zgodovina iskalni_kljuc os_datoteke os_dock pomnilnik zasebni_webkit video_dekoderji runtime_safety os_iskalnik os_odpri_z os_knjiznica os_police samodejni_seznami nazadnje_predvajano os_media_besedila os_medijska_plast os_mediji os_mpris os_oblak_igre os_ponudniki_programov os_github_programi os_posodobitve os_predvajalnik os_pretvorba_datotek os_torrent os_torrent_tok podnapisi os_dvd os_okna x11 os_lupina os_omrezje os_govor os_lupa os_programi os_scit os_sistem os_sporocila os_predogled predogled_datotek gostitelj os_spletne os_stabilnost os_deskriptorji os_tema_namizja os_zapiski os_zvok \
              link_datoteke link_delta link_nadaljuj link_teamwork link_urejanje link_posiljanje link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_mesh link_rele link_neposredno link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media os_vgrajeni_viri uporabniske_skripte plakati_predpomnilnik meritve_virov knjiznica_kroga media_servers jellyfin_vticniki tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama youtube_racun twitch twitch_hls seznami_sink viri_sink predvajalnik_moznosti podnapisi_splet spotify_racun \
              os_splet splet_temno splet_varuh jeziki_strani ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani drm safeer_drm splet_prenosi external_apps i18n pojavna_okna network_errors zascita dovoljenja_strani \
@@ -30,7 +30,7 @@ mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$L
 mkdir -p "$LIB/core/darkreader" && install -m 644 "$ROOT"/core/darkreader/darkreader.js "$ROOT"/core/darkreader/LICENSE "$LIB/core/darkreader/"
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 cp -a "$ROOT/assets/os" "$LIB/assets/"
-# Safeer DRM (Widevine): logika predvajalnika (main.js); paket ECS se prenese ob prvi potrebi (core/safeer_drm.py).
+# Safeer DRM (Widevine): izvor logike predvajalnika (main.js); v paket gre z mapo Safeer DRM na koncu te skripte.
 cp -a "$ROOT/assets/safeer_drm" "$LIB/assets/"
 # Splet v Safeer OS: skupna zacetna stran in podatki BankGuarda (iste datoteke kot na Windows/Androidu).
 mkdir -p "$LIB/ui" && cp -a "$ROOT"/ui/splet.html "$ROOT"/ui/splet.css "$ROOT"/ui/splet.js "$ROOT"/ui/splet-gore.webp "$LIB/ui/"
@@ -82,3 +82,6 @@ for icon in "$ROOT/packaging/icons/os/hicolor"/*/apps/safeer-os.png; do
     size=$(basename "$(dirname "$(dirname "$icon")")")
     install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
 done
+# Safeer DRM (pripet ECS in Widevine CDM) v $LIB/safeer-drm, ce je gradnja paketa podala SAFEER_DRM_TOVOR. Za
+# poenotenjem pravic zgoraj (chmod 644), ker ima Safeer DRM izvrsljive datoteke.
+bash "$ROOT/packaging/namesti_safeer_drm.sh" "$PREFIX" "$LIB" safeer-os

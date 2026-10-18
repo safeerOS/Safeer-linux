@@ -4,7 +4,7 @@ Uporaba: python3 smoke_brskalnik.py POT_DO_TOVORA   (npr. /usr/lib/safeer-browse
 
 Preveri, kar uporabnik potrebuje takoj po namestitvi: stran prek HTTP se izrise, prenos zapise tocne bajte v mapo
 prenosov, nastavitve ostanejo, WebKitGTK 6.0 je v Flatpaku nas (/app, packaging/webkit) in Safeer DRM se vstavi v okno
-brskalnika (X11). Namesto pravega Safeer DRM (paket ~120 MB z Widevine) tece nadomestni program z istim vmesnikom
+brskalnika (X11). Namesto pravega Safeer DRM (v paketu, ~300 MB z Widevine) tece nadomestni program z istim vmesnikom
 (--parent, --state ... in dogodek WINDOW_HANDLE), zagnan po isti poti kot pravi: v Flatpaku (od 1.0.127) v peskovniku
 brskalnika prek zypak-wrapper, nikoli na gostitelju. V Flatpaku preveri se, da brskalnik ne more na gostitelja in da
 povezave drugim programom (mailto: ...) gredo portalu (Gtk.UriLauncher). Vsi podatki so v zacasni mapi.
@@ -214,12 +214,20 @@ def zacni_drm():
     if not x11:
         print("DRM: zaslon ni X11 - vstavitev ni mogoca, Safeer DRM bi se odprl v svojem oknu (preskoceno)", flush=True)
         return koncaj()
-    mapa = safeer_drm.mapa_verzije()
-    mapa.mkdir(parents=True, exist_ok=True)
+    # Pravi Safeer DRM je od 1.0.127 v paketu (<tovor>/safeer-drm; preizkus z Widevine: smoke_drm_peskovnik.py). Tu tece
+    # nadomestni program v enaki postavitvi (program in WidevineCdm/<verzija>), podan s SAFEER_DRM_MAPA.
+    pravi = safeer_drm.vgrajena_mapa()
+    print("Safeer DRM v paketu:", pravi if (pravi / "safeer-drm").is_file() else "ni (gradnja brez SAFEER_DRM_TOVOR)",
+          flush=True)
+    mapa = pathlib.Path(DOM, "safeer-drm-nadomestni")
+    cdm = mapa / "WidevineCdm" / "0.0.0.1"
+    (cdm / "_platform_specific" / "linux_x64").mkdir(parents=True, exist_ok=True)
+    (cdm / "_platform_specific" / "linux_x64" / "libwidevinecdm.so").write_bytes(b"")
+    (cdm / "manifest.json").write_text("{}")
     exe = mapa / "safeer-drm"
     exe.write_text(NADOMESTNI_DRM)
     exe.chmod(0o755)
-    (mapa / safeer_drm.OZNAKA).write_text("smoke")
+    os.environ[safeer_drm.SPREMENLJIVKA_MAPE] = str(mapa)
     okno = Gtk.Window(title="Safeer DRM smoke")
     okno.set_default_size(640, 400)
     gost = safeer_drm.Gostitelj(Gtk, Gdk, GLib)

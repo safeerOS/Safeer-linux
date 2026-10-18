@@ -30,8 +30,8 @@ takoj v obeh.
 Telegram, Gmail …) z istega seznama kot Sporočila v Safeer OS, prijavljene z isto sejo kot zavihki in
 z isto zaščito. Število neprebranih pove naslov strani.
 
-**Zaščiten video.** Safeer DRM, majhen pomočnik, ki se zažene le ob potrebi, predvaja video z
-Widevine (Netflix, Disney+ …) v zavihku brskalnika, pogon strani pa ostane v celoti v peskovniku.
+**Zaščiten video.** Safeer DRM, pomočnik, ki je del paketa in se zažene le ob potrebi, predvaja video z
+Widevine (Netflix, Disney+ …) v zavihku brskalnika, pogon strani pa ostane v celoti v peskovniku. Med delovanjem se nič ne prenaša.
 
 **Krajevni ščit pred grožnjami.** Botnetni C2, gostitelji zlonamerne kode in lažno
 predstavljanje iz virov abuse.ch (Feodo Tracker, URLhaus, ThreatFox) in Phishing Army, ujeti

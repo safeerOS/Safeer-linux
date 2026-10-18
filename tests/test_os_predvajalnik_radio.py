@@ -266,28 +266,123 @@ class RadioTests(unittest.TestCase):
         cuvaj()
         self.assertEqual(self.element.stanja[-1], "playing")
 
-    def test_premor_in_prekinitev_med_premorom(self):
+    def test_premor_takoj_utisa_tok_tece_nadaljevanje_brez_stare_zaloge(self):
+        """Lastnik 18. 10. 2026: premor zamuja, po nadaljevanju tisina ali stara pesem. Premor radia ne ustavi cevovoda
+        (PAUSED je pustil zalogo starega zvoka), ampak ga takoj utisa; nadaljevanje utisanje odstrani - brez povezovanja."""
+        self.radio()
+        self.stalno_predvaja()
+        stanja = len(self.element.stanja)
+        self.player.premor()
+        self.assertEqual(self.player.stanje, "premor")
+        self.assertIs(self.element.lastnosti["mute"], True)
+        self.assertNotIn("paused", self.element.stanja[stanja:])       # tok tece naprej (zivi rob)
+        self.cas[0] += 12
+        self.player.premor()
+        self.assertEqual(self.player.stanje, "predvaja")
+        self.assertIs(self.element.lastnosti["mute"], False)
+        self.assertNotIn("paused", self.element.stanja[stanja:])
+        self.assertEqual(self.player.statistika["ponovne_povezave"], 0)
+        self.assertEqual(self.player.statistika["skoki_na_zivo"], 0)
+
+    def test_dolg_premor_sprosti_povezavo_nadaljevanje_poveze_znova_na_zivi_rob(self):
+        self.radio()
+        self.stalno_predvaja()
+        self.odlozeni.clear()
+        self.player.premor()
+        s, sprosti = self.odlozeni.pop()
+        self.assertEqual(s, op.ZIVO_PREMOR_TOPLO_S)
+        sprosti()
+        self.assertEqual(self.element.stanja[-1], "null")             # omrezje in mesto pri strezniku sta prosta
+        self.assertEqual(self.player.stanje, "premor")
+        self.player.premor()
+        self.assertEqual((self.player.stanje, self.element.stanja[-2:]), ("predvaja", ["null", "playing"]))
+        self.assertEqual(self.element.lastnosti["uri"], RADIO)
+        self.assertIs(self.element.lastnosti["mute"], False)
+        self.assertEqual(self.player.statistika["ponovne_povezave"], 1)
+
+    def test_nadaljevanje_po_sprostitvi_zacne_z_nizjo_zalogo(self):
+        """Uporabnik caka na zvok: prvo polnjenje do 10 % (meritev: tisina 1,2 s -> 44 ms z izbruhom streznika)."""
+        self.radio()
+        self.stalno_predvaja()
+        self.odlozeni.clear()
+        self.player.premor()
+        self.odlozeni.pop()[1]()                                       # sprostitev po ZIVO_PREMOR_TOPLO_S
+        self.player.premor()
+        vrsta = Element("queue2", "Generic", ("use-buffering", "high-watermark"))
+        self.element.signali["deep-element-added"](self.element, None, vrsta)
+        self.assertEqual(vrsta.lastnosti["high-watermark"], op.ZIVO_NADALJUJ_ZALOGA)
+        self.stalno_predvaja()
+        self.assertEqual(vrsta.lastnosti["high-watermark"], op.ZIVO_ZACETNA_ZALOGA)
+        nova = Element("queue2", "Generic", ("use-buffering", "high-watermark"))
+        self.radio()                                                   # nov zacetek: obicajna zaloga
+        self.element.signali["deep-element-added"](self.element, None, nova)
+        self.assertEqual(nova.lastnosti["high-watermark"], op.ZIVO_ZACETNA_ZALOGA)
+
+    def test_sprostitev_po_nadaljevanju_ne_velja(self):
+        self.radio()
+        self.stalno_predvaja()
+        self.odlozeni.clear()
+        self.player.premor()
+        _, sprosti = self.odlozeni.pop()
+        self.player.premor()
+        stanja = len(self.element.stanja)
+        sprosti()
+        self.assertEqual(len(self.element.stanja), stanja)
+        self.assertEqual(self.player.stanje, "predvaja")
+
+    def test_prekinitev_med_tihim_premorom_poveze_utisano(self):
         self.radio()
         self.stalno_predvaja()
         self.player.premor()
-        self.assertEqual(self.player.stanje, "premor")
-        self.cas[0] += 2
+        self.odlozeni.clear()
+        self.player._sporocilo(None, napaka())
+        s, f = self.odlozeni.pop()
+        self.assertEqual(s, 1)
+        f()
+        self.assertEqual((self.player.stanje, self.element.lastnosti["mute"]), ("premor", True))
+        self.assertEqual(self.element.stanja[-1], "playing")
         self.player.premor()
-        self.assertEqual((self.player.stanje, self.element.stanja[-1]), ("predvaja", "playing"))
-        self.assertEqual(self.player.statistika["ponovne_povezave"], 0)
+        self.assertEqual((self.player.stanje, self.element.lastnosti["mute"]), ("predvaja", False))
+        self.assertEqual(self.player.statistika["ponovne_povezave"], 1)
+
+    def test_nadaljevanje_med_cakanjem_na_povezavo_poveze_takoj(self):
+        self.radio()
+        self.stalno_predvaja()
         self.player.premor()
         self.odlozeni.clear()
         self.player._sporocilo(None, napaka())
-        self.assertEqual(self.odlozeni, [])                          # med premorom ne povezujemo
+        _, odlozena = self.odlozeni.pop()
         self.player.premor()
         self.assertEqual(self.player.statistika["ponovne_povezave"], 1)
         self.assertEqual(self.element.stanja[-1], "playing")
-        # Dolg premor: nadaljevanje skoci na zivi rob.
+        stanja = len(self.element.stanja)
+        odlozena()                                                    # zastarela, ne poveze se drugic
+        self.assertEqual(len(self.element.stanja), stanja)
+
+    def test_zastoj_med_tihim_premorom_pocaka_in_tece_naprej(self):
+        self.radio()
         self.stalno_predvaja()
         self.player.premor()
-        self.cas[0] += 60
+        self.buffering(0)
+        self.assertEqual(self.element.stanja[-1], "paused")
+        self.buffering(100)
+        self.assertEqual((self.element.stanja[-1], self.player.stanje), ("playing", "premor"))
+
+    def test_nov_posnetek_po_tihem_premoru_ni_utisan(self):
+        self.radio()
         self.player.premor()
-        self.assertEqual(self.player.statistika["skoki_na_zivo"], 1)
+        self.player.dodaj("https://example.test/pesem.mp3", predvajaj=True)
+        self.assertIs(self.element.lastnosti["mute"], False)
+        self.radio()
+        self.player.premor()
+        self.player.ustavi()
+        self.assertIs(self.element.lastnosti["mute"], False)
+
+    def test_premor_datoteke_ostane_pravi_premor(self):
+        self.player.dodaj("https://example.test/pesem.mp3")
+        self.player.premor()
+        self.assertEqual(self.element.stanja[-1], "paused")
+        self.assertFalse(self.element.lastnosti.get("mute"))
 
     def test_podtoki_izhoda_se_stejejo(self):
         self.radio()

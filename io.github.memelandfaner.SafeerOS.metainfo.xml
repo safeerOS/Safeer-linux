@@ -4,7 +4,7 @@
   <name>Safeer OS</name>
   <summary>Your computer in your hands - programs, files and devices on top of Linux</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>Apache-2.0</project_license>
+  <project_license>Apache-2.0 AND LicenseRef-proprietary</project_license>
   <developer id="io.github.memelandfaner">
     <name>Safeer Open Source Project</name>
   </developer>

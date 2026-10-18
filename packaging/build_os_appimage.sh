@@ -31,6 +31,12 @@ for modul in qrcode zeroconf ifaddr; do
     fi
 done
 cp -a "$STAGE/usr" "$APPDIR/"
+# Safeer DRM iz tovora (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) izven usr/, kot PySide6: linuxdeploy razresuje
+# knjiznice pod usr/ (tudi libwidevinecdm.so, libffmpeg.so) in jih ne sme spreminjati. AppRun poda pot v SAFEER_DRM_MAPA.
+if [ -d "$APPDIR/usr/lib/safeer-os/safeer-drm" ]; then
+    mkdir -p "$APPDIR/opt"
+    mv "$APPDIR/usr/lib/safeer-os/safeer-drm" "$APPDIR/opt/safeer-drm"
+fi
 python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-$ROOT/build/tools/runtime-x86_64}"

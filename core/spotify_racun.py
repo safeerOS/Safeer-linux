@@ -465,7 +465,7 @@ class Kanal:
         return self.proces is not None and self.proces.poll() is None
 
     def zacni(self, vidno: bool, scit: bool, piskotki: Optional[list] = None) -> str:
-        """»ok«, »ni_drm« (Safeer DRM ni prenesen) ali »napaka«."""
+        """»ok«, »ni_drm« (Safeer DRM ni v tej namestitvi) ali »napaka«."""
         with self._zaklep:
             if self.tece():
                 if vidno != self.vidno:
@@ -475,7 +475,6 @@ class Kanal:
             exe = safeer_drm.izvrsljiva()
             if exe is None:
                 return "ni_drm"
-            safeer_drm.uskladi_logiko(exe)
             mapa = Path(self._mapa) if self._mapa else safeer_drm.mapa_sej()
             mapa.mkdir(parents=True, exist_ok=True)
             self.seja = tempfile.mkdtemp(prefix="spotify-", dir=str(mapa))
@@ -705,7 +704,6 @@ class Racun:
         self._predvajanje: dict = {}
         self._prijavljen = False
         self._ime = ""
-        self._prenos = ""                 # "" | "tece" | "napaka"
         self._dotik = ura()
         self._utisal = False
         self._zastoj_od = 0.0             # od kdaj predvajalnik stoji v oglasu (po utisanju), 0 = ne stoji
@@ -930,22 +928,10 @@ class Racun:
         obvestilo = bool(prijavljen and tece and not nast.get("obvestilo_scit"))
         if obvestilo:
             self._shrani(obvestilo_scit=True)
-        return {"drm": self._na_voljo(), "prenos": self._prenos, "tece": tece, "okno": tece and self.kanal.vidno,
+        return {"drm": self._na_voljo(), "tece": tece, "okno": tece and self.kanal.vidno,
                 "prijavljen": prijavljen, "potekla": bool(bil and znano and not self._prijavljen and not self.kanal.vidno),
                 "ime": self._ime if prijavljen else "", "scit": self.scit(), "obvestilo_scit": obvestilo and self.scit(),
                 "predvajanje": self._predvajanje if tece else {}}
-
-    def prenesi(self) -> dict:
-        """Safeer DRM (~120 MB, preverjen SHA-256), kot pri Netflixu - samo po kliku uporabnika."""
-        if self._na_voljo():
-            return {"ok": True}
-        if self._prenos != "tece":
-            self._prenos = "tece"
-
-            def koncano(uspeh: bool) -> None:
-                self._prenos = "" if uspeh else "napaka"
-            safeer_drm.prenesi_v_ozadju(koncano)
-        return {"ok": True, "prenos": self._prenos}
 
     def prijava(self) -> dict:
         """Prijavo opravi uporabnik v Spletu (stran Spotifyja); Medijski center nato klice prijava_iz_spleta()."""

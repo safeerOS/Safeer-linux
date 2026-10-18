@@ -25,7 +25,8 @@ VERSION="$(cat "$DIR/packaging/VERSION_OS")"
 CONTROL_VERSION="$(cat "$DIR/packaging/VERSION_CONTROL")"
 CINNAMON_VERSION="$(cat "$DIR/packaging/VERSION_CINNAMON")"
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
-if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
+# Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
+if [ -n "$WEBKIT_TAR" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 STAGE="$DIR/build/stage-os"
 BUILD_ROOT="$DIR/build/deb-os"
@@ -60,6 +61,11 @@ else
     SPLET_ODVISNOSTI="gir1.2-webkit-6.0, gir1.2-soup-3.0"
 fi
 
+# Safeer DRM v paketu (packaging/namesti_safeer_drm.sh, SAFEER_DRM_TOVOR): knjiznice sistema, ki jih ECS potrebuje.
+DRM_ODVISNOSTI=""
+if [ -x "$BUILD_ROOT/usr/lib/safeer-os/safeer-drm/safeer-drm" ]; then
+    DRM_ODVISNOSTI=", $(python3 "$DIR/packaging/safeer_drm_paket.py" odvisnosti-deb)"
+fi
 # GDebi (dvoklik na paket) ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends.
 # python3-zeroconf: brez nje Safeer Link ne najde nobene naprave (mDNS) - ni QR kode in ne 6-mestne kode za prijavo
 # (testni racunalnik, cista namestitev 12. 10. 2026; do 0.4.83 je ni zahteval noben paket).
@@ -72,7 +78,7 @@ Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils
+Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils${DRM_ODVISNOSTI}
 Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
