@@ -235,6 +235,9 @@ class Prejem(unittest.TestCase):
         self.assertEqual(o["naslov"], "Telefon gosta ti pošilja datoteke")
         self.assertIn("Datotek: 2 (3 MB)", o["besedilo"])
         self.assertNotIn("prejem", "".join(self.obvestila), "nic se ni prevzelo")
+        # Varna izbira prva (tipkovnica, daljinec) in klik na obvestilo ne sprejme (pregled 18. 10. 2026).
+        self.assertEqual(list(o["gumbi"]), ["zavrni", "sprejmi"])
+        self.assertIsNone(o["privzeto"])
         o["gumbi"]["sprejmi"][1]()
         self.assertTrue(self.umaknjena[0].startswith("safeer-ponudba-"))
         self.assertTrue(self._eno("prejem")["besedilo"].startswith("Prejetih datotek: 2"))

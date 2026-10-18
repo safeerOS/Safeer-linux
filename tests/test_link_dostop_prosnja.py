@@ -462,9 +462,10 @@ class Obvestilo(unittest.TestCase):
         o = Gio.Notification.new.return_value
         o.set_body.assert_called_once_with("Druzinski telefon prosi za dostop: datoteke na tem računalniku.")
         o.set_default_action.assert_called_once_with("app.dostop-naprave")
+        # Varna izbira prva (pregled 18. 10. 2026), klik na obvestilo odpre seznam naprav - nikoli ne odobri.
         self.assertEqual([c.args for c in o.add_button_with_target.call_args_list],
-                         [("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|d")),
-                          ("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|d"))])
+                         [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|d")),
+                          ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|d"))])
         app.send_notification.assert_called_once_with(ident, o)
 
     def test_anglesko_in_neznan_jezik(self):
@@ -631,8 +632,9 @@ class Zdruzevanje(_Osnova):
         idji = {link_dostop.poslji_obvestilo(app, Gio, GLib, p, "sl") for p in self.pokazano}
         self.assertEqual(idji, {"safeer-dostop-" + A})                  # isti id: namizje ga zamenja
         gumbi = [c.args for c in Gio.Notification.new.return_value.add_button_with_target.call_args_list[-2:]]
-        self.assertEqual(gumbi, [("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|vd")),
-                                 ("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|vd"))])
+        # Varna izbira prva (pregled 18. 10. 2026: privzeta izbira na daljincu je varna).
+        self.assertEqual(gumbi, [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|vd")),
+                                 ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|vd"))])
 
     def test_razlicni_napravi_dve_obvestili(self):
         _vprasaj(A, "v", zdaj=ZDAJ)

@@ -73,16 +73,21 @@ def _obmocje_zaslona(okno=None):
     return monitor.get_geometry()
 
 
-def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1) -> None:
+def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1, privzeto: int = -1) -> None:
     """Nemodalno obvestilo z gumbi; ob_odgovoru(indeks gumba ali -1). preklic: gumb, ki velja ob Esc (privzeto
-    zadnji). Gtk.AlertDialog (GTK4)."""
+    zadnji). privzeto: gumb s fokusom (in Enter) - privzeto isti kot preklic, torej varna izbira. Gtk.AlertDialog (GTK4).
+
+    Pregled 18. 10. 2026 (daljinec na televizorju): brez privzetega gumba je GTK fokus dal PRVEMU gumbu - v sporocilu s
+    povezavo »Kopiraj«, en pritisk na V redu je izbral tisto, cesar uporabnik ni zelel. Izmerjeno v Xvfb (GTK 4.14)."""
     d = Gtk.AlertDialog()
     d.set_message(naslov)
     if besedilo:
         d.set_detail(besedilo)
     d.set_buttons(list(gumbi))
     d.set_modal(False)
-    d.set_cancel_button(preklic if preklic >= 0 else len(gumbi) - 1)
+    varen = preklic if preklic >= 0 else len(gumbi) - 1
+    d.set_cancel_button(varen)
+    d.set_default_button(privzeto if 0 <= privzeto < len(gumbi) else varen)
 
     def koncano(dialog, rezultat, *_a):
         try:
