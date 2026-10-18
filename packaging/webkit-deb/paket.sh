@@ -39,6 +39,14 @@ SOUP_RAZLICICA="$(sed -n 's/^libsoup: libsoup-\([0-9][0-9.]*\) .*/\1/p' "$G")"
 [ -n "$WEBKIT_RAZLICICA" ] && [ -n "$SOUP_RAZLICICA" ] \
     || { cat "$G" >&2; echo "paket.sh: v $G ni razlicic WebKitGTK in libsoup" >&2; exit 1; }
 
+# Odtis gradnje (core/zasebni_webkit.pot_odtisa): SHA-256 knjiznic in pomoznih procesov. Ista gradnja (arhiv iz
+# predpomnilnika CI) da isti odtis, nova gradnja drugega. Safeer OS in Safeer Control ob drugem odtisu zazeneta znova
+# (core/nova_razlicica.py), ko safeer-webkit posodobi drug program (npr. Safeer Browser): stara knjiznica v pomnilniku in
+# novi spletni procesi iz nove gradnje bi se lahko ne razumeli (sporocila IPC so iz izvora gradnje).
+( cd "$BUILD_ROOT$PREDPONA" && find lib libexec -type f \( -name '*.so*' -o -path 'libexec/*' \) -print0 | LC_ALL=C sort -z \
+    | xargs -0 sha256sum ) | sha256sum | cut -c1-16 > "$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/odtis"
+chmod 644 "$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/odtis"
+
 # Licence in izvor (WebKitGTK in libsoup sta LGPL-2.1+ z deli BSD; dav1ddec MIT/Apache-2.0 v share/doc predpone).
 install -d "$BUILD_ROOT/usr/share/doc/$PAKET"
 {
@@ -73,11 +81,12 @@ Maintainer: Safeer <info@safeer.si>
 Homepage: https://github.com/safeerOS/Safeer-linux
 Description: WebKitGTK $WEBKIT_RAZLICICA and libsoup $SOUP_RAZLICICA with Safeer fixes (shared web engine)
  The web engine of Safeer OS (Splet) and Safeer Browser: WebKitGTK 6.0 and
- libsoup 3 built by Safeer with Clang ThinLTO, profile-guided optimization
- and BOLT, the Safeer fixes and the AV1 decoder dav1ddec. Installed in its
- own prefix ($PREDPONA); the system WebKitGTK and libsoup are neither
- needed nor touched. One copy serves both programs, so they share the
- engine's memory when they run together.
+ libsoup 3 with the Safeer fixes, built by Safeer with Clang ThinLTO; release
+ builds add profile-guided optimization, BOLT and the AV1 decoder dav1ddec
+ (build record: $PREDPONA/share/webkitgtk-safeer/gradnja.txt).
+ Installed in its own prefix ($PREDPONA); the system WebKitGTK and libsoup
+ are neither needed nor touched. One copy serves both programs, so they
+ share the engine's memory when they run together.
 EOF
 find "$BUILD_ROOT" -type d -exec chmod 755 {} +
 chmod 644 "$BUILD_ROOT/DEBIAN/control" "$BUILD_ROOT/usr/share/doc/$PAKET/copyright"

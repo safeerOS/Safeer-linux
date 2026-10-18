@@ -125,7 +125,7 @@ class Izvajalnik(unittest.TestCase):
     def test_okolje_brez_tujih_nastavitev_in_zasebnih_poti(self):
         koren = str(self.lib / "safeer-os")
         with mock.patch.dict(os.environ, {"NODE_OPTIONS": "--require /tmp/tuje.js", "NODE_PATH": "/x",
-                                          "GI_TYPELIB_PATH": "/usr/lib/safeer-os/webkit/lib/girepository-1.0",
+                                          "GI_TYPELIB_PATH": "/usr/lib/safeer-webkit/lib/girepository-1.0",
                                           "PATH": "/usr/bin:/bin", "NODE_EXTRA_CA_CERTS": "/etc/ca.pem"}):
             o = ni.okolje(koren=koren)
         self.assertNotIn("NODE_OPTIONS", o)

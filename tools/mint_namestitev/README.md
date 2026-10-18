@@ -3,7 +3,7 @@
 Posla `brskalnik` in `safeer-os` v CI pakete zgradita in namestita na Ubuntu 24.04. Tam se paketa videza (`safeer-os-tema`,
 `safeer-cinnamon`) sploh ne dasta namestiti – `mint-themes` obstaja samo v Linux Mintu –, odvisnosti pa razreši
 drugo skladišče kot pri uporabniku. Ta preizkus naredi to, kar naredi uporabnik: v sliki Linux Minta (skladišča
-Minta in Ubuntuja) namesti vseh pet paketov, jih zažene in odstrani.
+Minta in Ubuntuja) namesti vse pakete izdaje (`safeer-webkit`, `safeer-browser`, `safeer-os`), jih zažene in odstrani.
 
 ```
 tools/mint_namestitev/preizkus.sh linuxmintd/mint22.3-amd64 MAPA_S_PAKETI [MAPA_S_PREJŠNJO_IZDAJO]
@@ -11,10 +11,12 @@ tools/mint_namestitev/preizkus.sh linuxmintd/mint22.3-amd64 MAPA_S_PAKETI [MAPA_
 
 Koraki (`v_vsebniku.sh`; prva napaka konča preizkus z izhodno kodo, ki ni 0):
 
-1. namestitev vseh petih paketov z `apt-get install` (odvisnosti iz skladišč). Če je podana mapa s paketi zadnje
+1. namestitev vseh paketov z `apt-get install` (odvisnosti iz skladišč; `safeer-webkit` v istem ukazu, kot ga
+   namesti Safeer OS sam). Če je podana mapa s paketi zadnje
    objavljene izdaje, se najprej namesti ta, programi se zaženejo kot root (najslabši primer: v mapah programov
    ostane njihova bajtna koda), nato pridejo novi paketi čeznjo z ukazom, s katerim posodobitev namesti Safeer OS
-   sam (`apt-get install --allow-downgrades`) – posodobitev je pot vsakega obstoječega uporabnika. Po namestitvi
+   sam (`apt-get install --allow-downgrades`) – posodobitev je pot vsakega obstoječega uporabnika. Po posodobitvi ne
+   sme ostati nobena stara kopija WebKita (`/usr/lib/<paket>/webkit`, do 1.0.127~pred), samo `/usr/lib/safeer-webkit`. Po namestitvi
    mora imeti vsak modul prevedeno bajtno kodo (`postinst`);
 2. različice programov (`safeer`, `safeer-control`, `safeerctl`, `safeer-os`) se ujemajo z različicami paketov;
 3. zaganjalniki v meniju so veljavni;

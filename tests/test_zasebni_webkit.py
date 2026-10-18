@@ -1,6 +1,6 @@
 """Zunanji programi ne podedujejo nasih zasebnih poti (core/zasebni_webkit.py, lastnik 18. 10. 2026).
 
-Safeer OS ima v okolju GI_TYPELIB_PATH in GST_PLUGIN_PATH s predpono nasega WebKita (/usr/lib/safeer-os/webkit), AppImage
+Safeer OS ima v okolju GI_TYPELIB_PATH in GST_PLUGIN_PATH s predpono nasega WebKita (/usr/lib/safeer-webkit), AppImage
 pa LD_LIBRARY_PATH, PYTHONHOME ... na $APPDIR. Program, ki ga uporabnik odpre iz Safeer OS, mora dobiti sistemsko okolje;
 nasi pomozni procesi (Safeer Control, ponovni zagon) ga obdrzijo.
 """
@@ -17,7 +17,7 @@ sys.path.insert(0, KOREN)
 
 from core import zasebni_webkit as zw  # noqa: E402
 
-W = "/usr/lib/safeer-os/webkit"
+W = "/usr/lib/safeer-webkit"   # paket safeer-webkit (od 19. 10. 2026); stare kopije glej spodaj
 
 
 class OkoljeZaZunanje(unittest.TestCase):

@@ -31,6 +31,8 @@ from typing import Mapping, Optional
 
 TYPELIB = os.path.join("lib", "girepository-1.0", "WebKit-6.0.typelib")
 GST_VTICNIKI = os.path.join("lib", "gstreamer-1.0")
+#: Odtis gradnje skupnega WebKita (packaging/webkit-deb/paket.sh): drug odtis = nova gradnja knjiznic.
+ODTIS = os.path.join("share", "webkitgtk-safeer", "odtis")
 #: Ime mape skupnega WebKita ob mapah programov (paket safeer-webkit, /usr/lib/safeer-webkit).
 SKUPNI = "safeer-webkit"
 #: Predpone nasega WebKita v paketih .deb (packaging/webkit-deb): tudi ce je nastavi() klical drug nas proces. Stare
@@ -73,6 +75,16 @@ def nastavi(koren: str) -> Optional[str]:
         poti = [p for p in os.environ.get("GST_PLUGIN_PATH", "").split(os.pathsep) if p and p != vticniki]
         os.environ["GST_PLUGIN_PATH"] = os.pathsep.join(poti + [vticniki])
     return mapa
+
+
+def pot_odtisa() -> Optional[str]:
+    """Datoteka z odtisom gradnje WebKita, ki ga uporablja ta proces (nastavi()), ali None (WebKit sistema, Flatpak,
+    AppImage, paket brez odtisa). Safeer OS in Safeer Control jo spremljata (core/nova_razlicica.py): safeer-webkit lahko
+    posodobi tudi drug program, medtem ko ta tece s staro knjiznico v pomnilniku."""
+    if not _nastavljena:
+        return None
+    pot = os.path.join(_nastavljena, ODTIS)
+    return pot if os.path.isfile(pot) else None
 
 
 # ---------------------------------------------------------------------------------------- zunanji programi

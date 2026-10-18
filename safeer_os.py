@@ -1839,6 +1839,7 @@ class SafeerOS(Gtk.Application):
         GLib.timeout_add_seconds(90, self._posodobitve_tiho)
         #: Nova razlicica po namestitvi (core/nova_razlicica.py): spremljanje, cakanje, ponovni zagon ob koncu run().
         self._nova_spremljevalec = None
+        self._nova_spremljevalec_webkit = None
         self._nova_cakanje = None
         self._nova_razlicica = ""
         self._ponovni_zagon = False
@@ -4051,6 +4052,17 @@ class SafeerOS(Gtk.Application):
                 Gio, GLib, os.path.join(KOREN, "packaging", "VERSION_OS"), RAZLICICA, self._ob_novi_razlicici)
         except Exception as e:  # noqa: BLE001 - brez spremljanja pride nova razlicica ob naslednjem zagonu
             print("[SafeerOS] nova razlicica, spremljanje:", e, flush=True)
+        # Skupni WebKit (paket safeer-webkit, od 19. 10. 2026) lahko posodobi tudi Safeer Browser: Splet bi s staro
+        # knjiznico v pomnilniku zaganjal spletne procese nove gradnje. Nov odtis gradnje -> ista pot kot nova razlicica
+        # (razlicica iz namescene datoteke: ce se je posodobil tudi Safeer OS, je to nova, sicer ta).
+        odtis = zasebni_webkit.pot_odtisa()
+        if odtis:
+            try:
+                self._nova_spremljevalec_webkit = nova_razlicica.Spremljevalec(
+                    Gio, GLib, odtis, nova_razlicica.beri(odtis), lambda _odtis: self._ob_novi_razlicici(
+                        nova_razlicica.beri(os.path.join(KOREN, "packaging", "VERSION_OS")) or RAZLICICA))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] nova gradnja WebKita, spremljanje:", e, flush=True)
 
     def _ob_novi_razlicici(self, nova: str) -> None:
         print("[SafeerOS] namescena je nova razlicica %s (tece %s)" % (nova, RAZLICICA), flush=True)

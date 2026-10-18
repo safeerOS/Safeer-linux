@@ -898,6 +898,7 @@ class SafeerControl(_OSNOVA):
         self._prva_aktivacija = True
         #: Nova razlicica po namestitvi (samostojni Control; v procesu Safeer OS jo vodi Safeer OS).
         self._nova_spremljevalec = None
+        self._nova_spremljevalec_webkit = None
         self._nova_cakanje = None
         self._nova_razlicica = ""
         self._ponovni_zagon = False
@@ -2237,6 +2238,15 @@ class SafeerControl(_OSNOVA):
                 Gio, GLib, os.path.join(KOREN, "packaging", "VERSION_CONTROL"), APP_VERSION, self._ob_novi_razlicici)
         except Exception as e:  # noqa: BLE001
             print("[SafeerControl] nova razlicica, spremljanje:", e, flush=True)
+        # Skupni WebKit (paket safeer-webkit): nova gradnja, ki jo namesti drug program, kot nova razlicica (Safeer OS).
+        odtis = zasebni_webkit.pot_odtisa()
+        if odtis:
+            try:
+                self._nova_spremljevalec_webkit = nova_razlicica.Spremljevalec(
+                    Gio, GLib, odtis, nova_razlicica.beri(odtis), lambda _odtis: self._ob_novi_razlicici(
+                        nova_razlicica.beri(os.path.join(KOREN, "packaging", "VERSION_CONTROL")) or APP_VERSION))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerControl] nova gradnja WebKita, spremljanje:", e, flush=True)
 
     def _ob_novi_razlicici(self, nova: str) -> None:
         print("[SafeerControl] namescena je nova razlicica %s (tece %s)" % (nova, APP_VERSION), flush=True)

@@ -736,6 +736,23 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertEqual(zasebni_webkit.nastavi(str(lib/'safeer-control')),str(lib/'safeer-webkit'))
                 self.assertEqual(os.environ['GI_TYPELIB_PATH'],'%s:/a'%(lib/'safeer-webkit/lib/girepository-1.0'))
         self.assertEqual(zasebni_webkit.PREDPONE_PAKETOV[0],'/usr/lib/safeer-webkit')
+        # Odtis gradnje uporabljenega WebKita (paket.sh): Safeer OS in Safeer Control ga spremljata (nova_razlicica).
+        with tempfile.TemporaryDirectory() as d:
+            self._webkit(Path(d),'safeer-webkit')
+            (Path(d)/'safeer-os').mkdir()
+            with patch.object(zasebni_webkit,'_nastavljena',None):
+                self.assertIsNone(zasebni_webkit.pot_odtisa())
+            with patch.object(zasebni_webkit,'_nastavljena',str(Path(d)/'safeer-webkit')):
+                self.assertIsNone(zasebni_webkit.pot_odtisa())          # paket brez odtisa
+                (Path(d)/'safeer-webkit/share/webkitgtk-safeer').mkdir(parents=True)
+                (Path(d)/'safeer-webkit/share/webkitgtk-safeer/odtis').write_text('0123456789abcdef\n')
+                self.assertEqual(zasebni_webkit.pot_odtisa(),str(Path(d)/'safeer-webkit/share/webkitgtk-safeer/odtis'))
+        for vstop,datoteka in (('safeer_os.py','VERSION_OS'),('safeer_control.py','VERSION_CONTROL')):
+            s=(ROOT/vstop).read_text()
+            telo=s.split('    def _spremljaj_novo_razlicico(self) -> None:',1)[1].split('\n    def ',1)[0]
+            self.assertIn('odtis = zasebni_webkit.pot_odtisa()',telo,vstop)
+            self.assertIn('nova_razlicica.Spremljevalec(\n                    Gio, GLib, odtis, nova_razlicica.beri(odtis)',telo,vstop)
+            self.assertIn('nova_razlicica.beri(os.path.join(KOREN, "packaging", "%s"))'%datoteka,telo,vstop)
         # Zunanji programi ne podedujejo poti skupnega WebKita (kot prej poti kopij v paketih).
         cisto=zasebni_webkit.okolje_za_zunanje({'GI_TYPELIB_PATH':'/usr/lib/safeer-webkit/lib/girepository-1.0:/x',
                                                 'GST_PLUGIN_PATH':'/usr/lib/safeer-webkit/lib/gstreamer-1.0'})
@@ -986,6 +1003,24 @@ class DebWebkitTests(unittest.TestCase):
             import io,tarfile
             imena={Path(x).name for x in tarfile.open(fileobj=io.BytesIO(kontrola)).getnames()}
             self.assertFalse(imena & {'preinst','postinst','prerm','postrm'},imena)
+            # Odtis gradnje (Safeer OS/Control ob novi gradnji zazeneta znova): ista gradnja isti odtis, druga drug.
+            def odtis(paket):
+                return subprocess.run(['dpkg-deb','--fsys-tarfile',str(paket)],capture_output=True,check=True).stdout
+            def beri_odtis(paket):
+                t=tarfile.open(fileobj=io.BytesIO(odtis(paket)))
+                return t.extractfile('./usr/lib/safeer-webkit/share/webkitgtk-safeer/odtis').read().decode().strip()
+            prvi=beri_odtis(deb)
+            self.assertRegex(prvi,r'^[0-9a-f]{16}$')
+            r=self._paket_webkit(d,self._lazni_arhiv(d))
+            self.assertEqual((r.returncode,beri_odtis(deb)),(0,prvi))
+            drevo=Path(d)/'drevo'/'usr/lib/safeer-webkit'
+            (drevo/'lib/libjavascriptcoregtk-6.0.so.1').write_bytes(b'\x7fELF nova gradnja')
+            arhiv=Path(d)/'webkit.tar.zst'
+            arhiv.unlink()
+            subprocess.run(['tar','-C',str(Path(d)/'drevo'),'-I','zstd','-cf',str(arhiv),'usr'],check=True)
+            r=self._paket_webkit(d,arhiv)
+            self.assertEqual(r.returncode,0,r.stderr[-2000:])
+            self.assertNotEqual(beri_odtis(deb),prvi)
             # Stari arhiv (lastna predpona paketa) ne gre v safeer-webkit.
             with tempfile.TemporaryDirectory() as d2:
                 arhiv=self._lazni_arhiv(d2,'/usr/lib/safeer-os/webkit',self.GRADNJA.replace('/usr/lib/safeer-webkit','/usr/lib/safeer-os/webkit'))
