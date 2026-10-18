@@ -311,6 +311,16 @@ class LazniKanal:
             return o if o is not None else {"status": 404, "podatki": None}
         if "history.pushState" in izraz:
             return "ok"
+        m = re.search(r"\}\)\((\"(igraj|ustavi|preklopi)\")\)$", izraz)
+        if m and "zelja" in izraz:
+            # PREKLOP_JS: preverba in klik v istem izrazu (kot stran)
+            zelja, igra = json.loads(m.group(1)), bool(self.stanje.get("igra"))
+            self.kliki = getattr(self, "kliki", 0)
+            if (zelja == "igraj" and igra) or (zelja == "ustavi" and not igra):
+                return "igra" if igra else "premor"
+            self.kliki += 1
+            self.stanje = dict(self.stanje, igra=not igra)
+            return "premor" if igra else "igra"
         if "tracklist-row" in izraz:
             return "vrstica"
         return True
@@ -445,7 +455,8 @@ class RacunTest(unittest.TestCase):
         k.zacni(False, True)
         r.straza_korak({"naslov": "Advertisement", "igra": True})
         self.assertTrue(any("utisaj(true)" in x for x in k.izrazi))
-        self.assertTrue(any("control-button-skip-forward" in x for x in k.izrazi))
+        # lastnik 18. 10. 2026: oglas samo utisamo - nikoli preskok, pospesitev ali »Naslednja«
+        self.assertFalse(any("skip-forward" in x or "playbackRate" in x for x in k.izrazi))
         self.assertTrue(r.predvajanje()["oglas"])
         r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": True})
         self.assertTrue(any("utisaj(false)" in x for x in k.izrazi))
@@ -456,33 +467,87 @@ class RacunTest(unittest.TestCase):
         self.assertFalse(any("utisaj" in x for x in k.izrazi))
         self.assertFalse(r.scit())
 
-    def test_straza_popravi_zastoj_po_oglasu(self):
+    def _zastoj(self, poslusal=True):
         k = LazniKanal()
         ura = [100.0]
         r = sr.Racun(self.mapa, kanal=k, na_voljo=lambda: True, straza=False, ura=lambda: ura[0])
         k.zacni(False, True)
+        if poslusal:
+            r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": True})
+        return k, r, ura
+
+    @staticmethod
+    def _pritiski(k):
+        return [x for x in k.izrazi if "zelja" in x or "control-button" in x]
+
+    def test_straza_popravi_zastoj_po_oglasu(self):
+        """Po utisanem oglasu Spotify obstoji: strazar pritisne SAMO Predvajaj (preverba in klik v istem izrazu)."""
+        k, r, ura = self._zastoj()
         ad = {"naslov": "Advertisement", "igra": False}
+        k.stanje = dict(k.stanje, igra=False)
         r.straza_korak(ad)
         k.izrazi.clear()
         ura[0] = 101.0
         r.straza_korak(ad)
-        self.assertFalse(any("playpause" in x for x in k.izrazi))
+        self.assertEqual(self._pritiski(k), [])
         ura[0] = 102.5
         r.straza_korak(ad)
-        self.assertTrue(any("control-button-playpause" in x for x in k.izrazi))
-        n = sum("control-button-playpause" in x for x in k.izrazi)
+        self.assertEqual(len(self._pritiski(k)), 1)
+        self.assertIn('"igraj"', self._pritiski(k)[0])
         ura[0] = 103.0
         r.straza_korak(ad)
-        self.assertEqual(sum("control-button-playpause" in x for x in k.izrazi), n)   # en pritisk na korak
-        ura[0] = 107.0
-        r.straza_korak(ad)
-        self.assertTrue(any("control-button-skip-forward" in x for x in k.izrazi))
-        ura[0] = 113.0
-        r.straza_korak(ad)
-        self.assertEqual(sum("control-button-playpause" in x for x in k.izrazi), n + 1)
+        self.assertEqual(len(self._pritiski(k)), 1)                    # en pritisk na korak
+        for t in (107.0, 113.0, 131.0, 161.0, 200.0, 300.0):
+            ura[0] = t
+            r.straza_korak(ad)
+        self.assertFalse(any("skip-forward" in x for x in k.izrazi))  # nikoli Naslednja
+        self.assertTrue(all('"igraj"' in x for x in self._pritiski(k)))
+        self.assertEqual(len(self._pritiski(k)), len(sr.Racun.ZASTOJ_KORAKI))
         # pesem igra: zastoja ni, stevec se ponastavi
         r.straza_korak({"naslov": "Pesem", "igra": True})
         self.assertEqual((r._zastoj_od, r._zastoj_korak), (0.0, 0))
+
+    def test_zastoj_ne_razveljavi_premora_uporabnika(self):
+        """Regresija (pregled 18. 10. 2026, preizkus sp_premor.py): uporabnik ustavi med oglasom - strazar ne
+        pritisne Predvajaj in ne Naslednja."""
+        for ukaz in ("premor", "ustavi"):
+            k, r, ura = self._zastoj()
+            k.stanje = dict(k.stanje, naslov="Advertisement", igra=True)
+            r.straza_korak({"predvajalnik": True, "igra": True, "oglas_oznaka": True, "naslov": "Advertisement"})
+            self.assertEqual(r.upravljaj(ukaz), {"ok": True})
+            self.assertFalse(k.stanje["igra"])
+            k.izrazi.clear()
+            oglas_premor = {"predvajalnik": True, "igra": False, "oglas_oznaka": True, "naslov": "Advertisement"}
+            for t in (100.0, 101.0, 102.5, 107.0, 130.0, 200.0):
+                ura[0] = t
+                r.straza_korak(oglas_premor)
+            self.assertEqual(self._pritiski(k), [], ukaz)
+
+    def test_zastoj_brez_poslusanja(self):
+        """Uporabnik ni poslusal (Spotify je oglas pokazal sam ali po koncu seznama): nic pritiskov."""
+        k, r, ura = self._zastoj(poslusal=False)
+        for t in (100.0, 103.0, 113.0, 200.0):
+            ura[0] = t
+            r.straza_korak({"naslov": "Advertisement", "igra": False})
+        self.assertEqual(self._pritiski(k), [])
+
+    def test_premor_pesmi_izven_vmesnika(self):
+        """Pesem obstane brez oglasa (sistemske tipke, konec seznama): to velja kot premor uporabnika."""
+        k, r, ura = self._zastoj()
+        r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": False})
+        for t in (100.0, 103.0, 113.0, 200.0):
+            ura[0] = t
+            r.straza_korak({"naslov": "Advertisement", "igra": False})
+        self.assertEqual(self._pritiski(k), [])
+
+    def test_zastarelo_stanje_ne_povozi_ukaza(self):
+        """Straza je stanje (pesem igra) prebrala pred uporabnikovim premorom: zelja ostane »premor«."""
+        k, r, ura = self._zastoj()
+        k.stanje = dict(k.stanje, igra=True)
+        st = r._ukaz_st
+        self.assertEqual(r.upravljaj("premor"), {"ok": True})
+        r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": True}, st)
+        self.assertFalse(r._uporabnik_igra)
 
     def test_upravljanje(self):
         k = LazniKanal()
@@ -503,13 +568,13 @@ class RacunTest(unittest.TestCase):
         k = LazniKanal(stanje={"zeton": True, "predvajalnik": True, "naslov": "Pesem", "igra": True})
         r = self._racun(k)
         k.zacni(False, True)
-        klik = '"control-button-playpause"'
         self.assertEqual(r.upravljaj("ustavi"), {"ok": True})
-        self.assertEqual(sum(klik in x and x != sr.STANJE_JS for x in k.izrazi), 1)
-        k.stanje = dict(k.stanje, igra=False)              # stran je ustavljena; straza tega se ni prebrala
-        r._predvajanje = {"naslov": "Pesem", "igra": True}
+        self.assertEqual(k.kliki, 1)
+        self.assertFalse(k.stanje["igra"])
+        r._predvajanje = {"naslov": "Pesem", "igra": True}     # straza tega se ni prebrala
         self.assertEqual(r.upravljaj("ustavi"), {"ok": True})
-        self.assertEqual(sum(klik in x and x != sr.STANJE_JS for x in k.izrazi), 1)
+        self.assertEqual(k.kliki, 1)                          # preverba je v istem izrazu kot klik
+        self.assertFalse(k.stanje["igra"])
         self.assertFalse(r._predvajanje["igra"])
 
     def test_predvajaj(self):

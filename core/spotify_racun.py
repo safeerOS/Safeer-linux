@@ -16,7 +16,8 @@ Podatki: isti klici kot spletna aplikacija, iz strani in z zetonom strani (windo
 shrani, so v Medijskem centru oznaceni "zaseben" (ostanejo na tej napravi).
 
 Scit (privzeto vklopljen, nastavitev v Scitu): pravila core/adblock.SPOTIFY_OGLASI v Safeer DRM, rezerva je zaznava
-oglasa v predvajalniku (utisaj in preskoci, ko gre).
+oglasa v predvajalniku. Oglas se SAMO utisa (lastnik 18. 10. 2026): nic preskakovanja, pospesevanja ali samodejne
+»Naslednje« med oglasom.
 """
 from __future__ import annotations
 
@@ -348,6 +349,18 @@ STANJE_JS = r"""(() => {
 #: Klik na gumb predvajalnika (data-testid); vrne, ali je gumb obstajal.
 GUMB_JS = r"""((id) => { const b = document.querySelector('[data-testid="' + id + '"]'); if (!b || b.disabled) return false; b.click(); return true; })(%s)"""
 
+#: Preklopni gumb Predvajaj/Premor s preverbo v ISTEM izrazu (brez tekme med branjem stanja in klikom - gumb je
+#: preklopni, zastarelo stanje bi ga sprozilo v napacno smer). zelja: "igraj" (klik samo, ce ne igra), "ustavi" (klik
+#: samo, ce igra) ali "preklopi". Vrne "igra" | "premor" (stanje PO izrazu) ali false (gumba ni).
+PREKLOP_JS = r"""((zelja) => {
+  const b = document.querySelector('[data-testid="control-button-playpause"]');
+  if (!b || b.disabled) return false;
+  const igra = (window.__safeerSpotify ? window.__safeerSpotify.mediji() : []).some(x => !x.paused && !x.ended);
+  if ((zelja === 'igraj' && igra) || (zelja === 'ustavi' && !igra)) return igra ? 'igra' : 'premor';
+  b.click();
+  return igra ? 'premor' : 'igra';
+})(%s)"""
+
 #: Drsnik (cas ali glasnost) na delez 0..1: vrednost vnosa (React) in klik kazalca na isto mesto.
 DRSNIK_JS = r"""((id, delez) => {
   const okvir = document.querySelector('[data-testid="' + id + '"]');
@@ -626,6 +639,11 @@ class Racun:
         self._utisal = False
         self._zastoj_od = 0.0             # od kdaj predvajalnik stoji v oglasu (po utisanju), 0 = ne stoji
         self._zastoj_korak = 0
+        # Ali uporabnik zeli, da Spotify igra: True ob njegovem Predvajaj (ali ko opazimo, da pesem igra), False ob
+        # njegovem Premoru/Ustavi (tudi »ustavi« iz Medijskega centra ob drugi vsebini) ali ko pesem obstane brez oglasa.
+        # Strazar zastoja po oglasu pritisne Predvajaj SAMO, ce je True - uporabnikovega premora nikoli ne razveljavi.
+        self._uporabnik_igra = False
+        self._ukaz_st = 0                 # stevec ukazov uporabnika: zastarelo branje stanja ne povozi zadnjega ukaza
         self._straza: Optional[threading.Thread] = None
         self._z_strazo = straza
         self._preverjeno = False          # stran je ze povedala, ali je uporabnik prijavljen
@@ -664,6 +682,13 @@ class Racun:
     def _ob_koncu(self) -> None:
         self._predvajanje = {}
         self._utisal = self._preverjeno = False
+        self._uporabnik_igra = False
+
+    def _uporabnik(self, igra: bool) -> None:
+        self._ukaz_st += 1
+        self._uporabnik_igra = igra
+        if not igra:
+            self._zastoj_od, self._zastoj_korak = 0.0, 0
 
     def _dotakni(self) -> None:
         self._dotik = self._ura()
@@ -718,34 +743,39 @@ class Racun:
         self._straza.start()
 
     def _straza_zanka(self) -> None:
-        """Vsako sekundo: stanje predvajanja (za vmesnik), rezerva Scita (oglas utisa in preskoci), konec prijave v
-        oknu in mirovanje (skrit Safeer DRM brez predvajanja se po CAS_MIROVANJA ustavi)."""
+        """Vsako sekundo: stanje predvajanja (za vmesnik), rezerva Scita (oglas samo utisa), konec prijave v oknu in
+        mirovanje (skrit Safeer DRM brez predvajanja se po CAS_MIROVANJA ustavi)."""
         while self.kanal.tece():
+            st = self._ukaz_st
             try:
                 surovo = self.kanal.izvedi(STANJE_JS, 5)
             except (NiOdziva, SpremenjenaStran):
                 surovo = None
             if isinstance(surovo, dict):
-                self.straza_korak(surovo)
+                self.straza_korak(surovo, st)
             if not self.kanal.vidno and not self._predvajanje.get("igra") and self._ura() - self._dotik > CAS_MIROVANJA:
                 self.kanal.ustavi()
                 break
-            # Med oglasom pogosteje: utisanje in preskok (kjer ga Spotify dovoli) takoj, ko se oglas zacne ali konca.
+            # Med oglasom pogosteje: utisanje takoj, ko se oglas zacne, in zvok takoj, ko se konca.
             time.sleep(0.4 if self._predvajanje.get("oglas") else 1.0)
 
-    def straza_korak(self, surovo: dict) -> dict:
+    def straza_korak(self, surovo: dict, ukaz_st: Optional[int] = None) -> dict:
+        """ukaz_st: stevec ukazov uporabnika PRED branjem stanja; ce se je medtem spremenil, je stanje zastarelo za
+        odlocitev, ali uporabnik zeli predvajanje."""
         stanje = stanje_iz(surovo)
         if surovo.get("zeton"):
             self._posodobi_prijavo(surovo)
         if stanje["igra"]:
             self._dotakni()
+        sveze = ukaz_st is None or ukaz_st == self._ukaz_st
+        if sveze and not stanje["oglas"] and stanje["naslov"]:
+            # Pesem (ne oglas): igra -> uporabnik jo poslusa; obstala -> premor (uporabnik, sistemske tipke ali konec
+            # seznama). Med oglasom ne sklepamo nic: oglas sam ni uporabnikova odlocitev.
+            self._uporabnik_igra = stanje["igra"]
         if self.scit() and stanje["oglas"]:
+            # Samo utisamo (lastnik 18. 10. 2026): brez preskoka, pospesevanja ali »Naslednje« med oglasom.
             if not self._utisal:
                 self._utisaj(True)
-            try:
-                self.kanal.izvedi(GUMB_JS % _js("control-button-skip-forward"), 3)   # preskoci, ce Spotify dovoli
-            except (NiOdziva, SpremenjenaStran):
-                pass
         elif self._utisal and not stanje["oglas"]:
             self._utisaj(False)
         self._popravi_zastoj(stanje)
@@ -753,13 +783,12 @@ class Racun:
         return stanje
 
     #: Po utisanem oglasu Spotify predvajalnik vcasih obstoji (oglas, premor, naslednje pesmi ni; preizkus 18. 10. 2026):
-    #: poslusalec mora sam pritisniti Predvajaj. Strazar ga potisne naprej: Predvajaj, nato Naslednja, nato znova Predvajaj.
-    ZASTOJ_KORAKI = ((2.0, "control-button-playpause"), (6.0, "control-button-skip-forward"), (12.0, "control-button-playpause"),
-                     (20.0, "control-button-skip-forward"), (30.0, "control-button-playpause"),
-                     (45.0, "control-button-skip-forward"), (60.0, "control-button-playpause"))
+    #: poslusalec bi moral sam pritisniti Predvajaj. Strazar pritisne SAMO Predvajaj (nikoli Naslednja) in samo, ce je
+    #: uporabnik pred tem poslusal - njegovega premora ali ustavitve ne razveljavi. Sekunde od zacetka zastoja.
+    ZASTOJ_KORAKI = (2.0, 12.0, 30.0, 60.0)
 
     def _popravi_zastoj(self, stanje: dict) -> None:
-        if not (self.scit() and stanje.get("oglas") and not stanje.get("igra")):
+        if not (self.scit() and stanje.get("oglas") and not stanje.get("igra") and self._uporabnik_igra):
             self._zastoj_od, self._zastoj_korak = 0.0, 0
             return
         zdaj = self._ura()
@@ -768,11 +797,13 @@ class Racun:
             return
         if self._zastoj_korak >= len(self.ZASTOJ_KORAKI):
             return
-        po, gumb = self.ZASTOJ_KORAKI[self._zastoj_korak]
-        if zdaj - self._zastoj_od >= po:
+        if zdaj - self._zastoj_od >= self.ZASTOJ_KORAKI[self._zastoj_korak]:
             self._zastoj_korak += 1
+            st = self._ukaz_st
             try:
-                self.kanal.izvedi(GUMB_JS % _js(gumb), 3)
+                # preverba (ne igra) in klik v istem izrazu: ce je medtem zaigral, klik ne bi ga ustavil
+                if st == self._ukaz_st and self._uporabnik_igra:
+                    self.kanal.izvedi(PREKLOP_JS % _js("igraj"), 3)
             except (NiOdziva, SpremenjenaStran):
                 pass
 
@@ -1018,6 +1049,7 @@ class Racun:
             if not self._pojdi(pot):
                 return {"napaka": "stran"}
             cilj = cilj_pot if uri and pot != cilj_pot else ""
+            self._uporabnik(True)
             izid = self.kanal.izvedi(PREDVAJAJ_JS % _js(cilj), 10)
             if izid == "ni":
                 return {"napaka": "stran"}
@@ -1040,7 +1072,15 @@ class Racun:
             return {"napaka": "ne_tece"}
         self._dotakni()
         try:
-            if ukaz in self.UKAZI:
+            if ukaz == "premor":
+                # preklop: preverba in klik v istem izrazu, uporabnikova zelja je stanje PO kliku
+                izid = self.kanal.izvedi(PREKLOP_JS % _js("preklopi"), 5)
+                if izid in ("igra", "premor"):
+                    self._uporabnik(izid == "igra")
+                ok = bool(izid)
+            elif ukaz in self.UKAZI:
+                if ukaz in ("naprej", "nazaj"):
+                    self._uporabnik(True)     # izbral je drugo pesem: zeli poslusati
                 ok = self.kanal.izvedi(GUMB_JS % _js(self.UKAZI[ukaz]), 5)
             elif ukaz in ("cas", "glasnost"):
                 try:
@@ -1050,11 +1090,12 @@ class Racun:
                 ok = self.kanal.izvedi(DRSNIK_JS % (_js("playback-progressbar" if ukaz == "cas" else "volume-bar"),
                                                     _js(round(delez, 4))), 5)
             elif ukaz == "ustavi":
-                # Gumb je preklopni: stanje beremo sveze (straza ga osvezi le vsako sekundo) in klice zvrstimo, sicer
-                # bi dva hkratna »ustavi« (Medijski center in druga vsebina) Spotify spet zagnala.
+                # Gumb je preklopni: preverba (igra?) in klik sta v ISTEM izrazu strani (brez tekme), klici pa zvrsceni,
+                # sicer bi dva hkratna »ustavi« (Medijski center in druga vsebina) Spotify spet zagnala. Uporabnikova
+                # ustavitev velja tudi za strazarja zastoja po oglasu (ne pritisne vec Predvajaj).
                 with self._ustavljam:
-                    if stanje_iz(self.kanal.izvedi(STANJE_JS, 5))["igra"]:
-                        self.kanal.izvedi(GUMB_JS % _js(self.UKAZI["premor"]), 5)
+                    self._uporabnik(False)
+                    self.kanal.izvedi(PREKLOP_JS % _js("ustavi"), 5)
                     self._predvajanje = dict(self._predvajanje, igra=False)
                 return {"ok": True}
             else:
