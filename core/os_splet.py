@@ -25,7 +25,7 @@ from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnos
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
-                             get_doh_proxy, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri)
+                             nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, ustavi_doh_proxy)
 from core.filter_lists import FILTER_ID
 
 
@@ -3840,7 +3840,8 @@ class VdelaniSplet:
     def koncaj(self):
         if self.filter_agent: self.filter_agent.stop()
         # Vir groženj je skupen za ves proces (threat_intel.skupna: tudi Scit) - ne ustavljamo ga tu.
+        # Skupni posrednik DoH ustavimo samo tu: koncaj() klice Safeer OS / brskalnik ob izhodu procesa.
         try:
-            get_doh_proxy(enabled=False)
+            ustavi_doh_proxy()
         except Exception:
             pass
