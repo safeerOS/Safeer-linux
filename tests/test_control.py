@@ -295,6 +295,10 @@ class ControlPredaja(unittest.TestCase):
                         lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), ""))
                 return self._posiljanje
 
+            def sme_posiljati(self, i):
+                # Kot SafeerLink.sme_posiljati: naprava v Linku ali znana iz kroga zaupanja (teh tu ni).
+                return any(n.get("id") == i for n in self.naprave)
+
             def ukaz_pocakaj(self, naprava, dejanje, parametri=None, cas=15.0):
                 self.ukazi.append((naprava, dejanje, parametri))
                 return self.odgovori.get((naprava, dejanje), {"ok": False, "koda": "cas"})
@@ -423,6 +427,8 @@ class ControlPredaja(unittest.TestCase):
             self.assertTrue(r["ok"] and r["obvesti"] and r["datotek"] == 1, r)
             self.assertEqual(app._naprave_metoda("Poslji", ["n-tel", "to ni json"])["koda"], "ni_datoteke")
             self.assertEqual(app._naprave_metoda("Poslji", ["", json.dumps(poti)])["koda"], "ni_naprave")
+            # Neznana oznaka ne caka 24 h na napravo, ki je ni (o cilju odloca Control, pregled 18. 10. 2026).
+            self.assertEqual(app._naprave_metoda("Poslji", ["n-neznan", json.dumps(poti)])["koda"], "ni_naprave")
         self.assertEqual(app._naprave_metoda("PosljiStanje", ["neznan"]), {"ok": False, "koda": "ni_posiljke"})
         for metoda in ('<method name="Poslji"><arg type="s" name="naprava" direction="in"/><arg type="s" name="poti" direction="in"/>',
                        '<method name="PosljiStanje"><arg type="s" name="id" direction="in"/>'):
