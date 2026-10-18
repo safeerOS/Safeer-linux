@@ -7305,6 +7305,8 @@ def main() -> int:
     # Sled ob sesutju (tudi ob SIGSEGV v knjiznici C) in dnevnik neujetih izjem; brez tega je ob
     # sesutju ostalo samo prazno namizje in nobenega podatka o tem, kaj je teklo.
     os_stabilnost.vkljuci("safeer-os")
+    # print() je sel na stdout (/dev/null pri zagonu iz menija): odslej v sled.log, brez skrivnosti.
+    os_stabilnost.preusmeri_izpis()
     if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os.environ.get(os_okna.IZKLOP):
         # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck) in brez skrivanja Mintovega
         # pulta, da je Safeer OS vsaj uporaben in da ima uporabnik pot nazaj v Mint.

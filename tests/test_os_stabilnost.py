@@ -252,6 +252,16 @@ class Zaganjalnik(unittest.TestCase):
         r, _ = self._zazeni("print('Safeer OS 0.4.2')\n", argumenti=["--version"])
         self.assertIn("Safeer OS", r.stdout)
 
+    def test_izpis_brez_terminala_gre_v_sled(self):
+        """Lastnik 18. 10. 2026: stdout je bil pri zagonu iz menija /dev/null - izpis gre zdaj v sled.log."""
+        r, mapa = self._zazeni("import sys\nprint('na stdout')\nsys.stderr.write('na stderr\\n')\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+        with open(os.path.join(mapa, "cache", "safeer-os", "sled.log"), encoding="utf-8") as d:
+            sled = d.read()
+        self.assertIn("na stdout", sled)
+        self.assertIn("na stderr", sled)
+
 
 class MintovPult(unittest.TestCase):
     """Mint pod masko mora ostati varnostna mreza: pult se vrne tudi, kadar Safeer OS ne konca lepo."""
@@ -365,6 +375,73 @@ class ZaganjalnikControl(unittest.TestCase):
             dnevnik = f.read()
         self.assertIn("signala 11", dnevnik)
         self.assertIn("odneham", dnevnik)
+
+    def test_izpis_brez_terminala_gre_v_sled(self):
+        r, mapa = self._zazeni("import sys\nprint('control stdout')\nsys.stderr.write('control stderr\\n')\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+        with open(os.path.join(mapa, "cache", "safeer-control", "sled.log"), encoding="utf-8") as f:
+            sled = f.read()
+        self.assertIn("control stdout", sled)
+        self.assertIn("control stderr", sled)
+
+
+class CistDnevnik(unittest.TestCase):
+    """V sled.log ne sme nic osebnega: zetoni v naslovih, gesla, poizvedbe, e-naslovi, domaca mapa (18. 10. 2026)."""
+
+    def test_zetoni_in_poizvedbe_izginejo(self):
+        c = os_stabilnost.cisto
+        self.assertEqual(c("napaka http://192.168.1.5:8096/Videos/1/stream?api_key=abc123&Static=true"),
+                         "napaka http://192.168.1.5:8096/Videos/1/stream?***")
+        self.assertEqual(c("iskanje https://www.google.com/search?q=moje+bolezni#x"), "iskanje https://www.google.com/search?***")
+        self.assertEqual(c("https://ime:geslo@streznik.si/pot"), "https://***@streznik.si/pot")
+        self.assertNotIn("SKRIVNOST123", c("glava Authorization: Bearer SKRIVNOST1234567"))
+        self.assertNotIn("abcdef123", c("{'token': 'abcdef123456', 'ime': 'x'}"))
+        self.assertNotIn("abcdef123", c("prijava geslo=abcdef123456"))
+        self.assertEqual(c("posta janez.novak@example.com"), "posta ***@example.com")
+        self.assertNotIn("eyJhbGciOi", c("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.abcdefghijkl"))
+        # Obicajno sporocilo ostane, kot je.
+        self.assertEqual(c("[SafeerOS] tema namizja: ni seje"), "[SafeerOS] tema namizja: ni seje")
+
+    def test_domaca_mapa_postane_tilda(self):
+        with mock.patch.dict(os.environ, {"HOME": "/home/preizkus"}):
+            self.assertEqual(os_stabilnost.cisto("ni datoteke /home/preizkus/Videi/a.mp4"), "ni datoteke ~/Videi/a.mp4")
+
+    def test_tok_cisti_po_vrsticah(self):
+        import io
+        cilj = io.StringIO()
+        t = os_stabilnost.CistIzpis(cilj)
+        t.write("del https://a.si/x?tok")
+        self.assertEqual(cilj.getvalue(), "", "nedokoncana vrstica caka na konec")
+        t.write("en=1\nnaslednja\n")
+        self.assertEqual(cilj.getvalue(), "del https://a.si/x?***\nnaslednja\n")
+        t.write("brez konca")
+        t.flush()
+        self.assertTrue(cilj.getvalue().endswith("brez konca"))
+
+    def test_print_gre_v_stderr_brez_skrivnosti(self):
+        """Brez terminala gre print() v stderr (zaganjalnik ga pise v sled.log), --version pa ostane na stdout."""
+        koda = ("import sys; sys.path.insert(0, %r)\n"
+                "from core import os_stabilnost\n"
+                "print('Safeer OS 1.0')\n"
+                "sys.stdout.flush()\n"
+                "os_stabilnost.preusmeri_izpis()\n"
+                "print('[SafeerOS] napaka https://x.si/a?token=SKRIVNO')\n"
+                "raise SystemExit(0)\n" % KOREN)
+        r = subprocess.run([sys.executable, "-c", koda], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "Safeer OS 1.0\n")
+        self.assertIn("[SafeerOS] napaka https://x.si/a?***", r.stderr)
+        self.assertNotIn("SKRIVNO", r.stderr)
+
+    def test_vstopni_tocki_preusmerita_izpis(self):
+        for ime in ("safeer_os.py", "safeer_control.py"):
+            with open(os.path.join(KOREN, ime), encoding="utf-8") as d:
+                besedilo = d.read()
+            telo = besedilo[besedilo.index("\ndef main("):]
+            self.assertIn("os_stabilnost.preusmeri_izpis()", telo, ime)
+            # Po enkratnih ukazih: --version mora se priti na stdout (CI ga bere).
+            self.assertLess(telo.index("--version"), telo.index("os_stabilnost.preusmeri_izpis()"), ime)
 
 
 if __name__ == "__main__":

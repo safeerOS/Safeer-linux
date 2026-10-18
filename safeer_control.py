@@ -2604,6 +2604,7 @@ def main() -> int:
     # Sled ob sesutju in dnevnik neujetih izjem (~/.cache/safeer-control/). Control tece ves dan v
     # ozadju; brez tega naprave samo izgubijo racunalnik in nihce ne ve, zakaj.
     os_stabilnost.vkljuci("safeer-control")
+    os_stabilnost.preusmeri_izpis()      # print() v sled.log (stderr), brez skrivnosti
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")
     GLib.set_application_name("Safeer Control")

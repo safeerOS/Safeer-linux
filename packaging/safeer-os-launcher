@@ -98,7 +98,9 @@ while :; do
         "$PY" "$APP_DIR/safeer_os.py" "$@"
     else
         obrezi_sled
-        "$PY" "$APP_DIR/safeer_os.py" "$@" 2>>"$SLED"
+        # Tudi stdout (g_print knjiznic C; print() Pythona preusmeri core/os_stabilnost.preusmeri_izpis): pri zagonu iz
+        # menija ali ob prijavi je bil /dev/null in sporocila o napakah so se izgubila (lastnik, 18. 10. 2026).
+        "$PY" "$APP_DIR/safeer_os.py" "$@" >>"$SLED" 2>&1
     fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: Safeer OS already restored the panel

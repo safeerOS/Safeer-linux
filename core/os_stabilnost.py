@@ -11,12 +11,19 @@ dnevniku jedra. Tu je troje, kar to odpravi:
     **varnem nacinu** - brez delov, ki so zadnjic padli (npr. seznam oken prek libwnck).
 
 Dnevnik je v ~/.cache/safeer-os/ (oz. safeer-control) in se sam obrezuje.
+
+Izpis print() je sel do 18. 10. 2026 na stdout, ta pa je pri zagonu iz menija ali ob prijavi /dev/null: sporocila o
+napakah so bila izgubljena. preusmeri_izpis() ga poslje v stderr, ki ga zaganjalnik zapise v sled.log, in iz vsake
+vrstice prej odstrani skrivnosti in osebne podatke (zetoni v naslovih, gesla, e-naslovi, domaca mapa) - lastnik:
+napake v dnevnik, ne pred uporabnika, in nic osebnega v dnevnik.
 """
 
 from __future__ import annotations
 
 import datetime
 import faulthandler
+import io
+import re
 import signal
 import json
 import os
@@ -58,7 +65,7 @@ def zapisi(ime_programa: str, besedilo: str) -> None:
         pot = os.path.join(_mapa(ime_programa), "dnevnik.log")
         _obrezi(pot)
         with open(pot, "a", encoding="utf-8") as d:
-            d.write("%s %s\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), besedilo))
+            d.write("%s %s\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), cisto(str(besedilo))))
     except Exception:  # noqa: BLE001
         pass
 
@@ -156,6 +163,120 @@ def dvigni_omejitev_datotek() -> int:
         return mehka
     except (ImportError, ValueError, OSError):
         return -1
+
+
+# ---------------------------------------------------------------------------- izpis v sled.log brez skrivnosti
+#: Parametri naslovov, katerih vrednost je skrivnost (zetoni streznikov Jellyfin/Plex/Emby, OAuth, podpisi, gesla).
+_SKRIVNI_PARAMETRI = re.compile(
+    r"(?i)([?&;#](?:access_token|refresh_token|id_token|token|api_key|apikey|api-key|key|auth|authorization|sig|"
+    r"signature|secret|client_secret|password|passwd|pass|pwd|session|sessionid|sid|code|x-plex-token|"
+    r"x-emby-token|x-mediabrowser-token|ticket|jwt)=)[^&#\s'\"<>]+")
+#: Uporabnik in geslo v naslovu (https://ime:geslo@streznik/).
+_UPORABNIK_V_NASLOVU = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@'\"<>]+(?::[^/\s@'\"<>]*)?@")
+_NOSILEC = re.compile(r"(?i)\b(bearer|basic)(\s+)[a-z0-9._~+/=-]{12,}")
+#: Kljuc in vrednost v izpisu slovarja ali JSON ("token": "...", geslo=...).
+_KLJUC_VREDNOST = re.compile(
+    r"(?i)([\"']?\b(?:access_token|refresh_token|id_token|token|api_key|apikey|password|passwd|secret|"
+    r"client_secret|geslo|zeton)\b[\"']?\s*[:=]\s*[\"']?)[^\s\"',;&}]{6,}")
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+_EPOSTA = re.compile(r"(?i)\b[a-z0-9._%+-]+@((?:[a-z0-9-]+\.)+[a-z]{2,})\b")
+
+
+#: Spletni naslov v besedilu: poizvedba (?q=iskanje, zetoni, seje) je skoraj vedno osebna, zato je v dnevniku ni.
+_NASLOV = re.compile(r"(?i)\b((?:https?|wss?|ftp)://[^\s'\"<>?#]*)([?#][^\s'\"<>]*)")
+
+
+def cisto(vrstica: str) -> str:
+    """Vrstica za dnevnik brez zetonov, gesel, poizvedb naslovov, e-naslovov in domace mape (ta postane ~)."""
+    vrstica = _UPORABNIK_V_NASLOVU.sub(r"\1***@", vrstica)
+    vrstica = _NASLOV.sub(lambda m: m.group(1) + m.group(2)[0] + "***", vrstica)
+    vrstica = _SKRIVNI_PARAMETRI.sub(r"\1***", vrstica)
+    vrstica = _NOSILEC.sub(r"\1\2***", vrstica)
+    vrstica = _KLJUC_VREDNOST.sub(r"\1***", vrstica)
+    vrstica = _JWT.sub("***", vrstica)
+    vrstica = _EPOSTA.sub(r"***@\1", vrstica)
+    dom = os.path.expanduser("~")
+    if len(dom) > 1 and dom in vrstica:
+        vrstica = vrstica.replace(dom, "~")
+    return vrstica
+
+
+class CistIzpis(io.TextIOBase):
+    """Tok besedila, ki pred pisanjem odstrani skrivnosti (cisto) - vrstico za vrstico, varno za vec niti."""
+
+    #: Nedokoncana vrstica, daljsa od tega, gre v dnevnik takoj (napredek brez nove vrstice ne sme rasti v nedogled).
+    NAJVEC_ZACETE = 8192
+
+    def __init__(self, tok) -> None:
+        super().__init__()
+        self._tok = tok
+        self._zacetek = ""
+        self._zaklep = threading.Lock()
+
+    @property
+    def encoding(self):  # noqa: D401 - kot pravi tok
+        return getattr(self._tok, "encoding", "utf-8")
+
+    @property
+    def errors(self):
+        return getattr(self._tok, "errors", "strict")
+
+    def writable(self) -> bool:
+        return True
+
+    def isatty(self) -> bool:
+        try:
+            return bool(self._tok.isatty())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def fileno(self) -> int:
+        return self._tok.fileno()
+
+    def write(self, besedilo) -> int:
+        besedilo = str(besedilo)
+        with self._zaklep:
+            vrstice = (self._zacetek + besedilo).split("\n")
+            self._zacetek = vrstice.pop()
+            if len(self._zacetek) > self.NAJVEC_ZACETE:
+                vrstice.append(self._zacetek)
+                self._zacetek = ""
+            if vrstice:
+                try:
+                    self._tok.write("".join(cisto(v) + "\n" for v in vrstice))
+                except Exception:  # noqa: BLE001 - dnevnik ne sme podreti programa (zaprt stderr ob odjavi)
+                    pass
+        return len(besedilo)
+
+    def flush(self) -> None:
+        with self._zaklep:
+            try:
+                if self._zacetek:
+                    self._tok.write(cisto(self._zacetek))
+                    self._zacetek = ""
+                self._tok.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def preusmeri_izpis() -> None:
+    """print() in sporocila Pythona gredo v stderr (zaganjalnik ga pise v sled.log), ociscena skrivnosti.
+
+    Klice se iz main() Safeer OS in Safeer Controla po enkratnih ukazih (--version ostane na stdout). Pri zagonu iz
+    terminala ostane stdout terminal (razvoj), a tudi tam brez skrivnosti."""
+    if isinstance(sys.stderr, CistIzpis):
+        return
+    napake = CistIzpis(sys.stderr) if sys.stderr is not None else None
+    if napake is not None:
+        sys.stderr = napake
+    try:
+        terminal = sys.stdout is not None and sys.stdout.isatty()
+    except Exception:  # noqa: BLE001
+        terminal = False
+    if terminal:
+        sys.stdout = CistIzpis(sys.stdout)
+    elif napake is not None:
+        sys.stdout = napake
 
 
 #: Kako pogosto se med delom preveri velikost sled.log.
