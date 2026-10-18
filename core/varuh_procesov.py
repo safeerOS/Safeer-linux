@@ -624,18 +624,17 @@ class Varuh:
 
 # ---------------------------------------------------------------------------------------------- obvestilo uporabniku
 def obvesti_uporabnika(naslov: str, besedilo: str) -> bool:
-    """Obvestilo namizja brez Gtk: gdbus (org.freedesktop.Notifications), sicer notify-send. Samo ob obupu (redko),
-    zato subprocess tu (leni uvoz)."""
+    """Obvestilo namizja brez Gtk: org.freedesktop.Notifications.Notify po vodilu seje (ista pot kot core/obvestila.py
+    brez Gio.Application), klic z gdbus - Gio (gi, +MB) v varuhu ne nalagamo. Samo ob obupu (redko), zato subprocess
+    tu (leni uvoz). Brez notify-send (pravilo tests/test_obvestila.py): gdbus je v GLib (Mint, Ubuntu, runtime
+    Flatpaka; v Flatpaku tudi ovoj /app/host-bin), notify-send pa ne."""
     import shutil
     import subprocess
-    if shutil.which("gdbus"):
-        ukaz = ["gdbus", "call", "--session", "--timeout", "5", "--dest", "org.freedesktop.Notifications",
-                "--object-path", "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
-                "Safeer OS", "0", "safeer-os", naslov, besedilo, "[]", "{'urgency': <byte 2>}", "0"]
-    elif shutil.which("notify-send"):
-        ukaz = ["notify-send", "-u", "critical", "-i", "safeer-os", naslov, besedilo]
-    else:
+    if not shutil.which("gdbus"):
         return False
+    ukaz = ["gdbus", "call", "--session", "--timeout", "5", "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
+            "Safeer OS", "0", "safeer-os", naslov, besedilo, "[]", "{'urgency': <byte 2>}", "0"]
     try:
         return subprocess.run(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               timeout=10).returncode == 0

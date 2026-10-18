@@ -338,5 +338,58 @@ class Zaganjalnik(unittest.TestCase):
         self.assertLess(s.index('exec flatpak run "$FP_ID"'), s.index("core/varuh_procesov.py"))
 
 
+class ObvestiloUporabniku(unittest.TestCase):
+    """Obup varuha: Notify po vodilu seje (lazni streznik obvestil na zasebnem vodilu), brez notify-send."""
+
+    def test_notify_po_vodilu_seje(self):
+        import shutil
+        import threading
+        try:
+            from gi.repository import Gio, GLib
+        except Exception:  # noqa: BLE001
+            self.skipTest("potrebuje PyGObject")
+        if not (shutil.which("dbus-daemon") and shutil.which("gdbus")):
+            self.skipTest("potrebuje dbus-daemon in gdbus")
+        vodilo = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
+        vodilo.up()
+        self.addCleanup(vodilo.down)
+        naslov = vodilo.get_bus_address()
+        streznik = Gio.DBusConnection.new_for_address_sync(
+            naslov, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+            None, None)
+        self.addCleanup(streznik.close_sync, None)
+        info = Gio.DBusNodeInfo.new_for_xml(
+            '<node><interface name="org.freedesktop.Notifications"><method name="Notify">'
+            '<arg type="s" direction="in"/><arg type="u" direction="in"/><arg type="s" direction="in"/>'
+            '<arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="as" direction="in"/>'
+            '<arg type="a{sv}" direction="in"/><arg type="i" direction="in"/><arg type="u" direction="out"/></method>'
+            '</interface></node>')
+        klici = []
+
+        def klic(_v, _p, _pot, _vm, metoda, parametri, k):
+            klici.append((metoda, parametri.unpack()))
+            k.return_value(GLib.Variant("(u)", (3,)))
+        reg = streznik.register_object("/org/freedesktop/Notifications", info.interfaces[0], klic, None, None)
+        self.addCleanup(streznik.unregister_object, reg)
+        Gio.bus_own_name_on_connection(streznik, "org.freedesktop.Notifications", Gio.BusNameOwnerFlags.NONE,
+                                       None, None)
+        izid = []
+        with mock.patch.dict(os.environ, {"DBUS_SESSION_BUS_ADDRESS": naslov}):
+            # gdbus caka na odgovor, streznik odgovarja v glavni zanki tega procesa: klic v svoji niti.
+            nit = threading.Thread(target=lambda: izid.append(vp.obvesti_uporabnika("Naslov", "Opis")), daemon=True)
+            nit.start()
+            kontekst, konec = GLib.MainContext.default(), time.monotonic() + 15
+            while nit.is_alive() and time.monotonic() < konec:
+                kontekst.iteration(False) or time.sleep(0.01)
+            nit.join(1)
+        self.assertEqual(izid, [True])
+        self.assertEqual(klici, [("Notify", ("Safeer OS", 0, "safeer-os", "Naslov", "Opis", [], {"urgency": 2}, 0))])
+
+    def test_brez_gdbus_ne_poskusa_drugega_programa(self):
+        with mock.patch("shutil.which", lambda _i: None), mock.patch("subprocess.run") as zagon:
+            self.assertFalse(vp.obvesti_uporabnika("Naslov", "Opis"))
+        zagon.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
