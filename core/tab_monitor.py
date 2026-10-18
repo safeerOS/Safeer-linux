@@ -135,6 +135,12 @@ class TabMonitor:
     def pid_of(self, tab_id):
         return self._pid_of.get(tab_id, 0)
 
+    def pair(self, tab_id, pid):
+        """Pair a tab with a process found some other way (Splet on WebKitGTK 6.0 asks the page itself, see
+        core/splet_spanje.py). Dropped again by the next sample once the process is gone."""
+        if int(pid) > 0:
+            self._pid_of[tab_id] = int(pid)
+
     def attribute(self, wanting, live_pids):
         """Pair tabs that want a process (list of (tab_id, since), oldest first) with processes
         that appeared since the last sample. Drops pairings whose process is gone."""

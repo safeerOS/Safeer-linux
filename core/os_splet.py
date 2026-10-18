@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, scit_pravila, splet_prenosi, splet_temno, zascita, zasebni_webkit)
+                  safeer_drm, scit_pravila, splet_prenosi, splet_spanje, splet_temno, zascita, zasebni_webkit)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
@@ -925,6 +925,8 @@ class VdelaniSplet:
         self.aplikacije = {}
         self._threat_service = None
         self._ustvari_kontekst()
+        # Spanje zavihkov v ozadju, safeer://procesi in obnova omreznega procesa (core/splet_spanje.py, iz GTK3).
+        self.spanje = splet_spanje.SpanjeZavihkov(self)
         self._zgradi()
         self._zazeni_zascito()
         if prvi_zavihek:
@@ -1225,6 +1227,7 @@ class VdelaniSplet:
             "zapisek": lambda: self._v_zapisek(), "temno": lambda: self._temno_preklopi_stran(),
             "natisni": lambda: self.izvedi("natisni"), "celozaslonsko": lambda: self.izvedi("celozaslonsko"),
             "izbrisi": lambda: self._izbrisi_podatke(), "dovoljenja": lambda: self._dovoljenja_strani(),
+            "procesi": lambda: self.spanje.odpri_procese(nov=True),
         }
         for ime, dejanje in dejanja.items():
             d = self.Gio.SimpleAction.new(ime, None)
@@ -1372,6 +1375,9 @@ class VdelaniSplet:
             jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
             kljuc = "na_strani_vklopi" if g in self._temno_izjeme() else "na_strani_izklopi"
             vnosi.insert(-2, (splet_temno.besedilo(jezik, kljuc), "temno"))
+        # Procesi (safeer://procesi, core/splet_spanje.py) pred nastavitvami; besedilo je naslov strani procesov.
+        i = next((k for k, v in enumerate(vnosi) if v[1] == "nastavitve"), len(vnosi))
+        vnosi.insert(i, (splet_spanje.naslov_menija(self.jezik), "procesi"))
         for napis, dejanje in vnosi:
             meni.append(napis, "splet." + dejanje)
         return meni
@@ -1564,7 +1570,8 @@ class VdelaniSplet:
                 except Exception:  # noqa: BLE001
                     pass
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
-        ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
+        ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE,
+                                nasa=splet_spanje.je_notranja)
         pogled.connect("decide-policy", self._politika)
         # Napaka omrezja ali potrdila: nasa stran v jeziku vmesnika (prej WebKitova v anglescini; kot Safeer Browser).
         from core.network_errors import NetworkErrorHandler
@@ -1711,6 +1718,7 @@ class VdelaniSplet:
         pogled.connect("notify::is-muted", lambda p, _l: self._osvezi_zvok(p))
         pogled.connect("notify::zoom-level", lambda p, _l: p is self.trenutni() and self._osvezi_povecavo())
         self.zavihki.append(zavihek)
+        self.spanje.nov(zavihek, povezan)
         self.izberi(pogled)
         if povezan is None:
             self.odpri(naslov, pogled, lokalno)      # okno strani nalozi WebKit sam (zahteva iz window.open)
@@ -1735,7 +1743,7 @@ class VdelaniSplet:
     def _zapomni_zaprt(self, pogled) -> None:
         """Naslov zaprtega zavihka za Ctrl+Shift+T (najvec 20)."""
         try:
-            naslov = pogled.get_uri() or ""
+            naslov = splet_spanje.naslov_pogleda(pogled)      # uspan zavihek nima vec get_uri()
         except Exception:  # noqa: BLE001
             naslov = ""
         if naslov.startswith(("http://", "https://")):
@@ -2164,6 +2172,8 @@ class VdelaniSplet:
         z = self._zavihek(pogled)
         if z is not None and getattr(self, "drsnik_zavihkov", None) is not None:
             self.GLib.idle_add(lambda v=z["vrstica"]: self._v_vidno(v) or False)
+        if getattr(self, "spanje", None) is not None:
+            self.spanje.izbran(pogled)      # uspan zavihek se zbudi, prejsnji postane neaktiven
         self._osvezi_orodja()
 
     def _v_vidno(self, vrstica) -> None:
@@ -2221,6 +2231,9 @@ class VdelaniSplet:
 
     def _vnesi_naslov(self, vnos):
         besedilo = vnos.get_text().strip()
+        spanje = getattr(self, "spanje", None)
+        if spanje is not None and spanje.odpri_procese(besedilo):
+            return                          # »procesi« ali safeer://procesi
         naslov = lokalni_naslov(besedilo) or normalize_web_url(besedilo)
         if not naslov:
             motor = self.config.get("search_engine", "duckduckgo")
@@ -2229,6 +2242,9 @@ class VdelaniSplet:
 
     def _politika(self, pogled, odlocitev, vrsta):
         W = self.WebKit2
+        spanje = getattr(self, "spanje", None)
+        if spanje is not None and spanje.politika(pogled, odlocitev, vrsta):
+            return True             # safeer://procesi (samo uporabnik in nasa stran) - core/splet_spanje.py
         if vrsta == W.PolicyDecisionType.RESPONSE:
             return self._odziv(pogled, odlocitev)
         if vrsta not in (W.PolicyDecisionType.NAVIGATION_ACTION, W.PolicyDecisionType.NEW_WINDOW_ACTION): return False
