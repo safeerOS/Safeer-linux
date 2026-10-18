@@ -59,7 +59,7 @@ from gi.repository import WebKit as WebKit2  # noqa: E402
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
-from core import link_dostop  # noqa: E402
+from core import link_dostop, link_posiljanje  # noqa: E402
 
 
 def _v_ozjem_krogu(id_naprave: str) -> bool:
@@ -1226,7 +1226,9 @@ class SafeerControl(_OSNOVA):
             return {"ok": True, "naprave": [
                 {"id": n.get("id", ""), "ime": n.get("ime", ""), "zmoznosti": n.get("zmoznosti") or [],
                  "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", ""),
-                 "ta": n.get("id", "") == link._id(), "ozji": _v_ozjem_krogu(n.get("id", ""))} for n in link.naprave]}
+                 "ta": n.get("id", "") == link._id(), "ozji": _v_ozjem_krogu(n.get("id", "")),
+                 # Kdaj je uporabnik tej napravi zadnjic poslal datoteke: Datoteke jo pokazejo prvo (en klik).
+                 "zadnjic": link_posiljanje.zadnjic(link.nastavitve, n.get("id", ""))} for n in link.naprave]}
         if metoda.startswith("Shramba"):
             # Skupni prostor: datoteka tega racunalnika na napravo z najvec prostora (core/link_shramba.py).
             if getattr(self, "shramba", None) is None:
@@ -1408,19 +1410,19 @@ class SafeerControl(_OSNOVA):
             ok, n = link.poslji_besedilo_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
             return {"ok": True} if ok else {"ok": False, "koda": n.get("koda", ""), "message": n.get("sporocilo", "")}
         if metoda in ("Poslji", "PosljiStanje"):
-            # Datoteke iz Datotek Safeer OS na izbrano napravo (povleci na napravo, »Poslji na napravo«).
-            if getattr(self, "posiljanje", None) is None:
-                from core import link_posiljanje
-                self.posiljanje = link_posiljanje.Posiljanje(
-                    link.poslji_datoteko_napravi,
-                    lambda i: next((str(n.get("ime") or "") for n in link.naprave if n.get("id") == i), ""))
+            # Datoteke iz Datotek Safeer OS (povleci na napravo, »Poslji na napravo«) in iz Nema (safeerctl send):
+            # ena vrsta z Linkom (link.posiljanje_datotek) - posiljka pocaka na napravo, ki je ni, in nadaljuje.
             if metoda == "PosljiStanje":
-                return self.posiljanje.stanje(str(a[0]) if a else "")
+                return link.posiljanje_datotek().stanje(str(a[0]) if a else "")
             try:
                 poti = json.loads(str(a[1])) if len(a) > 1 else []
             except ValueError:
                 poti = []
-            return self.posiljanje.zacni(str(a[0]) if a else "", [str(p) for p in poti] if isinstance(poti, list) else [])
+            # {"poti": [...], "obvesti": true}: safeerctl send --notify (Nemo) - Control obvesti namizno, ko je poslano.
+            obvesti = bool(poti.get("obvesti")) if isinstance(poti, dict) else False
+            poti = poti.get("poti") if isinstance(poti, dict) else poti
+            return link.posiljanje_datotek().zacni(str(a[0]) if a else "",
+                                                   [str(p) for p in poti] if isinstance(poti, list) else [], obvesti=obvesti)
         if metoda == "Ponudi":
             # "Poslji na napravo" s tega racunalnika: kar Safeer OS igra, napravi (zeton streznika datotek za njo);
             # tam caka Sprejmi, tu igra naprej.

@@ -217,6 +217,25 @@ class Posiljanje(Osnova):
         self.assertEqual(self.json(), {"ok": True, "id": "n-tv", "name": "Dnevna soba", "files": 1, "sent": 1, "folders": 0,
                                        "skipped_folders": 0})
 
+    def test_obvesti_ne_caka(self):
+        """safeerctl send --notify (Nemo): Control dobi {"poti", "obvesti"} in poslje v ozadju; ukaz konca takoj."""
+        self.c.odgovori["Poslji"] = {"ok": True, "id": "p1", "stanje": "caka", "ime": "a.txt", "datotek": 1}
+        self.assertEqual(self.zazeni("send", "--notify", "/tmp/a b.txt", "--to", "dnevna"), 0)
+        metoda, naprava, telo = self.c.klici[1]
+        self.assertEqual((metoda, naprava, json.loads(telo)), ("Poslji", "n-tv", {"poti": ["/tmp/a b.txt"], "obvesti": True}))
+        self.assertFalse([k for k in self.c.klici if k[0] == "PosljiStanje"], "ne caka na konec")
+        self.assertIn("v ozadju", self.izpisi[-1])
+
+    def test_caka_na_napravo_in_nadaljuje(self):
+        self.c.odgovori["Poslji"] = {"ok": True, "id": "p1", "stanje": "caka", "ime": "a.txt", "datotek": 1}
+        self.c.stanja = [{"ok": True, "id": "p1", "stanje": "posiljam", "ime": "a.txt", "odstotek": 40, "datotek": 1},
+                         {"ok": True, "id": "p1", "stanje": "poslano", "ime": "a.txt", "datotek": 1, "poslanih": 1}]
+        vmes = []
+        a = safeerctl.razclenjevalnik().parse_args(["send", "a.txt", "--to", "dnevna"])
+        self.assertEqual(safeerctl.ukaz_send(a, self.c, self.izpisi.append, napredek=vmes.append, spi=lambda s: None), 0)
+        self.assertTrue(vmes[0].startswith("Čakam na napravo Dnevna soba"), vmes)
+        self.assertEqual(self.izpisi, ["Poslano napravi Dnevna soba: 1"])
+
     def test_naprava_brez_zmoznosti(self):
         self.assertEqual(self.zazeni("send", "a.txt", "--to", "pisarna"), 1)
         self.assertIn("manjka zmožnost »file«", self.napake[-1])

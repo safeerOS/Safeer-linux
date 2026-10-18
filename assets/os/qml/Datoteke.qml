@@ -471,6 +471,17 @@ Steklo {
     // pove, ali je kaksna naprava za posiljanje in v katere oblike se izbrano da pretvoriti - vnos, ki ne bi deloval,
     // se ne pokaze (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«).
     property var napraveZaPos: []
+    readonly property int vMeniju: 3     // toliko naprav meni pokaze neposredno (»Poslji na »Tablica««)
+    // Vnos »Poslji na »<naprava>««: i-ta naprava iz napraveZaPos; brez nje vnosa ni (nic nedelujocega v meniju).
+    component VnosPoslji: MeniVnos {
+        property int i: 0
+        property bool vidno: false
+        property var paket: null          // vnos datoteke {ime, pot} ali {ime, poti}
+        readonly property var cilj: panel.napraveZaPos.length > i ? panel.napraveZaPos[i] : null
+        text: cilj ? koren.t("posljiNa", { naprava: cilj.ime }) : ""
+        visible: vidno && !!cilj && !!paket
+        onTriggered: if (cilj && paket) panel.posljiNapravi(cilj, paket)
+    }
     property var ciljiPretvorbe: []
     property bool tvMozna: false         // »Pretvori za televizor«: Control + ffmpeg ali naprava, ki zna (pretvorbaZaTvMozna)
     property bool shrambaMozna: false    // »Shrani na napravo«: naprava v Linku, ki shrani (isti odgovor, »shramba«)
@@ -494,12 +505,15 @@ Steklo {
                 pokazi()
             }, pokazi)
         }
-        if (jeLokalniPogled() && dat.length) {
+        if (jeLokalniPogled() && vsi_.length) {
+            // Datoteke in mape (mapa gre cela); zadnja uporabljena naprava je prva (safeer_os.naprave_za_posiljanje).
             ostane++
             koren.klic("napraveZaPosiljanje", [], function (n) {
                 if (st === panel.zahtevaMenija) panel.napraveZaPos = (n || []).filter(function (x) { return x && x.id })
                 pokazi()
             }, pokazi)
+        }
+        if (jeLokalniPogled() && dat.length) {
             if (dat.length <= 50) dat.forEach(function (d) {
                 ostane++
                 koren.klic("pretvorbaMoznosti", [d.pot], function (m) {
@@ -895,7 +909,12 @@ Steklo {
         MeniVnos { text: koren.t("preimenuj"); visible: meni.lok; onTriggered: panel.novo({ nacin: "preimenuj", pot: meni.e.pot, ime: meni.e.ime, mapa: meni.e.mapa }) }
         MeniVnos { text: koren.t("vKos"); visible: meni.lok; onTriggered: panel.vKos(meni.e) }
         MeniVnos { text: koren.t("lastnosti"); objectName: "vnosLastnosti"; visible: meni.lok && panel.linux; onTriggered: lastnosti.pokazi(meni.e.pot) }
-        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPoslji"; visible: meni.datoteka && panel.napraveZaPos.length > 0; onTriggered: izbirnik.poslji(meni.e) }
+        // »Poslji na »Tablica««: prve naprave neposredno (en klik, zadnja uporabljena prva), pri vec se izbira (18. 10. 2026).
+        VnosPoslji { i: 0; objectName: "vnosPoslji"; vidno: meni.lok; paket: meni.e }
+        VnosPoslji { i: 1; objectName: "vnosPoslji1"; vidno: meni.lok; paket: meni.e }
+        VnosPoslji { i: 2; objectName: "vnosPoslji2"; vidno: meni.lok; paket: meni.e }
+        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPosljiIzbira"; visible: meni.lok && panel.napraveZaPos.length > panel.vMeniju
+                   onTriggered: izbirnik.poslji(meni.e) }
         MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux && panel.shrambaMozna; onTriggered: shrani.zacni(meni.e) }
         MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvori"; visible: meni.datoteka && panel.ciljiPretvorbe.length > 0; onTriggered: izbirnik.pretvori(meni.e) }
         // Krog solidarnosti (Safeer Control): video ali vsi videi v mapi za televizor na napravi z najboljsim kodirnikom.
@@ -917,6 +936,8 @@ Steklo {
         readonly property bool lok: panel.linux && panel.jeLokalniPogled()
         readonly property var dat: meniVec.v.filter(function (x) { return !x.mapa })
         readonly property string n: panel.steviloElementov(meniVec.v.length)
+        // Vse izbrano (tudi mape) za »Poslji na …«.
+        readonly property var paket: meniVec.v.length ? { poti: meniVec.v.map(function (x) { return x.pot }), ime: meniVec.n } : null
         readonly property bool vsiPriljubljeni: meniVec.v.length > 0 && meniVec.v.every(function (x) { return koren.jePriljubljenaPot(x.pot) })
         function pokazi(kje, x, y) {
             v = panel.izbraniVnosi()
@@ -930,7 +951,12 @@ Steklo {
         MeniVnos { text: koren.t("vSmetiN", { n: meniVec.n }); objectName: "vnosSmetiVec"; visible: meniVec.lok; onTriggered: panel.vKosVec(meniVec.v) }
         MeniVnos { text: koren.t(meniVec.vsiPriljubljeni ? "odstraniPriljubljeno" : "dodajPriljubljeno"); objectName: "vnosPriljubljenoVec"
                    visible: meniVec.lok; onTriggered: panel.preklopiPriljubljeneVec(meniVec.v) }
-        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPosljiVec"; visible: meniVec.lok && meniVec.dat.length > 0 && panel.napraveZaPos.length > 0; onTriggered: izbirnik.posljiVec(meniVec.dat) }
+        VnosPoslji { i: 0; objectName: "vnosPosljiVec"; vidno: meniVec.lok; paket: meniVec.paket }
+        VnosPoslji { i: 1; objectName: "vnosPosljiVec1"; vidno: meniVec.lok; paket: meniVec.paket }
+        VnosPoslji { i: 2; objectName: "vnosPosljiVec2"; vidno: meniVec.lok; paket: meniVec.paket }
+        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPosljiVecIzbira"
+                   visible: meniVec.lok && meniVec.v.length > 0 && panel.napraveZaPos.length > panel.vMeniju
+                   onTriggered: izbirnik.posljiVec(meniVec.v) }
         MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvoriVec"; visible: meniVec.lok && meniVec.dat.length > 1 && meniVec.dat.length === meniVec.v.length && panel.ciljiPretvorbe.length > 0
                    onTriggered: izbirnik.pretvoriVec(meniVec.dat) }
         // Krog solidarnosti: vsi izbrani videi (in videi v izbranih mapah) za televizor - naprave si delo razdelijo.
@@ -1147,7 +1173,7 @@ Steklo {
         koren.obvesti(koren.t("posPosiljam", { naprava: naprava.ime, ime: e.ime }))
         koren.klic("posljiNapravi", [naprava.id, e.poti || [e.pot]], function (r) {
             if (!r || !r.ok) { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })); return }
-            if (r.stanje === "posiljam") posiljanje.dodaj(r.id, naprava, e.ime)
+            if (r.stanje === "posiljam" || r.stanje === "caka") posiljanje.dodaj(r.id, naprava, e.ime)
             else koren.obvesti(koren.t("posPoslano", { naprava: naprava.ime, ime: e.ime }))
         }, function () { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })) })
     }
@@ -1185,7 +1211,9 @@ Steklo {
                 var o = posiljanje.dela[id]
                 if (!o) return
                 if (!r || !r.ok) { if (++o.napak > 5) { posiljanje.koncaj(id); koren.obvesti(koren.t("posNapaka", { naprava: o.naprava.ime })) } return }
-                if (r.stanje === "posiljam") return
+                // Naprave ni: posiljka pocaka in nadaljuje sama (core/link_posiljanje) - povemo enkrat.
+                if (r.stanje === "caka" && !o.caka) { o.caka = true; koren.obvesti(koren.t("posCaka", { naprava: o.naprava.ime })) }
+                if (r.stanje === "posiljam" || r.stanje === "caka") return
                 posiljanje.koncaj(id)
                 koren.obvesti(r.stanje === "poslano" ? koren.t("posPoslano", { naprava: o.naprava.ime, ime: o.ime })
                                                      : koren.t("posNapaka", { naprava: o.naprava.ime }))

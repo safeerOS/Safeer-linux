@@ -377,14 +377,15 @@ class Izbira(Osnova):
         self.assertFalse(self._obj("vnosPretvoriVec").property("visible"))         # ni skupne oblike: vnosa ni
         self._obj("vnosKopirajVec").triggered.emit()
         self.assertEqual(self._js("datoteke.odlozisce.poti"), [txt, png, mp3])
-        # Poslji na napravo: vse naenkrat.
+        # Poslji na »Televizor«: vse naenkrat z enim klikom (naprava je neposredno v meniju, 18. 10. 2026).
         self._js("close()", meni)
         self._js("datoteke.meniVrstice(datoteke.prikazani[1], null)")
         self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
-        self._obj("vnosPosljiVec").triggered.emit()
         self.assertTrue(self._klicano("napraveZaPosiljanje", []))
-        self.assertTrue(self._pocakaj(lambda: len(self._js("moznosti", self._izbirnik())) == 1))
-        self._js("moznosti[0].ob()", self._izbirnik())
+        self.assertEqual(self._obj("vnosPosljiVec").property("text"), "Pošlji na »Televizor«")
+        self.assertFalse(self._obj("vnosPosljiVec1").property("visible"), "ena naprava, en vnos")
+        self.assertFalse(self._obj("vnosPosljiVecIzbira").property("visible"), "izbira samo pri vec kot treh napravah")
+        self._obj("vnosPosljiVec").triggered.emit()
         self.assertTrue(self._klicano("posljiNapravi", ["tv1", [txt, png, mp3]]))
         # Delete: vse izbrane v Smeti z enim klicem; Ctrl+Z razveljavi vse naenkrat.
         self._klik_vrstice(1)
@@ -404,6 +405,23 @@ class Izbira(Osnova):
             if o.property("naslov") is not None and o.property("moznosti") is not None:
                 return o
         self.fail("izbirnik")
+
+    def test_poslji_na_napravo_en_klik_tudi_mapa(self):
+        """Prve tri naprave so v meniju neposredno (zadnja uporabljena prva - vrstni red da Safeer OS), cetrta je v
+        izbiri; tudi mapa gre na napravo (cela) - lastnik, 18. 10. 2026."""
+        self._namizje()
+        self._odpri_dokumente()
+        self.odgovori["napraveZaPosiljanje"] = [{"id": "t%d" % i, "ime": ime} for i, ime in
+                                               enumerate(["Tablica", "Telefon", "Televizor", "Prenosnik"])]
+        self._js("datoteke.meniZa(0)")             # mapa Projekti
+        meni = self._obj("meniDatoteke")
+        self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
+        self.assertTrue(self._pocakaj(lambda: self._obj("vnosPoslji2").property("visible")))
+        self.assertEqual([self._obj(i).property("text") for i in ("vnosPoslji", "vnosPoslji1", "vnosPoslji2")],
+                         ["Pošlji na »Tablica«", "Pošlji na »Telefon«", "Pošlji na »Televizor«"])
+        self.assertTrue(self._obj("vnosPosljiIzbira").property("visible"))
+        self._obj("vnosPoslji1").triggered.emit()
+        self.assertTrue(self._klicano("posljiNapravi", ["t1", [os.path.join(self.dok, "Projekti")]]))
 
     def test_brez_mrtvih_vnosov(self):
         """Brez naprave ni »Poslji na napravo«, brez pretvorbe ni »Pretvori v …«; ko gre, sta tam (15. 10. 2026)."""

@@ -616,6 +616,20 @@ def sme_sporocilo(device_id: str, tip: str, dejanje: str = "", zascita: Optional
     return _sme_posiljatelj(device_id, zahteva_sporocila(tip, dejanje), zascita, tip in link_e2e.ZASCITENI_TIPI)
 
 
+def prejem_brez_vprasanja(device_id: str, zascita: Optional[str] = None) -> bool:
+    """Ali datoteko te naprave (share.file) shranimo brez vprasanja: samo od naprave iz ozjega kroga TEGA racunalnika
+    (kaksno dovoljenje tu, lastnik 18. 10. 2026). Od drugih v Safeer Linku najprej vprasamo; datoteka je prosta
+    (zahteva_sporocila), zato je ne zavrnemo. Odlocitev ne podeli nobenega dostopa - samo izbere med »shrani« in
+    »vprasaj«. share.file sestavi sredisce, ki je posiljatelja preverilo po zetonu (zascite od naprave do naprave ta
+    tip nima), zato je oznaka posiljatelja tu ista kot v seznamu naprav; ob napaki branja zapisa vprasamo."""
+    try:
+        if zascita:
+            return bool(zmoznosti_jedra(str(zascita)))
+        return bool(zmoznosti(str(device_id or "")))
+    except Exception:  # noqa: BLE001 - »ne vem« ni »da«
+        return False
+
+
 def nastavi(device_id: str, dano: Iterable[str]) -> bool:
     """Uporabnik je napravi dolocil dostop; prazen nabor = brez dostopa (naprava samo pomaga pri povezavi)."""
     if not device_id or je_ta_naprava(device_id):

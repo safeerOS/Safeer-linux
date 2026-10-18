@@ -250,13 +250,10 @@ def _oddaja(gostitelj: str, vrata: int, odtis: str, zeton: str, cilj_pot: str, p
 # ----------------------------------------------------------------------
 
 def mapa_prenosov() -> str:
-    for kandidat in ("~/Prenosi", "~/Downloads"):
-        p = os.path.expanduser(kandidat)
-        if os.path.isdir(p):
-            return p
-    p = os.path.expanduser("~/Prenosi")
-    os.makedirs(p, exist_ok=True)
-    return p
+    """Mapa prenosov po XDG (na slovenskem Mintu »Prejemi«; lastnik, 18. 10. 2026). Prej sta bili tu samo Prenosi in
+    Downloads - na slovenskem namizju je zato prejeta datoteka koncala v novi mapi Prenosi poleg prave Prejemi."""
+    from core import splet_prenosi
+    return splet_prenosi.mapa_prenosov(None)
 
 
 def varno_ime(ime: str) -> str:

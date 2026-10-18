@@ -286,6 +286,15 @@ class ControlPredaja(unittest.TestCase):
             def _hub(self):
                 return ""
 
+            def posiljanje_datotek(self):
+                # Kot SafeerLink.posiljanje_datotek: ena vrsta, oddaja po poslji_datoteko_napravi.
+                from core import link_posiljanje
+                if getattr(self, "_posiljanje", None) is None:
+                    self._posiljanje = link_posiljanje.Posiljanje(
+                        lambda *a, **k: self.poslji_datoteko_napravi(*a, **k),
+                        lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), ""))
+                return self._posiljanje
+
             def ukaz_pocakaj(self, naprava, dejanje, parametri=None, cas=15.0):
                 self.ukazi.append((naprava, dejanje, parametri))
                 return self.odgovori.get((naprava, dejanje), {"ok": False, "koda": "cas"})
@@ -409,6 +418,9 @@ class ControlPredaja(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual((s["stanje"], s["poslanih"], s["odstotek"]), ("poslano", 2, 100))
             self.assertEqual(oddano, [("n-tel", "a.txt"), ("n-tel", "b.txt")])
+            # safeerctl send --notify (Nemo): {"poti", "obvesti"} - posiljka nosi zahtevo po obvestilu.
+            r = app._naprave_metoda("Poslji", ["n-tel", json.dumps({"poti": poti[:1], "obvesti": True})])
+            self.assertTrue(r["ok"] and r["obvesti"] and r["datotek"] == 1, r)
             self.assertEqual(app._naprave_metoda("Poslji", ["n-tel", "to ni json"])["koda"], "ni_datoteke")
             self.assertEqual(app._naprave_metoda("Poslji", ["", json.dumps(poti)])["koda"], "ni_naprave")
         self.assertEqual(app._naprave_metoda("PosljiStanje", ["neznan"]), {"ok": False, "koda": "ni_posiljke"})

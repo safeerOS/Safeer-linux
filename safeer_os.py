@@ -892,11 +892,14 @@ def naprave_z_datotekami() -> list:
 
 
 def naprave_za_posiljanje() -> list:
-    """Druge naprave v Linku, ki sprejmejo datoteko (zmoznost "file"): cilji za »Poslji na napravo« v Datotekah."""
+    """Druge naprave v Linku, ki sprejmejo datoteko (zmoznost "file"): cilji za »Poslji na napravo« v Datotekah.
+    Zadnja naprava, ki ji je uporabnik poslal, je prva (lastnik, 18. 10. 2026: en klik)."""
+    from core import link_posiljanje
     izid = _control_naprave("Seznam")
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
-            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "file" in (n.get("zmoznosti") or [])]
+            for n in link_posiljanje.razvrsti([n for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta")
+                                               and "file" in (n.get("zmoznosti") or [])])]
 
 
 def pretvorba_za_tv_mozna(najdi=None) -> dict:

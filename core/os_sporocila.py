@@ -91,18 +91,6 @@ def opis_priponke(p: dict, indeks: int) -> dict:
 
 def mapa_prejemov() -> str:
     """Mapa za prenose po XDG (~/.config/user-dirs.dirs: na slovenskem namizju »Prejemi«), sicer kot v Spletu."""
-    dom = os.path.expanduser("~")
-    try:
-        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "user-dirs.dirs"),
-                  encoding="utf-8") as f:
-            for vrstica in f:
-                m = re.match(r'\s*XDG_DOWNLOAD_DIR\s*=\s*"(.*)"\s*$', vrstica)
-                if m:
-                    pot = m.group(1).replace("$HOME", dom)
-                    if os.path.isabs(pot) and os.path.isdir(pot) and os.path.realpath(pot) != os.path.realpath(dom):
-                        return pot
-    except OSError:
-        pass
     return splet_prenosi.mapa_prenosov(None)
 
 

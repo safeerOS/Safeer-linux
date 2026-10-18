@@ -881,7 +881,7 @@
       posljiNaNapravo: "Pošlji na napravo",
       vnesiBesedilo: "Vpiši besedilo …",
       zaslonOpis: "Na izbrani napravi se bo prikazoval zaslon tega računalnika, dokler deljenja ne prekineš.",
-      datotekaOpis: "Odprlo se bo okno, v katerem poiščeš datoteko na tej napravi. Prispela bo v mapo prenosov izbrane naprave.",
+      datotekaOpis: "Odprlo se bo okno, v katerem izbereš eno ali več datotek na tej napravi. Prispele bodo v mapo prenosov izbrane naprave.",
       besediloOpis: "Besedilo se pokaže na izbrani napravi; povezava se da odpreti z enim dotikom.",
       prekiniZaslon: "Prekini deljenje zaslona",
       zaslonTeceNa: "Zaslon se prikazuje na {ime}",
@@ -890,6 +890,10 @@
       posiljam: "Pošiljam …",
       posiljamOdstotek: "Pošiljam {ime} … {n} %",
       poslanoNapravi: "Poslano na {ime}.",
+      posiljanjePreklicano: "Pošiljanje je preklicano.",
+      cakaNaNapravo: "Čakam na {ime} – pošiljanje se nadaljuje samo, ko bo naprava spet v Safeer Linku.",
+      spustiNaNapravo: "Spusti datoteke ali mapo, da jih pošlješ na {ime}.",
+      datotekaSpust: "Datoteke ali mapo lahko tudi povlečeš na napravo v seznamu.",
       napDeljenje: "Ni uspelo: {napaka}",
       prejetoBesedilo: "Prejeto sporočilo z naprave {ime}",
       prejetaStran: "Stran z naprave {ime} se odpira",
@@ -953,7 +957,7 @@
       posljiNaNapravo: "Send to device",
       vnesiBesedilo: "Type your text …",
       zaslonOpis: "The selected device will show this computer's screen until you stop sharing.",
-      datotekaOpis: "A window will open to pick a file on this device. It will arrive in the downloads folder of the selected device.",
+      datotekaOpis: "A window will open to pick one or more files on this device. They will arrive in the downloads folder of the selected device.",
       besediloOpis: "The text is shown on the selected device; a link can be opened with one tap.",
       prekiniZaslon: "Stop screen sharing",
       zaslonTeceNa: "Screen is shown on {ime}",
@@ -962,6 +966,10 @@
       posiljam: "Sending …",
       posiljamOdstotek: "Sending {ime} … {n} %",
       poslanoNapravi: "Sent to {ime}.",
+      posiljanjePreklicano: "Sending was cancelled.",
+      cakaNaNapravo: "Waiting for {ime} – sending resumes by itself when the device is back in Safeer Link.",
+      spustiNaNapravo: "Drop files or a folder to send them to {ime}.",
+      datotekaSpust: "You can also drag files or a folder onto a device in the list.",
       napDeljenje: "Failed: {napaka}",
       prejetoBesedilo: "Message received from {ime}",
       prejetaStran: "Opening a page from {ime}",
@@ -1021,7 +1029,7 @@
       posljiNaNapravo: "An Gerät senden",
       vnesiBesedilo: "Text eingeben …",
       zaslonOpis: "Das gewählte Gerät zeigt den Bildschirm dieses Computers, bis du die Freigabe beendest.",
-      datotekaOpis: "Es öffnet sich ein Fenster, in dem du eine Datei auf diesem Gerät auswählst. Sie landet im Download-Ordner des gewählten Geräts.",
+      datotekaOpis: "Es öffnet sich ein Fenster, in dem du eine oder mehrere Dateien auf diesem Gerät auswählst. Sie landen im Download-Ordner des gewählten Geräts.",
       besediloOpis: "Der Text wird auf dem gewählten Gerät angezeigt; ein Link lässt sich mit einem Tipp öffnen.",
       prekiniZaslon: "Bildschirmfreigabe beenden",
       zaslonTeceNa: "Bildschirm wird auf {ime} angezeigt",
@@ -1030,6 +1038,10 @@
       posiljam: "Sende …",
       posiljamOdstotek: "Sende {ime} … {n} %",
       poslanoNapravi: "An {ime} gesendet.",
+      posiljanjePreklicano: "Senden abgebrochen.",
+      cakaNaNapravo: "Warte auf {ime} – das Senden geht von selbst weiter, sobald das Gerät wieder in Safeer Link ist.",
+      spustiNaNapravo: "Dateien oder einen Ordner ablegen, um sie an {ime} zu senden.",
+      datotekaSpust: "Du kannst Dateien oder einen Ordner auch auf ein Gerät in der Liste ziehen.",
       napDeljenje: "Fehlgeschlagen: {napaka}",
       prejetoBesedilo: "Nachricht von {ime} erhalten",
       prejetaStran: "Seite von {ime} wird geöffnet",
@@ -1084,7 +1096,7 @@
       posljiNaNapravo: "Enviar al dispositivo",
       vnesiBesedilo: "Escribe el texto …",
       zaslonOpis: "El dispositivo elegido mostrará la pantalla de este ordenador hasta que detengas la compartición.",
-      datotekaOpis: "Se abrirá una ventana para elegir un archivo de este dispositivo. Llegará a la carpeta de descargas del dispositivo elegido.",
+      datotekaOpis: "Se abrirá una ventana para elegir uno o varios archivos de este dispositivo. Llegarán a la carpeta de descargas del dispositivo elegido.",
       besediloOpis: "El texto se muestra en el dispositivo elegido; un enlace se abre con un toque.",
       prekiniZaslon: "Dejar de compartir pantalla",
       zaslonTeceNa: "La pantalla se muestra en {ime}",
@@ -1093,6 +1105,10 @@
       posiljam: "Enviando …",
       posiljamOdstotek: "Enviando {ime} … {n} %",
       poslanoNapravi: "Enviado a {ime}.",
+      posiljanjePreklicano: "Envío cancelado.",
+      cakaNaNapravo: "Esperando a {ime}: el envío continúa solo cuando el dispositivo vuelva a Safeer Link.",
+      spustiNaNapravo: "Suelta archivos o una carpeta para enviarlos a {ime}.",
+      datotekaSpust: "También puedes arrastrar archivos o una carpeta a un dispositivo de la lista.",
       napDeljenje: "No se pudo: {napaka}",
       prejetoBesedilo: "Mensaje recibido de {ime}",
       prejetaStran: "Abriendo una página de {ime}",
@@ -1147,7 +1163,7 @@
       posljiNaNapravo: "Envoyer à l’appareil",
       vnesiBesedilo: "Saisis le texte …",
       zaslonOpis: "L’appareil choisi affichera l’écran de cet ordinateur jusqu’à ce que tu arrêtes le partage.",
-      datotekaOpis: "Une fenêtre s’ouvrira pour choisir un fichier sur cet appareil. Il arrivera dans le dossier de téléchargements de l’appareil choisi.",
+      datotekaOpis: "Une fenêtre s’ouvrira pour choisir un ou plusieurs fichiers sur cet appareil. Ils arriveront dans le dossier de téléchargements de l’appareil choisi.",
       besediloOpis: "Le texte s’affiche sur l’appareil choisi ; un lien s’ouvre d’une pression.",
       prekiniZaslon: "Arrêter le partage d’écran",
       zaslonTeceNa: "L’écran est affiché sur {ime}",
@@ -1156,6 +1172,10 @@
       posiljam: "Envoi …",
       posiljamOdstotek: "Envoi de {ime} … {n} %",
       poslanoNapravi: "Envoyé à {ime}.",
+      posiljanjePreklicano: "Envoi annulé.",
+      cakaNaNapravo: "En attente de {ime} – l’envoi reprend tout seul quand l’appareil revient dans Safeer Link.",
+      spustiNaNapravo: "Dépose des fichiers ou un dossier pour les envoyer à {ime}.",
+      datotekaSpust: "Tu peux aussi glisser des fichiers ou un dossier sur un appareil de la liste.",
       napDeljenje: "Échec : {napaka}",
       prejetoBesedilo: "Message reçu de {ime}",
       prejetaStran: "Ouverture d’une page de {ime}",
@@ -1207,7 +1227,7 @@
       posljiNaNapravo: "Invia al dispositivo",
       vnesiBesedilo: "Scrivi il testo …",
       zaslonOpis: "Il dispositivo scelto mostrerà lo schermo di questo computer finché non interrompi la condivisione.",
-      datotekaOpis: "Si aprirà una finestra per scegliere un file su questo dispositivo. Arriverà nella cartella dei download del dispositivo scelto.",
+      datotekaOpis: "Si aprirà una finestra per scegliere uno o più file su questo dispositivo. Arriveranno nella cartella dei download del dispositivo scelto.",
       besediloOpis: "Il testo viene mostrato sul dispositivo scelto; un link si apre con un tocco.",
       prekiniZaslon: "Interrompi condivisione schermo",
       zaslonTeceNa: "Lo schermo è mostrato su {ime}",
@@ -1216,6 +1236,10 @@
       posiljam: "Invio …",
       posiljamOdstotek: "Invio di {ime} … {n} %",
       poslanoNapravi: "Inviato a {ime}.",
+      posiljanjePreklicano: "Invio annullato.",
+      cakaNaNapravo: "In attesa di {ime}: l’invio riprende da solo quando il dispositivo torna in Safeer Link.",
+      spustiNaNapravo: "Rilascia file o una cartella per inviarli a {ime}.",
+      datotekaSpust: "Puoi anche trascinare file o una cartella su un dispositivo dell’elenco.",
       napDeljenje: "Non riuscito: {napaka}",
       prejetoBesedilo: "Messaggio ricevuto da {ime}",
       prejetaStran: "Apertura di una pagina da {ime}",
@@ -2085,17 +2109,51 @@
       if (!zasedena && n.naslov && sorodniki[n.naslov]) pod = t("istaNaprava", { ime: "Safeer OS" }) + " · " + pod;
       // Ali ima naprava dostop do tega racunalnika, je vidno ze v seznamu (druge programe tega racunalnika izpustimo).
       if (znaDostop(n)) pod = opisDostopa(n) + " · " + pod;
-      seznam.appendChild(vrstica(
+      var vrsticaNaprave = vrstica(
         (jeZaslon && !n.platforma) ? "tv" : ikonaNapraveVSeznamu(n),
         prijaznoIme(n),
         pod,
         zasedena ? t("zasedenoKratko") : t("povezan"), zasedena ? "rumenaZnacka" : "zivo",
-        deljivo ? function () { odpriDeljenje(n); } : null, mocNaprave[n.id] || ""));
+        deljivo ? function () { odpriDeljenje(n); } : null, mocNaprave[n.id] || "");
+      seznam.appendChild(vrsticaNaprave);
+      if (!zasedena) spustNaNapravo(vrsticaNaprave, n);
     });
     vprasajZaMoc(jaz ? druge.concat([jaz]) : druge);
 
     besedilo("opombaNaprave",
              (druge.length || stanje.televizor) ? "" : t("brezZaslonov"));
+  }
+
+  // ---- datoteke, spuscene na napravo (lastnik, 18. 10. 2026: lazje posiljanje med napravami)
+  // Poti pozna samo Safeer (GTK ob vstopu vlecenja), stran samo pove, na katero napravo so padle. Brez tega (GTK3)
+  // vrstica spusta ne sprejme - nic, kar ne bi delovalo.
+  var znaSpust = !!(most && most.znaSpust && most.posljiSpuscene && most.znaSpust());
+  function sprejmeDatoteko(n) { return (n.zmoznosti || []).indexOf("file") >= 0; }
+  function vlecejoDatoteke(ev) {
+    var vrste = ev.dataTransfer && ev.dataTransfer.types ? Array.prototype.slice.call(ev.dataTransfer.types) : [];
+    return vrste.indexOf("Files") >= 0 || vrste.indexOf("text/uri-list") >= 0;
+  }
+  function spustNaNapravo(li, n) {
+    if (!znaSpust || !sprejmeDatoteko(n)) return;
+    li.title = t("spustiNaNapravo", { ime: prijaznoIme(n) });
+    function nad(ev) {
+      if (!vlecejoDatoteke(ev)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "copy";
+      li.classList.add("spust");
+    }
+    li.addEventListener("dragenter", nad);
+    li.addEventListener("dragover", nad);
+    li.addEventListener("dragleave", function (ev) {
+      if (!ev.relatedTarget || !li.contains(ev.relatedTarget)) li.classList.remove("spust");
+    });
+    li.addEventListener("drop", function (ev) {
+      li.classList.remove("spust");
+      if (!vlecejoDatoteke(ev)) return;
+      ev.preventDefault();
+      // Napredek (in cakanje na napravo) pove Safeer z dogodkom »deljenje« (naDeljenje).
+      most.posljiSpuscene(n.id);
+    });
   }
 
   // ---- moc naprav (zakon solidarnosti): vsaka naprava pove, koliko lahko pomaga (ukaz host.info)
@@ -3315,7 +3373,8 @@
     for (var i = 0; i < izbire.length; i++) {
       izbire[i].classList.toggle("izbrana", izbire[i].getAttribute("data-vrsta") === vrsta);
     }
-    besedilo("deljenjeOpis", vrsta === "zaslon" ? t("zaslonOpis") : (vrsta === "datoteka" ? t("datotekaOpis") : t("besediloOpis")));
+    besedilo("deljenjeOpis", vrsta === "zaslon" ? t("zaslonOpis") :
+      (vrsta === "datoteka" ? t("datotekaOpis") + (znaSpust ? " " + t("datotekaSpust") : "") : t("besediloOpis")));
     pokazi("deljenjeBesedilo", vrsta === "besedilo");
     pokazi("gumbPosljiNaNapravo", true);
     besedilo("opombaDeljenje", "");
@@ -3390,24 +3449,34 @@
       narisiZaslonDeljenje();
       return;
     }
+    // Datoteke, spuscene na seznam naprav (ali poslane iz Datotek): napredek tudi pod seznamom, ce plosca te naprave
+    // ni odprta (plosca je takrat skrita in uporabnik napisa v njej ne bi videl).
+    var tudiPodSeznamom = p.vrsta === "datoteka" && !(n && n.id === p.cilj);
+    function napis(b) {
+      besedilo("opombaDeljenje", b);
+      if (tudiPodSeznamom) besedilo("opombaNaprave", b);
+    }
     if (p.stanje === "posiljam") {
-      besedilo("opombaDeljenje", (p.vrsta === "datoteka" && typeof p.odstotek === "number")
+      napis((p.vrsta === "datoteka" && typeof p.odstotek === "number")
         ? t("posiljamOdstotek", { ime: p.ime || "", n: p.odstotek })
         : t("posiljam"));
+    } else if (p.stanje === "caka") {
+      napis(t("cakaNaNapravo", { ime: imeCilja }));
     } else if (p.stanje === "poslano") {
-      besedilo("opombaDeljenje", t("poslanoNapravi", { ime: imeCilja }));
+      napis(t("poslanoNapravi", { ime: imeCilja }));
       if (p.vrsta === "besedilo") {
         var v = el("deljenjeBesedilo");
         if (v) v.value = "";
       }
     } else if (p.stanje === "napaka") {
-      besedilo("opombaDeljenje", napakaDeljenja(p));
+      napis(napakaDeljenja(p));
     }
   }
 
   /** Napaka deljenja v jeziku uporabnika: koda ima prednost pred besedilom Huba. */
   function napakaDeljenja(p) {
     if (p.koda === "naprava_zasedena") return t("napZasedena", { ime: p.zasedenaOd || t("naprava") });
+    if (p.koda === "preklicano") return t("posiljanjePreklicano");
     if (p.koda === "napacen_odtis") return t("napOdtis");
     if (p.koda === "dovoljenje_zavrnjeno") return t("napDovoljenje");
     if (p.koda === "zaslon_ni_na_voljo") return t("napZaslonNiNaVoljo");

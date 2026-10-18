@@ -840,8 +840,7 @@
       if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") m.push([t("prilepi"), function () { prilepi(null); }]);
       m.push([t("vSmetiN", { n: koliko }), function () { vSmetiVec(lok); }]);
       m.push([t(lok.every(jePriljubljena) ? "odstraniPriljubljeno" : "dodajPriljubljeno"), function () { preklopiPriljubljeneVec(lok); }]);
-      var samoDatoteke = lok.filter(function (e) { return !e.mapa; });
-      if (samoDatoteke.length && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(samoDatoteke.map(function (e) { return e.pot; })); }]);
+      postavkePosiljanja(lok.map(function (e) { return e.pot; })).forEach(function (p) { m.push(p); });
       m.push(["—"]);
     }
     osveziCilje();      // za naslednje odprtje (naprava se je medtem lahko povezala ali odklopila)
@@ -986,6 +985,7 @@
   }
   function besediloPosiljanja(r, naprava) {
     var ime = r.naprava || naprava.ime;
+    if (r.stanje === "caka") return t("posCaka", { naprava: ime });
     if (r.stanje === "posiljam") {
       return r.datotek > 1 ? t("posPosiljamN", { naprava: ime, k: Math.min(r.datotek, (r.poslanih || 0) + 1), n: r.datotek, ime: r.ime, odst: r.odstotek || 0 })
                            : t("posPosiljam", { naprava: ime, ime: r.ime, odst: r.odstotek || 0 });
@@ -1004,11 +1004,11 @@
     klic("posljiNapravi", [naprava.id, poti]).then(function (r) {
       if (!r || !r.ok) { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: razlogPosiljanja(r) })); return; }
       obvesti(besediloPosiljanja(r, naprava));
-      if (r.stanje === "posiljam") spremljajPosiljanje(r.id, naprava);
+      if (r.stanje === "posiljam" || r.stanje === "caka") spremljajPosiljanje(r.id, naprava);
     }).catch(function () { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: t("niUspelo") })); });
   }
   function spremljajPosiljanje(id, naprava) {
-    var brezOdgovora = 0;
+    var brezOdgovora = 0, caka = false;
     function korak() {
       klic("posljiStanje", [id]).then(function (r) {
         if (!r || !r.ok) {
@@ -1016,14 +1016,27 @@
           setTimeout(korak, 1000); return;
         }
         brezOdgovora = 0;
-        obvesti(besediloPosiljanja(r, naprava));
-        if (r.stanje === "posiljam") setTimeout(korak, 600);
+        // Posiljka, ki caka na napravo (core/link_posiljanje), obvestilo pove enkrat in jo spremljamo redkeje.
+        if (r.stanje !== "caka" || !caka) obvesti(besediloPosiljanja(r, naprava));
+        caka = r.stanje === "caka";
+        if (r.stanje === "posiljam" || caka) setTimeout(korak, caka ? 3000 : 600);
       }).catch(function () {
         if (++brezOdgovora > 5) { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: t("niUspelo") })); return; }
         setTimeout(korak, 1000);
       });
     }
     setTimeout(korak, 400);
+  }
+  // Meni datotek in map: »Poslji na »Tablica«« za prve naprave (zadnja uporabljena prva - en klik), pri vec napravah se
+  // »Poslji na napravo …« z izbiro (lastnik, 18. 10. 2026). Mape gredo cele (core/link_posiljanje).
+  var NAJVEC_V_MENIJU = 3;
+  function postavkePosiljanja(poti) {
+    if (!poti.length || !D.sprejmejo.length) return [];
+    var p = D.sprejmejo.slice(0, NAJVEC_V_MENIJU).map(function (n) {
+      return [t("posljiNa", { naprava: n.ime }), function () { posljiNaNapravo(n, poti); }];
+    });
+    if (D.sprejmejo.length > NAJVEC_V_MENIJU) p.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(poti); }]);
+    return p;
   }
   // »Poslji na napravo …« iz menija: izbira naprave, ki sprejme datoteko.
   function izberiNapravoInPoslji(poti) {
@@ -1372,7 +1385,7 @@
       m.push([t("vSmeti"), function () { vSmeti(e); }]);
       m.push([t("lastnosti"), function () { lastnosti(e); }]);
       // Samo, ko res deluje (D.sprejmejo, D.tvMozna - osveziCilje): brez naprave ali orodja vnosa ni.
-      if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
+      postavkePosiljanja([e.pot]).forEach(function (p) { m.push(p); });
       if (!e.mapa && D.shrambaMozna) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video" && D.tvMozna) m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
       if (!e.mapa && pretvorljiva(e.ime))

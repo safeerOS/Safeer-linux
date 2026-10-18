@@ -129,16 +129,17 @@ def _v_odlozisce(besedilo: str) -> None:
         Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(besedilo, -1)
 
 
-def _izberi_poti(stars, naslov: str, gumb: str, mape: bool, ob_izbiri) -> None:
-    """Izbira datoteke (ena) ali map (lahko vec); ob_izbiri(seznam poti) samo, ce je uporabnik kaj izbral.
-    GTK4: Gtk.FileDialog (asinhrono), GTK3: FileChooserDialog."""
+def _izberi_poti(stars, naslov: str, gumb: str, mape: bool, ob_izbiri, vec: bool = False) -> None:
+    """Izbira datoteke (ena; z `vec` lahko vec) ali map (lahko vec); ob_izbiri(seznam poti) samo, ce je uporabnik kaj
+    izbral. GTK4: Gtk.FileDialog (asinhrono), GTK3: FileChooserDialog."""
     if GTK4:
         d = Gtk.FileDialog(title=naslov, accept_label=gumb, modal=True)
 
         def koncano(dialog, rezultat, *_a):
             try:
-                if mape:
-                    seznam = dialog.select_multiple_folders_finish(rezultat)
+                if mape or vec:
+                    seznam = (dialog.select_multiple_folders_finish(rezultat) if mape
+                              else dialog.open_multiple_finish(rezultat))
                     poti = [seznam.get_item(i).get_path() for i in range(seznam.get_n_items())] if seznam else []
                 else:
                     datoteka = dialog.open_finish(rezultat)
@@ -150,18 +151,20 @@ def _izberi_poti(stars, naslov: str, gumb: str, mape: bool, ob_izbiri) -> None:
                 ob_izbiri(poti)
         if mape:
             d.select_multiple_folders(stars, None, koncano)
+        elif vec:
+            d.open_multiple(stars, None, koncano)
         else:
             d.open(stars, None, koncano)
         return
     okno = Gtk.FileChooserDialog(title=naslov, transient_for=stars,
                                  action=Gtk.FileChooserAction.SELECT_FOLDER if mape else Gtk.FileChooserAction.OPEN)
-    if mape:
+    if mape or vec:
         okno.set_select_multiple(True)
     okno.add_button("Prekliči", Gtk.ResponseType.CANCEL)
     okno.add_button(gumb, Gtk.ResponseType.OK)
 
     def odgovor(d, r):
-        poti = (list(d.get_filenames() or []) if mape else [d.get_filename()]) if r == Gtk.ResponseType.OK else []
+        poti = (list(d.get_filenames() or []) if mape or vec else [d.get_filename()]) if r == Gtk.ResponseType.OK else []
         d.destroy()
         poti = [p for p in poti if p]
         if poti:
@@ -311,6 +314,9 @@ MOST_JS = """
     nehajPoslusati: function () {},
     posljiBesedilo: function (id, besedilo) { poslji("posljiBesedilo", [id, String(besedilo || "")]); },
     izberiDatoteko: function (id) { poslji("izberiDatoteko", [id]); },
+    // Datoteke, spuscene na napravo v seznamu (poti pove GTK ob vstopu vlecenja, ne stran): samo GTK4.
+    znaSpust: function () { return !!window.__safeerLinkSpust; },
+    posljiSpuscene: function (id) { poslji("posljiSpuscene", [id]); },
     zacniDeljenjeZaslona: function (id, ime) { poslji("zacniDeljenjeZaslona", [id, String(ime || "")]); },
     upravljajRacunalnik: function (id) { poslji("upravljajRacunalnik", [id]); },
     koncajDeljenjeZaslona: function () { poslji("koncajDeljenjeZaslona"); },
@@ -386,6 +392,12 @@ class SafeerLink:
         self._klepet_cakajoci: Dict[str, list] = {}
         self.naprave_klepeta: List[dict] = []
         self._sporocila = None
+        # Posiljanje datotek (core/link_posiljanje) in prejem (core/link_prejem): ena vrsta za stran, Datoteke in Nemo.
+        self._posiljanje = None
+        self._prejem = None
+        # Poti datotek, ki jih uporabnik vlece v okno Linka (Gdk.Drop ob vstopu vlecenja): spust na napravo jih poslje.
+        self._vleceno_kontekst = None
+        self._vlecene_poti: List[str] = []
 
         self.nastavitve = nastavitve if nastavitve is not None else link_hub.Nastavitve()
         self.povezava: Optional[link_hub.Povezava] = None
@@ -610,7 +622,8 @@ class SafeerLink:
         # (window.__safeerLink) pa pride sele po nalaganju - prej je stran padla na navigator.language
         # (WebKit: en-US) in Control je govoril anglesko tudi v slovenski seji.
         upravitelj.add_script(WebKit2.UserScript(
-            "window.__safeerLinkJezik = " + json.dumps(self._jezik()) + ";\n" + MOST_JS,
+            "window.__safeerLinkJezik = " + json.dumps(self._jezik()) + ";\n"
+            + "window.__safeerLinkSpust = " + json.dumps(bool(GTK4)) + ";\n" + MOST_JS,
             WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.START,
             None, None,
@@ -634,6 +647,12 @@ class SafeerLink:
             pass
         pogled.set_background_color(_barva(0x0b, 0x10, 0x17))
         pogled.set_zoom_level(1.0)
+        if GTK4:
+            # Datoteke iz Nema, spuscene na napravo: WebKitGTK strani poti ne pove, GTK jih pove ob vstopu vlecenja
+            # (isti nacin kot Datoteke v Safeer OS, safeer_os._na_vlecene_podatke). Spust ostane WebKitu.
+            vlecenje = Gtk.DropControllerMotion()
+            vlecenje.connect("enter", lambda k, *_a: self._na_vlecene_datoteke(k.get_drop()))
+            pogled.add_controller(vlecenje)
 
         okno = Gtk.Window(title="Safeer Control" if self.control else "Safeer Link")
         # Samostojna aplikacija (Control) ima levi meni z razdelki, zato sirse okno.
@@ -834,6 +853,7 @@ class SafeerLink:
             "odpri": lambda: self._odpri(*argumenti[:1]),
             "posljiBesedilo": lambda: self._v_ozadju(lambda: self._poslji_besedilo(*argumenti[:2])),
             "izberiDatoteko": lambda: self._izberi_datoteko(*argumenti[:1]),
+            "posljiSpuscene": lambda: self._poslji_spuscene(*argumenti[:1]),
             "zacniDeljenjeZaslona": lambda: self._v_ozadju(lambda: self._zacni_deljenje_zaslona(*argumenti[:2])),
             "upravljajRacunalnik": lambda: self._v_ozadju(lambda: self._upravljaj_racunalnik(*argumenti[:1])),
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
@@ -1627,6 +1647,10 @@ class SafeerLink:
                 })
             self.naprave = _zdruzi_sorodne_naprave(naprave)
             self.naprave_vse = naprave
+            if getattr(self, "_posiljanje", None) is not None:
+                # Naprava, ki ji posiljka caka, je morda spet tu: nadaljuje takoj (core/link_posiljanje).
+                self._posiljanje.zbudi()
+            self._osvezi_nemo()
             self.naprave_klepeta = self._naprave_za_klepet(naprave)
             self._odziv("naprave", self.naprave)
             zvok = self.zvok
@@ -1859,29 +1883,66 @@ class SafeerLink:
                         GLib.idle_add(lambda: (self.zapri_deljeni_zaslon(), False)[1])
             self._odziv("prejeto", {"vrsta": "zaslon", "od": od, "dejanje": dejanje})
         elif vrsta == "share.file":
-            ime = str(telo.get("name", "") or "datoteka")
-            pot = str(telo.get("path", "") or "")
-            odtis = str(telo.get("sha256", "") or "")
-            podmapa = str(telo.get("dir", "") or "")         # posiljanje cele mape: relativna mapa
-            if not pot:
+            if not str(telo.get("path", "") or ""):
                 return
             posiljatelj = str(sporocilo.get("sender", "") or "")
+            # Ozji krog brez vprasanja v mapo prenosov, sirsi krog z vprasanjem (core/link_prejem, 18. 10. 2026).
+            tovor = dict(telo, _posiljatelj=posiljatelj)
+            self._v_ozadju(lambda: self.prejem_datotek().prispela(posiljatelj, od, tovor,
+                                                                   sporocilo.get("_zascita") or None))
 
-            def prenesi():
-                # Pot v sporocilu je relativna na sredisce, ki je datoteko sprejelo: nase (racunalnik jo odda nam)
-                # ali posiljateljevo (oddal jo je svojemu, sporocilo je prislo cez sosede). Vprasamo po vrsti.
-                sredisca = [(self._hub(), self._odtis() or "")]
-                sredisce, _koda = self._sredisce_naprave(posiljatelj)
-                if sredisce is not None:
-                    sredisca.append(sredisce)
-                cilj, razlog = link_deljenje.prevzemi_pri_srediscih(sredisca, pot, ime, odtis, podmapa=podmapa)
-                if cilj:
-                    self._odziv("prejeto", {"vrsta": "datoteka", "od": od, "ime": os.path.basename(cilj),
-                                            "mapa": os.path.dirname(cilj)})
-                    GLib.idle_add(self._obvesti, "📁 " + od, f"Datoteka {os.path.basename(cilj)} je v mapi {os.path.dirname(cilj)}.")
-                else:
-                    GLib.idle_add(self._obvesti, "📁 " + od, f"Datoteke {ime} ni bilo mogoče prevzeti: {razlog}")
-            self._v_ozadju(prenesi)
+    def _prevzemi_datoteko(self, posiljatelj: str, telo: dict) -> tuple:
+        """Datoteko iz share.file prenese v mapo prenosov. Pot v sporocilu je relativna na sredisce, ki je datoteko
+        sprejelo: nase (racunalnik jo odda nam) ali posiljateljevo (oddal jo je svojemu, sporocilo je prislo cez
+        sosede). Vprasamo po vrsti. Caka na omrezje - vedno iz delovne niti."""
+        sredisca = [(self._hub(), self._odtis() or "")]
+        sredisce, _koda = self._sredisce_naprave(posiljatelj)
+        if sredisce is not None:
+            sredisca.append(sredisce)
+        return link_deljenje.prevzemi_pri_srediscih(sredisca, str(telo.get("path", "") or ""),
+                                                    str(telo.get("name", "") or "datoteka"),
+                                                    str(telo.get("sha256", "") or ""),
+                                                    podmapa=str(telo.get("dir", "") or ""))
+
+    def prejem_datotek(self):
+        """Ena instanca core/link_prejem.Prejem za ta Link (prvic ob prvi prejeti datoteki)."""
+        if getattr(self, "_prejem", None) is None:
+            from core import link_prejem, obvestila, os_datoteke
+
+            def obvesti(ident, naslov, besedilo, gumbi=None, privzeto=None, prioriteta="normal"):
+                obvestila.poslji(naslov, besedilo, ident, gumbi=gumbi, privzeto=privzeto, prioriteta=prioriteta,
+                                 app=self._aplikacija())
+
+            def pokazi(pot: str) -> None:
+                # Nemo z oznaceno datoteko; brez Nema mapa s privzetim programom.
+                if not os_datoteke.pokazi_v_mapi(pot):
+                    os_datoteke.odpri(os.path.dirname(pot) if os.path.isfile(pot) else pot)
+
+            def ob_prejemu(od: str, pot: str) -> None:
+                self._odziv("prejeto", {"vrsta": "datoteka", "od": od, "ime": os.path.basename(pot),
+                                        "mapa": os.path.dirname(pot)})
+
+            # Tovor nosi id posiljatelja (_posiljatelj): po njem _prevzemi_datoteko najde njegovo sredisce.
+            self._prejem = link_prejem.Prejem(
+                prevzemi=lambda t: self._prevzemi_datoteko(str(t.get("_posiljatelj") or ""), t),
+                obvesti=obvesti,
+                brez_vprasanja=link_dostop.prejem_brez_vprasanja,
+                odpri=os_datoteke.odpri, pokazi=pokazi, jezik=self._jezik,
+                umakni=lambda ident: obvestila.umakni(ident, self._aplikacija()),
+                v_ozadju=self._v_ozadju, ob_prejemu=ob_prejemu)
+        return self._prejem
+
+    def _aplikacija(self):
+        """Gio.Application, ki gosti ta Link (Safeer Control ali brskalnik), za gumbe obvestil; None = D-Bus."""
+        try:
+            okno = self.okno or self.starsevsko
+            app = okno.get_application() if okno is not None else None
+            if app is None:
+                from gi.repository import Gio
+                app = Gio.Application.get_default()
+            return app
+        except Exception:  # noqa: BLE001
+            return None
 
     def _odpri_deljeni_zaslon(self, posiljatelj: str, id_deljenja: str, pot: str, odtis: str) -> None:
         """Stran gledalca je pri sredisci, ki je deljenje sprejelo: nasem (racunalnik ga zacne pri nas -
@@ -1941,13 +2002,6 @@ class SafeerLink:
             print(f"[SafeerLink] Besedila ni bilo mogoče pokazati: {e}")
         return False
 
-    def _obvesti(self, naslov: str, besedilo: str) -> bool:
-        try:
-            _vprasaj(self.starsevsko, naslov, besedilo, ["V redu"])
-        except Exception:
-            pass
-        return False
-
     # ------------------------------------------------------------------
     # Deljenje: posiljanje
     # ------------------------------------------------------------------
@@ -1997,8 +2051,125 @@ class SafeerLink:
         if not (self._hub() and self._odtis() and (self._zeton() or self._v_krogu())):
             self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
             return
+        # Vec datotek naenkrat (lastnik, 18. 10. 2026); prej je sla samo prva izbrana.
         _izberi_poti(self.okno or self.starsevsko, "Pošlji datoteko — Safeer Link", "Pošlji", False,
-                     lambda poti: self._v_ozadju(lambda: self._poslji_datoteko(id_naprave, poti[0])))
+                     lambda poti: self.poslji_datoteke(id_naprave, poti), vec=True)
+
+    # ------------------------------------------------------------------ vlecenje datotek na napravo (GTK4)
+    def _na_vlecene_datoteke(self, kontekst) -> None:
+        """Ob vstopu vlecenja v okno preberemo seznam datotek iz Gdk.Drop (stran ga ne vidi). Novo vlecenje prejsnje
+        pozabi - tudi ce ne prinasa datotek."""
+        def prebrano(spust, izid) -> None:
+            try:
+                from core import os_datoteke
+                seznam = spust.read_value_finish(izid)
+                naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
+                poti = os_datoteke.poti_iz_naslovov(naslovi)
+                if poti and spust is self._vleceno_kontekst:
+                    self._vlecene_poti = poti
+            except Exception:  # noqa: BLE001 - vlecenje brez datotek ali preklicano
+                pass
+        try:
+            if kontekst is None:
+                return
+            if kontekst is not self._vleceno_kontekst:
+                self._vleceno_kontekst, self._vlecene_poti = kontekst, []
+            from gi.repository import Gdk
+            if kontekst.get_formats().contain_gtype(Gdk.FileList.__gtype__):
+                kontekst.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebrano)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] vlecenje:", e, flush=True)
+
+    def _poslji_spuscene(self, id_naprave: str = "") -> None:
+        """Stran: uporabnik je datoteke spustil na napravo. Poti vzamemo enkrat (po prevzemu jih pozabimo)."""
+        poti, self._vlecene_poti = list(getattr(self, "_vlecene_poti", None) or []), []
+        if poti and id_naprave:
+            self.poslji_datoteke(str(id_naprave), poti)
+        else:
+            print("[SafeerLink] spust brez datotek tega racunalnika (ali brez naprave) - nic za poslati", flush=True)
+
+    # ------------------------------------------------------------------ posiljanje datotek (ena vrsta)
+    def posiljanje_datotek(self):
+        """Ena vrsta posiljanja (core/link_posiljanje) za stran Linka, Datoteke Safeer OS (D-Bus) in Nemo (safeerctl):
+        posiljka pocaka na napravo, ki je ni, in nadaljuje, ko se vrne; zadnja naprava je prva v menijih."""
+        if getattr(self, "_posiljanje", None) is None:
+            from core import link_posiljanje
+            self._posiljanje = link_posiljanje.Posiljanje(
+                self.poslji_datoteko_napravi,
+                lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), ""),
+                dosegljiva=lambda i: any(n.get("id") == i for n in self.naprave),
+                ob_spremembi=self._ob_posiljanju,
+                zabelezi=self._zabelezi_zadnjo)
+        return self._posiljanje
+
+    def poslji_datoteke(self, id_naprave: str, poti: List[str], obvesti: bool = False) -> dict:
+        izid = self.posiljanje_datotek().zacni(str(id_naprave or ""), [str(p) for p in poti or []], obvesti=obvesti)
+        if not izid.get("ok"):
+            self._deljenje("datoteka", "napaka", str(id_naprave or ""), "", koda=str(izid.get("koda") or ""))
+        return izid
+
+    def _zabelezi_zadnjo(self, id_naprave: str) -> None:
+        from core import link_posiljanje
+        link_posiljanje.zabelezi_zadnjo(self.nastavitve, id_naprave)
+        self._osvezi_nemo()
+
+    def naprave_za_posiljanje(self) -> List[dict]:
+        """Druge naprave, ki sprejmejo datoteko (zmoznost "file"), zadnja uporabljena prva."""
+        from core import link_posiljanje
+        nas = self._id()
+        naprave = [dict(n, zadnjic=link_posiljanje.zadnjic(self.nastavitve, n.get("id", ""))) for n in self.naprave
+                   if n.get("id") and n.get("id") != nas and not n.get("jaz") and "file" in (n.get("zmoznosti") or [])]
+        return link_posiljanje.razvrsti(naprave)
+
+    def _osvezi_nemo(self) -> None:
+        """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke."""
+        if not getattr(self, "control", False):
+            return
+        try:
+            from core import link_nemo
+            link_nemo.zapisi(self.naprave_za_posiljanje())
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] Nemo:", e, flush=True)
+
+    def _ob_posiljanju(self, s: dict) -> None:
+        """Sprememba posiljke: stran Linka dobi napredek, posiljanje iz Nema (obvesti) se namizno obvestilo."""
+        stanje = str(s.get("stanje") or "")
+        cilj = str(s.get("idNaprave") or "")
+        if stanje == "napaka":
+            # Brez okna z napako (lastnik, 18. 10. 2026): stran pove kodo, dnevnik razlog.
+            print("[SafeerLink] posiljanje napravi %s ni uspelo: %s %s" % (cilj, s.get("koda"), s.get("sporocilo") or ""),
+                  flush=True)
+        self._deljenje("datoteka", stanje, cilj, str(s.get("ime") or ""), str(s.get("sporocilo") or ""),
+                       odstotek=int(s.get("odstotek") or 0), koda=str(s.get("koda") or ""),
+                       zasedena_od=str(s.get("zasedenaOd") or ""))
+        if s.get("obvesti"):
+            self._obvestilo_posiljanja(s)
+
+    def _obvestilo_posiljanja(self, s: dict) -> None:
+        from core import link_posiljanje, obvestila
+        stanje = str(s.get("stanje") or "")
+        ident = "safeer-posiljanje-" + str(s.get("id") or "")
+        app = self._aplikacija()
+        if stanje == "napaka":
+            obvestila.umakni(ident, app)
+            return
+        # Napredek v obvestilu samo ob spremembi stanja (ne ob vsakem odstotku).
+        prej = getattr(self, "_obvestila_posiljanja", {})
+        self._obvestila_posiljanja = prej
+        if prej.get(ident) == stanje:
+            return
+        prej[ident] = stanje
+        if stanje == "poslano":
+            prej.pop(ident, None)
+        if len(prej) > 64:
+            prej.pop(next(iter(prej)), None)
+        naslov, telo = link_posiljanje.obvestilo(self._jezik(), s)
+        gumbi = []
+        if stanje == "caka":
+            pid = str(s.get("id") or "")
+            gumbi = [("preklici", link_posiljanje.besedilo_obvestila(self._jezik(), "preklici"),
+                      lambda: self.posiljanje_datotek().preklici(pid))]
+        obvestila.poslji(naslov, telo, ident, gumbi=gumbi, app=app)
 
     # Deljene mape (Safeer Control): stran pokaze seznam, uporabnik doda ali odstrani mapo.
     def dodaj_deljeno_mapo(self, starsevsko: Optional[Gtk.Window] = None) -> None:
@@ -2058,16 +2229,6 @@ class SafeerLink:
         except Exception as e:  # noqa: BLE001 - brez tega podatka ravnamo kot doslej (lastno sredisce)
             print("[SafeerLink] sredisce naprave:", e)
             return None, ""
-
-    def _poslji_datoteko(self, id_naprave: str, pot: str) -> None:
-        ime = os.path.basename(pot)
-        self._deljenje("datoteka", "posiljam", id_naprave, ime, odstotek=0)
-        ok, n = self.poslji_datoteko_napravi(
-            id_naprave, pot, napredek=lambda o: self._deljenje("datoteka", "posiljam", id_naprave, ime, odstotek=o))
-        if ok:
-            self._deljenje("datoteka", "poslano", id_naprave, ime, odstotek=100)
-        else:
-            self._deljenje("datoteka", "napaka", id_naprave, ime, n["sporocilo"], koda=n["koda"], zasedena_od=n["zasedenaOd"])
 
     def _sredisce_za_zaslon(self, id_naprave: str) -> tuple:
         """Sredisce, ki napravi pokaze nas zaslon (link_deljenje.sredisce_za_zaslon). Caka na omrezje."""

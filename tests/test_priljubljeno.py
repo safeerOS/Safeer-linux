@@ -483,15 +483,17 @@ var lok = [];
 function izbraniVnosi() { return lok; }
 function izbraniLokalni() { return lok; }
 function steviloElementov(n) { return String(n); }
-var ciljiRod = 0;
-""" + funkcija("osveziCilje") + funkcija("meniDatoteke") + funkcija("meniVec") + """
+var ciljiRod = 0, NAJVEC_V_MENIJU = 3;
+function posljiNaNapravo() {}
+function izberiNapravoInPoslji() {}
+""" + funkcija("osveziCilje") + funkcija("meniDatoteke") + funkcija("meniVec") + funkcija("postavkePosiljanja") + """
 var video = { pot: "/d/film.mkv", ime: "film.mkv", vrsta: "video", mapa: false };
 var mapa = { pot: "/d/M", ime: "M", mapa: true };
 function pocakaj() { return new Promise(function (r) { setTimeout(r, 10); }); }
 meniDatoteke(video, 0, 0);
-assert.ok(meni.indexOf("posljiNaNapravo") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
+assert.ok(meni.indexOf("posljiNa") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
 meniDatoteke(mapa, 0, 0);
-assert.ok(meni.indexOf("pretvoriMapo") < 0);
+assert.ok(meni.indexOf("pretvoriMapo") < 0 && meni.indexOf("posljiNa") < 0);
 // Odprtje menija osvezi predpomnilnik: naprava je zdaj povezana in pretvorba dela.
 odgovori.napraveZaPosiljanje = [{ id: "tv1", ime: "TV" }];
 odgovori.pretvorbaZaTvMozna = { ok: true, shramba: true };
@@ -501,11 +503,17 @@ pocakaj().then(function () {
   assert.deepStrictEqual(klici, ["napraveZaPosiljanje", "pretvorbaZaTvMozna"]);
   assert.strictEqual(prerisano, 1);                         // nov cilj spusta: stran datotek se prerise
   meniDatoteke(video, 0, 0);
-  assert.ok(meni.indexOf("posljiNaNapravo") >= 0 && meni.indexOf("pretvori") >= 0 && meni.indexOf("shraniNaNapravo") >= 0, meni.join());
+  // Ena naprava: neposredno »Poslji na …« (en klik), brez izbire.
+  assert.ok(meni.indexOf("posljiNa") >= 0 && meni.indexOf("posljiNaNapravo") < 0 && meni.indexOf("pretvori") >= 0 && meni.indexOf("shraniNaNapravo") >= 0, meni.join());
   meniDatoteke(mapa, 0, 0);
-  assert.ok(meni.indexOf("pretvoriMapo") >= 0);
-  lok = [video, { pot: "/d/b.txt", ime: "b.txt" }];
+  assert.ok(meni.indexOf("pretvoriMapo") >= 0 && meni.indexOf("posljiNa") >= 0, "mapa gre na napravo cela");
+  lok = [video, { pot: "/d/b.txt", ime: "b.txt" }, mapa];
   meniVec(0, 0);
+  assert.ok(meni.indexOf("posljiNa") >= 0);
+  // Vec kot tri naprave: prve tri neposredno, ostale v izbiri.
+  D.sprejmejo = [1, 2, 3, 4].map(function (i) { return { id: "n" + i, ime: "N" + i }; });
+  meniVec(0, 0);
+  assert.strictEqual(meni.filter(function (x) { return x === "posljiNa"; }).length, 3);
   assert.ok(meni.indexOf("posljiNaNapravo") >= 0);
   // Naprava odklopljena, Control ne odgovori: vnosa izgineta ob naslednjem odprtju.
   odgovori.napraveZaPosiljanje = [];
@@ -514,9 +522,9 @@ pocakaj().then(function () {
   return pocakaj();
 }).then(function () {
   meniVec(0, 0);
-  assert.ok(meni.indexOf("posljiNaNapravo") < 0);
+  assert.ok(meni.indexOf("posljiNa") < 0 && meni.indexOf("posljiNaNapravo") < 0);
   meniDatoteke(video, 0, 0);
-  assert.ok(meni.indexOf("posljiNaNapravo") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
+  assert.ok(meni.indexOf("posljiNa") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
 }).catch(function (e) { console.error(e); process.exit(1); });
 """
         subprocess.run(["node", "-e", koda], check=True)
