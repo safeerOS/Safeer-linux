@@ -73,6 +73,10 @@ def _obmocje_zaslona(okno=None):
     return monitor.get_geometry()
 
 
+#: Ena vrsta posiljanja na proces (SafeerLink.posiljanje_datotek).
+_POSILJANJE_ZAKLEP = threading.Lock()
+
+
 def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1, privzeto: int = -1) -> None:
     """Nemodalno obvestilo z gumbi; ob_odgovoru(indeks gumba ali -1). preklic: gumb, ki velja ob Esc (privzeto
     zadnji). privzeto: gumb s fokusom (in Enter) - privzeto isti kot preklic, torej varna izbira. Gtk.AlertDialog (GTK4).
@@ -2048,6 +2052,14 @@ class SafeerLink:
     def posiljanje_datotek(self):
         """Ena vrsta posiljanja (core/link_posiljanje) za stran Linka, Datoteke Safeer OS (D-Bus) in Nemo (safeerctl):
         posiljka pocaka na napravo, ki je ni, in nadaljuje, ko se vrne; zadnja naprava je prva v menijih."""
+        if getattr(self, "_posiljanje", None) is not None:
+            return self._posiljanje
+        # Klicejo jo glavna nit (zagon Controla, stran) in niti D-Bus (Safeer OS, safeerctl): vrsta mora biti ena, sicer
+        # bi se shranjene posiljke obnovile dvakrat.
+        with _POSILJANJE_ZAKLEP:
+            return self._ustvari_posiljanje()
+
+    def _ustvari_posiljanje(self):
         if getattr(self, "_posiljanje", None) is None:
             from core import link_posiljanje
             # Safeer Control: nekoncane posiljke prezivijo ponovni zagon (vrsta ob nastavitvah Controla, samo poti).

@@ -369,7 +369,9 @@ class VrstaPreziviZagon(unittest.TestCase):
         lazni = types.SimpleNamespace(control=True, nastavitve=nast, naprave=[], naprave_vse=[], _posiljanje=None,
                                       poslji_datoteko_napravi=self._poslji, _ob_posiljanju=lambda s: None,
                                       _zabelezi_zadnjo=lambda i: None, _ime_znane=lambda i: "")
+        lazni._ustvari_posiljanje = lambda: safeer_link.SafeerLink._ustvari_posiljanje(lazni)
         p = safeer_link.SafeerLink.posiljanje_datotek(lazni)
+        self.assertIs(safeer_link.SafeerLink.posiljanje_datotek(lazni), p, "ena vrsta na proces")
         self.assertEqual(p._shramba, os.path.join(self.tmp.name, "control", "posiljanje-vrsta.json"))
         lazni.naprave = [{"id": "n-aaaaaaaaaaaaaaaa"}]
         lazni.naprave_za_nemo = lambda: [{"id": "n-bbbbbbbbbbbbbbbb", "dosegljiva": False}]
