@@ -37,8 +37,10 @@ from typing import Dict, List, Optional
 
 PREDPONA = "safeer-poslji-"
 KONCNICA = ".nemo_action"
-#: Toliko naprav pokazemo v meniju (vec jih uporabnik doseze v Safeer Linku ali Datotekah Safeer OS).
-NAJVEC = 8
+#: V meniju so VSE naprave, ki sprejmejo datoteke (lastnik, 18. 10. 2026: prej najvec 8 - v vecjem krogu so ostale
+#: dosegljive samo v Safeer Linku). Mesto v imenu datoteke ima vsaj dve stevki, pri vec kot 99 napravah vec: Nemo
+#: razvrsca po imenu datoteke, zato morajo imeti vse enako stevilo stevk.
+NAJMANJ_STEVK = 2
 DBUS_CONTROL = "io.github.memelandfaner.SafeerControl"
 #: Oznaka naprave iz kljuca (link_dostop.je_id_iz_kljuca) in starejse oznake: samo varni znaki - gre v ukazno vrstico.
 _VARNA_OZNAKA = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -136,15 +138,10 @@ def vsebina(naprava: dict, flatpak: str = "") -> str:
 
 def dejanja(naprave: List[dict], flatpak: str = "") -> Dict[str, str]:
     """{ime datoteke: vsebina} za naprave v danem vrstnem redu (prva je zgoraj v meniju)."""
-    izid: Dict[str, str] = {}
-    for n in naprave:
-        if len(izid) >= NAJVEC:
-            break
-        oznaka = str(n.get("id") or "")
-        if not _VARNA_OZNAKA.match(oznaka) or oznaka.startswith("-"):
-            continue
-        izid["%s%02d%s" % (PREDPONA, len(izid) + 1, KONCNICA)] = vsebina(n, flatpak)
-    return izid
+    veljavne = [n for n in naprave if _VARNA_OZNAKA.match(str(n.get("id") or ""))
+                and not str(n.get("id") or "").startswith("-")]
+    stevk = max(NAJMANJ_STEVK, len(str(len(veljavne))))
+    return {"%s%0*d%s" % (PREDPONA, stevk, i + 1, KONCNICA): vsebina(n, flatpak) for i, n in enumerate(veljavne)}
 
 
 def zapisi(naprave: List[dict], mapa: Optional[str] = None, nemo: Optional[bool] = None,

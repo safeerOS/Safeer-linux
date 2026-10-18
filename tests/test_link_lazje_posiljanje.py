@@ -144,13 +144,18 @@ class ZadnjaNaprava(unittest.TestCase):
         self.assertEqual([x["id"] for x in link_posiljanje.razvrsti(naprave)], ["tab", "tel", "pc", "tv"])
         self.assertEqual(link_posiljanje.zadnjic(n, "neznana"), 0.0)
 
-    def test_meja_zapisov(self):
+    def test_brez_meje_stevila_staro_izpade(self):
+        """Lastnik, 18. 10. 2026: v vecjem krogu (prej najvec 32) nobena naprava ne izpade zaradi stevila - samo
+        naprava, ki ji uporabnik ZADNJA_VELJA_S ni poslal nicesar."""
         n = _Nastavitve()
-        for i in range(link_posiljanje.NAJVEC_ZADNJIH + 5):
-            link_posiljanje.zabelezi_zadnjo(n, "n%d" % i, zdaj=float(i))
+        for i in range(60):
+            link_posiljanje.zabelezi_zadnjo(n, "n%d" % i, zdaj=1000.0 + i)
         zapis = n.podatki[link_posiljanje.KLJUC_ZADNJE]
-        self.assertEqual(len(zapis), link_posiljanje.NAJVEC_ZADNJIH)
-        self.assertNotIn("n0", zapis, "najstarejse izpadejo")
+        self.assertEqual(len(zapis), 60)
+        link_posiljanje.zabelezi_zadnjo(n, "nova", zdaj=1030.0 + link_posiljanje.ZADNJA_VELJA_S)
+        zapis = n.podatki[link_posiljanje.KLJUC_ZADNJE]
+        self.assertNotIn("n0", zapis, "dolgo neuporabljene izpadejo")
+        self.assertIn("n59", zapis)
 
     def test_besedila_obvestila_v_vseh_jezikih(self):
         kljuci = set(link_posiljanje.BESEDILA_OBVESTIL["sl"])
@@ -340,6 +345,23 @@ class VrstaPreziviZagon(unittest.TestCase):
         self.assertEqual(self.spremembe[-1]["poslanih"], 3)
         self.assertFalse(os.path.exists(self.shramba), "koncana vrsta ne ostane na disku")
 
+    def test_vrsta_shrani_vse_posiljke(self):
+        """Lastnik, 18. 10. 2026: prej se je shranilo najvec 50 cakajocih posiljk - 51. po ponovnem zagonu ni vec
+        cakala. Zdaj se shranijo in nadaljujejo vse."""
+        prvi = self._p()
+        self.izidi = [(False, {"koda": "naprava_ni_povezana"})] * 60
+        idji = [prvi.zacni("n-%016d" % i, [self._datoteka("f%d.txt" % i)])["id"] for i in range(60)]
+        self.assertTrue(_pocakaj(lambda: all(prvi.stanje(i)["stanje"] == "caka" for i in idji), 10))
+        prvi._shramba = None
+        for i in idji:
+            prvi.preklici(i)
+        drugi = self._p()
+        self.assertEqual(drugi.obnovi(), 60)
+        drugi._shramba = None                       # preizkus konca: obnovljene ne pisejo vec v zacasno mapo
+        for i in list(drugi._posiljke):
+            drugi.preklici(i)
+        self.assertTrue(_pocakaj(lambda: all(drugi.stanje(i)["stanje"] == "napaka" for i in list(drugi._posiljke)), 10))
+
     def test_naprava_ze_tu_posilja_takoj(self):
         prvi = self._p()
         self.izidi = [(False, {"koda": "naprava_ni_povezana"})]
@@ -443,15 +465,31 @@ class Nemo(unittest.TestCase):
         link_nemo.zapisi([{"id": "b", "ime": "B"}], self.mapa, nemo=False)
         self.assertEqual(os.listdir(self.mapa), ["moje.nemo_action"], "brez Nema nasih dejanj ni, tuja ostanejo")
 
-    def test_najvec(self):
+    def test_vse_naprave_v_meniju(self):
+        """Lastnik, 18. 10. 2026: meni ima vse naprave (prej najvec 8). Nemo razvrsca po imenu datoteke - pri vec kot
+        99 napravah imajo vse imena tri stevke, vrstni red ostane."""
         link_nemo.zapisi([{"id": "n%d" % i, "ime": str(i)} for i in range(20)], self.mapa, nemo=True)
-        self.assertEqual(len(os.listdir(self.mapa)), link_nemo.NAJVEC)
+        self.assertEqual(len(os.listdir(self.mapa)), 20)
+        self.assertIn("safeer-poslji-20.nemo_action", os.listdir(self.mapa))
+        link_nemo.zapisi([{"id": "n%d" % i, "ime": "Naprava %d" % i} for i in range(120)], self.mapa, nemo=True)
+        imena = sorted(os.listdir(self.mapa))
+        self.assertEqual(len(imena), 120)
+        self.assertEqual((imena[0], imena[-1]), ("safeer-poslji-001.nemo_action", "safeer-poslji-120.nemo_action"))
+        with open(os.path.join(self.mapa, imena[99]), encoding="utf-8") as f:
+            self.assertIn("--to n99 ", f.read(), "stoto mesto je stota naprava")
 
     def test_naprava_ki_je_zdaj_ni(self):
         """Pregled 18. 10. 2026: Nemo naj ponudi tudi znano napravo, ki je zdaj ni - posiljka pocaka nanjo."""
         nast = _Nastavitve()
         tab = {"id": "n-aaaaaaaaaaaaaaaa", "ime": "Tablica", "zmoznosti": ["file"]}
         tv = {"id": "n-bbbbbbbbbbbbbbbb", "ime": "TV", "zmoznosti": ["file"]}
+        # Seznam pise sredisce: zapisemo samo clane kroga tega racunalnika, teh pa brez stevilske meje (prej 32).
+        tuja = [{"id": "n-%016d" % i, "ime": "Tuja"} for i in range(40)]
+        self.assertFalse(link_posiljanje.zabelezi_znane(nast, tuja, zdaj=1000.0, je_clan=lambda i: False))
+        sodelavci = [{"id": "n-%016d" % i, "ime": "Sodelavec %d" % i} for i in range(40)]
+        self.assertTrue(link_posiljanje.zabelezi_znane(nast, sodelavci, zdaj=1000.0, je_clan=lambda i: True))
+        self.assertEqual(len(nast.podatki[link_posiljanje.KLJUC_ZNANE]), 40)
+        nast = _Nastavitve()
         self.assertTrue(link_posiljanje.zabelezi_znane(nast, [tab, tv], zdaj=1000.0))
         self.assertFalse(link_posiljanje.zabelezi_znane(nast, [tab, tv], zdaj=1060.0), "brez spremembe ne pisemo")
         link_posiljanje.zabelezi_zadnjo(nast, tv["id"], zdaj=900.0)

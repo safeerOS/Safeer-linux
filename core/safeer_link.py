@@ -2127,13 +2127,13 @@ class SafeerLink:
         krogu zaupanja tega racunalnika."""
         from core import link_krog, link_posiljanje
         zdaj = self.naprave_za_posiljanje()
-        try:
-            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj)
-        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
-            print("[SafeerLink] znane naprave:", e, flush=True)
 
         def je_clan(i: str) -> bool:
             return link_krog.krog().clan_za_id(i) is not None
+        try:
+            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj, je_clan=je_clan)
+        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
+            print("[SafeerLink] znane naprave:", e, flush=True)
         return link_posiljanje.za_meni(zdaj, self.nastavitve, je_clan)
 
     def _osvezi_nemo(self) -> None:
