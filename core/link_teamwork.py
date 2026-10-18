@@ -65,6 +65,21 @@ SEJA_VELJA_S = 600.0
 TIK_S = 2.0
 #: Najvec toliko kopij ob sporu na sejo (ista vsebina se nikoli ne zapise dvakrat).
 NAJVEC_KOPIJ = 20
+#: Ena naprava ima pri lastniku najvec toliko sej hkrati (pregled 18. 10. 2026: vsaka nova seja kopira celo datoteko
+#: v zgodovino, trenutne razlicice so pred ciscenjem zascitene - brez meje je naprava s files.session za vse deljene
+#: datoteke napolnila disk). Seja zivi, dokler naprava javlja (tudi zaprta datoteka se SPREMLJAJ_S), zato meja ni nizka:
+#: 32 datotek z ene naprave v enem dnevu. Nad mejo nova datoteka ostane navadna delovna kopija, dokler katera ne potece.
+NAJVEC_SEJ_NA_NAPRAVO = 32
+#: Najvec toliko prvih prijav hkrati (vsaka prebere in kopira celo datoteko: izmerjeno 18. 10. 2026 256 MiB v 1,1 s,
+#: 1 GiB ~4,5 s); nad tem odgovor `zasedeno` in naprava poskusi ob naslednjem javljanju (PING_ODPRTO_S/PING_SPREMLJAM_S).
+NAJVEC_PRVIH_PRIJAV = 8
+#: Kopija v zgodovino samo, ce na disku potem ostane vsaj toliko prostora (brez kopije spor ostane brez razlicice
+#: - obvestilo spor_brez_kopije - disk pa se ne napolni).
+REZERVA_DISKA = 1024 ** 3
+
+
+class Zasedeno(Exception):
+    """Prvih prijav je ze NAJVEC_PRVIH_PRIJAV."""
 #: Po trajni napaki (prevelika datoteka, ni prostora pri lastniku) udelezenec toliko casa ne posilja znova.
 PREMOR_PO_NAPAKI_S = 300.0
 MAGIJA = b"SFTW1\n"
@@ -459,10 +474,14 @@ class Zgodovina:
         if not sha or self.pot(kljuc, sha):
             return self.pot(kljuc, sha)
         try:
-            if os.path.getsize(vir) > NAJVEC_ZA_ZGODOVINO:
+            velikost = os.path.getsize(vir)
+            if velikost > NAJVEC_ZA_ZGODOVINO:
                 return ""
             m = self._mapa(kljuc)
             os.makedirs(m, exist_ok=True)
+            if shutil.disk_usage(m).free - velikost < REZERVA_DISKA:
+                print("[Teamwork] ni prostora za razlicico v zgodovini:", os.path.basename(vir), file=sys.stderr)
+                return ""
             fd, zac = tempfile.mkstemp(prefix=".", dir=m)
             with os.fdopen(fd, "wb") as f, open(vir, "rb") as v:
                 shutil.copyfileobj(v, f, 1024 * 1024)
@@ -617,6 +636,9 @@ class Teamwork:
         #: Oznaka -> kljucavnica, dokler se seja ustvarja (zgoscena vrednost in kopija velike datoteke): drugi klic za
         #: isto datoteko pocaka nanjo, namesto da bi datoteko bral in kopiral se enkrat.
         self._ustvarjanje: Dict[str, threading.Lock] = {}
+        #: Niti v prvi prijavi (ustvarjajo sejo ali cakajo nanjo) - NAJVEC_PRVIH_PRIJAV; in po napravah (meja sej).
+        self._v_ustvarjanju = 0
+        self._ustvarja: Dict[str, int] = {}
         self._udelezbe: Dict[str, _Udelezba] = {}
         self._zaklep = threading.RLock()
         self._nit: Optional[threading.Thread] = None
@@ -658,33 +680,55 @@ class Teamwork:
         return "@tukaj"
 
     # -------------------------------------------------------------- lastnik
-    def _seja(self, oznaka: str, ustvari: bool) -> Optional[_Seja]:
+    def _seja(self, oznaka: str, ustvari: bool, naprava: str = "") -> Optional[_Seja]:
         with self._zaklep:
             s = self._seje.get(oznaka)
             if s is not None or not ustvari:
                 return s
+            if self._v_ustvarjanju >= NAJVEC_PRVIH_PRIJAV:
+                raise Zasedeno()
+            self._v_ustvarjanju += 1
+            self._ustvarja[naprava] = self._ustvarja.get(naprava, 0) + 1
             ustvarjanje = self._ustvarjanje.setdefault(oznaka, threading.Lock())
         # Branje cele datoteke (zgoscena vrednost, kopija v zgodovino) ne sme drzati skupne kljucavnice: sicer caka
         # D-Bus (TeamworkStanje) in vsak tik, dokler se velika datoteka ne prebere.
-        with ustvarjanje:
-            try:
-                with self._zaklep:
-                    s = self._seje.get(oznaka)
-                if s is not None:
-                    return s
-                pot = self._razresi(oznaka)
-                if not pot or not os.path.isfile(pot):
-                    return None
-                nova = _Seja(oznaka, pot)
-                nova.stat = _stat(pot)
-                nova.sha = _sha(pot)
-                self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
-                with self._zaklep:
-                    return self._seje.setdefault(oznaka, nova)
-            finally:
-                with self._zaklep:
-                    if self._ustvarjanje.get(oznaka) is ustvarjanje:
-                        self._ustvarjanje.pop(oznaka, None)
+        try:
+            with ustvarjanje:
+                try:
+                    with self._zaklep:
+                        s = self._seje.get(oznaka)
+                    if s is not None:
+                        return s
+                    pot = self._razresi(oznaka)
+                    if not pot or not os.path.isfile(pot):
+                        return None
+                    nova = _Seja(oznaka, pot)
+                    nova.stat = _stat(pot)
+                    nova.sha = _sha(pot)
+                    self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
+                    with self._zaklep:
+                        return self._seje.setdefault(oznaka, nova)
+                finally:
+                    with self._zaklep:
+                        if self._ustvarjanje.get(oznaka) is ustvarjanje:
+                            self._ustvarjanje.pop(oznaka, None)
+        finally:
+            with self._zaklep:
+                self._v_ustvarjanju -= 1
+                ostane = self._ustvarja.get(naprava, 1) - 1
+                if ostane > 0:
+                    self._ustvarja[naprava] = ostane
+                else:
+                    self._ustvarja.pop(naprava, None)
+
+    def _sej_naprave(self, naprava: str) -> int:
+        """Seje, v katerih naprava v zadnjih SEJA_VELJA_S javlja, in seje, ki jih zanjo ravno ustvarjamo."""
+        zdaj = self.zdaj()
+        with self._zaklep:
+            seje = list(self._seje.values())
+            v_teku = self._ustvarja.get(naprava, 0)
+        return v_teku + sum(1 for s in seje if zdaj - float((s.udelezenci.get(naprava) or {}).get("cas", -1e18))
+                            <= SEJA_VELJA_S)
 
     def _razresi(self, oznaka: str) -> str:
         try:
@@ -721,7 +765,12 @@ class Teamwork:
             self._opusti(s)
             s = None
         if s is None:
-            s = self._seja(oznaka, ustvari=True)
+            if self._sej_naprave(posiljatelj) >= NAJVEC_SEJ_NA_NAPRAVO:
+                return {"ok": False, "koda": "prevec_sej", "najvec": NAJVEC_SEJ_NA_NAPRAVO}
+            try:
+                s = self._seja(oznaka, ustvari=True, naprava=posiljatelj)
+            except Zasedeno:
+                return {"ok": False, "koda": "zasedeno"}
         if s is None:
             return {"ok": False, "koda": "ni_datoteke"}
         with s.zaklep:
