@@ -54,13 +54,17 @@ ODHOD_PREVERI_S = 1.0
 
 
 def televizorji_v_linku() -> set:
-    """Id-ji televizorjev (platforma tv), ki so ta trenutek v Safeer Linku (stanje, ki ga pise Safeer Control)."""
+    """Id-ji prizganih televizorjev (platforma tv), ki so ta trenutek v Safeer Linku (stanje, ki ga pise Safeer Control).
+
+    TV z ugasnjenim zaslonom ostane v Linku z zmoznostjo »standby« (Android TV 0.5.89, VklopTelevizorja) - ta ni
+    prizgan: vklop zaznamo, ko »standby« izgine (prej je TV, ki je ostal v Linku, vklop skril)."""
     from core import os_zvok
     s = os_zvok._beri_stanje_linka()
     if not s.get("povezan"):
         return set()
     return {str(d.get("id") or "") for d in s.get("naprave") or []
-            if isinstance(d, dict) and d.get("platforma") == "tv" and d.get("id")}
+            if isinstance(d, dict) and d.get("platforma") == "tv" and d.get("id")
+            and "standby" not in (d.get("zmoznosti") or [])}
 
 
 def _pot_zakasnitev() -> str:

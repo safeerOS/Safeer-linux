@@ -241,3 +241,29 @@ class SamodejniPreklopTvTest(unittest.TestCase):
         self.assertEqual(z.opis()["naprava"], "")
         self.assertIn(("set-default-sink", "alsa_output.pci"), z._pactl.klici)
         self.assertLess(cas, 60)
+
+
+class TelevizorjiVLinkuTest(unittest.TestCase):
+    """Android TV 0.5.89 z ugasnjenim zaslonom ostane v Linku z zmoznostjo »standby«: ni prizgan (18. 10. 2026)."""
+
+    def _naprave(self, naprave, povezan=True):
+        from core import os_zvok
+        return mock.patch.object(os_zvok, "_beri_stanje_linka", return_value={"povezan": povezan, "naprave": naprave})
+
+    def test_standby_ni_prizgan(self):
+        naprave = [{"id": "tv1", "platforma": "tv", "zmoznosti": ["zvok", "standby"]},
+                   {"id": "tv2", "platforma": "tv", "zmoznosti": ["zvok"]},
+                   {"id": "tv3", "platforma": "tv"},
+                   {"id": "tel", "platforma": "android", "zmoznosti": ["zvok"]}]
+        with self._naprave(naprave):
+            self.assertEqual(zz.televizorji_v_linku(), {"tv2", "tv3"})
+
+    def test_vklop_je_konec_standby(self):
+        with self._naprave([{"id": "tv1", "platforma": "tv", "zmoznosti": ["standby"]}]):
+            self.assertEqual(zz.televizorji_v_linku(), set())
+        with self._naprave([{"id": "tv1", "platforma": "tv", "zmoznosti": []}]):
+            self.assertEqual(zz.televizorji_v_linku(), {"tv1"})
+
+    def test_brez_linka(self):
+        with self._naprave([{"id": "tv1", "platforma": "tv"}], povezan=False):
+            self.assertEqual(zz.televizorji_v_linku(), set())
