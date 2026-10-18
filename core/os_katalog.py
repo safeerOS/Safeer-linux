@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
-from . import os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
+from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -248,7 +248,7 @@ SKRIPT_SKLADBE = """
   if (window.__safeerSkladba) return; window.__safeerSkladba = true;
   function javi(o) { try { document.dispatchEvent(new CustomEvent("safeer-skladba", { detail: JSON.stringify(o) })); } catch (e) {} }
   function predvajalnik() { var p = document.getElementById("movie_player"); return p && typeof p.getPlayerState === "function" ? p : null; }
-  var zadnje = null, napaka = false, napakaVidea = 0, zacetek = Date.now();
+  var zadnje = null, zadnjeZivo = false, napaka = false, napakaVidea = 0, zacetek = Date.now();
   function stanje() {
     var p = predvajalnik();
     if (p) { try { return p.getPlayerState(); } catch (e) {} }
@@ -258,6 +258,13 @@ SKRIPT_SKLADBE = """
     return v.paused ? (v.currentTime > 0 ? 2 : -1) : (v.readyState > 2 ? 1 : 3);
   }
   function javiNapako(koda) { if (napaka) return; napaka = true; javi({ napaka: true, koda: String(koda).slice(0, 12) }); }
+  // Prenos v zivo nima konca (stanje 0 ne pride): Safeer ga v vrsti oznaci »V zivo« in ga samodejni prehod preskoci.
+  function vZivo() {
+    var p = predvajalnik();
+    try { var d = p && typeof p.getVideoData === "function" ? p.getVideoData() : null; if (d && d.isLive) return true; } catch (e) {}
+    var v = document.querySelector("video");
+    return !!(v && v.duration === Infinity);
+  }
   // Nadomestna pot (stran posnetka): na zaslonu samo predvajalnik cez cel pogled, kot pri vgradnji; ce YouTube sam
   // preide na drug posnetek (samodejno predvajanje), se to steje kot konec skladbe - naslednjo izbere Safeer.
   var stran = location.pathname === "/watch", posnetek = new URLSearchParams(location.search).get("v");
@@ -288,9 +295,9 @@ SKRIPT_SKLADBE = """
       if (zadnje !== 0) { zadnje = 0; javi({ stanje: 0 }); }
       return;
     }
-    var s = stanje();
+    var s = stanje(), z = s === 1 && vZivo();
     if (s === 1) napakaVidea = 0;
-    if ((s === 0 || s === 1 || s === 2) && s !== zadnje) { zadnje = s; javi({ stanje: s }); }
+    if ((s === 0 || s === 1 || s === 2) && (s !== zadnje || z !== zadnjeZivo)) { zadnje = s; zadnjeZivo = z; javi({ stanje: s, zivo: z }); }
     var e = document.querySelector(".ytp-error");
     if (e && e.offsetParent !== null) { javiNapako("vgradnja"); return; }
     // Posnetek se ne da dekodirati in predvajalnik si v nekaj sekundah ni opomogel.
@@ -350,6 +357,10 @@ class Katalog:
         self._motor_odstotek = -1
         #: Osebne police (core/os_police.py): priljubljene, stevci, ogledano - v isti mapi kot napredek.json.
         self.police = os_police.Police(self.config_dir)
+        #: Nazadnje predvajan seznam (core/nazadnje_predvajano.py): Domov »Nadaljuj« in samodejno nadaljevanje.
+        self.nazadnje = nazadnje_predvajano.NazadnjePredvajano(self.config_dir)
+        #: (id skladbe, sekunde): »Nadaljuj« zacne to skladbo na tem mestu (enkrat, glej _zacetek).
+        self._nadaljuj_enkrat: Optional[tuple] = None
         #: Krajevna knjiznica (core/os_knjiznica.py) za police; None = privzeta baza ob prvi rabi.
         self._lokalna = lokalna
         #: Ponujena naslednja epizoda: {"zeton", "cas", "kljuc", "tip", ...} ali None. Zeton porabi prvi pogled, ki
@@ -471,6 +482,8 @@ class Katalog:
         "mediaSkrito": "_skrito", "mediaSkrij": "_skrij", "mediaZasebno": "_zasebno",
         "mediaSamodejniSeznami": "_samodejni_seznami", "mediaSamodejniSeznam": "_samodejni_seznam",
         "mediaSamodejniShrani": "_samodejni_shrani",
+        # Nazadnje predvajano (core/nazadnje_predvajano.py): zapomni, nadaljuj, naslednji podoben seznam, prenos v zivo.
+        "mediaNazadnje": "_nazadnje",
         # Skripte, ki jih uporabnik sam uvozi (core/uporabniske_skripte.py): JavaScript v strani Spotify, shell na ukaz.
         "mediaPlakat": "_plakat",
         "mediaSkripte": "_skripte_seznam", "mediaSkriptaUvozi": "_skripta_uvozi", "mediaSkriptaPreberi": "_skripta_preberi", "mediaSkriptaVklop": "_skripta_vklop",
@@ -952,7 +965,10 @@ class Katalog:
         return skladbe
 
     def izracunaj_samodejne(self) -> list:
-        seznami = samodejni_seznami.sestavi(self._zberi_skladbe(), time.time())
+        skladbe = self._zberi_skladbe()
+        seznami = samodejni_seznami.sestavi(skladbe, time.time())
+        # Zvrsti izvajalcev za »Nazadnje predvajano« (podoben seznam ob koncu): majhen zemljevid, ne vse skladbe.
+        self._izvajalci_zvrsti = (time.time(), nazadnje_predvajano.zemljevid_izvajalcev(skladbe))
         with self._zaklep:
             spremenjeno = samodejni_seznami.povzetek(seznami) != samodejni_seznami.povzetek(self._samodejni["seznami"])
             self._samodejni.update(seznami=seznami, cas=time.time())
@@ -1011,7 +1027,7 @@ class Katalog:
             # sicer poznejse predvajanje odpove (pregled 14. 10. 2026).
             vnos = mc._dynamic_items.setdefault(vnos["id"], vnos)
             vnosi.append({k: vnos.get(k) for k in ("id", "naslov", "izvajalec", "slika", "vrsta", "vir")})
-        return {"id": sz["id"], "vnosi": vnosi}
+        return self._oznaci_zive({"id": sz["id"], "vnosi": vnosi})
 
     def _samodejni_shrani(self, a: list) -> dict:
         """»Shrani kot seznam«: samodejni seznam postane navaden seznam predvajanja (se ne spreminja vec)."""
@@ -1026,13 +1042,162 @@ class Katalog:
                    for s in sz["skladbe"] if s["url"]]
         return self.mc.shrani_seznam(self._niz(a, 1), skladbe)
 
+    # ------------------------------------------------------------------ nazadnje predvajano (core/nazadnje_predvajano.py)
+    def _nazadnje(self, a: list) -> Any:
+        """["zapomni", izvor, mesto, skladba, skupaj, red, samodejno] | ["nadaljuj"] | ["naslednji"] | ["zivo", id]."""
+        dejanje = self._niz(a, 0)
+        if dejanje == "zapomni":
+            arg = (list(a) + [None] * 7)[1:7]
+            return self.nazadnje.zapomni(arg[0], arg[1], arg[2], arg[3], arg[4], bool(arg[5]))
+        if dejanje == "nadaljuj":
+            return self._nazadnje_nadaljuj()
+        if dejanje == "naslednji":
+            return self._nazadnje_naslednji()
+        if dejanje == "zivo":
+            return self.nazadnje.oznaci_zivo(self._niz(a, 1))
+        return None
+
+    def _nazadnje_vnosi(self, izvor: dict) -> list:
+        """Skladbe seznama kot vnosi kataloga; prazno, ce seznama ni vec ali ga ni mogoce prebrati (tiho, sled)."""
+        try:
+            if izvor["tip"] == "seznam":
+                sz = self.mc.seznam(izvor["ref"])
+            elif izvor["tip"] == "samodejni":
+                if not self._samodejni["seznami"]:
+                    self.izracunaj_samodejne()        # po zagonu se niso izracunani (Nadaljuj pred odprtjem Glasbe)
+                sz = self._samodejni_seznam([izvor["ref"]])
+            else:
+                sz = self.mc.yt_seznam(izvor["ref"], int(izvor.get("racun") or 0))
+        except Exception as e:  # noqa: BLE001 - omrezje, potekla prijava
+            print("[SafeerMedia] nazadnje predvajano: seznama ni mogoce prebrati (%s)" % type(e).__name__,
+                  file=sys.stderr, flush=True)
+            return []
+        vnosi = self._oznaci_zive(sz).get("vnosi") if isinstance(sz, dict) else None
+        return [v for v in vnosi if isinstance(v, dict) and v.get("id")] if isinstance(vnosi, list) else []
+
+    def _nazadnje_javno(self) -> Optional[dict]:
+        """Za Domov: zadnji seznam, ce ga je se mogoce predvajati. Izbrisanega ne kazemo (in ga pozabimo)."""
+        z = self.nazadnje.zadnji()
+        if not z:
+            return None
+        izvor = z["izvor"]
+        ni_vec = False
+        if izvor["tip"] == "seznam":
+            try:
+                with self.mc._lock:          # samo imena (brez ovitkov in prijav streznikov - Domov se nalaga hitro)
+                    ni_vec = izvor["ref"] not in {x.get("ime") for x in self.mc._seznami_beri()}
+            except Exception:  # noqa: BLE001 - seznamov ni mogoce prebrati: ne pozabimo
+                ni_vec = False
+        elif izvor["tip"] == "samodejni":
+            with self._zaklep:
+                seznami = list(self._samodejni["seznami"])
+            ni_vec = bool(seznami) and not any(x["id"] == izvor["ref"] for x in seznami)
+        if ni_vec:
+            self.nazadnje.pozabi()
+            return None
+        red = z.get("red") or []
+        # poz: kje v vrstnem redu predvajanja je uporabnik ostal (ob »Nakljucno« premesan red, sicer mesto na seznamu).
+        return dict({k: z[k] for k in ("izvor", "mesto", "skupaj", "skladba", "pozicija", "cas")},
+                    poz=red.index(z["mesto"]) if z["mesto"] in red else z["mesto"])
+
+    def _nazadnje_nadaljuj(self) -> dict:
+        """»Nadaljuj« na Domov: skladbe seznama, skladba in mesto v njej, kjer je uporabnik ostal."""
+        z = self.nazadnje.zadnji()
+        if not z:
+            return {}
+        vnosi = self._nazadnje_vnosi(z["izvor"])
+        if not vnosi:
+            # Seznama ni vec: brez sporocila uporabniku (lastnik 18. 10. 2026), Domov ga ne kaze vec.
+            print("[SafeerMedia] nazadnje predvajano: seznama ni vec", file=sys.stderr, flush=True)
+            self.nazadnje.pozabi()
+            return {}
+        ident = (z.get("skladba") or {}).get("id")
+        mesto = next((i for i, v in enumerate(vnosi) if v["id"] == ident), None)
+        pozicija = int(z.get("pozicija") or 0) if mesto is not None else 0
+        if mesto is None:
+            mesto = min(int(z.get("mesto") or 0), len(vnosi) - 1)
+        self._nadaljuj_enkrat = (vnosi[mesto]["id"], pozicija) if pozicija >= 5 else None
+        red = z.get("red") if len(z.get("red") or []) == len(vnosi) else []
+        return {"izvor": z["izvor"], "vnosi": vnosi, "mesto": mesto, "pozicija": pozicija, "red": red}
+
+    def _nazadnje_naslednji(self) -> dict:
+        """Seznam je odigran do konca: najblizji po zvrsti (core/nazadnje_predvajano.izberi), brez ze slisanih skladb."""
+        z = self.nazadnje.zadnji()
+        if not z:
+            return {}
+        skrit_samodejni = "polica:samodejni" in set(self._skriti())
+        with self._zaklep:
+            seznami = list(self._samodejni["seznami"])
+            svezi = time.time() - self._samodejni["cas"] < samodejni_seznami.OSVEZI_S
+        cas_izv, izvajalci = getattr(self, "_izvajalci_zvrsti", (0.0, {}))
+        if not (svezi and time.time() - cas_izv < samodejni_seznami.OSVEZI_S and (seznami or skrit_samodejni)):
+            # Ni svezih podatkov (Glasba ali Domov dolgo ni bil odprt): preberemo uporabnikovo glasbo zdaj.
+            try:
+                vse = self._zberi_skladbe()
+            except Exception as e:  # noqa: BLE001 - zaklenjena baza: brez zvrsti odlocajo izvajalci in zgodovina
+                print("[SafeerMedia] nazadnje predvajano (zvrsti): %s" % type(e).__name__, file=sys.stderr, flush=True)
+                vse = []
+            izvajalci = nazadnje_predvajano.zemljevid_izvajalcev(vse)
+            self._izvajalci_zvrsti = (time.time(), izvajalci)
+            if not skrit_samodejni and vse:
+                seznami = samodejni_seznami.sestavi(vse, time.time())
+                with self._zaklep:
+                    self._samodejni.update(seznami=seznami, cas=time.time())
+        kandidati = []
+        try:
+            with self.mc._lock:
+                surovi = list(self.mc._seznami_beri())
+            for x in surovi:
+                skladbe = [s for s in x["skladbe"] if isinstance(s, dict)]
+                slike = [str(s.get("slika") or "") for s in skladbe if s.get("slika")][:4]
+                kandidati.append({"kljuc": "seznam:" + x["ime"], "zanr": "", "skladbe": skladbe,
+                                  "izvor": {"tip": "seznam", "ref": x["ime"], "ime": x["ime"], "slike": slike}})
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerMedia] nazadnje predvajano (seznami): %s" % type(e).__name__, file=sys.stderr, flush=True)
+        if not skrit_samodejni:
+            for x in seznami:
+                kandidati.append({"kljuc": "samodejni:" + x["id"], "zanr": x["ime"] if x["vrsta"] == "zanr" else "",
+                                  "skladbe": x["skladbe"],
+                                  "izvor": {"tip": "samodejni", "ref": x["id"], "vrsta": x["vrsta"], "ime": x["ime"],
+                                            "slike": x["slike"]}})
+        izteklo = next((dict(k, kljuc=z["kljuc"]) for k in kandidati if k["kljuc"] == z["kljuc"]), None)
+        if izteklo is None:                              # seznam racuna YouTube: skladbe iz njegovih vnosov
+            izteklo = {"kljuc": z["kljuc"], "zanr": "", "skladbe": self._nazadnje_vnosi(z["izvor"])}
+        slisane = {nazadnje_predvajano.kljuc_skladbe(s) for s in izteklo["skladbe"]}
+        izkljuci = set(z.get("veriga") or [])
+        for _ in range(3):
+            izbran = nazadnje_predvajano.izberi(izteklo, kandidati, izvajalci, self.nazadnje.zgodovina(), izkljuci)
+            if izbran is None and izkljuci:
+                izkljuci = set()                         # veriga je obsla vse sezname: zacne se znova
+                izbran = nazadnje_predvajano.izberi(izteklo, kandidati, izvajalci, self.nazadnje.zgodovina())
+            if izbran is None:
+                return {}
+            vnosi = [v for v in self._nazadnje_vnosi(nazadnje_predvajano.cisti_izvor(izbran["izvor"]))
+                     if nazadnje_predvajano.kljuc_skladbe(v) not in slisane]
+            if vnosi:
+                # Dnevnik brez imen seznamov (vsebina ostane na napravi): samo podobnost.
+                print("[SafeerMedia] nazadnje predvajano: nadaljujem s podobnim seznamom (podobnost %.2f)"
+                      % izbran["podobnost"], file=sys.stderr, flush=True)
+                return {"izvor": nazadnje_predvajano.cisti_izvor(izbran["izvor"]), "vnosi": vnosi,
+                        "podobnost": izbran["podobnost"]}
+            izkljuci.add(izbran["kljuc"])                # seznama ni mogoce prebrati: naslednji najblizji
+        return {}
+
     # ------------------------------------------------------------------ seznami predvajanja
     def _seznami(self, _a: list) -> Any:
         self.uskladi_sezname()
         return self.mc.seznami()
 
     def _seznam(self, a: list) -> Any:
-        return self.mc.seznam(self._niz(a, 0))
+        return self._oznaci_zive(self.mc.seznam(self._niz(a, 0)))
+
+    def _oznaci_zive(self, sz: Any) -> Any:
+        """Skladbe s seznama, ki so se izkazale za prenos v zivo: stran jih oznaci »V zivo«, samodejni prehod preskoci."""
+        zivi = self.nazadnje.zivi()
+        if zivi and isinstance(sz, dict) and isinstance(sz.get("vnosi"), list):
+            sz = dict(sz, vnosi=[dict(v, v_zivo=True) if isinstance(v, dict) and v.get("id") in zivi else v
+                                 for v in sz["vnosi"]])
+        return sz
 
     def _uvozi_seznam(self, a: list) -> Any:
         izid = self.mc.uvozi_seznam(self._niz(a, 0))
@@ -1052,7 +1217,7 @@ class Katalog:
             return 0
 
     def _yt_seznam(self, a: list) -> Any:
-        return self.mc.yt_seznam(self._niz(a, 0), self._racun_iz(a, 1))
+        return self._oznaci_zive(self.mc.yt_seznam(self._niz(a, 0), self._racun_iz(a, 1)))
 
     def _yt_shrani(self, a: list) -> Any:
         return self.mc.yt_shrani(self._niz(a, 0), self._racun_iz(a, 1), self._niz(a, 2))
@@ -1208,12 +1373,15 @@ class Katalog:
                                            "zamenjaj": koda.startswith("vgradnja") or koda in ("yt100", "yt101", "yt150")})
             return
         stanje = d.get("stanje")
-        if stanje == 1 and not yt["igra"]:
-            if not yt["ze_igral"] and yt.get("kljuc"):
+        zivo = d.get("zivo") is True and not yt.get("zivo")
+        if stanje == 1 and (not yt["igra"] or zivo):
+            if not yt["igra"] and not yt["ze_igral"] and yt.get("kljuc"):
                 # Vgradni predvajalnik ne javlja mesta: skladba s seznama steje, ko res zaigra (prvic v tej izbiri).
                 self.police.stej(yt["kljuc"])
             yt["igra"] = True
-            self.dogodek("mediaYt", {"id": yt["id"], "igra": True})
+            yt["zivo"] = yt.get("zivo") or d.get("zivo") is True
+            # zivo: posnetek je prenos v zivo (stran ga v vrsti oznaci in ga samodejni prehod preskoci)
+            self.dogodek("mediaYt", dict({"id": yt["id"], "igra": True}, **({"zivo": True} if yt["zivo"] else {})))
         elif stanje == 2 and yt["igra"]:
             yt["igra"], yt["ze_igral"] = False, True
             self.dogodek("mediaYt", {"id": yt["id"], "igra": False})
@@ -1445,6 +1613,8 @@ class Katalog:
         if not vnos:
             return
         self._stej_in_oznaci(vnos, pozicija, trajanje)
+        if vnos.get("vrsta") == "medij":
+            self.nazadnje.pozicija(str(vnos.get("id") or ""), pozicija)      # »Nadaljuj« seznama na Domov
         dolg_zvok = vnos.get("vrsta") == "medij" and trajanje >= os_police.DOLG_ZVOK_S
         if (vnos.get("vrsta") != "video" and not dolg_zvok) or pozicija < 15 or trajanje <= 0:
             return
@@ -1512,6 +1682,9 @@ class Katalog:
     def _zacetek(self, item: dict, ident: str, kljuc: str) -> int:
         """Kje nadaljevati: napredek po id vnosa; ce ga ni, po id, pod katerim je bil isti naslov (kljuc) predvajan
         prej (epizodo s police Safeer po ponovnem zagonu sestavi znova in ima lahko drug id)."""
+        enkrat, self._nadaljuj_enkrat = self._nadaljuj_enkrat, None
+        if enkrat and enkrat[0] in (ident, str(item.get("id") or "")):
+            return int(enkrat[1])         # »Nadaljuj« na Domov: skladba seznama tam, kjer je uporabnik ostal
         zacetek = self.napredek_za(str(item.get("id") or ident))
         if zacetek or not kljuc:
             return zacetek
@@ -1587,6 +1760,8 @@ class Katalog:
             print("[SafeerMedia] police zasebno: %s" % type(e).__name__, flush=True)
         izhod["police"] = os_police.sestavi_police(zavihek, viri)
         self._ovitki_s_prijavo(izhod["police"])
+        if zavihek == "domov":
+            izhod["nazadnje_seznam"] = self._nazadnje_javno()
         return izhod
 
     # ------------------------------------------------------------------ police odkrivanja (Domov)

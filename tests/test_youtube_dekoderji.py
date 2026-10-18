@@ -93,7 +93,8 @@ class SeznamiYoutubeTests(unittest.TestCase):
             return "function %s(" % ime + js.split("  function %s(" % ime, 1)[1].split("\n  }\n", 1)[0] + "\n  }\n"
         meja = js.split("var VRSTA_ZGODOVINA_NAJVEC = ", 1)[1].split(";", 1)[0]
         koda = ("var VRSTA_ZGODOVINA_NAJVEC = " + meja + ";\n" + "".join(fn(x) for x in (
-            "naslednjiVVrsti", "predvajajIzVrste", "zapomniMestoVrste", "naprejPoNapaki")) + """
+            "naslednjiVVrsti", "predvajajIzVrste", "zapomniMestoVrste", "naprejPoNapaki", "redVrste", "jeVZivo", "vrstaPostaj",
+            "zacetekKroga", "nakljucnoVklopljeno", "premesaj")) + """
 var nast = %s, kat = { vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], vrstaNapake: 0 }, odprtih = 0, ustavljeno = 0;
 for (var i = 0; i < %d; i++) kat.vrsta.push("s" + i);
 function vrstaNastavitev(k, p) { return k in nast ? nast[k] : p; }

@@ -529,7 +529,10 @@
         <p id="mediaIzhodStanje" class="media-izhod-stanje" role="status" aria-live="polite"></p>
       </div>
       <div class="media-vrsta-plosca" id="mediaVrstaPlosca" role="dialog" aria-labelledby="mediaVrstaNaslov" hidden>
-        <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div>
+        <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3>
+          <!-- Nakljucni vrstni red (lastnik, 18. 10. 2026): jasna oznaka, da plosca kaze premesan red, ki bo res igral. -->
+          <span class="media-vrsta-nacin" id="mediaVrstaNacin" hidden><svg data-ikona="premesaj"></svg><span data-t="vrstaNakljucno"></span></span>
+          <span id="mediaCakalnaStevec"></span></div>
         <div id="mediaVrsta" class="media-vrsta"></div>
       </div>
     </div>
