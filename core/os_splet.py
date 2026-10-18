@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, scit_pravila, splet_prenosi, splet_temno, zascita)
+                  safeer_drm, scit_pravila, splet_prenosi, splet_skripte, splet_temno, zascita)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
@@ -236,6 +236,8 @@ for _j, _b in {
 
 
 for _j, _b in {'sl': {'predpomnilnik': 'Upravitelj predpomnilnika', 'pp_disk': 'Predpomnilnik na disku: {mb} MB', 'pp_pocisti': 'Počisti predpomnilnik (prijave ostanejo)', 'pp_strani': 'Shranjeni podatki strani', 'pp_odstrani': 'Odstrani', 'pp_meja': 'Samodejno počisti predpomnilnik nad {mb} MB', 'pp_iskanje': 'Išči stran …', 'pp_vrste': 'piškotki, shramba, predpomnilnik'}, 'en': {'predpomnilnik': 'Cache manager', 'pp_disk': 'Disk cache: {mb} MB', 'pp_pocisti': 'Clear cache (keeps sign-ins)', 'pp_strani': 'Stored site data', 'pp_odstrani': 'Remove', 'pp_meja': 'Automatically clear cache above {mb} MB', 'pp_iskanje': 'Search site …', 'pp_vrste': 'cookies, storage, cache'}, 'de': {'predpomnilnik': 'Cache-Verwaltung', 'pp_disk': 'Festplatten-Cache: {mb} MB', 'pp_pocisti': 'Cache leeren (Anmeldungen bleiben)', 'pp_strani': 'Gespeicherte Website-Daten', 'pp_odstrani': 'Entfernen', 'pp_meja': 'Cache über {mb} MB automatisch leeren', 'pp_iskanje': 'Website suchen …', 'pp_vrste': 'Cookies, Speicher, Cache'}, 'es': {'predpomnilnik': 'Gestor de caché', 'pp_disk': 'Caché en disco: {mb} MB', 'pp_pocisti': 'Vaciar caché (se mantienen las sesiones)', 'pp_strani': 'Datos guardados de sitios', 'pp_odstrani': 'Eliminar', 'pp_meja': 'Vaciar la caché automáticamente por encima de {mb} MB', 'pp_iskanje': 'Buscar sitio …', 'pp_vrste': 'cookies, almacenamiento, caché'}, 'fr': {'predpomnilnik': 'Gestionnaire de cache', 'pp_disk': 'Cache disque : {mb} Mo', 'pp_pocisti': 'Vider le cache (les connexions restent)', 'pp_strani': 'Données de sites enregistrées', 'pp_odstrani': 'Supprimer', 'pp_meja': 'Vider automatiquement le cache au-delà de {mb} Mo', 'pp_iskanje': 'Rechercher un site …', 'pp_vrste': 'cookies, stockage, cache'}, 'it': {'predpomnilnik': 'Gestione cache', 'pp_disk': 'Cache su disco: {mb} MB', 'pp_pocisti': 'Svuota cache (gli accessi restano)', 'pp_strani': 'Dati dei siti salvati', 'pp_odstrani': 'Rimuovi', 'pp_meja': 'Svuota automaticamente la cache oltre {mb} MB', 'pp_iskanje': 'Cerca sito …', 'pp_vrste': 'cookie, archiviazione, cache'}}.items():
+    BESEDILA.setdefault(_j, {}).update(_b)
+for _j, _b in splet_skripte.MENI.items():      # uporabniske skripte (core/splet_skripte.py, 18. 10. 2026)
     BESEDILA.setdefault(_j, {}).update(_b)
 # 14. 10. 2026: funkcije, ki jih je imel le Safeer Browser GTK3 (najdi naprej/nazaj, tiskanje, celozaslonsko, utisaj ...).
 _BRSKALNIK = {
@@ -1094,6 +1096,8 @@ class VdelaniSplet:
         self.gumb_povecave.set_visible(False)
         naslov.append(self.kljucavnica)
         naslov.append(self.vnos)
+        self.skripte = splet_skripte.SpletSkripte(self)     # uporabniske skripte: oznaka, ko tecejo na strani
+        naslov.append(self.skripte.znak)
         naslov.append(self.gumb_povecave)
         naslov.append(self.zvezdica)
         orodja.append(naslov)
@@ -1225,6 +1229,7 @@ class VdelaniSplet:
             "zapisek": lambda: self._v_zapisek(), "temno": lambda: self._temno_preklopi_stran(),
             "natisni": lambda: self.izvedi("natisni"), "celozaslonsko": lambda: self.izvedi("celozaslonsko"),
             "izbrisi": lambda: self._izbrisi_podatke(), "dovoljenja": lambda: self._dovoljenja_strani(),
+            "skripte": lambda: self.skripte.pokazi(),
         }
         for ime, dejanje in dejanja.items():
             d = self.Gio.SimpleAction.new(ime, None)
@@ -1362,7 +1367,7 @@ class VdelaniSplet:
                  ("predpomnilnik", "predpomnilnik"), ("prenosi", "prenosi"), ("najdi", "najdi"),
                  ("povecaj", "povecaj"), ("pomanjsaj", "pomanjsaj"), ("natisni", "natisni"),
                  ("celozaslonsko", "celozaslonsko"), ("nas_brisi", "izbrisi"), ("nas_dovoljenja", "dovoljenja"),
-                 ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
+                 ("skripte", "skripte"), ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
         if not self.odpri_zapisek:
             vnosi = [v for v in vnosi if v[1] != "zapisek"]   # samostojni brskalnik nima zapiskov: brez praznega vnosa
         vnosi = [(self._t(k), d) for k, d in vnosi]
@@ -1539,6 +1544,8 @@ class VdelaniSplet:
             # Vdelana aplikacija (klepet) mora v ozadju teci v realnem casu: brez uspavanja zavihka.
             self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
+        if not aplikacija and getattr(self, "skripte", None) is not None:
+            self.skripte.namesti(pogled)          # uporabniske skripte v svojem svetu (core/splet_skripte.py)
         nastavitve = pogled.get_settings()
         scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
         if aplikacija:
@@ -2709,6 +2716,8 @@ class VdelaniSplet:
         self._osvezi_scit()
         self._osvezi_zvezdico()
         self._osvezi_povecavo()
+        if getattr(self, "skripte", None) is not None:
+            self.skripte.osvezi_znak(pogled)
 
     def _sporocilo(self, pogled, rezultat):
         try:
@@ -3808,6 +3817,10 @@ class VdelaniSplet:
         okvir_naprej, naprej_lasten, izid_naprej = polje_po_meri(zdaj_po_meri)
         rezerva = Gtk.CheckButton(label=self._ti("doh_rezerva_lbl"))
         rezerva.set_active(bool(self.config.get("dns_rezerva", True)))
+        # »DNS v lokalnem omrezju« (GTK3 brskalnik, doh_lokalno_omrezje): ime, ki ga DNS prevede v domaci naslov
+        # (Pi-hole, usmerjevalnik, NAS), se odpre; privzeto izklopljeno (doh_proxy.je_dovoljen_cilj - DNS rebinding).
+        lokalno = Gtk.CheckButton(label=self._ti("doh_lokalno_lbl"))
+        lokalno.set_active(bool(self.config.get("doh_lokalno_omrezje", False)))
         kdo_vidi = napis("", opis=True)
 
         def osvezi_dns(*_):
@@ -3819,6 +3832,7 @@ class VdelaniSplet:
             okvir_naprej.set_visible(scit and n == "custom")
             okvir_lasten.set_visible(izbira == "custom")
             rezerva.set_visible(izbira not in ("custom", "disabled") and not (scit and n in ("router", "custom")))
+            lokalno.set_visible(izbira != "disabled")        # brez sifriranega DNS ni posrednika, ki bi to preverjal
             # Kdo vidi imena strani - povedano po resnici za vsako izbiro.
             koncni = n if scit else izbira
             deli = [self._ti("doh_kdo_scit")] if scit else []
@@ -3829,7 +3843,8 @@ class VdelaniSplet:
             kdo_vidi.set_text(" ".join(deli))
         doh.connect("changed", osvezi_dns)
         naprej.connect("changed", osvezi_dns)
-        for g in (napis(self._t("doh"), krepko=True), doh, okvir_lasten, napis_naprej, naprej, okvir_naprej, kdo_vidi, rezerva):
+        for g in (napis(self._t("doh"), krepko=True), doh, okvir_lasten, napis_naprej, naprej, okvir_naprej, kdo_vidi, rezerva,
+                  lokalno):
             zas.attach(g, 0, vrsta, 2, 1); vrsta += 1
         osvezi_dns()
         for kljuc, dejanje in (("nas_dovoljenja", lambda *_: (d.destroy(), self._dovoljenja_strani())),
@@ -3880,6 +3895,7 @@ class VdelaniSplet:
                 self.config.set("doh_enabled", dns != "disabled")
                 self.config.set("doh_provider", dns)
                 self.config.set("dns_rezerva", rezerva.get_active())
+                self.config.set("doh_lokalno_omrezje", lokalno.get_active())
                 self.config.set("popup_blokiraj", pojavna.get_active())
                 self.config.set("always_ask_download_dir", vprasaj.get_active())
                 self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")

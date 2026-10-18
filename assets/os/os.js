@@ -1547,13 +1547,15 @@
     g.appendChild(el("p", "drobno", ubezi(t("skripteOpis"))));
     SKR.seznam.forEach(function (s) {
       var v = el("div", "media-mapa prilagodi-vrstica skripta-vrstica");
-      v.appendChild(el("div", "", "<b>" + ubezi(s.ime) + "</b><small>" + ubezi(t(s.vrsta === "js" ? "skriptaJs" : "skriptaSh")) + "</small>"));
+      // Kje tece JavaScript, pove glava skripte (core/uporabniske_skripte.kje): brez glave samo Spotify, z glavo tudi Splet.
+      var kjeJs = { splet: "skriptaJsSplet", oboje: "skriptaJsOboje", ne: "skriptaJsNe" }[s.kje] || "skriptaJs";
+      v.appendChild(el("div", "", "<b>" + ubezi(s.ime) + "</b><small>" + ubezi(t(s.vrsta === "js" ? kjeJs : "skriptaSh")) + "</small>"));
       if (s.vrsta === "js") {
         var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.vklopljena;
         cb.setAttribute("aria-label", t("skriptaVklop") + ": " + s.ime);
         cb.addEventListener("change", function () {
           klic("mediaSkriptaVklop", [s.id, cb.checked]).then(function (r) {
-            if (r && r.ok) { s.vklopljena = cb.checked; obvesti(t("skriptaJsObvestilo")); } else { skriptaNapaka(r); cb.checked = !cb.checked; }
+            if (r && r.ok) { s.vklopljena = cb.checked; obvesti(s.kje === "spotify" || !s.kje ? t("skriptaJsObvestilo") : s.kje === "oboje" ? t("skriptaJsObvestilo") + " " + t("skriptaJsSpletObvestilo") : t("skriptaJsSpletObvestilo")); } else { skriptaNapaka(r); cb.checked = !cb.checked; }
           }, function () { skriptaNapaka(null); cb.checked = !cb.checked; });
         });
         v.appendChild(cb);
