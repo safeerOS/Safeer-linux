@@ -87,14 +87,15 @@ class ClangInKljuc(unittest.TestCase):
         self.assertNotRegex(b, r"curl [^\n]*-o /etc/apt/keyrings")
         self.assertLess(b.index('if [ "$ODTISI" != "$LLVM_KLJUC_ODTIS" ]'),
                         b.index('install -m 644 "$ZACASNO/llvm.asc" /etc/apt/keyrings/apt.llvm.org.asc'))
-        self.assertLess(b.index("/etc/apt/keyrings/apt.llvm.org.asc\necho"), b.index("apt-get update -q\nPONUDBA"))
+        self.assertLess(b.index("/etc/apt/keyrings/apt.llvm.org.asc\necho"),
+                        b.index('PONUDBA="$(apt-cache madison "$PAKET"'))
 
     def test_clang_pripet(self):
         b = self.SKRIPTA.read_text(encoding="utf-8")
         razlicica = re.search(r'^LLVM_RAZLICICA="([\d.]+)"$', b, re.M).group(1)
         paket = re.search(r'^LLVM_PAKET="([^"]+)"$', b, re.M).group(1)
         self.assertTrue(paket.startswith("1:%s~" % razlicica), paket)
-        for ime in ("clang-22", "lld-22", "llvm-22", "libclang-rt-22-dev"):
+        for ime in ("clang-22", "lld-22", "llvm-22", "libclang-rt-22-dev", "bolt-22", "libbolt-22-dev"):
             self.assertIn('"%s=$LLVM_PAKET"' % ime, b)
         self.assertIn('[ "$(dpkg-query -W -f \'${Version}\' clang-22)" = "$LLVM_PAKET" ]', b)
 

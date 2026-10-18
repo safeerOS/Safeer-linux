@@ -39,15 +39,20 @@ install -m 644 "$ZACASNO/llvm.asc" /etc/apt/keyrings/apt.llvm.org.asc
 echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/${VERSION_CODENAME:-noble}/ llvm-toolchain-${VERSION_CODENAME:-noble}-22 main" \
     > /etc/apt/sources.list.d/llvm-22.list
 apt-get update -q
-PONUDBA="$(apt-cache madison clang-22 | awk -F'|' '{ gsub(/ /, "", $2); print $2 }' | tr '\n' ' ')"
-case " $PONUDBA " in
-    *" $LLVM_PAKET "*) ;;
-    *) echo "NAPAKA: apt.llvm.org nima vec clang-22 $LLVM_PAKET (ponuja: ${PONUDBA:-nic}). Posodobi LLVM_PAKET v" \
-            "packaging/webkit-deb/odvisnosti.sh - to sprozi novo gradnjo WebKita." >&2
-       exit 1 ;;
-esac
+# BOLT (post-link optimizacija v zgradi.sh, packaging/webkit-deb/bolt.sh) iz iste gradnje LLVM kot prevajalnik
+# (apt.llvm.org noble-22 ponuja bolt-22 v LLVM_PAKET, preverjeno 18. 10. 2026 v Packages llvm-toolchain-noble-22).
+for PAKET in clang-22 bolt-22; do
+    PONUDBA="$(apt-cache madison "$PAKET" | awk -F'|' '{ gsub(/ /, "", $2); print $2 }' | tr '\n' ' ')"
+    case " $PONUDBA " in
+        *" $LLVM_PAKET "*) ;;
+        *) echo "NAPAKA: apt.llvm.org nima vec $PAKET $LLVM_PAKET (ponuja: ${PONUDBA:-nic}). Posodobi LLVM_PAKET v" \
+                "packaging/webkit-deb/odvisnosti.sh - to sprozi novo gradnjo WebKita." >&2
+           exit 1 ;;
+    esac
+done
 apt-get install -y -q --no-install-recommends \
     "clang-22=$LLVM_PAKET" "lld-22=$LLVM_PAKET" "llvm-22=$LLVM_PAKET" "libclang-rt-22-dev=$LLVM_PAKET" \
+    "bolt-22=$LLVM_PAKET" "libbolt-22-dev=$LLVM_PAKET" \
     cmake ninja-build meson pkgconf gperf bison flex ruby perl python3 unifdef \
     gobject-introspection libgirepository1.0-dev libglib2.0-dev libglib2.0-dev-bin \
     libgtk-4-dev libcairo2-dev libharfbuzz-dev libicu-dev libfontconfig-dev libfreetype-dev libgcrypt20-dev \
@@ -61,5 +66,6 @@ apt-get install -y -q --no-install-recommends \
     gettext dpkg-dev
 /usr/lib/llvm-22/bin/clang --version | head -n 1
 [ "$(dpkg-query -W -f '${Version}' clang-22)" = "$LLVM_PAKET" ]
+[ "$(dpkg-query -W -f '${Version}' bolt-22)" = "$LLVM_PAKET" ] || { echo "NAPAKA: bolt-22 ni $LLVM_PAKET" >&2; exit 1; }
 /usr/lib/llvm-22/bin/clang --version | head -n 1 | grep -qE "clang version ${LLVM_RAZLICICA//./\\.}( |$)" \
     || { echo "NAPAKA: clang-22 ni razlicica $LLVM_RAZLICICA" >&2; exit 1; }

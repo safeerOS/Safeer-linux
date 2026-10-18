@@ -19,9 +19,10 @@
 #                                                     nato packaging/webkit-deb/ucni_tek.sh
 #   SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=MAPA   gradnja s profilom (*.profraw iz ucnega teka TE gradnje)
 # Brez SAFEER_WEBKIT_PGO je gradnja brez profila (samo za razvoj; CI izdaje zahteva PGO).
-# BOLT (izbirno, privzeto izklopljen, dokler meritev na testnem PC ne potrdi koristi - odloci lastnik):
+# BOLT (gradnja izdaje v CI ga ima, lastnik 18. 10. 2026; lokalno privzeto izklopljen, ker potrebuje ucni tek pod Xvfb):
 #   SAFEER_WEBKIT_BOLT=1   knjiznice povezane z -Wl,--emit-relocs, po namestitvi packaging/webkit-deb/bolt.sh
 #                          (instrumentacija, isti ucni tek kot PGO, llvm-bolt), sele nato strip; v gradnja.txt »bolt: da«.
+#                          Ce BOLT pade, pade gradnja.
 # Odvisnosti: packaging/webkit-deb/odvisnosti.sh. Tece kot root (namesti v PREDPONO); traja 2-3 h na 4 jedrih.
 # ==============================================================================
 set -euo pipefail

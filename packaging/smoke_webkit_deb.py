@@ -5,7 +5,8 @@ Uporaba: python3 smoke_webkit_deb.py KOREN_PROGRAMA     npr. /usr/lib/safeer-bro
 Preveri, kar mora veljati na racunalniku uporabnika (tudi ce je namescen sistemski WebKitGTK 6.0 iz Ubuntuja):
   * core/zasebni_webkit.py najde predpono paketa in Python nalozi typelibe iz nje,
   * /proc/self/maps: libwebkitgtk-6.0, libjavascriptcoregtk-6.0 in libsoup-3.0 so iz predpone, nobena iz sistema,
-  * libsoup >= 3.8, WebKitGTK je razlicica iz zapisa gradnje (gradnja.txt: Clang 22, ThinLTO, lld, PGO, ta predpona),
+  * libsoup >= 3.8, WebKitGTK je razlicica iz zapisa gradnje (gradnja.txt: Clang 22, ThinLTO, lld, PGO, BOLT, ta predpona),
+    knjiznici libwebkitgtk in libjavascriptcoregtk imata zapis BOLT (.note.bolt_info) optimizacije s profilom,
   * stran prek HTTP se nalozi; spletni proces je WebKitWebProcess iz predpone in tece v peskovniku bubblewrap
     (predhodnik bwrap in lasten imenski prostor PID - NSpid v /proc/<pid>/status),
   * dekoder AV1 dav1ddec (packaging/webkit-deb/dav1d.sh): GStreamer ga v okolju, ki ga nastavi zasebni_webkit, najde v
@@ -110,6 +111,19 @@ def preveri_knjiznice():
     if "USE_PGO_PROFILE:BOOL=ON\n" not in gradnja or "build.ninja -fprofile-use: 0" in gradnja \
             or "build.ninja -fprofile-use:" not in gradnja:
         napaka("gradnja.txt: WebKit ni preveden s profilom (PGO)")
+    # BOLT v izdaji (lastnik, 18. 10. 2026): packaging/webkit-deb/bolt.sh po PGO; nalozeni knjiznici sta optimizirani
+    # (zapis .note.bolt_info z --data=, ne instrumentirani z -instrument).
+    if "\nbolt: da (" not in gradnja:
+        napaka("gradnja.txt: WebKit ni optimiziran z BOLT")
+    for pot in knjiznice():
+        if "libsoup-3.0" in pot:
+            continue
+        with open(pot, "rb") as f:
+            vsebina = f.read()
+        i = vsebina.find(b"BOLT revision")
+        zapis = vsebina[i:i + 4096] if i >= 0 else b""
+        if not zapis or b"--data=" not in zapis or b"-instrument" in zapis:
+            napaka("%s ni optimizirana z BOLT (%r)" % (pot, zapis[:200]))
 
 
 def preveri_dav1d():
