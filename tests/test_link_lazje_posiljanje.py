@@ -505,6 +505,12 @@ class StranLinka(unittest.TestCase):
         self.assertIn("window.__safeerLinkSpust = ", self.py)
         self.assertIn("var znaSpust = !!(most && most.znaSpust", self.js)
 
+    def test_control_ob_zagonu_obnovi_vrsto(self):
+        with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
+            control = f.read()
+        pripravi = control.split("    def _pripravi_link(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("self.link.posiljanje_datotek()", pripravi)
+
     def test_ni_vec_okna_za_vsako_prejeto_datoteko(self):
         self.assertNotIn("def _obvesti(self", self.py, "modalno okno »V redu« za vsako prejeto datoteko je umaknjeno")
         self.assertIn("self.prejem_datotek().prispela(", self.py)

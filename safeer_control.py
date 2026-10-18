@@ -1553,6 +1553,12 @@ class SafeerControl(_OSNOVA):
             self.datoteke, deli=lambda: bool(self.nastavitve.get("predvajanje_za_naprave", True)))
         self.link.predvajanje.ob_ponudbi = lambda p: GLib.idle_add(self._pokazi_ponudbo, p)
         self.zvok.ob_spremembi = lambda _opis: self.link.zapisi_stanje_za_os() if self.link is not None else None
+        # Posiljke, ki pred ponovnim zagonom niso bile koncane, nadaljujejo, ko je naprava spet v Linku
+        # (core/link_posiljanje.Posiljanje.obnovi; vrsta je v posiljanje-vrsta.json ob nastavitvah).
+        try:
+            self.link.posiljanje_datotek()
+        except Exception as e:  # noqa: BLE001 - brez obnove Control dela naprej, vrsta ostane na disku
+            print("[SafeerControl] vrste posiljanja ni bilo mogoce obnoviti:", e, flush=True)
         self._pripravi_internet()
 
     # ------------------------------------------------------------------ internet prek telefona (Safeer Internet Gateway)
