@@ -1,8 +1,9 @@
-"""Safeer DRM v paketih (lastnik, 18. 10. 2026: DRM je del paketa, med delovanjem se nic ne prenese).
+"""Safeer DRM v paketih (lastnik, 18. 10. 2026: Safeer DRM je del paketa in se med delovanjem ne prenasa).
 
-packaging/safeer_drm_paket.py pripravi mapo iz pripetega ECS (zip) in pripetega Widevine CDM (CRX3), oba preverjena s
-SHA-256; namesti_safeer_drm.sh jo da v tovor .deb, AppImage in Flatpaka. Preizkus z majhnim laznim paketom (brez omrezja,
-SAFEER_DRM_PIN) in skladnost pina z manifesti Flatpak, delovnim tokom CI in skriptami gradnje.
+packaging/safeer_drm_paket.py pripravi mapo iz pripetega ECS (zip, SHA-256); namesti_safeer_drm.sh jo da v tovor .deb,
+AppImage in Flatpaka. Widevine CDM NI v paketu (odlocitev lastnika po FAQ castLabs): ECS ga ob prvi zasciteni vsebini
+sam namesti z Googlovih streznikov. Preizkus z majhnim laznim paketom (brez omrezja, SAFEER_DRM_PIN) in skladnost pina
+z manifesti Flatpak, delovnim tokom CI in skriptami gradnje.
 """
 import hashlib
 import io
@@ -11,7 +12,6 @@ import os
 import re
 import shutil
 import stat
-import struct
 import subprocess
 import sys
 import tempfile
@@ -22,7 +22,6 @@ from pathlib import Path
 KOREN = Path(__file__).resolve().parents[1]
 ORODJE = KOREN / "packaging" / "safeer_drm_paket.py"
 PIN = json.loads((KOREN / "packaging" / "safeer-drm.json").read_text(encoding="utf-8"))
-CDM = "4.10.3112.0"
 
 
 def _sha(podatki: bytes) -> str:
@@ -40,15 +39,6 @@ def _zip(datoteke: dict) -> bytes:
     return b.getvalue()
 
 
-def _crx(manifest_verzija: str = CDM, knjiznica: bytes = b"\x7fELF-cdm") -> bytes:
-    vsebina = _zip({"manifest.json": (json.dumps({"name": "WidevineCdm", "version": manifest_verzija}), 0o644),
-                    "LICENSE": ("Google LLC ... separate license agreement with Google.", 0o644),
-                    "_platform_specific/linux_x64/libwidevinecdm.so": (knjiznica, 0o755),
-                    "_metadata/verified_contents.json": ("{}", 0o644)})
-    glava = b"\x08\x01"                                    # glava CRX3 (protobuf), za razpakiranje nepomembna
-    return b"Cr24" + struct.pack("<II", 3, len(glava)) + glava + vsebina
-
-
 PROGRAM = b"\x7fELF-safeer-drm"
 ECS = {"safeer-drm": (PROGRAM, 0o4775), "chrome-sandbox": (b"\x7fELF-sandbox", 0o4755),
        "chrome_crashpad_handler": (b"\x7fELF-crashpad", 0o775), "libffmpeg.so": (b"\x7fELF-ffmpeg", 0o775),
@@ -62,26 +52,21 @@ class Lazni(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(self.d, ignore_errors=True))
 
-    def _pripravi_vire(self, ecs=None, crx=None, program=PROGRAM, knjiznica=b"\x7fELF-cdm"):
+    def _pripravi_vire(self, ecs=None, program=PROGRAM):
         zip_ = self.d / "ecs.zip"
         zip_.write_bytes(_zip(ecs or ECS))
-        crx3 = self.d / "cdm.crx3"
-        crx3.write_bytes(crx if crx is not None else _crx())
         pin = {"safeer_drm": dict(PIN["safeer_drm"], velikost=zip_.stat().st_size, sha256=_sha(zip_.read_bytes()),
-                                  program_sha256=_sha(program)),
-               "widevine": dict(PIN["widevine"], verzija=CDM, velikost=crx3.stat().st_size, sha256=_sha(crx3.read_bytes()),
-                                knjiznica_sha256=_sha(knjiznica))}
+                                  program_sha256=_sha(program))}
         (self.d / "pin.json").write_text(json.dumps(pin))
         self.okolje = dict(os.environ, SAFEER_DRM_PIN=str(self.d / "pin.json"))
-        return zip_, crx3
+        return zip_
 
     def _orodje(self, *argumenti):
         return subprocess.run([sys.executable, str(ORODJE), *map(str, argumenti)], capture_output=True, text=True,
                               env=self.okolje, cwd=self.d)
 
     def _pripravi(self, cilj=None):
-        zip_, crx3 = self.d / "ecs.zip", self.d / "cdm.crx3"
-        return self._orodje("pripravi", cilj or self.d / "tovor" / "safeer-drm", "--zip", zip_, "--crx", crx3)
+        return self._orodje("pripravi", cilj or self.d / "tovor" / "safeer-drm", "--zip", self.d / "ecs.zip")
 
 
 class Pripravi(Lazni):
@@ -100,13 +85,12 @@ class Pripravi(Lazni):
         self.assertEqual((m / "resources/app/main.js").read_bytes(), (KOREN / "assets/safeer_drm/main.js").read_bytes())
         self.assertEqual((m / "resources/app/package.json").read_bytes(),
                          (KOREN / "assets/safeer_drm/package.json").read_bytes())
-        cdm = m / "WidevineCdm" / CDM
-        self.assertEqual(sorted(str(x.relative_to(cdm)) for x in cdm.rglob("*") if x.is_file()),
-                         ["LICENSE", "_platform_specific/linux_x64/libwidevinecdm.so", "manifest.json"])
-        self.assertEqual(stat.S_IMODE((cdm / "_platform_specific/linux_x64/libwidevinecdm.so").stat().st_mode), 0o755)
+        # Widevine CDM ni v paketu.
+        self.assertFalse((m / "WidevineCdm").exists())
+        self.assertEqual(list(m.rglob("libwidevinecdm.so")), [])
         obvestilo = (m / "OBVESTILO.txt").read_text(encoding="utf-8")
-        for besedilo in ("castLabs", "Widevine", "Google LLC", CDM, PIN["safeer_drm"]["ecs"], "LICENSES.chromium.html",
-                         f"WidevineCdm/{CDM}/LICENSE"):
+        for besedilo in ("castLabs", PIN["safeer_drm"]["ecs"], "LICENSES.chromium.html", "NI del tega paketa",
+                         "is NOT part of this package", "Googlovih streznikov", "Google's servers"):
             self.assertIn(besedilo, obvestilo)
         self.assertNotRegex(obvestilo.lower(), r"pogodb[a-z]* (st|št)|contract no|\d{6,}")   # brez podatkov pogodbe
         r = self._orodje("preveri", m)
@@ -123,10 +107,10 @@ class Pripravi(Lazni):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual((tuja / "dokument.txt").read_text(), "uporabnik")
 
-    def test_napacen_sha256_ali_velikost(self):
+    def test_napacen_sha256(self):
         self._pripravi_vire()
         pin = json.loads((self.d / "pin.json").read_text())
-        pin["widevine"]["sha256"] = "0" * 64
+        pin["safeer_drm"]["sha256"] = "0" * 64
         (self.d / "pin.json").write_text(json.dumps(pin))
         r = self._pripravi()
         self.assertNotEqual(r.returncode, 0)
@@ -140,8 +124,10 @@ class Pripravi(Lazni):
         self.assertFalse((self.d / "tovor" / "safeer-drm").exists())
         self.assertEqual([x for x in (self.d / "tovor").iterdir()], [])      # brez ostankov zacasne mape
 
-    def test_nevarne_poti_in_povezave(self):
-        for dodatek in ({"../ven": ("x", 0o644)}, {"povezava": ("/etc/passwd", 0o120777)}):
+    def test_nevarne_poti_povezave_in_cdm(self):
+        """Tudi Widevine CDM v zip ne sme v paket (namesti ga ECS z Googlovih streznikov)."""
+        for dodatek in ({"../ven": ("x", 0o644)}, {"povezava": ("/etc/passwd", 0o120777)},
+                        {"WidevineCdm/4.10.3112.0/_platform_specific/linux_x64/libwidevinecdm.so": (b"\x7fELF", 0o755)}):
             with self.subTest(dodatek=list(dodatek)):
                 self._pripravi_vire(ecs=dict(ECS, **dodatek))
                 r = self._pripravi()
@@ -149,23 +135,18 @@ class Pripravi(Lazni):
                 self.assertFalse((self.d / "ven").exists())
                 self.assertFalse((self.d / "tovor" / "safeer-drm").exists())
 
-    def test_cdm_druge_verzije_ali_ni_crx3(self):
-        for crx in (_crx("4.10.9999.0"), _zip({"manifest.json": ("{}", 0o644)})):
-            with self.subTest():
-                self._pripravi_vire(crx=crx)
-                self.assertNotEqual(self._pripravi().returncode, 0)
-
-    def test_preveri_zazna_spremembo_in_setuid(self):
+    def test_preveri_zazna_setuid_spremembo_in_cdm(self):
         self._pripravi_vire()
         self.assertEqual(self._pripravi().returncode, 0)
         m = self.d / "tovor" / "safeer-drm"
-        knjiznica = m / "WidevineCdm" / CDM / "_platform_specific/linux_x64/libwidevinecdm.so"
-        knjiznica.write_bytes(b"spremenjena")
         (m / "chrome-sandbox").chmod(0o4755)
+        (m / "WidevineCdm" / "4.10.3112.0").mkdir(parents=True)
         r = self._orodje("preveri", m)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("libwidevinecdm.so", r.stderr)
         self.assertIn("setuid", r.stderr)
+        self.assertIn("Widevine CDM je v paketu", r.stderr)
+        (m / "safeer-drm").write_bytes(b"spremenjen")
+        self.assertIn("pripetega SHA-256", self._orodje("preveri", m).stderr)
 
 
 class Tovor(Lazni):
@@ -182,16 +163,16 @@ class Tovor(Lazni):
         self.assertTrue(os.access(m / "safeer-drm", os.X_OK))
         self.assertTrue(os.access(m / "chrome_crashpad_handler", os.X_OK))
         self.assertFalse((m / ".safeer-drm-tovor").exists())
-        for ime in ("OBVESTILO.txt", "LICENSE.electron", "LICENSE.widevine-cdm"):
-            self.assertTrue((predpona / "share" / "doc" / doc / "safeer-drm" / ime).is_file(), ime)
+        dokumenti = predpona / "share" / "doc" / doc / "safeer-drm"
+        self.assertEqual(sorted(x.name for x in dokumenti.iterdir()), ["LICENSE.electron", "OBVESTILO.txt"])
         # Namesceni tovor (brez izvorne mape) najde Safeer DRM v paketu.
         koda = (f"import sys; sys.path.insert(0, {str(predpona / 'lib' / lib)!r}); from core import safeer_drm as d; "
-                "print(d.izvrsljiva()); print(d.mapa_cdm())")
+                "print(d.izvrsljiva())")
         okolje = {k: v for k, v in self.okolje.items() if k not in ("PYTHONPATH", "SAFEER_DRM_MAPA")}
         izid = subprocess.run([sys.executable, "-c", koda], capture_output=True, text=True, env=okolje,
                               cwd=tempfile.gettempdir())
         self.assertEqual(izid.returncode, 0, izid.stderr[-800:])
-        self.assertEqual(izid.stdout.split(), [str(m / "safeer-drm"), str(m / "WidevineCdm" / CDM)])
+        self.assertEqual(izid.stdout.split(), [str(m / "safeer-drm")])
 
     def test_brskalnik(self):
         self._namesti("install_payload.sh", "safeer-browser", "safeer-browser")
@@ -211,35 +192,31 @@ class Tovor(Lazni):
 
 
 class Skladnost(unittest.TestCase):
-    """Isti pin povsod: Flatpak, CI, .deb in AppImage."""
+    """Isti pin povsod: Flatpak, CI, .deb in AppImage; Widevine CDM nikjer v paketih."""
 
     def test_pin(self):
-        for kljuc in ("safeer_drm", "widevine"):
-            self.assertRegex(PIN[kljuc]["sha256"], r"^[0-9a-f]{64}$")
-            self.assertTrue(PIN[kljuc]["url"].startswith("https://"))
-        self.assertTrue(PIN["widevine"]["url"].startswith("https://dl.google.com/release2/chrome_component/"))
-        self.assertIn(PIN["widevine"]["verzija"], PIN["widevine"]["url"])
-        self.assertRegex(PIN["widevine"]["knjiznica_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(sorted(k for k in PIN if not k.startswith("_")), ["safeer_drm"])     # brez pina CDM
+        self.assertRegex(PIN["safeer_drm"]["sha256"], r"^[0-9a-f]{64}$")
         self.assertRegex(PIN["safeer_drm"]["program_sha256"], r"^[0-9a-f]{64}$")
+        self.assertTrue(PIN["safeer_drm"]["url"].startswith("https://github.com/safeerOS/Safeer-linux/releases/download/"))
         self.assertIn("libgtk-3-0t64", PIN["safeer_drm"]["deb_odvisnosti"])
         self.assertIn("libnss3", PIN["safeer_drm"]["deb_odvisnosti"])
-        # Brez skrivnosti: CDM je z javnega Googlovega streznika komponent (brez gesel in zetonov).
         besedilo = json.dumps(PIN).lower()
-        for prepovedano in ("token", "secret", "password", "geslo", "api_key"):
+        for prepovedano in ("token", "secret", "password", "geslo", "api_key", ".crx", "dl.google.com"):
             self.assertNotIn(prepovedano, besedilo)
 
     def test_manifesta_flatpak(self):
+        v = PIN["safeer_drm"]
         for ime, lib in (("io.github.memelandfaner.SafeerBrowser.yml", "install_payload.sh"),
                          ("io.github.memelandfaner.SafeerOS.yml", "install_os_payload.sh")):
             m = (KOREN / ime).read_text(encoding="utf-8")
-            for kljuc in ("safeer_drm", "widevine"):
-                v = PIN[kljuc]
-                self.assertIn(f"        url: {v['url']}\n        sha256: {v['sha256']}\n        dest-filename: {v['datoteka']}\n",
-                              m, (ime, kljuc))
-            self.assertIn(f"python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm --zip {PIN['safeer_drm']['datoteka']}"
-                          f" --crx {PIN['widevine']['datoteka']}", m)
+            self.assertIn(f"        url: {v['url']}\n        sha256: {v['sha256']}\n        dest-filename: {v['datoteka']}\n",
+                          m, ime)
+            self.assertIn(f"      - python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm --zip {v['datoteka']}\n", m)
             self.assertRegex(m, r"SAFEER_DRM_TOVOR=build/safeer-drm bash packaging/%s /app " % lib)
             self.assertIn("          - safeer-drm\n", m)                       # razvojna mapa ne gre v vir
+            for odpadlo in (".crx3", "dl.google.com", "--crx", "--disable-component-update"):
+                self.assertNotIn(odpadlo, m, (ime, odpadlo))
             # Dovoljenja peskovnika se zaradi Safeer DRM ne razsirijo.
             self.assertNotIn("--filesystem=xdg-data", m)
 
@@ -256,8 +233,10 @@ class Skladnost(unittest.TestCase):
                          '"$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm',
                          "python3 packaging/safeer_drm_paket.py preveri build/os-appimage-x/squashfs-root/opt/safeer-drm"):
             self.assertIn(preverba, wf)
-        self.assertIn("safeer_drm_paket.py novejsi", wf)
-        # CDM je z javnega Googlovega streznika: brez skrivnosti posrednika v CI.
+        # CDM ni v paketih .deb (preverba), pin CDM in porocilo o novejsem CDM sta odpadla.
+        self.assertEqual(wf.count("grep -E 'WidevineCdm|libwidevinecdm'; then echo \"::error::Widevine CDM je v paketu\""), 2)
+        self.assertNotIn("safeer_drm_paket.py novejsi", wf)
+        self.assertNotIn("LICENSE.widevine-cdm", wf)
         self.assertNotRegex(wf, r"secrets\.[A-Z_]*(DRM|WIDEVINE|CDM)")
 
     def test_deb_odvisnosti_in_appimage(self):
@@ -274,38 +253,15 @@ class Skladnost(unittest.TestCase):
         r = subprocess.run([sys.executable, str(ORODJE), "odvisnosti-deb"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), ", ".join(PIN["safeer_drm"]["deb_odvisnosti"]))
-
-    def test_novejsi_samo_porocilo(self):
-        sys.path.insert(0, str(KOREN / "packaging"))
-        try:
-            import safeer_drm_paket as orodje
-        finally:
-            sys.path.remove(str(KOREN / "packaging"))
-        zahteve = []
-
-        class Odziv(io.BytesIO):
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_a):
-                return False
-
-        def odpri(zahteva, timeout):
-            zahteve.append(json.loads(zahteva.data))
-            telo = {"response": {"app": [{"updatecheck": {"status": "ok", "manifest": {"version": "4.10.3200.0"}}}]}}
-            return Odziv((")]}'\n" + json.dumps(telo)).encode())
-        izid = orodje.novejsi(odpri)
-        self.assertEqual(izid, {"pripeta": PIN["widevine"]["verzija"], "ponujena": "4.10.3200.0", "novejsa": True})
-        self.assertEqual(zahteve[0]["request"]["app"][0]["appid"], PIN["widevine"]["id_komponente"])
-        self.assertEqual(zahteve[0]["request"]["prodversion"], PIN["safeer_drm"]["chromium"])
+        self.assertEqual(subprocess.run([sys.executable, str(ORODJE), "novejsi"], capture_output=True).returncode, 2)
 
 
 class Licenca(unittest.TestCase):
-    def test_metainfo_navaja_lastnisko_komponento(self):
-        """Paketa nosita lastniski Widevine CDM: AppStream to pove (LicenseRef-proprietary), poleg Apache-2.0."""
+    def test_metainfo_brez_lastniske_komponente(self):
+        """V paketu ni lastniskega CDM (ECS je Electron/Chromium in castLabs, MIT): licenca projekta ostane Apache-2.0."""
         for ime in ("io.github.memelandfaner.SafeerBrowser.metainfo.xml", "io.github.memelandfaner.SafeerOS.metainfo.xml"):
             m = re.search(r"<project_license>([^<]+)</project_license>", (KOREN / ime).read_text(encoding="utf-8"))
-            self.assertEqual(m.group(1), "Apache-2.0 AND LicenseRef-proprietary", ime)
+            self.assertEqual(m.group(1), "Apache-2.0", ime)
 
 
 if __name__ == "__main__":

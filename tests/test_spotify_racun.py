@@ -227,13 +227,10 @@ class KanalTest(unittest.TestCase):
             self.assertEqual(self.k.zacni(False, True), "ni_drm")
 
     def test_zazene_safeer_drm_iz_paketa(self):
-        """Od 1.0.127: Spotify zazene Safeer DRM iz paketa (<tovor>/safeer-drm, tu SAFEER_DRM_MAPA), brez prenosa in brez
-        kopiranja logike med delovanjem (paket je samo za branje)."""
+        """Od 1.0.127: Spotify zazene Safeer DRM iz paketa (<tovor>/safeer-drm, tu SAFEER_DRM_MAPA), brez prenosa programa
+        in brez kopiranja logike med delovanjem (paket je samo za branje)."""
         paket = os.path.join(self.mapa, "paket", "safeer-drm")
-        cdm = os.path.join(paket, "WidevineCdm", "4.10.3112.0")
-        os.makedirs(os.path.join(cdm, "_platform_specific", "linux_x64"))
-        open(os.path.join(cdm, "_platform_specific", "linux_x64", "libwidevinecdm.so"), "w").close()
-        open(os.path.join(cdm, "manifest.json"), "w").close()
+        os.makedirs(paket)
         exe = os.path.join(paket, "safeer-drm")
         open(exe, "w").close()
         os.chmod(exe, 0o755)
@@ -246,7 +243,7 @@ class KanalTest(unittest.TestCase):
             self.assertEqual(self.k.zacni(False, True), "ok")
         self.assertEqual(self.argumenti[0], exe)
         self.assertIn("--spotify=1", self.argumenti)
-        self.assertEqual(sorted(os.listdir(paket)), ["WidevineCdm", "safeer-drm"])     # nic dodanega v paket
+        self.assertEqual(sorted(os.listdir(paket)), ["safeer-drm"])     # nic dodanega v paket (CDM namesti ECS v profil)
 
     def test_izvedi_odgovor_izjema_in_cas(self):
         self.k.zacni(False, True)

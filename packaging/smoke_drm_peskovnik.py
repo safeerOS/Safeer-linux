@@ -2,18 +2,21 @@
 
 Uporaba (v Flatpaku):  python3 smoke_drm_peskovnik.py POT_DO_TOVORA
 
-Po isti poti kot Splet (core/safeer_drm): Safeer DRM iz paketa (/app/lib/safeer-browser/safeer-drm, od 1.0.127 z
-Widevine CDM v paketu, nic se ne prenasa), zagnan prek zypak-wrapper (ukaz_zagona, okolje_zagona). Izmeri:
-  1. Safeer DRM in CDM sta v paketu, samo za branje; v runtime-u ni manjkajocih knjiznic (ldd v GNOME 50),
+Po isti poti kot Splet (core/safeer_drm): Safeer DRM iz paketa (/app/lib/safeer-browser/safeer-drm, od 1.0.127 v paketu,
+brez Widevine CDM), zagnan prek zypak-wrapper (ukaz_zagona, okolje_zagona). Izmeri:
+  1. Safeer DRM je v paketu, samo za branje, brez CDM; v runtime-u ni manjkajocih knjiznic (ldd v GNOME 50),
   2. Electron nalozi stran (NAVIGATION_OK) brez sesutja procesa strani (PROCESS_FAILED),
   3. procesi strani tecejo v podpeskovniku: seccomp-bpf (Seccomp: 2), NoNewPrivs in svoj imenski prostor mount
      (zypak jih zazene prek portala Flatpak z expose-pids, zato so vidni tu),
-  4. Widevine ze ob PRVEM zagonu s svezim profilom: stran dobi com.widevine.alpha (EME ok), CDM iz paketa (DRM_READY
-     »v paketu«), v uporabnikovi mapi WidevineCdm ni prenesene kopije (samo datoteka namiga, ki kaze v /app).
+  4. Widevine: prvi zagon s svezim profilom - ECS sam namesti CDM z Googlovih streznikov v uporabnikovo mapo
+     (DRM_READY, WidevineCdm/<verzija>); najkasneje drugi zagon stran dobi com.widevine.alpha (EME ok) - CDM se nalozi v
+     peskovniku iz mape, ki jo zypak izpostavi (ZYPAK_EXPOSE_WIDEVINE_PATH). Na Linuxu brez Flatpaka je bil EME ok ze ob
+     prvem zagonu (izmerjeno 18. 10. 2026); prvi krog se zato izpise, a ga ne zahtevamo.
 Izpis je namenoma podroben (CI ne vidi vedno celega dnevnika): vsaka napaka je ena vrstica »FAIL: ...«.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -109,6 +112,7 @@ def zazeni(exe, krog: int, cas: int) -> list:
         if "NAVIGATION_OK" in vrste and videni is None:
             time.sleep(2)
             videni = procesi(lastni_mnt)
+        # EME (preizkus strani) pride po DRM_READY/DRM_FAILED: main.js stran odpre sele, ko je Widevine pripravljen.
         if "NAVIGATION_OK" in vrste and videni is not None and "EME" in vrste:
             break
     zivo = proces.poll() is None
@@ -143,14 +147,16 @@ def main() -> int:
     if not gostitelj.v_peskovniku():
         fail("ne tece v peskovniku Flatpaka brez dostopa do gostitelja")
     exe = safeer_drm.izvrsljiva()
-    print("Safeer DRM v paketu:", exe, "CDM:", safeer_drm.mapa_cdm(), flush=True)
+    print("Safeer DRM v paketu:", exe, flush=True)
     if exe is None:
-        fail("Safeer DRM ali Widevine CDM ni v paketu")
+        fail("Safeer DRM ni v paketu")
         return 1
     if not str(exe).startswith(LIB + "/safeer-drm/"):
         fail(f"Safeer DRM ni iz paketa: {exe}")
-    if os.access(exe.parent, os.W_OK) or os.access(safeer_drm.mapa_cdm(), os.W_OK):
+    if os.access(exe.parent, os.W_OK):
         fail("mapa Safeer DRM v paketu ni samo za branje")
+    if (exe.parent / "WidevineCdm").exists():
+        fail("Widevine CDM je v paketu (ne sme biti: namesti ga ECS z Googlovih streznikov)")
     ldd = subprocess.run(["ldd", str(exe)], capture_output=True, text=True)
     manjka = [v.strip() for v in ldd.stdout.splitlines() if "not found" in v]
     print("ldd: manjkajoce knjiznice:", manjka or "nobene", flush=True)
@@ -171,26 +177,20 @@ def main() -> int:
     zygote = [x for x in r1["podpeskovniki"] if x[1] == "zygote" and x[2]]
     if not r1["renderji"] and not zygote:
         fail(f"ni dokaza o podpeskovniku Chromiuma (ne procesov strani ne flatpak-spawn --sandbox zygote): {r1}")
-    eme = [x.get("detail", "") for x in d1 if x.get("type") == "EME"]
-    print("EME (com.widevine.alpha) ob prvem zagonu:", eme, flush=True)
-    if eme[-1:] != ["ok"]:
-        fail("Widevine v peskovniku ne dela: " + (eme[-1] if eme else "ni odgovora strani"))
     pripravljen = [x.get("detail", "") for x in d1 if x.get("type") in ("DRM_READY", "DRM_FAILED")]
-    if not pripravljen or not pripravljen[-1].endswith("v paketu"):
-        fail(f"CDM ni iz paketa: {pripravljen}")
+    print("krog 1: Widevine:", pripravljen, "EME:", [x.get("detail", "") for x in d1 if x.get("type") == "EME"], flush=True)
+    if not pripravljen or not pripravljen[-1].startswith("widevine "):
+        fail(f"ECS ni namestil Widevine CDM z Googlovih streznikov: {pripravljen}")
     wv = safeer_drm.mapa_widevine()
     vsebina = sorted(os.listdir(wv)) if wv.is_dir() else []
     print("uporabnikova mapa WidevineCdm:", vsebina, flush=True)
-    if [x for x in vsebina if x != "latest-component-updated-widevine-cdm"]:
-        fail(f"v uporabnikovi mapi WidevineCdm je nekaj prenesenega: {vsebina}")
-    try:
-        with open(wv / "latest-component-updated-widevine-cdm", encoding="utf-8") as f:
-            namig = json.load(f).get("Path", "")
-    except (OSError, ValueError):
-        namig = ""
-    print("namig CDM:", namig, flush=True)
-    if namig != str(safeer_drm.mapa_cdm()):
-        fail(f"namig CDM ne kaze na CDM v paketu: {namig!r}")
+    if not any(re.fullmatch(r"\d+(\.\d+){3}", x) for x in vsebina):
+        fail(f"v uporabnikovi mapi WidevineCdm ni CDM: {vsebina}")
+    d2, _r2 = zazeni(exe, 2, 90)
+    eme = [x.get("detail", "") for x in d2 if x.get("type") == "EME"]
+    print("EME (com.widevine.alpha) v drugem zagonu:", eme, flush=True)
+    if eme[-1:] != ["ok"]:
+        fail("Widevine v peskovniku ne dela: " + (eme[-1] if eme else "ni odgovora strani"))
     print("PASS" if not napake else "FAIL (%d)" % len(napake), flush=True)
     return 0 if not napake else 1
 

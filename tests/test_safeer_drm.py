@@ -1,5 +1,5 @@
-"""Safeer DRM v Spletu Safeer OS (Linux): paket (od 1.0.127 brez prenosa), zaznava zascitenega videa, vstavitev v zavihek."""
-import json
+"""Safeer DRM v Spletu Safeer OS (Linux): paket (od 1.0.127 brez prenosa programa; Widevine CDM namesti ECS sam),
+zaznava zascitenega videa, vstavitev v zavihek."""
 import os
 import shutil
 import tempfile
@@ -12,22 +12,18 @@ from core import drm, gostitelj, safeer_drm as p
 KOREN = Path(__file__).resolve().parents[1]
 
 
-def _lazni_paket(mapa: Path, verzije=("4.10.3112.0",), izvrsljiv=True) -> Path:
-    """Mapa kot <tovor>/safeer-drm: program in WidevineCdm/<verzija>/ (manifest.json, knjiznica)."""
+def _lazni_paket(mapa: Path, izvrsljiv=True) -> Path:
+    """Mapa kot <tovor>/safeer-drm: program (Widevine CDM ni v paketu)."""
     exe = mapa / "safeer-drm"
     mapa.mkdir(parents=True, exist_ok=True)
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755 if izvrsljiv else 0o644)
-    for v in verzije:
-        d = mapa / "WidevineCdm" / v / "_platform_specific" / "linux_x64"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "libwidevinecdm.so").write_bytes(b"")
-        (mapa / "WidevineCdm" / v / "manifest.json").write_text(json.dumps({"version": v}))
     return mapa
 
 
 class Paket(unittest.TestCase):
-    """Lastnik, 18. 10. 2026: Safeer DRM in Widevine CDM sta v paketu; med delovanjem se nic ne prenasa."""
+    """Lastnik, 18. 10. 2026: Safeer DRM je v paketu in se med delovanjem ne prenasa; Widevine CDM ni v paketu (ECS ga
+    ob prvi zasciteni vsebini sam namesti z Googlovih streznikov)."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -38,23 +34,21 @@ class Paket(unittest.TestCase):
             os.environ.pop(p.SPREMENLJIVKA_MAPE, None)
             self.assertEqual(p.vgrajena_mapa(), KOREN / "safeer-drm")    # <tovor>/safeer-drm zraven core/
 
-    def test_izvrsljiva_iz_paketa_s_cdm(self):
-        mapa = _lazni_paket(self.tmp / "safeer-drm", ("4.10.2934.0", "4.10.3112.0", "neveljavna"))
-        (mapa / "WidevineCdm" / "4.10.9999.0").mkdir()          # brez manifesta in knjiznice: ne steje
+    def test_izvrsljiva_iz_paketa(self):
+        mapa = _lazni_paket(self.tmp / "safeer-drm")
         with mock.patch.dict(os.environ, {p.SPREMENLJIVKA_MAPE: str(mapa)}):
             self.assertEqual(p.izvrsljiva(), mapa / "safeer-drm")
-            self.assertEqual(p.mapa_cdm(), mapa / "WidevineCdm" / "4.10.3112.0")
+            self.assertTrue(p.Gostitelj.na_voljo())
+        self.assertFalse(hasattr(p, "mapa_cdm"))                  # CDM ni del paketa
 
-    def test_brez_cdm_ali_neizvrsljiv_ni_na_voljo(self):
-        brez_cdm = _lazni_paket(self.tmp / "a", ())
-        neizvrsljiv = _lazni_paket(self.tmp / "b", izvrsljiv=False)
-        for mapa in (brez_cdm, neizvrsljiv, self.tmp / "ni"):
+    def test_neizvrsljiv_ali_brez_paketa_ni_na_voljo(self):
+        for mapa in (_lazni_paket(self.tmp / "b", izvrsljiv=False), self.tmp / "ni"):
             with mock.patch.dict(os.environ, {p.SPREMENLJIVKA_MAPE: str(mapa)}):
                 self.assertIsNone(p.izvrsljiva(), mapa)
                 self.assertFalse(p.Gostitelj.na_voljo())
 
     def test_med_delovanjem_ni_prenosa(self):
-        """Nobene poti za prenos: ne paketa ne CDM (prej prenesi/pripravi_vnaprej in components.whenReady v main.js)."""
+        """Safeer DRM se ne prenasa vec (prej prenesi/pripravi_vnaprej); CDM prenese ECS sam (main.js, ne Python)."""
         for ime in ("prenesi", "prenesi_v_ozadju", "pripravi_vnaprej", "uskladi_logiko", "URL", "SHA256"):
             self.assertFalse(hasattr(p, ime), ime)
         vir = (KOREN / "core" / "safeer_drm.py").read_text(encoding="utf-8")
@@ -262,8 +256,8 @@ class Splet(unittest.TestCase):
         self.assertEqual(p.ukaz_zagona(["/d/safeer-drm"], peskovnik=False, gostitelj=False), ["/d/safeer-drm"])
 
     def test_peskovnik_mape_in_widevine(self):
-        """V peskovniku so profili, seje in namig Widevine v zasebnih mapah XDG Flatpaka; mapa WidevineCdm obstaja pred
-        zagonom (zypak izpostavi samo obstojeco). Program in CDM sta v /app (podpeskovniki ga vidijo)."""
+        """V peskovniku so profili, seje in Widevine CDM (ki ga ECS prenese sam) v zasebnih mapah XDG Flatpaka; mapa
+        WidevineCdm obstaja pred zagonom (zypak izpostavi samo obstojeco). Program je v /app (podpeskovniki ga vidijo)."""
         with tempfile.TemporaryDirectory() as d, \
                 mock.patch.dict(os.environ, {"XDG_DATA_HOME": d + "/data", "XDG_CACHE_HOME": d + "/cache",
                                              "XDG_CONFIG_HOME": d + "/config"}), \
@@ -283,23 +277,21 @@ class Splet(unittest.TestCase):
         self.assertIn("ukaz.startsWith('key:')", js)
         self.assertIn("argumenti.lastnik", js)
 
-    def test_main_js_cdm_iz_paketa_brez_prenosa(self):
-        """main.js: CDM iz <mapa programa>/WidevineCdm prek datoteke namiga (ob vsakem zagonu), posodobitve komponent in
-        slovarji crkovalnika izklopljeni ob nastanku seje; ne caka vec na components.whenReady (prenos z Googla)."""
+    def test_main_js_cdm_namesti_ecs_brez_slovarjev(self):
+        """main.js: Widevine CDM namesti in posodablja ECS sam (components.whenReady, Googlovi strezniki - lastnik,
+        18. 10. 2026 po FAQ castLabs), brez gumba in brez namiga na CDM v paketu; slovarji crkovalnika ostanejo izklopljeni
+        ob nastanku seje (prej jih je Electron prenesel z redirector.gvt1.com)."""
         js = (KOREN / "assets" / "safeer_drm" / "main.js").read_text(encoding="utf-8")
-        self.assertIn("path.join(path.dirname(process.execPath), 'WidevineCdm')", js)
-        self.assertIn("'latest-component-updated-widevine-cdm'", js)
-        self.assertIn("JSON.stringify({ Path: CDM })", js)
-        self.assertIn("app.commandLine.appendSwitch('disable-component-update')", js)
+        self.assertIn("const { app, components, BrowserWindow, session, webFrameMain } = require('electron');", js)
+        self.assertIn("components.whenReady()", js)
+        self.assertLess(js.index("components.whenReady()"), js.index("odpri(prviUrl);"))     # stran sele s CDM
+        self.assertIn("zapisi('DRM_READY'", js)
+        self.assertIn("zapisi('DRM_FAILED'", js)
+        for odpadlo in ("disable-component-update", "latest-component-updated-widevine-cdm", "process.execPath"):
+            self.assertNotIn(odpadlo, js)
         self.assertIn("app.on('session-created'", js)
         self.assertIn("ses.setSpellCheckerLanguages([])", js)
         self.assertEqual(js.count("spellcheck: false"), 2)       # glavno okno in okno prijave
-        self.assertNotIn("components", js)
-        self.assertNotIn("whenReady()", js.replace("app.whenReady()", ""))
-        # Namig in stikalo morata biti pred app.whenReady (Chromium bere namig ob zagonu).
-        self.assertLess(js.index("zapisiNamig"), js.index("app.whenReady()"))
-        self.assertLess(js.index("disable-component-update"), js.index("app.whenReady()"))
-
 
 if __name__ == "__main__":
     unittest.main()
