@@ -54,6 +54,7 @@ class PoslusalciPrezivijo(unittest.TestCase):
     def test_lokalni_rele(self):
         r = link_rele.LokalniRele.__new__(link_rele.LokalniRele)
         r.streznik, r.vrata = _Streznik(), 1
+        r._tece = True              # zapri() ga ugasne (3d55eab): zanka se konca tudi, ce accept() se vrne povezavo
         r._nas_proces = lambda _n: True
         niti = _Niti()
         with mock.patch.object(link_rele.threading, "Thread", niti):
