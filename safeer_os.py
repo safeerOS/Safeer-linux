@@ -260,9 +260,8 @@ def _razresevalnik_slik(nastavitve=None):
     razresevalnik = doh_proxy._global_resolver         # isti (in isti predpomnilnik) kot Splet, ce ze tece
     if razresevalnik is None:
         razresevalnik = doh_proxy.DoHResolver(ponudnik, lasten)
-        if nastavitve is not None:      # Scit: isti streznik naprej kot Splet
-            razresevalnik.naprej = nastavitve.get("scit_naprej", "cloudflare")
-            razresevalnik.naprej_po_meri = nastavitve.get("scit_naprej_po_meri", "") or ""
+        # Scit: isti streznik naprej kot Splet in Scit (en vir, doh_proxy.naprej_iz)
+        razresevalnik.naprej, razresevalnik.naprej_po_meri = doh_proxy.naprej_iz(nastavitve)
     else:
         razresevalnik.set_provider(ponudnik, lasten)
 
@@ -3524,9 +3523,11 @@ class SafeerOS(Gtk.Application):
         rod = okno.odpri(naslov or kanal, self._okno_pogleda(pogled))
 
         def je_blokirano(url: str) -> bool:
-            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu.
-            from core import adblock
-            return adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu - tudi pravila Scita (sledilci in
+            # telemetrija; slika v pismu je vedno vir tretje strani).
+            from core import adblock, scit_pravila
+            return (adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+                    or scit_pravila.trenutna().blokira(url))
 
         def delo(slike: bool = False) -> None:
             try:

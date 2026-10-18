@@ -111,6 +111,56 @@ class EnVirNaprej(unittest.TestCase):
         self.assertIn("naprej_iz(self.config)", vir)
 
 
+class ZasebnostPovsod(unittest.TestCase):
+    """Pravila Scita veljajo v vseh pogledih, ki jih Safeer odpre: zavihki in kanali Spleta, vgrajeni viri, predvajalnik
+    Medijskega centra, slike v pismih in Safeer DRM."""
+
+    def test_safeer_drm_dobi_pravila(self):
+        import tempfile
+        from core import safeer_drm
+        from types import SimpleNamespace
+        zagnano = []
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(safeer_drm, "izvrsljiva", return_value=__import__("pathlib").Path("/d/safeer-drm")), \
+                mock.patch.object(safeer_drm, "uskladi_logiko"), \
+                mock.patch.object(safeer_drm, "mapa_sej", return_value=__import__("pathlib").Path(d)), \
+                mock.patch.object(safeer_drm, "v_peskovniku", return_value=False), \
+                mock.patch.object(safeer_drm, "v_flatpaku", return_value=False), \
+                mock.patch.object(safeer_drm.subprocess, "Popen", side_effect=lambda a, **k: zagnano.append(a) or object()):
+            g = SimpleNamespace(ustavi=lambda: None, _xid_starsa=lambda: 7, GLib=mock.MagicMock(),
+                                gradnik=mock.MagicMock(), proces=None, _beri=lambda: True)
+            self.assertTrue(safeer_drm.Gostitelj.zacni(g, "https://www.netflix.com/", storitev=True))
+            scit = [a for a in zagnano[0] if a.startswith("--scit=")]
+            self.assertEqual(len(scit), 1)
+            with open(scit[0][len("--scit="):], encoding="utf-8") as f:
+                pravila = json.load(f)
+            self.assertIn("google-analytics.com", pravila["gostitelji"])
+            self.assertNotIn("adeventtracker.spotify.com", pravila["gostitelji"][:3])
+        js = _beri("assets", "safeer_drm", "main.js")
+        self.assertIn("const pravila = argumenti.scit ? beriPravila(argumenti.scit) : null;", js)   # vse seje
+        zahteva = js[js.index("ses.webRequest.onBeforeRequest("):]
+        self.assertIn("else if (oglasnaZahteva(d.url))", zahteva[:zahteva.index("\n  });")])
+
+    def test_vsi_pogledi(self):
+        splet = _beri("core", "os_splet.py")
+        self.assertIn("scit_pravila.zasebnost_pogleda(W, nastavitve)", splet)
+        self.assertIn("sledilci.uporabi(pogled, self.config.get(\"adblock_enabled\", True) and not izjema)", splet)
+        so = _beri("safeer_os.py")
+        medijski = so[so.index("    def _ustvari_medijski_pogled(self)"):so.index("    def _medijska_plast_css(self)")]
+        for del_ in ("scit_pravila.zasebnost_pogleda(WebKit2, nastavitve)", "self._sledilci_v_pogled(pogled)",
+                     "self._vgrajeno_filter()"):
+            self.assertIn(del_, medijski)
+        self.assertIn("self._sledilci_v_pogled(pogled)", so[so.index("    def _vgrajeno_aktivno("):])
+        self.assertIn("scit_pravila.trenutna().blokira(url)", so)          # slike v pismih
+
+    def test_slika_v_pismu_s_sledilcem_tretjih(self):
+        from core import scit_pravila
+        from core.sporocila import slike
+        p = scit_pravila.vgrajena()
+        self.assertTrue(slike.je_sledilec("https://sb.scorecardresearch.com/p?c1=2", lambda u: p.blokira(u)))
+        self.assertFalse(slike.je_sledilec("https://cdn.trgovina.example/logo.png", lambda u: p.blokira(u)))
+
+
 class ZivoOkno(unittest.TestCase):
     """Okno Safeer Scit (index.html?razdelek=scit) v pravem WebKitGTK 6.0 z laznim mostom."""
 
