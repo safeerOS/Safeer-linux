@@ -233,8 +233,9 @@ class Splet(unittest.TestCase):
             with mock.patch.object(gostitelj, "app_na_gostitelju", lambda pot: izvirna(pot, info)):
                 ukaz = p.ukaz_zagona(["/app/lib/safeer-os/safeer-drm/safeer-drm", "--parent=5"], peskovnik=False,
                                      gostitelj=True)
-            self.assertEqual(ukaz[5:], ["/var/lib/flatpak/app/io.github.memelandfaner.SafeerOS/x86_64/master/abc/files"
-                                        "/lib/safeer-os/safeer-drm/safeer-drm", "--parent=5"])
+            # Zaslon gre samo z neprazno vrednostjo (gostitelj.env_zaslona), zato stevilo --env ni stalno.
+            self.assertEqual(ukaz[-2:], ["/var/lib/flatpak/app/io.github.memelandfaner.SafeerOS/x86_64/master/abc/files"
+                                         "/lib/safeer-os/safeer-drm/safeer-drm", "--parent=5"])
             # Brez app-path ne ugibamo poti: Safeer DRM se ne zazene (Splet ponudi brskalnik z Widevine).
             with mock.patch.object(gostitelj, "app_na_gostitelju", lambda pot: izvirna(pot, os.path.join(d, "ni"))):
                 self.assertIsNone(p.ukaz_zagona(["/app/lib/safeer-os/safeer-drm/safeer-drm"], peskovnik=False,

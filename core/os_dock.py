@@ -31,8 +31,8 @@ def _gostitelj(argumenti: List[str]) -> List[str]:
     if not _v_flatpaku():
         return list(argumenti)
     # Kot ovoji v /app/host-bin: Plank potrebuje zaslon (pregled 14. 10.: brez tega se po ponovnem zagonu ne bi prikazal).
-    return ["flatpak-spawn", "--host", "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
-            "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + list(argumenti)
+    from core import gostitelj
+    return ["flatpak-spawn", "--host"] + gostitelj.env_zaslona() + list(argumenti)
 
 
 def pot_za_gostitelja(pot: str) -> str:

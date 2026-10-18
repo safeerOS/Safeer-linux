@@ -79,6 +79,7 @@ from core import os_lupina  # noqa: E402
 from core import os_medijska_plast  # noqa: E402
 from core import os_vgrajeni_viri  # noqa: E402
 from core import x11  # noqa: E402
+from core import seja_prikaza  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
@@ -2130,7 +2131,18 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
-        if self.delovna and not _ima_delovno(self):
+        if self.delovna and not _ima_delovno(self) and seja_prikaza.je_wayland() and not self._delovna_v_ozadju:
+            # Safeer Cinnamon ob prijavi na Waylandu (Cinnamon na Waylandu, poskusno v Mintu 22): delovne povrsine pod
+            # okni ni mogoce narediti, okno cez ves zaslon bi prekrilo programe. Storitve (Scit, Link, kuverta) tecejo,
+            # okno Safeer OS odpre meni (naslednja aktivacija - QML v oknu).
+            self._delovna_v_ozadju = True
+            self._qml_okno = True
+            self.hold()
+            self._ob_namizju()
+            self._prvic = False
+            self._povezi_koncanje()
+            return
+        if self.delovna and not _ima_delovno(self) and not self._delovna_v_ozadju:
             # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
             self._ustvari_delovno()
             self._ob_namizju()
@@ -2174,13 +2186,15 @@ class SafeerOS(Gtk.Application):
 
     #: `safeer-os --okno` iz menija (GNOME, KDE …) brez datoteke, ponudbe ali predvajalnika: main() nastavi True.
     _qml_okno = False
+    #: --delovna na Waylandu: storitve brez okna delovne povrsine (do_activate).
+    _delovna_v_ozadju = False
 
     def _ustvari_qml_okno(self) -> bool:
         """Aplikacija Safeer OS v oknu = isto namizje QML kot namizno okolje (lastnik, 14. 10. 2026: brez dvojnega dela;
         Datoteke z drugih naprav in Teamwork, Lupa, Programi naprav so tako tudi v aplikaciji). Razdelki (Nastavitve,
         Zapiski, Sporocila, Splet, Safeer Player) se odprejo v svojih oknih kot na namizju (_ima_delovno). Brez PySide6
         ali s SAFEER_LUPINA=html ostane prejsnje okno index.html (vrne False)."""
-        if not self._qml_okno or self.posnetek or self.namizje or self.delovna or \
+        if not self._qml_okno or self.posnetek or self.namizje or (self.delovna and not self._delovna_v_ozadju) or \
                 not os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())):
             return False
         try:
@@ -2231,6 +2245,12 @@ class SafeerOS(Gtk.Application):
         okno_aplikacije = isinstance(lupina, os_lupina.Namizje) and lupina.v_oknu
         if (_ima_delovno(self) and not okno_aplikacije) or self.namizje or self.posnetek:
             return False
+        if seja_prikaza.je_wayland():
+            # Wayland: delovne povrsine pod okni ni (do_activate) - samo storitve; odprto okno ostane, kot je.
+            self._delovna_v_ozadju = True
+            self._ob_namizju()
+            self._povezi_koncanje()
+            return True
         if okno_aplikacije:
             # Aplikacija Safeer OS v oknu je isto namizje QML (_ustvari_qml_okno): okno postane delovna povrsina. Prej je
             # odprto okno delovno povrsino blokiralo do naslednje prijave (pregled celovitosti 15. 10. 2026).
@@ -7528,6 +7548,14 @@ def main() -> int:
     # Proces, ki ga je zagnal Safeer Player, odpre tudi Safeer OS iz menija v oknu (kot ob --predvajaj).
     v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or bool(ponudba_json) or predvajalnik \
         or (cinnamon and "--namizje" not in sys.argv[1:])
+    # Wayland (GNOME na Ubuntu 24.04, KDE, sway): namizja pod okni ni - protokol odjemalcu ne da vrste DESKTOP, okna
+    # pod vsemi drugimi ne rezervacije roba za vrstico (izmerjeno 18. 10. 2026, brezglavi sway 1.9: privzeti zagon je
+    # odprl okno namizja in »Safeer OS vrstica« kot dve navadni okni med programi, vrstica cez tretjino zaslona).
+    # --namizje in privzeti zagon zato odpreta aplikacijo Safeer OS v oknu (isto namizje QML); --delovna (Safeer
+    # Cinnamon ob prijavi) samo storitve v ozadju (do_activate).
+    wayland_okno = seja_prikaza.je_wayland() and not posnetek and not v_oknu and "--delovna" not in sys.argv[1:]
+    if wayland_okno:
+        v_oknu = True
     # Ubuntu 24.04+: brez nasega profila AppArmor bwrap ne dobi imenskega prostora in WebKit bi ob prvi strani koncal
     # ves proces (g_error). Pred prvim WebKitWebContext: peskovnik izklopi samo, ce res ne more teci (pojasnilo enkrat).
     peskovnik = peskovnik_userns.pripravi()
@@ -7537,7 +7565,8 @@ def main() -> int:
         peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-os"), _jezik(),
                                          "Safeer OS", "safeer-os", app)
     app._cakajoci_magnet = magnet
-    app._qml_okno = "--okno" in sys.argv[1:] and not (magnet or datoteka or ponudba_json or predvajalnik or stremio_url)
+    app._qml_okno = ("--okno" in sys.argv[1:] or wayland_okno) and not (magnet or datoteka or ponudba_json
+                                                                         or predvajalnik or stremio_url)
     app._cakajoci_stremio = stremio_url
     app._cakajoca_datoteka = datoteka
     if ponudba_json:

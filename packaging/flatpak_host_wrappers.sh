@@ -19,7 +19,8 @@ for tool in $TOOLS; do
 #!/bin/sh
 # Runs the host's tool of the same name (Safeer OS Flatpak).
 # LC_ALL/LANGUAGE: Python izpis orodij razclenjuje v anglescini (LC_ALL=C) - brez tega gostitelj odgovori v svojem jeziku.
-exec flatpak-spawn --host --env=DISPLAY="${DISPLAY:-}" --env=WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+# Zaslon samo, ce ga peskovnik ima (core/gostitelj.env_zaslona): prazen DISPLAY bi na Waylandu prepisal gostiteljevega.
+exec flatpak-spawn --host ${DISPLAY:+"--env=DISPLAY=$DISPLAY"} ${WAYLAND_DISPLAY:+"--env=WAYLAND_DISPLAY=$WAYLAND_DISPLAY"} \
     ${LC_ALL:+"--env=LC_ALL=$LC_ALL"} ${LANGUAGE:+"--env=LANGUAGE=$LANGUAGE"} "$(basename "$0")" "$@"
 EOF
     chmod 755 "$DEST/$tool"

@@ -14,8 +14,8 @@ Rectangle {
     border.width: activeFocus ? 2 : 1
     border.color: activeFocus ? (poudarjen ? koren.paleta.besedilo : koren.paleta.fokus) : poudarjen ? "transparent" : koren.crta(0.14)
     scale: m.pressed ? 0.96 : 1
-    Behavior on color { ColorAnimation { duration: 140 } }
-    Behavior on scale { NumberAnimation { duration: 90 } }
+    Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
+    Behavior on scale { enabled: koren.gibanje; NumberAnimation { duration: 90 } }
     activeFocusOnTab: enabled && visible
     Accessible.role: Accessible.Button
     Accessible.name: besedilo

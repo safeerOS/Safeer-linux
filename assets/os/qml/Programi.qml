@@ -231,7 +231,7 @@ Steklo {
                         Keys.onReturnPressed: panel.skupina = modelData
                         Keys.onEnterPressed: panel.skupina = modelData
                         Keys.onSpacePressed: panel.skupina = modelData
-                        Behavior on color { ColorAnimation { duration: 140 } }
+                        Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
                         Text {
                             id: n; anchors.centerIn: parent; font.pixelSize: koren.px(12)
                             text: modelData === "" ? koren.t("vse") : panel.imeSkupine(modelData)
@@ -390,7 +390,7 @@ Steklo {
             }
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-            add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200 } }
+            add: Transition { enabled: koren.gibanje; NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200 } }
             Text {
                 anchors.centerIn: parent; width: parent.width - 40; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
                 visible: panel.stanje !== "" && panel.stanje !== "nalagam" || (panel.stanje === "nalagam" && mreza.count === 0)
@@ -412,8 +412,8 @@ Steklo {
                     border.color: izbran ? koren.paleta.fokus : mp.containsMouse ? koren.poudarekA(0.55) : koren.crta(0.08)
                     Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime + (priljubljen ? ", " + koren.t("kPriljubljeni") : "")
                     scale: vrsta ? 1 : (mp.pressed ? 0.95 : (mp.containsMouse ? 1.04 : 1))
-                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation { duration: 140 } }
+                    Behavior on scale { enabled: koren.gibanje; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
                     Image {
                         id: slika
                         source: modelData.ikona || ""

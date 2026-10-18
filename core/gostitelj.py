@@ -91,11 +91,20 @@ def app_na_gostitelju(pot: str, info: str = "/.flatpak-info") -> str:
     return (koren + pot[len("/app"):]) if koren.startswith("/") else ""
 
 
+def env_zaslona() -> List[str]:
+    """--env za `flatpak-spawn --host`: zaslon peskovnika (DISPLAY, WAYLAND_DISPLAY), a samo NEPRAZNE vrednosti.
+
+    Seja Wayland: Flatpak s fallback-x11 v peskovniku nima DISPLAY. Prej je slo na gostitelja `--env=DISPLAY=` (prazno),
+    kar je programom XWayland na gostitelju (stari programi, igre) prepisalo pravi DISPLAY iz okolja seje - ostali so brez
+    okna. Brez prazne vrednosti gostitelj uporabi svojo. Ime vticnice Wayland je v peskovniku enako kot na gostitelju."""
+    return ["--env=%s=%s" % (k, os.environ[k]) for k in ("DISPLAY", "WAYLAND_DISPLAY") if os.environ.get(k)]
+
+
 def zazeni_vnos(pot: str, datoteke: Sequence[str] = ()) -> bool:
     """Zazene zaganjalnik (.desktop) na gostitelju, po zelji z datotekami. Samo v Flatpaku."""
     if not v_flatpaku() or not shutil.which("flatpak-spawn"):
         return False
-    ukaz = ["flatpak-spawn", "--host", "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
+    ukaz = ["flatpak-spawn", "--host"] + env_zaslona() + [
             "gio", "launch", na_gostitelju(pot)] + [na_gostitelju(d) for d in datoteke]
     try:
         subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

@@ -68,7 +68,7 @@ class Zagon(unittest.TestCase):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
         self.assertIn("self._ustvari_qml_okno()", vir)
-        self.assertIn('app._qml_okno = "--okno" in sys.argv[1:]', vir)
+        self.assertIn('app._qml_okno = ("--okno" in sys.argv[1:] or wayland_okno)', vir)
         self.assertIn("v_oknu=True", vir)
 
 

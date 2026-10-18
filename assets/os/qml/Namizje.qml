@@ -65,6 +65,10 @@ Item {
     readonly property real merilo: Math.max(1, Math.min(2, Number(paleta.merilo) || 1))
     function px(n) { return Math.round(n * merilo) }
     property var videz: ({})
+    // Zmanjsano gibanje: animacije sistema izklopljene (GNOME Dostopnost, gtk-enable-animations) - brez prehodov, povecav
+    // in vstopa panelov (AGENTS.md, dostopnost). Zacetna vrednost pride iz Pythona pred nalaganjem (Gibanje), da ze prvi
+    // izris ne animira; sprememba med delom pride z dogodkom »videz«.
+    property bool gibanje: typeof Gibanje === "undefined" ? true : !!Gibanje
     function plosca(a) { var c = paleta.karticaRgb; return Qt.rgba(c[0], c[1], c[2], a) }
     function poudarekA(a) { var c = paleta.poudarekRgb; return Qt.rgba(c[0], c[1], c[2], a) }
     function prekriv(a) { var c = paleta.prekrivRgb || [1, 1, 1]; return Qt.rgba(c[0], c[1], c[2], a) }
@@ -81,6 +85,10 @@ Item {
         if (v.ozadje !== undefined) koren.ozadjeUrl = v.ozadje || ""
         if (v.zameglitev !== undefined) koren.zameglitev = v.zameglitev
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
+        if (v.gibanje !== undefined) {
+            koren.gibanje = !!v.gibanje
+            if (!koren.gibanje && vstop.running) vstop.complete()
+        }
     }
     // Besedila: assets/os/besedila-namizja.js - isti slovar kot delovna povrsina WebKit (sl, en, de, es, fr, it).
     readonly property var besedila: Besedila.BESEDILA_NAMIZJA
@@ -135,7 +143,7 @@ Item {
         cache: false
         sourceSize.width: 1920
         opacity: status === Image.Ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 600 } }
+        Behavior on opacity { enabled: koren.gibanje; NumberAnimation { duration: 600 } }
     }
     MultiEffect {
         id: zamegljeno
@@ -143,7 +151,7 @@ Item {
         source: ozadje
         blurEnabled: true
         blur: koren.zameglitevPlosc
-        Behavior on blur { NumberAnimation { duration: 200 } }
+        Behavior on blur { enabled: koren.gibanje; NumberAnimation { duration: 200 } }
         blurMax: 64
         saturation: 0.15
         brightness: -0.08
@@ -678,7 +686,7 @@ Item {
         Keys.onReturnPressed: koren.linkKlik()
         Keys.onEnterPressed: koren.linkKlik()
         Keys.onSpacePressed: koren.linkKlik()
-        Behavior on color { ColorAnimation { duration: 150 } }
+        Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 150 } }
         Row {
             id: linkVrstica; anchors.centerIn: parent; spacing: 7
             Rectangle { width: 7; height: 7; radius: 4; color: koren.napravVLinku > 0 ? koren.paleta.poudarek : koren.paleta.medlo; anchors.verticalCenter: parent.verticalCenter }
@@ -1036,9 +1044,11 @@ Item {
 
     // vstop: paneli prihajajo drug za drugim
     Component.onCompleted: {
-        var paneli = [medijski, datoteke, programi]
-        for (var i = 0; i < paneli.length; i++) { paneli[i].opacity = 0; paneli[i].scale = 0.97 }
-        vstop.start()
+        if (koren.gibanje) {
+            var paneli = [medijski, datoteke, programi]
+            for (var i = 0; i < paneli.length; i++) { paneli[i].opacity = 0; paneli[i].scale = 0.97 }
+            vstop.start()
+        }
         koren.klic("zacetek", [], function (z) {
             z = z || {}
             koren.nastaviJezik(z.jezik)
@@ -1124,7 +1134,7 @@ Item {
         height: 40; radius: 20; width: vrsticaObv.width + 30
         color: koren.plosca(0.94); border.color: koren.crta(0.14)
         opacity: 0; visible: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: 200 } }
+        Behavior on opacity { enabled: koren.gibanje; NumberAnimation { duration: 200 } }
         function pokazi(b, dejanje, ob) {
             napisObv.text = b; gumbObv.besedilo = dejanje || ""; obvestilo.ob = ob || null
             opacity = 1; skrijObv.restart()

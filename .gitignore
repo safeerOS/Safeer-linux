@@ -29,6 +29,7 @@ tests/*
 !tests/besedila_namizja.py
 !tests/dostop_za_preizkus.py
 !tests/lazni_imap.py
+!tests/wayland_okolje.py
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/
