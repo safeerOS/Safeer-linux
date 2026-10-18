@@ -49,6 +49,23 @@ class SpotifyTrak(unittest.TestCase):
     def _zazeni(self, koda):
         return _node(OKOLJE + "".join(_funkcija(self.js, f) for f in FUNKCIJE) + koda)
 
+    def test_napake_predvajanja_tihe_prijava_ostane(self):
+        """Lastnik 18. 10. 2026: napak predvajanja uporabnik ne vidi; prijava in Safeer DRM (ukrepa uporabnik) ostaneta,
+        brskanje (odpiranje seznama) kaze vse."""
+        sp = _funkcija(self.js, "spNapaka").replace("function spNapaka(", "function spNapakaPrava(")
+        ukrepaj = "var SP_UKREPAJ = " + self.js.split("var SP_UKREPAJ = ", 1)[1].split(";", 1)[0] + ";\n"
+        izid = self._zazeni(ukrepaj + sp + """
+        t = function (k) { return "T:" + k; };
+        ["stran", "ni_odziva", "neveljavno", "ne_tece", "napaka", "potekla", "ni_drm", "ni_prijave"].forEach(function (k) {
+          spNapakaPrava(k, true); });
+        var predvajanje = obvestila.slice(); obvestila.length = 0;
+        spNapakaPrava("stran"); spNapakaPrava("ni_odziva");
+        console.log(JSON.stringify([predvajanje, obvestila]));""")
+        self.assertEqual(izid, [["T:spNapaka_potekla", "T:spNapaka_ni_drm", "T:spNapaka_ni_prijave"],
+                                ["T:spNapaka_stran", "T:spNapaka_ni_odziva"]])
+        for klic in ('spNapaka(item.sp_napaka, true)', 'if (x && x.napaka) spNapaka(x.napaka, true);'):
+            self.assertIn(klic, self.js)
+
     def test_trak_pokaze_skladbo_in_predvajaj_na(self):
         izid = self._zazeni("""
         kat.spTrak = true;

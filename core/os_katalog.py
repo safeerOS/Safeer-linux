@@ -197,12 +197,38 @@ def je_naslov_vgradnje(naslov: str) -> bool:
     return bool(YOUTUBE_ID.match(naslov[len(PREDPONA_VGRADNJE):].split("?", 1)[0]))
 
 
-#: Skript v lahkem medijskem pogledu: stanje predvajalnika (1 igra, 2 premor, 0 konec) in napako javi Safeer OS,
-#: da ta ob koncu skladbe zacne naslednjo; od Safeer OS sprejme samo »predvajaj« in »premor«.
+#: Locen svet skript (isolated world) za most skladbe. Pregled 18. 10. 2026: rokovalnik »safeerSkladba« v glavnem svetu
+#: je bil dosegljiv VSEM okvirjem strani (tudi oglasnim iframom v vgradnji) - WebKitGTK sporocilu ne doda okvirja
+#: (signal script-message-received nosi samo JSCValue, preverjeno na WebKitGTK 2.52). Rokovalnik je zdaj samo v tem
+#: svetu, skript tega sveta pa samo v glavnem okvirju strani posnetka (RELE_SKLADBE, TOP_FRAME): skripte strani in
+#: drugih okvirjev do njega ne sezejo.
+SVET_SKLADBE = "safeer-skladba"
+
+#: Rele v svetu SVET_SKLADBE (glavni okvir, ob zacetku dokumenta): dogodek »safeer-skladba« skripta SKRIPT_SKLADBE
+#: (glavni svet, ker potrebuje API predvajalnika YouTube) poslje Safeer OS skupaj z ID posnetka iz naslova strani, kot
+#: je bil ob nalaganju (yt_sporocilo zavrne sporocilo drugega posnetka - npr. zakasnjeno s prejsnje strani).
+RELE_SKLADBE = """
+(function () {
+  if (window.__safeerRele) return; window.__safeerRele = true;
+  var m = /^\\/embed\\/([A-Za-z0-9_-]{11})(?:[/?#]|$)/.exec(location.pathname);
+  var v = m ? m[1] : (location.pathname === "/watch" ? (new URLSearchParams(location.search).get("v") || "") : "");
+  if (!/^[A-Za-z0-9_-]{11}$/.test(v)) return;
+  document.addEventListener("safeer-skladba", function (e) {
+    var o;
+    try { o = JSON.parse(String(e.detail).slice(0, 400)); } catch (x) { return; }
+    if (!o || typeof o !== "object" || Array.isArray(o)) return;
+    o.v = v;
+    try { window.webkit.messageHandlers.safeerSkladba.postMessage(JSON.stringify(o)); } catch (x) {}
+  });
+})();
+"""
+
+#: Skript v lahkem medijskem pogledu: stanje predvajalnika (1 igra, 2 premor, 0 konec) in napako javi Safeer OS (prek
+#: RELE_SKLADBE), da ta ob koncu skladbe zacne naslednjo; od Safeer OS sprejme samo »predvajaj« in »premor«.
 SKRIPT_SKLADBE = """
 (function () {
   if (window.__safeerSkladba) return; window.__safeerSkladba = true;
-  function javi(o) { try { window.webkit.messageHandlers.safeerSkladba.postMessage(JSON.stringify(o)); } catch (e) {} }
+  function javi(o) { try { document.dispatchEvent(new CustomEvent("safeer-skladba", { detail: JSON.stringify(o) })); } catch (e) {} }
   function predvajalnik() { var p = document.getElementById("movie_player"); return p && typeof p.getPlayerState === "function" ? p : null; }
   var zadnje = null, napaka = false, napakaVidea = 0, zacetek = Date.now();
   function stanje() {
@@ -526,8 +552,11 @@ class Katalog:
         return self.mc.season(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1)
 
     def _epizoda(self, a: list) -> Any:
-        return self.mc.episode_item(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1,
+        izid = self.mc.episode_item(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1,
                                     int(a[2]) if len(a) > 2 else 1, self._niz(a, 3))
+        if not (isinstance(izid, dict) and izid.get("id")):
+            print("[SafeerMedia] epizoda: ni toka", file=sys.stderr, flush=True)    # stran tega ne kaze
+        return izid
 
     def _film(self, a: list) -> Any:
         return self.mc.movie_item(int(a[0]) if a else 0, self._niz(a, 1))
@@ -1033,7 +1062,12 @@ class Katalog:
 
     def _sp_ukaz(self, a: list) -> Any:
         vrednost = a[1] if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) else None
-        return self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+        izid = self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+        if isinstance(izid, dict) and izid.get("napaka"):
+            # Stran napak predvajanja ne kaze (lastnik 18. 10. 2026): sled je tu, v stderr (sled.log).
+            print("[SafeerMedia] Spotify ukaz %s: napaka %s" % (re.sub(r"\W", "", self._niz(a, 0))[:12], izid["napaka"]),
+                  file=sys.stderr, flush=True)
+        return izid
 
     def _plakat(self, a: list) -> Any:
         """Plakat z naslovom http:// prenese Safeer OS (stran dovoli slike samo prek https/file/data)."""
@@ -1113,6 +1147,9 @@ class Katalog:
             return
         if not isinstance(d, dict):
             return
+        if d.get("v") != yt.get("posnetek"):
+            # Sporocilo drugega posnetka (zakasnjeno s prejsnje strani ali brez ID): ne sme vplivati na to skladbo.
+            return
         if d.get("napaka") is True:
             koda = re.sub(r"[^\w.-]", "", str(d.get("koda") or ""))[:12]
             if koda in ("dekodiranje", "yt5") and not yt.get("ponovljen") and naslov_vgradnje(yt.get("posnetek", "")):
@@ -1178,11 +1215,15 @@ class Katalog:
         ident = self._niz(a, 0)
         item = self.mc.resolve(ident)
         if not item:
+            print("[SafeerMedia] vnosa ni mogoce razresiti", file=sys.stderr, flush=True)
             return None
         return self._predvajaj_razresen(item, ident)
 
     def _predvajaj_razresen(self, item: dict, ident: str) -> Optional[dict]:
         if item.get("napaka_koda") or item.get("napaka") or item.get("sporocilo"):
+            # Stran napak predvajanja uporabniku ne kaze (lastnik 18. 10. 2026): sled je tu (brez naslova vsebine).
+            print("[SafeerMedia] napaka=%s vrsta=%s" % (re.sub(r"[^\w.-]", "", str(item.get("napaka_koda") or "napaka"))[:24],
+                                                       item.get("vrsta") or ""), file=sys.stderr, flush=True)
             return item
         if item.get("stran") and str(item.get("url") or "") == str(item.get("stran")):
             return item       # prenos, ki ga izdajatelj ponuja samo na svoji strani: stran ga odpre v Spletu
@@ -1190,6 +1231,7 @@ class Katalog:
             # Skladba racuna Spotify: predvaja skrit Safeer DRM (v kontekstu seznama, da Spotify igra naprej).
             izid = self.mc.spotify.predvajaj(str(item["spotify"]), str(item.get("spotify_kontekst") or ""))
             if izid.get("napaka"):
+                print("[SafeerMedia] Spotify predvajanje: napaka %s" % izid["napaka"], file=sys.stderr, flush=True)
                 return dict(item, native=True, spotify=True, sp_napaka=izid["napaka"])
             # delno: vrstice skladbe na strani ni bilo, Spotify je zacel seznam od zacetka - stran to pove uporabniku.
             return dict(item, native=True, spotify=True, zvok=True, sp_delno=bool(izid.get("delno")))

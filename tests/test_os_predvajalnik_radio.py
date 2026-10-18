@@ -180,10 +180,45 @@ class RadioTests(unittest.TestCase):
             self.assertEqual(self.element.stanja[-1], "playing")
         self.assertEqual(odmiki, [1, 2, 4, 8, 8])
         self.player._sporocilo(None, napaka())
-        self.assertEqual(self.player.stanje, "napaka")
-        self.assertEqual(self.player.napaka, "povezava")
-        self.assertIn("povezava", op.NAPAKE)
+        # Lastnik 18. 10. 2026: po zadnjem poskusu tiha ustavitev (sled v stderr), brez sporocila uporabniku.
+        self.assertEqual(self.player.stanje, "ustavljeno")
+        self.assertEqual(self.player.napaka, "")
+        self.assertEqual(self.element.stanja[-1], "null")
         self.assertEqual(self.player.statistika["ponovne_povezave"], 5)
+        stanja = len(self.element.stanja)
+        for _, f in list(self.odlozeni):
+            f()                                                      # stare odlozene povezave ne veljajo vec
+        self.assertEqual(len(self.element.stanja), stanja)
+
+    def _do_konca_poskusov(self):
+        for _ in range(5):
+            self.player._sporocilo(None, napaka())
+            self.odlozeni.pop()[1]()
+        self.player._sporocilo(None, napaka())
+
+    def test_po_zadnjem_poskusu_naslednja_postaja(self):
+        self.radio()
+        self.player.dodaj("https://example.test/druga-postaja", vrsta="radio", naslov="Druga")
+        self._do_konca_poskusov()
+        self.assertEqual((self.player.trenutna.naslov, self.player.stanje, self.player.napaka), ("Druga", "predvaja", ""))
+        self.assertEqual(self.element.lastnosti["uri"], "https://example.test/druga-postaja")
+
+    def test_po_zadnjem_poskusu_ne_na_skladbo_ki_ni_postaja(self):
+        self.radio()
+        self.player.dodaj("https://example.test/pesem.mp3")
+        self._do_konca_poskusov()
+        self.assertEqual((self.player.trenutna.uri, self.player.stanje), (RADIO, "ustavljeno"))
+
+    def test_trajna_napaka_brez_ponovnih_poskusov(self):
+        """format/zascita: ponovna povezava ne pomaga (pregled 18. 10. 2026) - takoj tiho naprej."""
+        for domena, koda in (("gst-stream-error-quark", 6), ("gst-stream-error-quark", 13)):
+            self.radio()
+            self.odlozeni.clear()
+            trajna = sporocilo("error", parse_error=lambda d=domena, k=koda: (SimpleNamespace(domain=d, code=k), ""))
+            self.player._sporocilo(None, trajna)
+            self.assertEqual(self.odlozeni, [])
+            self.assertEqual((self.player.stanje, self.player.napaka), ("ustavljeno", ""))
+            self.assertEqual(self.player.statistika["ponovne_povezave"], 0)
 
     def test_eos_radia_ni_konec_vrste(self):
         self.radio()

@@ -111,6 +111,10 @@ def ukaz_toka(vir: str, ffmpeg: str = "ffmpeg") -> List[str]:
             "-flush_packets", "1", "-f", "mp3", "-"]
 
 
+#: Rok pisanja zivega toka MP3 po glavah (zvocnik toliko casa ne sprejme nicesar: povezava gre).
+ROK_PISANJA_TOKA_S = 30.0
+
+
 class _Tok:
     """HTTP streznik, ki na /<zeton>/safeer.mp3 vsakemu odjemalcu (zvocniku) poganja svoj ffmpeg."""
 
@@ -120,6 +124,7 @@ class _Tok:
         self.ukaz = ukaz
         self._procesi: List[subprocess.Popen] = []
         self._kljuc = threading.Lock()
+        self._ustavljen = False
         #: time.monotonic() prvega kosa, ki ga je zvocnik dobil (za meritev zakasnitve); 0 = se ni.
         self.prvi_bajt = 0.0
         tok = self
@@ -149,9 +154,18 @@ class _Tok:
             def do_GET(self) -> None:
                 if not self._glava():
                     return
-                proc = subprocess.Popen(tok.ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                        env=_okolje())
+                try:
+                    # Rok pisanja: zvocnik, ki 30 s ne bere (izklopljen, izgubil Wi-Fi), ne drzi niti in ffmpeg.
+                    self.connection.settimeout(ROK_PISANJA_TOKA_S)
+                except OSError:
+                    return
+                # Zagon pod istim zaklepom kot ustavi(): GET, ki se zacne hkrati z ustavitvijo, ne pozene ffmpeg mimo
+                # seznama (ta bi tekel naprej brez lastnika).
                 with tok._kljuc:
+                    if tok._ustavljen:
+                        return
+                    proc = subprocess.Popen(tok.ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                            env=_okolje())
                     tok._procesi.append(proc)
                 try:
                     while True:
@@ -169,13 +183,14 @@ class _Tok:
                         if proc in tok._procesi:
                             tok._procesi.remove(proc)
 
-        self._streznik = ThreadingHTTPServer((naslov, 0), Obdelava)
+        self._streznik = _Streznik((naslov, 0), Obdelava)
         self._streznik.daemon_threads = True
         self.url = "http://%s:%d%s" % (naslov, self._streznik.server_port, self.pot)
         threading.Thread(target=self._streznik.serve_forever, name="safeer-zvocnik-tok", daemon=True).start()
 
     def ustavi(self) -> None:
         with self._kljuc:
+            self._ustavljen = True
             procesi, self._procesi = list(self._procesi), []
         for p in procesi:
             _koncaj(p)
@@ -184,6 +199,12 @@ class _Tok:
             self._streznik.server_close()
         except Exception:
             pass
+        # Povezave zahtev (zvocnik v premoru ne bere): brez tega so ostale z nitjo in vticnikom (pregled 18. 10. 2026).
+        self._streznik.zapri_povezave()
+
+
+class _Streznik(os_deskriptorji.SledenjePovezav, ThreadingHTTPServer):
+    pass
 
 
 def _koncaj(proc: subprocess.Popen) -> None:

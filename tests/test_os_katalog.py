@@ -86,8 +86,10 @@ class VgradnjaYoutubeTests(unittest.TestCase):
 
     def test_skript_stanja_ne_doseze_mostu_safeer_os(self):
         """Skript v lahkem pogledu sme poslati samo stanje skladbe; mostu Safeer OS (safeerOs) v njem ni."""
-        self.assertIn("messageHandlers.safeerSkladba", K.SKRIPT_SKLADBE)
-        self.assertNotIn("safeerOs", K.SKRIPT_SKLADBE)
+        # Pregled 18. 10. 2026: SKRIPT_SKLADBE (glavni svet) mostu ne doseze, sporocilo poslje rele v svojem svetu.
+        self.assertNotIn("messageHandlers", K.SKRIPT_SKLADBE)
+        self.assertIn("messageHandlers.safeerSkladba", K.RELE_SKLADBE)
+        self.assertNotIn("safeerOs", K.SKRIPT_SKLADBE + K.RELE_SKLADBE)
         self.assertEqual(K.STRANI_SKRIPTA_SKLADBE, ("https://www.youtube.com/embed/*", "https://www.youtube.com/watch*"))
 
     def test_safeer_os_tuje_vsebine_ne_vgradi_v_svojo_stran(self):
@@ -106,7 +108,11 @@ class VgradnjaYoutubeTests(unittest.TestCase):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             okno = f.read()
         pogled = okno[okno.index("def _ustvari_medijski_pogled"):okno.index("def _katalog_youtube(")]
-        self.assertIn('_registriraj_most(upravitelj, "safeerSkladba")', pogled)
+        self.assertIn("namesti_most_skladbe(upravitelj, self._na_stanje_skladbe)", pogled)
+        most = okno[okno.index("def namesti_most_skladbe("):okno.index("def zagon_predvajalnika(")]
+        self.assertIn('register_script_message_handler("safeerSkladba", os_katalog.SVET_SKLADBE)', most)
+        self.assertIn("UserScript.new_for_world(", most)
+        self.assertEqual(most.count("UserContentInjectedFrames.TOP_FRAME"), 2)
         self.assertNotIn('"safeerOs"', pogled)
         # WebKitGTK 6.0: peskovnik je vedno vklopljen (ni set_sandbox_enabled); svoj WebContext = svoj spletni proces,
         # zacasni podatki na zacasni seji.
@@ -182,14 +188,14 @@ class MostKatalogaTests(unittest.TestCase):
         self.assertTrue(izid["okno_youtube"] and izid["zvok"])
         self.assertEqual(self.yt, [(K.naslov_vgradnje("59o4m222aVw"), "Pevka – Pesem")])
         # Konec brez predvajanja (stran se sele nalaga) ne sprozi nicesar.
-        self.k.yt_sporocilo(json.dumps({"stanje": 0}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 0}))
         self.assertEqual(self.dogodki, [])
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
-        self.k.yt_sporocilo(json.dumps({"stanje": 2}))
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
-        self.k.yt_sporocilo(json.dumps({"stanje": 0}))
-        self.k.yt_sporocilo(json.dumps({"stanje": 0}))    # ponovljeno sporocilo ne preskoci skladbe
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 2}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 0}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 0}))    # ponovljeno sporocilo ne preskoci skladbe
         self.assertEqual(self.dogodki, [
             ("mediaYt", {"id": "seznam:a", "igra": True}), ("mediaYt", {"id": "seznam:a", "igra": False}),
             ("mediaYt", {"id": "seznam:a", "igra": True}), ("mediaKonec", {"id": "seznam:a"})])
@@ -201,17 +207,17 @@ class MostKatalogaTests(unittest.TestCase):
             self.k.yt_sporocilo(smeti)
         self.assertEqual(self.dogodki, [])
         # Vgradnja ni dovoljena: isti posnetek na strani YouTube v istem pogledu, brez preskoka (lastnik, 18. 10. 2026).
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "vgradnja<script>"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "vgradnja<script>"}))
         self.assertEqual(self.dogodki, [])
         self.assertEqual(self.yt[-1][0], "https://www.youtube.com/watch?v=59o4m222aVw")
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
         self.assertEqual(self.dogodki, [("mediaYt", {"id": "seznam:a", "igra": True})])
         # Tudi stran ne gre (izbrisan ali zaseben posnetek): naprej, brez zanke.
         self.dogodki.clear()
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "vgradnja"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "vgradnja"}))
         self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "vgradnja", "zamenjaj": True})])
         self.assertEqual(len(self.yt), 2)
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))     # po napaki skladba ni vec aktivna
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))     # po napaki skladba ni vec aktivna
         self.assertEqual(len(self.dogodki), 1)
 
     def test_napaka_dekoderja_ni_prepoved_vgradnje(self):
@@ -220,19 +226,19 @@ class MostKatalogaTests(unittest.TestCase):
         self._vnosi(**{"seznam:a": {"id": "seznam:a", "vrsta": "glasba", "naslov": "Pesem", "youtube": "59o4m222aVw"}})
         self.k.izvedi("mediaPredvajaj", ["seznam:a"])
         prej = len(self.yt)
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "dekodiranje"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "dekodiranje"}))
         self.assertEqual(self.dogodki, [])
         self.assertEqual(len(self.yt), prej + 1)
         self.assertTrue(self.yt[-1][0].startswith("https://www.youtube.com/embed/59o4m222aVw"))
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt5"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "yt5"}))
         self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "yt5", "zamenjaj": False})])
         self.dogodki.clear()
         self.k.izvedi("mediaPredvajaj", ["seznam:a"])
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt153"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "yt153"}))
         self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a", "koda": "yt153", "zamenjaj": False})])
         self.dogodki.clear()
         self.k.izvedi("mediaPredvajaj", ["seznam:a"])
-        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "yt150"}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "yt150"}))
         self.assertEqual(self.dogodki, [])                 # najprej stran posnetka
         self.assertEqual(self.yt[-1][0], "https://www.youtube.com/watch?v=59o4m222aVw")
         self.assertIn('addEventListener("onError"', K.SKRIPT_SKLADBE)
@@ -245,14 +251,49 @@ class MostKatalogaTests(unittest.TestCase):
         self.assertFalse(K.je_naslov_strani("https://evil.test/watch?v=59o4m222aVw"))
         self.assertIn("https://www.youtube.com/watch*", K.STRANI_SKRIPTA_SKLADBE)
 
+    def test_sporocilo_drugega_posnetka_se_zavrne(self):
+        """Pregled 18. 10. 2026: zakasnjeno sporocilo prejsnje strani (drug posnetek) ali brez ID ne vpliva na skladbo."""
+        self._vnosi(**{"seznam:a": {"id": "seznam:a", "vrsta": "glasba", "naslov": "A", "youtube": "59o4m222aVw"}})
+        self.k.izvedi("mediaPredvajaj", ["seznam:a"])
+        for d in ({"stanje": 1}, {"stanje": 1, "v": "aaaaaaaaaaa"}, {"napaka": True, "koda": "yt150", "v": "bbbbbbbbbbb"}):
+            self.k.yt_sporocilo(json.dumps(d))
+        self.assertEqual(self.dogodki, [])
+        self.k.yt_sporocilo(json.dumps({"stanje": 1, "v": "59o4m222aVw"}))
+        self.assertEqual(self.dogodki, [("mediaYt", {"id": "seznam:a", "igra": True})])
+
+    def test_rele_vzame_id_iz_naslova(self):
+        import shutil
+        import subprocess
+        if not shutil.which("node"):
+            self.skipTest("ni node")
+        koda = """
+var poslano = [], poslusalci = {};
+var document = { addEventListener: function (ime, f) { poslusalci[ime] = f; } };
+function rele(pot, iskanje) {
+  poslano = []; poslusalci = {};
+  var window = { webkit: { messageHandlers: { safeerSkladba: { postMessage: function (x) { poslano.push(JSON.parse(x)); } } } } };
+  var location = { pathname: pot, search: iskanje };
+  eval(%s);
+  if (poslusalci["safeer-skladba"]) {
+    poslusalci["safeer-skladba"]({ detail: JSON.stringify({ stanje: 1, v: "ponaredek" }) });
+    poslusalci["safeer-skladba"]({ detail: "[1]" });
+  }
+  return poslano;
+}
+console.log(JSON.stringify([rele("/embed/59o4m222aVw", ""), rele("/watch", "?v=59o4m222aVw&t=1"),
+  rele("/embed/kratek", ""), rele("/results", "?v=59o4m222aVw")]));
+""" % json.dumps(K.RELE_SKLADBE)
+        izid = json.loads(subprocess.run(["node", "-e", koda], capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(izid, [[{"stanje": 1, "v": "59o4m222aVw"}], [{"stanje": 1, "v": "59o4m222aVw"}], [], []])
+
     def test_sporocilo_stare_skladbe_ne_vpliva_na_novo_izbiro(self):
         self._vnosi(**{"seznam:a": {"id": "seznam:a", "vrsta": "glasba", "naslov": "A", "youtube": "59o4m222aVw"},
                        "r": {"id": "r", "vrsta": "radio", "naslov": "Radio", "url": "https://radio.test/tok.mp3"}})
         self.k.izvedi("mediaPredvajaj", ["seznam:a"])
-        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
         self.k.izvedi("mediaPredvajaj", ["r"])
         self.dogodki.clear()
-        self.k.yt_sporocilo(json.dumps({"stanje": 0}))
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 0}))
         self.assertEqual(self.dogodki, [])
 
     def test_ukazi_vgradnega_predvajalnika(self):

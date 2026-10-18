@@ -8,7 +8,9 @@
 // Spotify (core/spotify_racun.py): safeer-drm --url=https://open.spotify.com/ --spotify=1 [--skrit=1] [--scit=<pravila>]
 //   --profile --state --command, brez --parent: lastno okno za prijavo, po prijavi skrito (ukaza skrij/pokazi).
 //   Medijski center stran upravlja s CDP prek webContents.debugger (brez vrat in brez omrezja): ukaz
-//   cdp:<id>:<base64 JSON {expression}> izvede Runtime.evaluate, odgovor gre v events.jsonl (vrsta CDP).
+//   cdp:<id>:<base64 JSON {expression}> izvede Runtime.evaluate, odgovor gre v svojo datoteko cdp-<id>.json v mapi
+//   seje (Safeer OS jo prebere in izbrise) - ne v events.jsonl, ki je z vsebino strani rasel brez meje (pregled
+//   18. 10. 2026). events.jsonl seje Spotify ima najvec ~1 MB (nato se zamenja: events.jsonl.1 je prejsnji del).
 // Samostojni način (za preizkus): safeer-drm <https-URL>
 const fs = require('fs');
 const path = require('path');
@@ -31,9 +33,26 @@ const skrit = spotify && argumenti.skrit === '1';
 // Ukazi iz command.txt: vdelano okno ali Spotify (mapa seje je zasebna, pise jo samo Safeer OS).
 const nadzor = vdelan || Boolean(spotify && commandPath);
 
+// Skrit Spotify tece ure: dnevnik dogodkov se pri NAJVEC_DNEVNIKA zamenja (preimenovanje je atomarno; bralec v
+// core/spotify_racun.Kanal po zamenjavi prebere se konec events.jsonl.1 in nadaljuje v novem).
+const NAJVEC_DNEVNIKA = 1024 * 1024;
+let zapisanih = 0;
 function zapisi(type, detail = '') {
   if (!statePath) { console.log(`[safeer-drm] ${type} ${detail}`); return; }
-  try { fs.appendFileSync(statePath, JSON.stringify({ time: new Date().toISOString(), type, detail }) + '\n'); } catch (_) {}
+  const vrstica = JSON.stringify({ time: new Date().toISOString(), type, detail }) + '\n';
+  try {
+    const dolzina = Buffer.byteLength(vrstica);
+    if (spotify && zapisanih + dolzina > NAJVEC_DNEVNIKA) { fs.renameSync(statePath, statePath + '.1'); zapisanih = 0; }
+    fs.appendFileSync(statePath, vrstica);
+    zapisanih += dolzina;
+  } catch (_) {}
+}
+// Odgovor CDP (vsebina strani: seznami, imena) samo v zasebni datoteki zahteve, ki jo Safeer OS takoj po branju
+// izbrise; id je stevilo (preverjeno v obdelajUkaz), zato ime ne more iz mape seje.
+function odgovorCdp(id, besedilo) {
+  if (!statePath) return;
+  const cilj = path.join(path.dirname(statePath), 'cdp-' + id + '.json'), zacasna = cilj + '.tmp';
+  try { fs.writeFileSync(zacasna, besedilo, { mode: 0o600 }); fs.renameSync(zacasna, cilj); } catch (_) {}
 }
 function varenGostitelj(raw) { try { return new URL(raw).hostname; } catch (_) { return 'invalid'; } }
 function osnovnaDomena(host) { const d = host.replace(/^\.+|\.+$/g, '').toLowerCase().split('.'); return d.length >= 2 ? d.slice(-2).join('.') : host.toLowerCase(); }
@@ -322,22 +341,22 @@ function prikljuciCdp() {
 }
 function izvediCdp(id, b64) {
   let zahteva;
-  try { zahteva = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch (_) { zapisi('CDP', JSON.stringify({ id, napaka: 'zahteva' })); return; }
+  try { zahteva = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch (_) { odgovorCdp(id, JSON.stringify({ id, napaka: 'zahteva' })); return; }
   const izraz = zahteva && typeof zahteva.expression === 'string' ? zahteva.expression : '';
   const dbg = okno.webContents.debugger;
-  if (!izraz || !dbg.isAttached()) { zapisi('CDP', JSON.stringify({ id, napaka: izraz ? 'cdp' : 'zahteva' })); return; }
+  if (!izraz || !dbg.isAttached()) { odgovorCdp(id, JSON.stringify({ id, napaka: izraz ? 'cdp' : 'zahteva' })); return; }
   dbg.sendCommand('Runtime.evaluate', { expression: izraz, awaitPromise: true, returnByValue: true, userGesture: true,
     timeout: Math.min(Math.max(Number(zahteva.timeout) || 15000, 100), 60000) })
     .then(r => {
       if (r && r.exceptionDetails) {
         const opis = (r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text || '';
-        zapisi('CDP', JSON.stringify({ id, napaka: 'izjema', opis: String(opis).slice(0, 300) }));
+        odgovorCdp(id, JSON.stringify({ id, napaka: 'izjema', opis: String(opis).slice(0, 300) }));
         return;
       }
       let besedilo = JSON.stringify({ id, vrednost: r && r.result ? r.result.value : null });
       if (besedilo.length > NAJVEC_ODGOVORA) besedilo = JSON.stringify({ id, napaka: 'prevelik' });
-      zapisi('CDP', besedilo);
-    }, e => zapisi('CDP', JSON.stringify({ id, napaka: 'cdp', opis: String(e && e.message || e).slice(0, 200) })));
+      odgovorCdp(id, besedilo);
+    }, e => odgovorCdp(id, JSON.stringify({ id, napaka: 'cdp', opis: String(e && e.message || e).slice(0, 200) })));
 }
 
 function obdelajUkaz() {

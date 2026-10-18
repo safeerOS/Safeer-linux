@@ -373,3 +373,90 @@ class DrugiViri(unittest.TestCase):
             napake = [link_datoteke.naslov_do_huba("https://127.0.0.1:8990") for _ in range(20)]
         self.assertEqual(set(napake), {"127.0.0.1"})
         self.assertLessEqual(_fd(), pred)
+
+
+@unittest.skipUnless(os.path.isdir("/proc/self/fd"), "potrebuje /proc")
+class UstavitevTokov(unittest.TestCase):
+    """Pregled 18. 10. 2026 (tok_fd.py): po glavah je vticnik toka brez roka - ob ustavi()/__exit__ je povezava
+    zvocnika, ki ne bere (premor), z nitjo, cevjo ffmpeg ali odprto datoteko ostala za vedno."""
+
+    TOK = [sys.executable, "-c", "import sys\nwhile True: sys.stdout.buffer.write(b'a' * 65536)"]
+
+    @staticmethod
+    def _niti_zahtev():
+        return [n for n in threading.enumerate() if "process_request" in n.name]
+
+    def _odjemalec(self, vrata, pot):
+        c = socket.socket()
+        c.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        c.connect(("127.0.0.1", vrata))
+        c.sendall(("GET %s HTTP/1.0\r\n\r\n" % pot).encode())
+        self.addCleanup(c.close)
+        return c
+
+    def test_tok_ustavi_zapre_povezavo_nit_in_ffmpeg(self):
+        from core import zvok_na_zvocnik as z
+        niti = len(self._niti_zahtev())
+        pred = _fd()
+        t = z._Tok("127.0.0.1", self.TOK)
+        vrata = int(t.url.split(":")[2].split("/")[0])
+        c = self._odjemalec(vrata, t.pot)                     # odjemalec ne bere (zvocnik v premoru)
+        self.assertTrue(_pocakaj(lambda: len(t._procesi) == 1))
+        time.sleep(0.5)                                     # streznik obtici v pisanju
+        t.ustavi()
+        self.assertEqual(t._procesi, [])
+        self.assertTrue(_pocakaj(lambda: len(self._niti_zahtev()) == niti), self._niti_zahtev())
+        c.close()
+        self.assertTrue(_pocakaj(lambda: _fd() <= pred), (_fd(), pred))
+
+    def test_get_po_ustavitvi_ne_pozene_ffmpeg(self):
+        import tempfile
+        from core import zvok_na_zvocnik as z
+        oznaka = os.path.join(tempfile.mkdtemp(), "zagnan")
+        self.addCleanup(lambda: os.path.exists(oznaka) and os.unlink(oznaka))
+        t = z._Tok("127.0.0.1", [sys.executable, "-c", "open(%r, 'w').close()" % oznaka])
+        self.addCleanup(t.ustavi)
+        with t._kljuc:
+            t._ustavljen = True                             # ustavi() je ze vzel seznam procesov
+        vrata = int(t.url.split(":")[2].split("/")[0])
+        c = self._odjemalec(vrata, t.pot)
+        c.settimeout(5)
+        while c.recv(4096):
+            pass
+        time.sleep(0.3)
+        self.assertFalse(os.path.exists(oznaka))
+        self.assertEqual(t._procesi, [])
+
+    def test_tok_rok_pisanja(self):
+        from unittest import mock
+        from core import zvok_na_zvocnik as z
+        with mock.patch.object(z, "ROK_PISANJA_TOKA_S", 0.5):
+            t = z._Tok("127.0.0.1", self.TOK)
+            self.addCleanup(t.ustavi)
+            vrata = int(t.url.split(":")[2].split("/")[0])
+            self._odjemalec(vrata, t.pot)
+            self.assertTrue(_pocakaj(lambda: len(t._procesi) == 1))
+            # zvocnik ne bere: po roku pisanja streznik sam pospravi ffmpeg in povezavo (brez ustavi())
+            self.assertTrue(_pocakaj(lambda: not t._procesi and not t._streznik.odprtih_povezav(), 10.0))
+
+    def test_streznik_datotek_izhod_zapre_povezavo_in_datoteko(self):
+        import tempfile
+        from core import dlna_zvocniki as dlna
+        mapa = tempfile.mkdtemp()
+        pot = os.path.join(mapa, "pesem.mp3")
+        with open(pot, "wb") as f:
+            f.write(b"\0" * (8 << 20))
+        self.addCleanup(lambda: os.unlink(pot))
+        niti = len(self._niti_zahtev())
+        pred = _fd()
+        with dlna.StreznikDatotek(pot, "127.0.0.1") as s:
+            vrata = int(s.url.split(":")[2].split("/")[0])
+            c = self._odjemalec(vrata, "/" + s.url.split("/", 3)[3])
+            self.assertTrue(_pocakaj(lambda: s._server.odprtih_povezav() == 1))
+            time.sleep(0.5)                                 # streznik obtici v pisanju (datoteka odprta)
+        self.assertTrue(_pocakaj(lambda: len(self._niti_zahtev()) == niti), self._niti_zahtev())
+        odprte = [os.readlink("/proc/self/fd/" + x) for x in os.listdir("/proc/self/fd")
+                  if os.path.exists("/proc/self/fd/" + x)]
+        self.assertNotIn(pot, odprte)
+        c.close()
+        self.assertTrue(_pocakaj(lambda: _fd() <= pred), (_fd(), pred))

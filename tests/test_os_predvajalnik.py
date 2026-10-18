@@ -73,8 +73,18 @@ class PredvajalnikTests(unittest.TestCase):
         self.assertEqual(self.player.stanje, "predvaja")
         napaka = SimpleNamespace(domain="gst-stream-error-quark", code=6)
         self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
-        self.assertEqual(self.player.stanje, "napaka")
-        self.assertEqual(self.player.napaka, "format")
+        # Lastnik 18. 10. 2026: napake predvajalnika uporabnik ne vidi - tiha ustavitev, sled v stderr.
+        self.assertEqual(self.player.stanje, "ustavljeno")
+        self.assertEqual(self.player.napaka, "")
+
+    def test_napaka_tiho_na_naslednjo_v_vrsti(self):
+        self.player.dodaj("https://example.test/ena.mp3")
+        self.player.dodaj("https://example.test/dve.flac")
+        napaka = SimpleNamespace(domain="gst-stream-error-quark", code=6)
+        self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
+        self.assertEqual((self.player.trenutna.naslov, self.player.stanje, self.player.napaka), ("dve.flac", "predvaja", ""))
+        self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
+        self.assertEqual((self.player.stanje, self.player.napaka), ("ustavljeno", ""))
 
     def test_napake_so_razumljive_kode(self):
         from core.os_predvajalnik import vrsta_napake, NAPAKE
