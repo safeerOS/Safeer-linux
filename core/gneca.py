@@ -324,6 +324,8 @@ class Nadzornik:
         self._tece = False
         self._budilka = threading.Event()
         self._zaklep = threading.Lock()
+        #: Detektor spreminja nit nadzornika, stanje bere vmesnik iz drugih niti.
+        self._zaklep_detektorja = threading.Lock()
 
     @property
     def gneca(self) -> bool:
@@ -336,16 +338,18 @@ class Nadzornik:
             if self._prehod is not None:
                 _dnevnik("gneca: drugo omrezje, nova osnova")
             self._prehod = prehod
-            prej = self.detektor.gneca
-            self.detektor.ponastavi()
+            with self._zaklep_detektorja:
+                prej = self.detektor.gneca
+                self.detektor.ponastavi()
             if prej:
                 self._javi(False)
         prehod_ms = self.merilnik.rtt_prehoda(prehod) if prehod else None
         internet_ms = self.merilnik.rtt_interneta()
-        prej = self.detektor.gneca
-        zdaj = self.detektor.dodaj(prehod_ms, internet_ms, self.ura())
-        if zdaj != prej:
+        with self._zaklep_detektorja:
+            prej = self.detektor.gneca
+            zdaj = self.detektor.dodaj(prehod_ms, internet_ms, self.ura())
             st = self.detektor.stanje()
+        if zdaj != prej:
             _dnevnik("gneca: %s (osnova %s ms, internet %s ms, prehod %s ms, %s)"
                      % ("zacetek" if zdaj else "konec", st["osnova_ms"], st["internet_ms"], st["prehod_ms"],
                         self.merilnik.metoda or "?"))
@@ -370,8 +374,11 @@ class Nadzornik:
         with self._zaklep:
             self._tece = False
         self._budilka.set()
-        if self.detektor.gneca:
-            self.detektor.ponastavi()
+        with self._zaklep_detektorja:
+            prej = self.detektor.gneca
+            if prej:
+                self.detektor.ponastavi()
+        if prej:
             self._javi(False)
 
     @property
@@ -389,7 +396,8 @@ class Nadzornik:
         self._budilka.clear()
 
     def stanje(self) -> dict:
-        st = self.detektor.stanje()
+        with self._zaklep_detektorja:
+            st = self.detektor.stanje()
         st["metoda"] = self.merilnik.metoda
         st["meri"] = self._tece
         return st
