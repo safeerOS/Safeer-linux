@@ -500,7 +500,13 @@ class Namizje:
             self.okno.visibleChanged.connect(self._vidnost)
             return
         from PySide6.QtGui import QGuiApplication
-        QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self._zaslon_spremenjen())
+        # Primarni zaslon se lahko zamenja (prenosnik na TV prek HDMI: eDP ugasne, HDMI postane primarni). Prej je
+        # bila povezana samo geometrija ZACETNEGA zaslona, zato je namizje ostalo v velikosti prenosnika (18. 10. 2026).
+        aplikacija = QGuiApplication.instance()
+        aplikacija.primaryScreenChanged.connect(lambda *_: self._zaslon_spremenjen())
+        aplikacija.screenAdded.connect(lambda *_: self._zaslon_spremenjen())
+        aplikacija.screenRemoved.connect(lambda *_: self._zaslon_spremenjen())
+        self._spremljaj_zaslon(QGuiApplication.primaryScreen())
 
     # ------------------------------------------------------------------ klici
     def klic(self, klic_id: int, metoda: str, a: list) -> None:
@@ -626,6 +632,7 @@ class Namizje:
 
     def _postavi_dock(self) -> None:
         import shutil
+        self.postavi()          # ko se zaslon umiri, geometrijo preberemo se enkrat (RandR posle vec sprememb zapored)
         import subprocess
         from PySide6.QtCore import QTimer
         if shutil.which("safeer-cinnamon"):
@@ -647,11 +654,19 @@ class Namizje:
         if self.v_oknu:
             return
         zaslon = QGuiApplication.primaryScreen()
+        if zaslon is None:
+            return
+        self._spremljaj_zaslon(zaslon)
         self.okno.setGeometry(zaslon.geometry())
         self._robovi()
-        if not getattr(self, "_robovi_povezani", False):
-            self._robovi_povezani = True
-            zaslon.availableGeometryChanged.connect(lambda *_: self._robovi())
+
+    def _spremljaj_zaslon(self, zaslon) -> None:
+        """Signale geometrije poveze na trenutni primarni zaslon (enkrat na zaslon); ob zamenjavi zaslona na novega."""
+        if zaslon is None or getattr(self, "_spremljan_zaslon", None) is zaslon:
+            return
+        self._spremljan_zaslon = zaslon
+        zaslon.geometryChanged.connect(lambda *_: self._zaslon_spremenjen() if self._spremljan_zaslon is zaslon else None)
+        zaslon.availableGeometryChanged.connect(lambda *_: self._robovi() if self._spremljan_zaslon is zaslon else None)
 
     def _robovi(self) -> None:
         """Pult Linux Minta (in drugi pulti z rezervacijo prostora) prekriva namizje, ki je cez ves zaslon: vsebina se

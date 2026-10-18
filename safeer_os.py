@@ -2340,7 +2340,7 @@ class SafeerOS(Gtk.Application):
             self.pogled_delovna = self._qml_pogled = None
             return False
         self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
-        self._ob_spremembi_zaslonov(lupina.postavi)
+        self._ob_spremembi_zaslonov(lupina._zaslon_spremenjen)   # tudi dock na novo, ne samo okno namizja
         return True
 
     def _ustvari_delovno(self) -> None:
