@@ -224,6 +224,24 @@ class Poraba(unittest.TestCase):
         self.assertNotIn("a", self.poraba.pid_spleta)
         self.assertEqual(_A.pogled.sond, op.SONDA_POSKUSOV, "poskusi znova, nato odneha")
 
+    def test_sonda_pod_obremenitvijo(self):
+        """18. 10. 2026: pod obremenitvijo je zanka sonde dobila le del jedra (+6 tikov), sosednji proces, ki se je
+        nalagal, pa je imel med sondo manj kot v ozadju. Kanal je jasno prevladal - sonda ga mora najti; sum (+2)
+        pa ne sme odlociti."""
+        for dodatek, najde in ((6, True), (2, False)):
+            with self.subTest(dodatek=dodatek):
+                self.setUp()
+
+                def ob_sondi(d=dodatek):
+                    self.l.proces(12, 10, "WebKitWebProces", 1, self.l.proc().tiki(12) + d)
+
+                class _A:
+                    pogled = _Pogled("https://web.telegram.org/", ob_sondi)
+                self.kanali.zivi["a"] = _Z(aplikacija=_A())
+                self.poraba.sonda("a")
+                self.glib.pozeni()
+                self.assertEqual("a" in self.poraba.pid_spleta, najde)
+
     def test_vzorci_porocilo_in_vsota(self):
         self.kanali.zivi["a"] = self._sonda_kanala("a", 12, "https://web.telegram.org/")
         self.kanali.zivi["b"] = self._sonda_kanala("b", 13, "https://web.whatsapp.com/")
@@ -370,7 +388,7 @@ class Flatpak(unittest.TestCase):
             self.glib.casovniki.pop(0)[1]()          # prva sonda: ni kandidatov
         self.assertNotIn("w", self.poraba.pid_spleta)
         self.assertIn("brez kandidatov", str(izpis.call_args))
-        self.assertEqual(self.glib.casovniki[0][0], 5000, "znova cez 5 s")
+        self.assertEqual(self.glib.casovniki[0][0], 2000, "znova cez 2 s")
         self.l.proces(178, 177, "WebKitWebProces", 180 * 1024, 300)   # proces je medtem nastal
         self.glib.pozeni()
         self.assertEqual(self.poraba.pid_spleta["w"][0], 178)

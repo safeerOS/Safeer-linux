@@ -33,6 +33,10 @@ SONDA_MS = 250
 #: Po koliko ms sonde beremo stevce (sonda + zakasnitev zagona skripta).
 SONDA_BERI_MS = 500
 SONDA_POSKUSOV = 3
+#: Rezerva, ce WebKit ne poklice povratnega klica sonde (pogled unicen, proces visi): izid po tem roku.
+SONDA_ROK_MS = 5000
+#: Po koncu skripte pocakaj en do dva tika ure, da jedro zapise porabo procesorja v /proc.
+SONDA_ZAPIS_MS = 30
 #: Po neuspelih hitrih poskusih: sonda znova ob vzorcu, najvec vsakih toliko sekund.
 SONDA_PREMOR_S = 60
 SONDA_SVET = "safeer-poraba"
@@ -67,6 +71,7 @@ class PorabaKanalov:
         self.pid_spleta: Dict[str, tuple] = {}
         self._sonde: list = []
         self._sonda_tece = False
+        self._sonda_zeton = None
         self._poskusi: Dict[str, int] = {}
         self._zadnja_sonda: Dict[str, float] = {}
         self._casovnik = 0
@@ -138,11 +143,11 @@ class PorabaKanalov:
             self.sonda(kid)
 
     def _ponovi_kasneje(self, kid: str) -> None:
-        """Neuspela sonda: znova cez 5 s, 10 s; nato ob vsakem vzorcu ali odprtju plosce, najvec vsakih 60 s."""
+        """Neuspela sonda: znova cez 2 s, 5 s (prva sonda pogosto ujame zagon strani - 18. 10. 2026); nato ob vsakem vzorcu ali odprtju plosce, najvec vsakih 60 s."""
         n = self._poskusi.get(kid, 0) + 1
         self._poskusi[kid] = n
         if n < SONDA_POSKUSOV:
-            self.GLib.timeout_add_seconds(5 * n, lambda: (kid in self.kanali.zivi and kid not in self.pid_spleta
+            self.GLib.timeout_add_seconds(2 if n == 1 else 5, lambda: (kid in self.kanali.zivi and kid not in self.pid_spleta
                                                           and self.sonda(kid), False)[1])
 
     def _sonda_ce_je_cas(self, kid: str, premor_s: float = SONDA_PREMOR_S) -> None:
@@ -190,14 +195,37 @@ class PorabaKanalov:
         brez_sonde = {p: max(0, pred[p] - t) for p, t in ozadje.items()}
         domena = _domena(pogled.get_uri() or "")
         koda = "var t=performance.now();while(performance.now()-t<%d){}" % SONDA_MS
+        # Izid se bere, ko skripta KONCA (povratni klic), ne po fiksnih 500 ms: pod obremenitvijo (CI, polni nabor
+        # preizkusov, kanal se se nalaga) se je sonda zacela pozno in v oknu je bilo le 5-7 od 25 tikov (18. 10. 2026).
+        zeton = object()
+        self._sonda_zeton = zeton
+        zacetek = time.monotonic()
+        izid = (kid, pred, domena, brez_sonde, zacetek)
+
+        def koncana(vir, rezultat, *_a):
+            try:
+                vir.evaluate_javascript_finish(rezultat)
+            except Exception as e:  # noqa: BLE001 - napaka skripte ali unicen pogled: izid vseeno prebere rok
+                self._dnevnik("sonda kanal=%s skripta: %s" % (kid, str(e)[:120]))
+            self.GLib.timeout_add(SONDA_ZAPIS_MS, self._sonda_izid_zeton, zeton, *izid)
         try:
-            pogled.evaluate_javascript(koda, -1, SONDA_SVET, None, None, None, None)
+            pogled.evaluate_javascript(koda, -1, SONDA_SVET, None, None, koncana, None)
         except Exception:  # noqa: BLE001 - pogled je ze unicen
+            self._sonda_zeton = None
             self._sonda_tece = False
             self._naslednja_sonda()
             return False
-        self.GLib.timeout_add(SONDA_BERI_MS, self._sonda_izid, kid, pred, domena, brez_sonde)
+        self.GLib.timeout_add(SONDA_ROK_MS, self._sonda_izid_zeton, zeton, *izid)
         return False
+
+    def _sonda_izid_zeton(self, zeton, kid: str, pred: dict, domena: str, brez_sonde: dict, zacetek: float) -> bool:
+        """Prvi od (povratni klic, rok) prebere izid; drugi ne naredi nic."""
+        if getattr(self, "_sonda_zeton", None) is not zeton:
+            return False
+        self._sonda_zeton = None
+        # Ozadje je bilo merjeno v oknu SONDA_BERI_MS; okno sonde je lahko daljse - ozadje sorazmerno povecaj.
+        faktor = max(1.0, (time.monotonic() - zacetek) * 1000.0 / SONDA_BERI_MS)
+        return self._sonda_izid(kid, pred, domena, {p: t * faktor for p, t in brez_sonde.items()})
 
     def _sonda_izid(self, kid: str, pred: dict, domena: str, brez_sonde: Optional[dict] = None) -> bool:
         self._sonda_tece = False
@@ -205,8 +233,11 @@ class PorabaKanalov:
         razlike = sorted(((self.proc.tiki(p) - t - brez_sonde.get(p, 0), p) for p, t in pred.items()
                           if self.proc.zivi(p)), reverse=True)
         pricakovano = SONDA_MS / 1000.0 * self.proc.hz
-        uspeh = bool(razlike) and razlike[0][0] >= pricakovano / 2 and (
-            len(razlike) < 2 or razlike[0][0] >= 3 * razlike[1][0])
+        # Zanka sonde meri stensko uro: pod obremenitvijo (vec procesov na jedro) dobi le del jedra - izmerjeno
+        # 18. 10. 2026 (xvfb, polni nabor): 6-11 od 25 tikov, drugi proces pa negativno (ozadje nalaganja). Zato
+        # spodnja meja petina pricakovanega, odlocitev pa jasna prevlada (3x) nad drugim kandidatom.
+        uspeh = bool(razlike) and razlike[0][0] >= max(3.0, pricakovano / 5) and (
+            len(razlike) < 2 or razlike[0][0] >= 3 * max(razlike[1][0], 1.0))
         self._dnevnik("sonda kanal=%s kandidatov=%d tiki=%s pricakovano=%d izid=%s" % (
             kid, len(pred), [r[0] for r in razlike[:3]], round(pricakovano), razlike[0][1] if uspeh else "ni"))
         if uspeh:
