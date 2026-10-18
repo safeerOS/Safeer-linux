@@ -245,7 +245,8 @@ class YoutubeVIstemOknu(unittest.TestCase):
         self.assertNotIn("_medijski_okno", vir)
         # Piskotki YouTuba, skript skladbe in Scit (decide-policy) ostanejo na pogledu.
         self.assertIn("self._yt_prijava_v_medijski_pogled()", vir[vir.index("def _katalog_youtube("):])
-        self.assertIn("os_katalog.SKRIPT_SKLADBE", pogled)
+        self.assertIn("namesti_most_skladbe(upravitelj, self._na_stanje_skladbe)", pogled)
+        self.assertIn("os_katalog.SKRIPT_SKLADBE", vir[vir.index("def namesti_most_skladbe("):])
         self.assertIn('pogled.connect("decide-policy", self._medijski_odlocitev)', pogled)
 
 

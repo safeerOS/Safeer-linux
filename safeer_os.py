@@ -1589,6 +1589,21 @@ def _registriraj_most(upravitelj, ime: str) -> None:
         upravitelj.register_script_message_handler(ime)
 
 
+def namesti_most_skladbe(upravitelj, ob_sporocilu) -> None:
+    """Most skladbe v lahkem medijskem pogledu: rokovalnik samo v svetu os_katalog.SVET_SKLADBE, rele tega sveta samo
+    v glavnem okvirju strani posnetka (pregled 18. 10. 2026: rokovalnik v glavnem svetu je bil dosegljiv vsakemu
+    okvirju, WebKitGTK pa sporocilu okvirja ne doda). SKRIPT_SKLADBE ostane v glavnem svetu (API predvajalnika)."""
+    strani = list(os_katalog.STRANI_SKRIPTA_SKLADBE)
+    upravitelj.register_script_message_handler("safeerSkladba", os_katalog.SVET_SKLADBE)
+    upravitelj.connect("script-message-received::safeerSkladba", ob_sporocilu)
+    upravitelj.add_script(WebKit2.UserScript.new_for_world(
+        os_katalog.RELE_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME, WebKit2.UserScriptInjectionTime.START,
+        os_katalog.SVET_SKLADBE, strani, None))
+    upravitelj.add_script(WebKit2.UserScript(
+        os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
+        WebKit2.UserScriptInjectionTime.END, strani, None))
+
+
 def zagon_predvajalnika(argumenti) -> bool:
     """Ali ukazna vrstica zahteva okno Safeer Player (meni »Safeer Player«, `safeer-os --predvajalnik`)."""
     return any(a in ZASTAVICE_PREDVAJALNIKA for a in (argumenti or ()))
@@ -6784,11 +6799,7 @@ class SafeerOS(Gtk.Application):
         # Edino sporocilo, ki ga ta pogled sme poslati Safeer OS: stanje skladbe v vgradnem predvajalniku
         # (igra, premor, konec, napaka). Mostu Safeer OS (safeerOs) tu ni.
         upravitelj = WebKit2.UserContentManager()
-        _registriraj_most(upravitelj, "safeerSkladba")
-        upravitelj.connect("script-message-received::safeerSkladba", self._na_stanje_skladbe)
-        upravitelj.add_script(WebKit2.UserScript(
-            os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
-            WebKit2.UserScriptInjectionTime.END, list(os_katalog.STRANI_SKRIPTA_SKLADBE), None))
+        namesti_most_skladbe(upravitelj, self._na_stanje_skladbe)
         odlozisce_varuh.dodaj(WebKit2, upravitelj)
         # Scit tudi v YouTubu Medijskega centra (vdelan predvajalnik): ista skripta kot v Spletu - oglasi, preskok
         # neprekinljivih, protiblokada (lastnik 17. 10. 2026: »pri oglasih ne sprejemamo kompromisov«).

@@ -42,11 +42,11 @@ class PodatkiKataloga(unittest.TestCase):
         p = k.yt_podatki()
         self.assertEqual(p, {"stanje": "predvaja", "naslov": "Pesem", "izvajalec": "Pevka",
                              "slika": "https://i.ytimg.com/vi/59o4m222aVw/hqdefault.jpg", "izvor": "YouTube", "vrsta": "medij"})
-        k.yt_sporocilo(json.dumps({"stanje": 1}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
         self.assertEqual(k.yt_podatki()["stanje"], "predvaja")
-        k.yt_sporocilo(json.dumps({"stanje": 2}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 2}))
         self.assertEqual(k.yt_podatki()["stanje"], "premor")
-        k.yt_sporocilo(json.dumps({"stanje": 1}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
         self.assertEqual(k.yt_podatki()["stanje"], "predvaja")
         k.yt_zaprt()
         self.assertIsNone(k.yt_podatki())
@@ -54,11 +54,11 @@ class PodatkiKataloga(unittest.TestCase):
     def test_konec_in_napaka_koncata_predvajanje(self):
         k = _katalog()
         k.izvedi("mediaPredvajaj", ["seznam:a"])
-        k.yt_sporocilo(json.dumps({"stanje": 1}))
-        k.yt_sporocilo(json.dumps({"stanje": 0}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 0}))
         self.assertIsNone(k.yt_podatki())
         k.izvedi("mediaPredvajaj", ["seznam:a"])
-        k.yt_sporocilo(json.dumps({"napaka": True, "koda": "x"}))
+        k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "napaka": True, "koda": "x"}))
         self.assertIsNone(k.yt_podatki())
 
 
@@ -89,9 +89,9 @@ class _Lupina(unittest.TestCase):
 
     def _igra_yt(self, stanje=1):
         self.l._katalog.izvedi("mediaPredvajaj", ["seznam:a"])
-        self.l._katalog.yt_sporocilo(json.dumps({"stanje": 1}))
+        self.l._katalog.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1}))
         if stanje != 1:
-            self.l._katalog.yt_sporocilo(json.dumps({"stanje": stanje}))
+            self.l._katalog.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": stanje}))
 
 
 class StanjeZaNamizje(_Lupina):
