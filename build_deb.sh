@@ -14,7 +14,8 @@ VERSION="$(cat "$DIR/packaging/VERSION")"
 # packaging/webkit-deb/zgradi.sh za predpono /usr/lib/safeer-browser/webkit (CI: posel webkit-deb). Z njim je paket amd64.
 # SAFEER_DAV1D=MAPA (CI: posel dav1d-deb) doda dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
-if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
+# Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
+if [ -n "$WEBKIT_TAR" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 TAR_PACKAGE="safeer-browser-linux.tar.gz"
 BUILD_ROOT="$DIR/build/deb"
@@ -58,6 +59,10 @@ else
 "
     OPIS_GTK=" specifically for Linux Mint 22+ and Ubuntu 24.04+. Built natively with GTK4 and
  WebKitGTK 6.0, it includes ad filtering, a local threat blocklist,"
+fi
+# Safeer DRM v paketu (packaging/namesti_safeer_drm.sh, SAFEER_DRM_TOVOR): knjiznice sistema, ki jih ECS potrebuje.
+if [ -x "$BUILD_ROOT/usr/lib/safeer-browser/safeer-drm/safeer-drm" ]; then
+    ODVISNOSTI="${ODVISNOSTI}, $(python3 "$DIR/packaging/safeer_drm_paket.py" odvisnosti-deb)"
 fi
 cat << EOF > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-browser

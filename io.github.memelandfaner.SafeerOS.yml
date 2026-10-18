@@ -162,8 +162,9 @@ modules:
   - name: safeer-os
     buildsystem: simple
     build-commands:
+      - python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm --zip SafeerDRM-0.2.0-linux-x64.zip
       - bash packaging/install_control_payload.sh /app
-      - bash packaging/install_os_payload.sh /app io.github.memelandfaner.SafeerOS
+      - SAFEER_DRM_TOVOR=build/safeer-drm bash packaging/install_os_payload.sh /app io.github.memelandfaner.SafeerOS
       - bash packaging/flatpak_host_wrappers.sh /app/host-bin
       - rm -f /app/share/applications/safeer-control.desktop
     sources:
@@ -174,3 +175,11 @@ modules:
           - build
           - dist
           - .flatpak-builder
+          - safeer-drm
+      # Safeer DRM v paketu (lastnik, 18. 10. 2026; packaging/safeer-drm.json): pripet castLabs ECS, flatpak-builder ga
+      # prenese in preveri SHA-256 pred gradnjo. Widevine CDM ni v paketu: ECS ga ob prvi zasciteni vsebini sam namesti
+      # z Googlovih streznikov v ~/.var/app/<ID>/config/Safeer DRM/WidevineCdm (Safeer OS: na gostitelju).
+      - type: file
+        url: https://github.com/safeerOS/Safeer-linux/releases/download/safeer-drm-v0.2.0/SafeerDRM-0.2.0-linux-x64.zip
+        sha256: 018cdfc0d1b4061fa9b7972ce5588be39d70d42ea47a2494a698f6b601737396
+        dest-filename: SafeerDRM-0.2.0-linux-x64.zip

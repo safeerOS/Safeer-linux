@@ -1291,7 +1291,8 @@ def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str
         pass
     # Klik na obvestilo odpre seznam naprav (tam je tudi rocna nastavitev) - nikoli ne odobri.
     obvestilo.set_default_action("app." + DEJANJE_NAPRAVE)
-    for gumb, dejanje in (("dovoli", DEJANJE_DOVOLI), ("zavrni", DEJANJE_ZAVRNI)):
+    # Varna izbira prva (levo, prva za tipkovnico in daljinec - core/link_fokus); klik na obvestilo nikoli ne odobri.
+    for gumb, dejanje in (("zavrni", DEJANJE_ZAVRNI), ("dovoli", DEJANJE_DOVOLI)):
         obvestilo.add_button_with_target(besedilo_obvestila(jezik, gumb), "app." + dejanje, GLib.Variant("s", kljuc))
     ident = id_obvestila(kljuc)
     # Ena pot obvestil (core/obvestila.py): v procesu Safeer OS gre obvestilo pod Safeer OS kot vsa druga.

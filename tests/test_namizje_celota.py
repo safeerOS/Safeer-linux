@@ -122,10 +122,8 @@ class Jeziki(unittest.TestCase):
         for j in JEZIKI:
             for k in ("medijski_center", "tok_naslov", "tok_ime", "tok_tv", "tok_radio", "shrani_predvajaj", "izberi"):
                 self.assertIn(k, os_media_besedila.BESEDILA[j], (j, k))
-        splet = _beri("core", "os_splet.py")
-        obvestilo = splet[splet.index("def _drm_obvestilo"):splet.index("def _osvezi_orodja")]
-        for j in JEZIKI:
-            self.assertIn('"%s": "' % j, obvestilo)
+        # Obvestilo »pripravljam predvajalnik (enkrat)« je odpadlo z 1.0.127: Safeer DRM je v paketu, nic se ne prenasa.
+        self.assertNotIn("def _drm_obvestilo", _beri("core", "os_splet.py"))
         os_ = _beri("safeer_os.py")
         self.assertNotIn('Gtk.Window(title="Dodaj TV ali radijski tok"', os_)
         self.assertNotIn('title="Medijski center"', os_)

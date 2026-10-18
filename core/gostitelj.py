@@ -72,6 +72,25 @@ def na_gostitelju(pot: str) -> str:
     return pot
 
 
+def app_na_gostitelju(pot: str, info: str = "/.flatpak-info") -> str:
+    """Pot do datoteke paketa (/app/...), kot jo vidi gostitelj: [Instance] app-path iz /.flatpak-info (»the absolute
+    path on the host system of the app's app files, as mounted at /app«, flatpak-metadata(5), od Flatpaka 0.6.10).
+    Safeer DRM iz paketa Safeer OS tako tece na gostitelju (flatpak-spawn --host). Druge poti ostanejo; brez app-path ""."""
+    pot = str(pot or "")
+    if pot != "/app" and not pot.startswith("/app/"):
+        return pot
+    try:
+        import configparser
+        p = configparser.ConfigParser(interpolation=None, strict=False)
+        p.optionxform = str
+        if not p.read(info, encoding="utf-8"):
+            return ""
+        koren = p.get("Instance", "app-path", fallback="").rstrip("/")
+    except Exception:  # noqa: BLE001 - neberljivo: pot ni znana
+        return ""
+    return (koren + pot[len("/app"):]) if koren.startswith("/") else ""
+
+
 def zazeni_vnos(pot: str, datoteke: Sequence[str] = ()) -> bool:
     """Zazene zaganjalnik (.desktop) na gostitelju, po zelji z datotekami. Samo v Flatpaku."""
     if not v_flatpaku() or not shutil.which("flatpak-spawn"):

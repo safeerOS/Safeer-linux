@@ -463,6 +463,15 @@
         </div>
       </section>
 
+      <!-- SAFEER SCIT (svoje okno: index.html?razdelek=scit; isti blok #blokScit kot v Nastavitvah - premakne se sem) -->
+      <section class="razdelek" id="r-scit">
+        <h1 data-t="scitAplikacija"></h1>
+        <p data-t="scitAplikacijaOpis"></p>
+        <div id="scitMesto"></div>
+        <h2 data-t="scitStatistika"></h2>
+        <dl class="scit-statistika" id="scitStatistika"></dl>
+      </section>
+
       <!-- NASTAVITVE -->
       <section class="razdelek" id="r-nastavitve">
         <h1 data-t="nastavitve"></h1>
@@ -470,7 +479,8 @@
         <h2 data-t="hitreNastavitve"></h2>
         <div class="hitre" id="hitreNastavitve"></div>
         <h2 data-t="scit"></h2>
-        <div class="hitre" id="blokScit"></div>
+        <div id="scitMestoNastavitve"><div class="hitre" id="blokScit"></div></div>
+        <div class="hitre"><button class="stikalo" id="gumbOdpriScit"><svg data-ikona="scit"></svg><div><span data-t="scitOdpri"></span><small data-t="scitOdpriPod"></small></div></button></div>
         <h2>Safeer OS</h2>
         <div class="hitre">
           <button class="stikalo" id="stikaloCelozaslonsko" role="switch" aria-checked="true"><svg data-ikona="celozaslonsko"></svg><div><span data-t="celozaslonsko"></span><small data-t="celozaslonskoPod"></small></div><i></i></button>
@@ -529,7 +539,10 @@
         <p id="mediaIzhodStanje" class="media-izhod-stanje" role="status" aria-live="polite"></p>
       </div>
       <div class="media-vrsta-plosca" id="mediaVrstaPlosca" role="dialog" aria-labelledby="mediaVrstaNaslov" hidden>
-        <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div>
+        <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3>
+          <!-- Nakljucni vrstni red (lastnik, 18. 10. 2026): jasna oznaka, da plosca kaze premesan red, ki bo res igral. -->
+          <span class="media-vrsta-nacin" id="mediaVrstaNacin" hidden><svg data-ikona="premesaj"></svg><span data-t="vrstaNakljucno"></span></span>
+          <span id="mediaCakalnaStevec"></span></div>
         <div id="mediaVrsta" class="media-vrsta"></div>
       </div>
     </div>

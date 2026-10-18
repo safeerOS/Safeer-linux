@@ -41,7 +41,8 @@ class ScitVPultu(unittest.TestCase):
         self.assertIn('"scitVklop": lambda: self._po_scitu(self.scit.nastavi(', _vir())
 
     def _jaz(self, **dodatno):
-        jaz = SimpleNamespace(scit_pult=None, _scit_pult_zaposlen=False, SCIT_PULT_OSVEZI_S=15, **dodatno)
+        jaz = SimpleNamespace(scit_pult=None, _scit_pult_zaposlen=False, SCIT_PULT_OSVEZI_S=15,
+                              _dogodek=lambda vrsta, podatki: None, **dodatno)
         for ime in ("_zacni_scit_pult", "_osvezi_scit_pult", "_preklopi_scit_iz_pulta", "_po_scitu"):
             setattr(jaz, ime, getattr(safeer_os.SafeerOS, ime).__get__(jaz))
         return jaz
@@ -82,7 +83,7 @@ class ScitVPultu(unittest.TestCase):
             self.assertEqual(pult.stanja, [stanje])
             casovnik.assert_called_once()
             pult.ob_nastavitvah()
-            self.assertEqual(odprto, ["nastavitve#blokScit"])
+            self.assertEqual(odprto, ["scit"])                  # okno Safeer Scit (lastnik, 18. 10. 2026)
             pult.ob_preklopu(False)
             scit.nastavi.assert_called_once_with(False)
             self.assertEqual(niti, ["safeer-scit-preklop"])  # pkexec (geslo) ne blokira glavne niti

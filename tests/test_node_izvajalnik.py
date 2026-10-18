@@ -144,7 +144,7 @@ class Paket(unittest.TestCase):
         self.assertIn("usr/share/doc/safeer-os/nodejs/LICENSE", b)
         self.assertIn("${NODE_ODVISNOSTI}", b)
         self.assertNotRegex(b, r"usr/bin/node\b")
-        self.assertIn('if [ -n "$WEBKIT_TAR" ] || [ "$NODE" = 1 ]; then ARCH="amd64"', b)
+        self.assertRegex(b, r'if \[ -n "\$WEBKIT_TAR" \] (\|\| \[[^]]*\] )*\|\| \[ "\$NODE" = 1 \]; then ARCH="amd64"')
         for tovor in ("install_os_payload.sh", "install_control_payload.sh"):
             self.assertRegex((KOREN / "packaging" / tovor).read_text(), r"for modul in [^\n]*\bnode_izvajalnik\b")
 

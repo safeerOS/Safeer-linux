@@ -165,7 +165,6 @@ class KanalTest(unittest.TestCase):
         exe = os.path.join(self.mapa, "safeer-drm")
         open(exe, "w").close()
         self.zakrpe = [mock.patch.object(sr.safeer_drm, "izvrsljiva", return_value=sr.Path(exe)),
-                       mock.patch.object(sr.safeer_drm, "uskladi_logiko"),
                        mock.patch.object(sr.safeer_drm, "koren", return_value=sr.Path(self.mapa)),
                        mock.patch.object(sr.safeer_drm, "v_peskovniku", return_value=False),
                        mock.patch.object(sr.safeer_drm, "v_flatpaku", return_value=False)]
@@ -226,6 +225,25 @@ class KanalTest(unittest.TestCase):
     def test_ni_drm(self):
         with mock.patch.object(sr.safeer_drm, "izvrsljiva", return_value=None):
             self.assertEqual(self.k.zacni(False, True), "ni_drm")
+
+    def test_zazene_safeer_drm_iz_paketa(self):
+        """Od 1.0.127: Spotify zazene Safeer DRM iz paketa (<tovor>/safeer-drm, tu SAFEER_DRM_MAPA), brez prenosa programa
+        in brez kopiranja logike med delovanjem (paket je samo za branje)."""
+        paket = os.path.join(self.mapa, "paket", "safeer-drm")
+        os.makedirs(paket)
+        exe = os.path.join(paket, "safeer-drm")
+        open(exe, "w").close()
+        os.chmod(exe, 0o755)
+        os.chmod(paket, 0o555)                                   # kot /usr/lib ali /app: samo za branje
+        self.addCleanup(os.chmod, paket, 0o755)
+        self.zakrpe[0].stop()                                    # prava izvrsljiva() namesto zakrpe
+        self.addCleanup(self.zakrpe[0].start)
+        with mock.patch.dict(os.environ, {sr.safeer_drm.SPREMENLJIVKA_MAPE: paket}), \
+                mock.patch("urllib.request.urlopen", side_effect=AssertionError("med delovanjem nic ne prenasamo")):
+            self.assertEqual(self.k.zacni(False, True), "ok")
+        self.assertEqual(self.argumenti[0], exe)
+        self.assertIn("--spotify=1", self.argumenti)
+        self.assertEqual(sorted(os.listdir(paket)), ["safeer-drm"])     # nic dodanega v paket (CDM namesti ECS v profil)
 
     def test_izvedi_odgovor_izjema_in_cas(self):
         self.k.zacni(False, True)
@@ -393,11 +411,9 @@ class RacunTest(unittest.TestCase):
         self.assertEqual(r.seznami(), {"napaka": "ni_drm"})
         self.assertEqual(r.prijava(), {"napaka": "ni_drm"})
         self.assertEqual(r.seznam("vseckane"), {"napaka": "ni_drm"})
-        with mock.patch.object(sr.safeer_drm, "prenesi_v_ozadju") as prenos:
-            self.assertEqual(r.prenesi()["prenos"], "tece")
-            prenos.assert_called_once()
-            prenos.call_args[0][0](False)
-        self.assertEqual(r.stanje()["prenos"], "napaka")
+        # Od 1.0.127 Safeer DRM ni mogoce prenesti (je del paketa): ne metode ne stanja prenosa.
+        self.assertFalse(hasattr(r, "prenesi"))
+        self.assertNotIn("prenos", st)
 
     def test_seznami_iz_graphql(self):
         k = LazniKanal(pf={"libraryV3": {"status": 200, "podatki": PF_KNJIZNICA}})
@@ -821,8 +837,9 @@ class VmesnikTest(unittest.TestCase):
     def test_metode_mostu(self):
         from core import os_katalog
         for metoda in ("mediaSpStanje", "mediaSpSeznami", "mediaSpSeznam", "mediaSpShrani", "mediaSpPrijava",
-                       "mediaSpOdjava", "mediaSpPrenesi", "mediaSpUkaz", "mediaSpScit"):
+                       "mediaSpOdjava", "mediaSpUkaz", "mediaSpScit"):
             self.assertTrue(hasattr(os_katalog.Katalog, os_katalog.Katalog.METODE[metoda]), metoda)
+        self.assertNotIn("mediaSpPrenesi", os_katalog.Katalog.METODE)
 
 
 if __name__ == "__main__":

@@ -100,9 +100,12 @@ NAJVEC_MESH_SPOROCILO = 1024 * 1024
 #: prejela, je ziva: ponovni klic istega soseda (isti Hub pod drugim id-jem, npr. `n-x` in `n-x-control`) je ne
 #: zamenja - sicer povezava niha in odgovori gredo v zaprto vticnico (tablica, 17. 10. 2026).
 ZIVA_SOSEDNJA_S = 15.0
-#: Brez vsakega okvirja toliko casa (dva zamujena utripa in nas ping po 25 s tisine) je dohodna sosednja povezava
-#: polodprta: zapremo jo, da gre ukaz v hipu v "ni_poti" in Mesh soseda poklice znova (prej sele po ~100 s).
-TIHI_SOSED_S = 30.0
+#: Brez vsakega prejetega bajta toliko casa (trije zamujeni utripi in nas ping po 25 s tisine) je dohodna sosednja
+#: povezava polodprta: zapremo jo, da gre ukaz v "ni_poti" in Mesh soseda poklice znova (prej sele po ~100 s).
+#: 30 s je pongu na nas ping (po 25 s) pustilo samo 5 s. Meritev 18. 10. 2026 (pravi link_ws.Povezava, rele kot
+#: skupno ozko grlo z oddajo datoteke): pong pride v 2,4 s (1 Mbit/s, medpomnilnik 256 KiB), 4,5 s (0,5 Mbit/s),
+#: 8,8 s (0,25 Mbit/s ali 1 Mbit/s z 1 MiB) - zdrava povezava bi se zaprla. 40 s: 15 s za pong, 6 s rezerve nad 8,8 s.
+TIHI_SOSED_S = 40.0
 
 #: Safeer Chat: najvec cakajocih sporocil na napravo in koliko casa pocakajo.
 KLEPET_NA_NAPRAVO = 100
@@ -298,6 +301,11 @@ class _Namestnik:
 
 
 
+def _pomaga_pri_povezavi() -> bool:
+    from core import link_mesh   # pozno: link_mesh uvaza ta modul
+    return link_mesh.pomaga_pri_povezavi()
+
+
 def _ziva(povezava, ura: Callable[[], float] = time.monotonic) -> bool:
     """Ali je z druge strani v zadnjih ZIVA_SOSEDNJA_S nekaj prislo. Povezava brez casa prejema (odhodna) velja za zivo."""
     zadnji = getattr(povezava, "zadnji_prejem", None)
@@ -369,6 +377,9 @@ class Hub:
         #: Klice se, ko sosed pride ali odide (id, naslov ali ""): MeshPovezovalec si zapomni naslov
         #: in ob izgubi takoj poskusi znova.
         self.ob_sosedu: Optional[Callable[[str, str], None]] = None
+        #: »Pomagaj drugim napravam v Linku pri povezavi« (link_mesh.pomaga_pri_povezavi): sosedom predstavimo naprave
+        #: drugih sosedov (relay) in jim sporocila predamo naprej. Izklopljeno: ne eno ne drugo.
+        self.pomaga: Callable[[], bool] = _pomaga_pri_povezavi
         #: Datoteke na poti od posiljatelja do cilja (PUT /cast/file -> share.file -> GET /cast/file/<id>).
         self.deljenje = link_hub_deljenje.Deljenje(ura=ura)
         #: Deljeni zasloni, ki tecejo prek tega sredisca (start -> tok okvirjev posiljatelja -> gledalec pri cilju).
@@ -1466,10 +1477,23 @@ class Hub:
             naprave[n.id] = zapis
         return naprave
 
+    def _pomaga(self) -> bool:
+        try:
+            return bool(self.pomaga())
+        except Exception:  # noqa: BLE001 - neberljiva nastavitev: privzeto (vklopljeno)
+            return True
+
+    def osvezi_pomoc(self) -> None:
+        """Nastavitev pomoci se je spremenila: sosedje takoj dobijo nov seznam (z ali brez naprav drugih sosedov)."""
+        self._objavi_sosedom()
+
     def _posredne_json(self) -> Dict[str, dict]:
         """Naprave nasih NEPOSREDNIH sosedov (ne tistih, ki jih ze sami vidimo posredno): sosed, ki
-        do njih nima svoje poti, jih doseze prek nas. Tako je pot najvec en vmesni Hub - brez zank."""
+        do njih nima svoje poti, jih doseze prek nas. Tako je pot najvec en vmesni Hub - brez zank.
+        Ce uporabnik pomoci drugim napravam ne dovoli (link_mesh.pomaga_pri_povezavi), jih ne predstavimo."""
         naprave = {}
+        if not self._pomaga():
+            return naprave
         for n in self.povezane():
             if not n.sosed or n.posredno or not self._je_clan(n.id):
                 continue
@@ -1794,6 +1818,8 @@ class Hub:
             if tovor.get("relay"):
                 # En vmesni skok: samo napravi, ki je NEPOSREDNO pri nasem drugem sosedu, in samo v imenu
                 # naprave, ki je lokalno pri sosedu, ki prosi za posredovanje. Nikoli se enkrat naprej.
+                if not self._pomaga():
+                    return None                   # uporabnik pomoci drugim napravam ni dovolil
                 with self._zaklep:
                     njegove = set(self._sosed_naprave.get(sosed_id, set()))
                 if n is None or not n.sosed or n.posredno or n.sosed == sosed_id or n.povezava is None:

@@ -211,13 +211,21 @@ def manifest_toka(beri: Callable[[int], bytes], hitro: Optional[bool] = None, po
             "kosi": kosi}
 
 
-def manifest(pot: str, hitro: Optional[bool] = None, povprecno: Optional[int] = None) -> dict:
+def manifest(pot: str, hitro: Optional[bool] = None, povprecno: Optional[int] = None,
+             konec: Optional[float] = None) -> dict:
     """Opis datoteke na disku (bere jo po BLOK-ih; pomnilnik je omejen ne glede na velikost). Brez `povprecno` se
-    povprecje izbere po velikosti datoteke (izberi_povprecno); odjemalec za lokalne vire poda povprecje prejetega opisa."""
+    povprecje izbere po velikosti datoteke (izberi_povprecno); odjemalec za lokalne vire poda povprecje prejetega opisa.
+    `konec` (time.monotonic): po njem branje dvigne TimeoutError - streznik ne racuna opisa, na katerega nihce ne caka."""
     with open(pot, "rb") as d:
         if povprecno is None:
             povprecno = izberi_povprecno(os.fstat(d.fileno()).st_size)
-        return manifest_toka(d.read, hitro, povprecno)
+        beri = d.read
+        if konec is not None:
+            def beri(n: int, _beri=d.read) -> bytes:
+                if time.monotonic() > konec:
+                    raise TimeoutError("opis kosov ni koncan v roku")
+                return _beri(n)
+        return manifest_toka(beri, hitro, povprecno)
 
 
 def preveri_manifest(m) -> bool:

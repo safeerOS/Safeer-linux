@@ -1,6 +1,6 @@
 # Safeer Browser for Linux 1.0.127 · Safeer OS 0.4.85 (with Safeer Control 2.1.82)
 
-**Safeer Browser on GTK 4.** The browser is rebuilt on GTK 4 and WebKitGTK 6.0. The Flatpak carries our own patched WebKitGTK 2.54.1 and libsoup 3.8.0, and Safeer DRM for protected video – it starts only after you click Play in Safeer DRM and never without the site's permission.
+**Safeer Browser on GTK 4.** The browser is rebuilt on GTK 4 and WebKitGTK 6.0. The Flatpak carries our own patched WebKitGTK 2.54.1 and libsoup 3.8.0, and Safeer DRM for protected video – it starts only after you click Play in Safeer DRM and never without the site's permission. Safeer DRM is now part of every package (.deb, Flatpak, AppImage) and is no longer downloaded in the background after start. Google's Widevine module is fetched automatically from Google's servers the first time you play protected video – you install nothing.
 
 **Privacy like Firefox.** Tracking protection in three levels (Standard, Strict, Custom) and a shield to turn it off for one site; per-site permissions (camera, microphone, location, notifications, autoplay, protected content); choose your DNS-over-HTTPS provider; clear browsing data, also on exit. Unwanted pop-ups are blocked – sign-in and payment windows still open. A pop-up that opens empty and then jumps to another site is blocked too.
 

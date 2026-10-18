@@ -35,7 +35,6 @@ const document = {
 };
 const window = {};
 const location = { pathname: '/watch' };
-function clickSkip() {}
 global.document = document;
 """
         checks = r"""
@@ -45,18 +44,17 @@ assert.strictEqual(video.currentTime, 10);
 assert.strictEqual(video.playbackRate, 1.5);
 assert.strictEqual(cinematic.removed, false);
 
-// Ad that cannot be skipped (lastnik 17. 10. 2026, »brez kompromisov«): silent, fastest, to its end ...
+// Ad that slipped through (lastnik 18. 10. 2026): only muted - never skipped, sped up or seeked to its end ...
 active = true;
 superviseYouTube();
 assert.strictEqual(video.muted, true);
-assert.strictEqual(video.playbackRate, 16);
-assert.ok(video.currentTime > 59);
-// ... and the user's own sound and speed come back after it.
+assert.strictEqual(video.playbackRate, 1.5);
+assert.strictEqual(video.currentTime, 10);
+// ... and the user's own sound comes back after it.
 active = false;
 superviseYouTube();
 assert.strictEqual(video.muted, false);
 assert.strictEqual(video.playbackRate, 1.5);
-video.currentTime = 10;
 
 video.muted = true;
 superviseYouTube();

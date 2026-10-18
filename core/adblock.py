@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Safeer Browser Ad-Blocker & Cyber Shield for Linux Mint
-Complete YouTube ad patch, JSON/XHR strip, fast-forward ad stripper,
+Complete YouTube ad patch, JSON/XHR strip, mute-only fallback for ads that slip through,
 ambient blur removal, background audio engine, and the signed threat shield.
 """
 
@@ -70,7 +70,7 @@ YOUTUBE_ADBLOCK_SCRIPT = """
     // watch document assigns JavaScript objects directly, without JSON.parse.
     var nativeParse = JSON.parse;
     var nativeStringify = JSON.stringify;
-    var stats = window._safeerAdStats = {cleanedResponses:0, removedFields:0, skipClicks:0, idlePrompts:0};
+    var stats = window._safeerAdStats = {cleanedResponses:0, removedFields:0, idlePrompts:0};
     // playerAds includes autoplay configuration; heartbeat and integrity fields
     // belong to the media protocol. Preserve them and remove only ad slots.
     var adKeys = ['adPlacements', 'adSlots'];
@@ -297,28 +297,8 @@ YOUTUBE_ADBLOCK_SCRIPT = """
     } catch (_) {}
     document.addEventListener('DOMContentLoaded', cleanGlobals);
 
-    // 4. Safe YouTube Ad Fast-Forward & Skip Engine
-    function clickSkip() {
-        var selectors = [
-            '.ytp-skip-ad-button',
-            '.ytp-ad-skip-button',
-            '.ytp-ad-skip-button-modern',
-            '.ytp-skip-ad-button-container button',
-            'button.ytp-ad-skip-button-modern',
-            '.ytp-ad-overlay-close-button',
-            '.ytp-ad-skip-button-slot button'
-        ];
-        for (var i = 0; i < selectors.length; i++) {
-            var btn = document.querySelector(selectors[i]);
-            if (btn && btn.offsetParent !== null && !btn.disabled) {
-                btn.click();
-                stats.skipClicks++;
-                return true;
-            }
-        }
-        return false;
-    }
-
+    // 4. Safe YouTube ad fallback: an ad that slipped through the blocking above is only muted (owner, 18 Oct 2026:
+    // ads that cannot be blocked are muted, never skipped, fast-forwarded or seeked). The user's mute state comes back.
     function isAdActive() {
         var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         if (p && (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting'))) return true;
@@ -330,32 +310,23 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         return false;
     }
 
-    // An ad that cannot be skipped: silent and at the highest speed, then jump to its end. The video is restored
-    // (sound, speed) as soon as the ad is gone - the user's own pause and volume are never touched.
-    function fastForwardAd() {
+    function muteAd() {
         var v = document.querySelector('#movie_player video, .html5-video-player video, video.video-stream');
         if (!v) return false;
         if (isAdActive()) {
-            if (!v._safeerAd) { v._safeerAd = { muted: v.muted, rate: v.playbackRate || 1 }; }
+            if (!v._safeerAd) { v._safeerAd = { muted: v.muted }; }
             try { v.muted = true; } catch (_) {}
-            try { if (v.playbackRate < 16) v.playbackRate = 16; } catch (_) {}
-            try {
-                var p = document.getElementById('movie_player');
-                var progress = p && typeof p.getProgressState === 'function' ? p.getProgressState() : null;
-                if (progress && progress.duration > 0 && progress.duration - progress.current > 0.5 && typeof p.seekTo === 'function') p.seekTo(progress.duration);
-                else if (isFinite(v.duration) && v.duration > 0 && v.duration - v.currentTime > 0.3) v.currentTime = v.duration - 0.1;
-            } catch (_) {}
             return true;
         }
         if (v._safeerAd) {
-            try { v.muted = v._safeerAd.muted; v.playbackRate = v._safeerAd.rate; } catch (_) {}
+            try { v.muted = v._safeerAd.muted; } catch (_) {}
             v._safeerAd = null;
         }
         return false;
     }
 
     function superviseYouTube() {
-        if (!(isAdActive() && clickSkip())) fastForwardAd();
+        muteAd();
 
         var adOverlays = document.querySelectorAll(
             '.ytp-ad-overlay-container, #player-ads, ytd-promoted-sparkles-web-renderer, ' +
@@ -402,14 +373,11 @@ YOUTUBE_ADBLOCK_SCRIPT = """
     function watchPlayerClass() {
         var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         if (!p || p._safeerAdMo) return;
-        p._safeerAdMo = new MutationObserver(function() {
-            if (isAdActive() && clickSkip()) return;
-            fastForwardAd();
-        });
+        p._safeerAdMo = new MutationObserver(function() { muteAd(); });
         p._safeerAdMo.observe(p, { attributes: true, attributeFilter: ['class'] });
     }
 
-    // Adaptive supervision: observer for skip, slow poll only as fallback
+    // Adaptive supervision: observer for the ad state, slow poll only as fallback
     var _ytSupervisorTimer = null;
     function scheduleSupervision(intervalMs) {
         if (_ytSupervisorTimer) clearTimeout(_ytSupervisorTimer);
@@ -1252,7 +1220,7 @@ AD_TRACKER_DOMAINS = {
     "1xbet.mobi",
     "1xbet-partner.com",
     "vulkanvegas-play.top",
-    "parimatch-aff.com"
+    "parimatch-aff.com",
     # Video oglasi in sledilci (seznam iz m6-adblock, MIT, Frederic Guiose).
     "stickyadstv.com",
     "videoplaza.tv",
@@ -1916,26 +1884,5 @@ def preveri_stevec(vrednost) -> "Optional[dict]":
     return {"action": dejanje, "count": stevilo} if stevilo else None
 
 
-# Spotify v Safeer DRM (core/spotify_racun.py, lastnik 17. 10. 2026): Scit brezplacnega racuna. Zahteve, ki prinasajo
-# samo oglase, Safeer DRM zavrne (assets/safeer_drm/main.js, oglasnaZahteva); CSS skrije pasice in ponudbe Premium.
-# Glasba, seznami in prijava gredo prek drugih poti (api.spotify.com, api-partner, spclient .../connect-state ...).
-# Kar se po spremembi strani izmuzne, ujame rezerva: zaznava oglasa v predvajalniku (utisaj, preskoci, ko gre).
-SPOTIFY_OGLASI = {
-    "gostitelji": [
-        "adeventtracker.spotify.com", "ads-fa.spotify.com", "adclick.g.doubleclick.net", "pubads.g.doubleclick.net",
-        "securepubads.g.doubleclick.net", "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
-        "imasdk.googleapis.com", "spotify.demdex.net",
-        # Zvocni oglasi (filtri AdGuard za Spotify, okt. 2026): datoteke oglasov in oglasnih partnerjev.
-        "adstudio-assets.scdn.co", "creativeservice-production.scdn.co", "cf.adxcel.com", "media-us.amillionads.com",
-    ],
-    # (gostitelj ali njegova nadrejena domena, zacetek poti)
-    "poti": [
-        ["spotify.com", "/ads/"], ["spotify.com", "/ad-logic/"], ["spotify.com", "/v1/ads/"],
-    ],
-    "css": (
-        '[data-testid="upgrade-button"], a[href*="/premium"], [data-testid="embedded-ad"], [data-testid="ad-slot-container"],'
-        ' [data-testid="home-ads-container"], [data-testid="leavebehind-advertisement"], [data-testid="sponsored-content"],'
-        ' a[data-context-item-type="ad"], div[aria-label="Advertisement"]'
-        " { display: none !important; }"
-    ),
-}
+# Spotify v Safeer DRM: pravila oglasov so od 18. 10. 2026 v seznamu Scita (core/scit_pravila.py, del »spotify«), ki se
+# posodablja kot podpisan seznam brez nove izdaje programa.

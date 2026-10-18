@@ -30,8 +30,9 @@ improvement to the web lands in both at once.
 Telegram, Gmail …) from the same list as Messages in Safeer OS, signed in with the same session as
 your tabs and protected by the same shield. Unread counts come from each page's title.
 
-**Protected video.** Safeer DRM, a small helper started on demand, plays Widevine-protected video
-(Netflix, Disney+ …) inside the browser tab while the web engine stays fully sandboxed.
+**Protected video.** Safeer DRM, a helper that is part of the package and starts only on demand, plays Widevine-protected video
+(Netflix, Disney+ …) inside the browser tab while the web engine stays fully sandboxed. Google's Widevine module is
+fetched automatically from Google's servers the first time you play protected video.
 
 **Local threat shield.** Botnet C2, malware distribution and phishing hosts from abuse.ch
 (Feodo Tracker, URLhaus, ThreatFox) and Phishing Army, matched locally in O(k) against a

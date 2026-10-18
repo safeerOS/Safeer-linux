@@ -16,7 +16,7 @@ Podatki: isti klici kot spletna aplikacija, iz strani in z zetonom strani (windo
 (api.spotify.com/v1). Zeton ostane v strani - nikoli v datoteko, dnevnik ali Safeer Link. Seznami, ki jih uporabnik
 shrani, so v Medijskem centru oznaceni "zaseben" (ostanejo na tej napravi).
 
-Scit (privzeto vklopljen, nastavitev v Scitu): pravila core/adblock.SPOTIFY_OGLASI v Safeer DRM, rezerva je zaznava
+Scit (privzeto vklopljen, nastavitev v Scitu): pravila core/scit_pravila (del »spotify«) v Safeer DRM, rezerva je zaznava
 oglasa v predvajalniku. Oglas se SAMO utisa (lastnik 18. 10. 2026): nic preskakovanja, pospesevanja ali samodejne
 »Naslednje« med oglasom.
 """
@@ -318,13 +318,15 @@ def je_oglasna_zahteva(url: str, pravila: dict) -> bool:
         return False
     if any(h == d or h.endswith("." + d) for d in pravila.get("gostitelji") or []):
         return True
-    return any((h == d or h.endswith("." + d)) and (u.path or "/").startswith(p) for d, p in pravila.get("poti") or [])
+    pot = (u.path or "/") + ("?" + u.query if u.query else "")      # kot main.js: pathname + search
+    return any((h == d or h.endswith("." + d)) and pot.startswith(p) for d, p in pravila.get("poti") or [])
 
 
 def pravila_scita() -> dict:
-    from .adblock import SPOTIFY_OGLASI
-    return {"gostitelji": list(SPOTIFY_OGLASI["gostitelji"]), "poti": [list(x) for x in SPOTIFY_OGLASI["poti"]],
-            "css": SPOTIFY_OGLASI["css"]}
+    """Pravila Scita za sejo Spotify v Safeer DRM: oglasi Spotifyja ter sledilci in telemetrija tretjih - iz seznama
+    Scita (core/scit_pravila.py: vgrajen ali novejsi podpisan)."""
+    from . import scit_pravila
+    return scit_pravila.trenutna().za_drm(spotify=True)
 
 
 # ---------------------------------------------------------------------------------------------- JavaScript v strani
@@ -465,7 +467,7 @@ class Kanal:
         return self.proces is not None and self.proces.poll() is None
 
     def zacni(self, vidno: bool, scit: bool, piskotki: Optional[list] = None) -> str:
-        """»ok«, »ni_drm« (Safeer DRM ni prenesen) ali »napaka«."""
+        """»ok«, »ni_drm« (Safeer DRM ni v tej namestitvi) ali »napaka«."""
         with self._zaklep:
             if self.tece():
                 if vidno != self.vidno:
@@ -475,7 +477,6 @@ class Kanal:
             exe = safeer_drm.izvrsljiva()
             if exe is None:
                 return "ni_drm"
-            safeer_drm.uskladi_logiko(exe)
             mapa = Path(self._mapa) if self._mapa else safeer_drm.mapa_sej()
             mapa.mkdir(parents=True, exist_ok=True)
             self.seja = tempfile.mkdtemp(prefix="spotify-", dir=str(mapa))
@@ -705,7 +706,6 @@ class Racun:
         self._predvajanje: dict = {}
         self._prijavljen = False
         self._ime = ""
-        self._prenos = ""                 # "" | "tece" | "napaka"
         self._dotik = ura()
         self._utisal = False
         self._zastoj_od = 0.0             # od kdaj predvajalnik stoji v oglasu (po utisanju), 0 = ne stoji
@@ -930,22 +930,10 @@ class Racun:
         obvestilo = bool(prijavljen and tece and not nast.get("obvestilo_scit"))
         if obvestilo:
             self._shrani(obvestilo_scit=True)
-        return {"drm": self._na_voljo(), "prenos": self._prenos, "tece": tece, "okno": tece and self.kanal.vidno,
+        return {"drm": self._na_voljo(), "tece": tece, "okno": tece and self.kanal.vidno,
                 "prijavljen": prijavljen, "potekla": bool(bil and znano and not self._prijavljen and not self.kanal.vidno),
                 "ime": self._ime if prijavljen else "", "scit": self.scit(), "obvestilo_scit": obvestilo and self.scit(),
                 "predvajanje": self._predvajanje if tece else {}}
-
-    def prenesi(self) -> dict:
-        """Safeer DRM (~120 MB, preverjen SHA-256), kot pri Netflixu - samo po kliku uporabnika."""
-        if self._na_voljo():
-            return {"ok": True}
-        if self._prenos != "tece":
-            self._prenos = "tece"
-
-            def koncano(uspeh: bool) -> None:
-                self._prenos = "" if uspeh else "napaka"
-            safeer_drm.prenesi_v_ozadju(koncano)
-        return {"ok": True, "prenos": self._prenos}
 
     def prijava(self) -> dict:
         """Prijavo opravi uporabnik v Spletu (stran Spotifyja); Medijski center nato klice prijava_iz_spleta()."""

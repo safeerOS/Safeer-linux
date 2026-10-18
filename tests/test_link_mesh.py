@@ -360,6 +360,42 @@ class Mesh(unittest.TestCase):
             "to": "tablica", "relay": True, "msg": json.dumps({"type": "share.text", "sender": "tv"})}}))
         self.assertEqual(len(tab.vrste("share.text")), 0, "najvec en vmesni skok")
 
+    def test_brez_pomoci_drugim_ni_posredne_poti(self):
+        """»Pomagaj drugim napravam v Linku pri povezavi« izklopljeno na b (pregled 18. 10. 2026): b sosedom ne predstavi
+        naprav drugih sosedov in prosnje za posredovanje zavrze. Lastne naprave b vidijo vsi kot prej."""
+        self.b.pomaga = lambda: False
+        tv = prijava(self.a, "tv")
+        prijava(self.b, "pc")
+        tel = prijava(self.c, "tel")
+        povezi(self.a, self.b)
+        povezi(self.b, self.c)                    # a in c se ne dosezeta
+        self.assertEqual(ids(tv), ["pc", "tv"])
+        self.assertEqual(ids(tel), ["pc", "tel"])
+        self.b.obdelaj(self.b._sosedje["hub-a"], json.dumps({"type": "mesh.route", "payload": {
+            "to": "tel", "relay": True, "msg": json.dumps({"id": "x", "type": "share.text", "sender": "tv",
+                                                           "target": "tel", "payload": {"text": "x"}})}}))
+        self.assertEqual(len(tel.vrste("share.text")), 0, "b ne posreduje")
+        # Uporabnik pomoc vklopi: velja takoj, brez ponovne povezave.
+        self.b.pomaga = lambda: True
+        self.b.osvezi_pomoc()
+        self.assertEqual(ids(tv), ["pc", "tel", "tv"])
+        self.a.obdelaj(tv, json.dumps({"id": "r1", "type": "share.text", "target": "tel", "payload": {"text": "x"}}))
+        self.assertEqual(len(tel.vrste("share.text")), 1)
+
+    def test_nastavitev_pomoci_privzeto_vklopljena(self):
+        import os
+        import tempfile
+        from core import link_mesh
+        with tempfile.TemporaryDirectory() as mapa:
+            pot = os.path.join(mapa, "link-pomoc.json")
+            self.assertEqual(link_mesh.nastavitve_pomoci(pot), {"vklopljeno": True, "vprasano": False})
+            self.assertTrue(link_mesh.pomaga_pri_povezavi(pot))
+            self.assertEqual(link_mesh.shrani_pomoc(False, pot), {"vklopljeno": False, "vprasano": True})
+            self.assertFalse(link_mesh.pomaga_pri_povezavi(pot))
+            with open(pot, "w") as d:
+                d.write("{pokvarjeno")
+            self.assertTrue(link_mesh.pomaga_pri_povezavi(pot), "neberljiva nastavitev: privzeto")
+
     def test_izpad_vmesnega(self):
         tv = prijava(self.a, "tv")
         prijava(self.b, "pc")

@@ -19,5 +19,8 @@ export GST_PLUGIN_SCANNER="$APPDIR/usr/lib/$TRIPLET/gstreamer1.0/gstreamer-1.0/g
 # Do not force GTK_USE_PORTAL: GLib then routes proxy/network monitoring through
 # xdg-desktop-portal and page loads hang where no portal is running.
 export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+# Safeer DRM (pripet ECS in Widevine CDM) je izven usr/ kot PySide6: linuxdeploy njegovih knjiznic ne sme razresevati
+# (packaging/build_*appimage.sh); core/safeer_drm.vgrajena_mapa() ga najde tu.
+export SAFEER_DRM_MAPA="$APPDIR/opt/safeer-drm"
 # WebKit's process sandbox remains enabled. No --no-sandbox fallback.
 exec "$APPDIR/usr/bin/safeer" "$@"

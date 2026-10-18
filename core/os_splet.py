@@ -21,11 +21,13 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, splet_prenosi, splet_temno, zascita, zasebni_webkit)
+                  safeer_drm, scit_pravila, splet_prenosi, splet_temno, zascita, zasebni_webkit)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
-                             nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, ustavi_doh_proxy)
+                             naprej_iz, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, shrani_naprej,
+                             ustavi_doh_proxy)
+from core.os_scit import je_zanka_naprej
 from core.filter_lists import FILTER_ID
 
 
@@ -930,6 +932,9 @@ class VdelaniSplet:
             # sprosti_zavihke(); do takrat Splet nima spletnega procesa za zacetno stran.
             self.nov_zavihek()
         self.GLib.timeout_add_seconds(5, self.osvezi_povezavo)
+        # Tiha izguba sifriranega DNS (pregled 18. 10. 2026) mora biti vidna - mirno, ob scitu v vrstici, brez okna.
+        self._dns_nesifriran = False
+        self.GLib.timeout_add_seconds(10, self._osvezi_dns_stanje)
 
 
     def _okno_za_dialog(self, pogled=None):
@@ -1378,6 +1383,11 @@ class VdelaniSplet:
             adblock.register_threat_matcher(self._threat_service.match)
         except Exception as napaka:
             print("[Safeer OS Splet] vir grozenj:", napaka)
+        # Sledilci in telemetrija (core/scit_pravila.py, podpisan seznam): na vseh zavihkih in kanalih Sporocil, tudi ce
+        # je EasyList izklopljen - ob novem seznamu se zamenja povsod.
+        self.sledilci = scit_pravila.filter_sledilcev(self.WebKit2, self.GLib)
+        if self.sledilci is not None:
+            self.sledilci.ob_novem(lambda _f: [self._uporabi_filter(p) for p in self._vsi_pogledi()])
         if not self.config.get("easylist_enabled", True):
             return
         try:
@@ -1461,13 +1471,20 @@ class VdelaniSplet:
         """Seznam EasyList na zavihku: vklopljen, razen ce ga je uporabnik izklopil (stopnja po meri) ali stran izvzel
         (»Zascita na tej strani: izklopljena«). Upravitelj vsebine je za vsak zavihek svoj, zato velja le zanj."""
         upravitelj = pogled.get_user_content_manager()
+        izjema = zascita.je_izjema(self.config, naslov)
         try:
             upravitelj.remove_filter_by_id(FILTER_ID)
-            if (self.filter is not None and self.config.get("easylist_enabled", True)
-                    and not zascita.je_izjema(self.config, naslov)):
+            if self.filter is not None and self.config.get("easylist_enabled", True) and not izjema:
                 upravitelj.add_filter(self.filter)
         except Exception:  # noqa: BLE001
             pass
+        sledilci = getattr(self, "sledilci", None)
+        if sledilci is not None:
+            try:
+                # »Oglasi in sledilci« (stopnja zascite) in izjema strani veljata tudi za sledilce.
+                sledilci.uporabi(pogled, self.config.get("adblock_enabled", True) and not izjema)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _skripta(self, upravitelj, koda, cas=None, dovoljeni=None, izloceni=None):
         if not koda:
@@ -1523,6 +1540,7 @@ class VdelaniSplet:
             self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
+        scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
         if aplikacija:
             izklopi_dusenje(W, nastavitve)
         nastavi_kompozitor(W, nastavitve, self._skia())
@@ -2573,21 +2591,9 @@ class VdelaniSplet:
         if z.get("drm") is not None and _gostitelj(z["drm"].url) == _gostitelj(url):
             return True                           # stran vprasa veckrat zapored
         if not safeer_drm.Gostitelj.na_voljo():
-            if z.get("drm_prenos"):
-                return True
-            z["drm_prenos"] = True
-            # Prvic: paket se prenese (enkrat). Do takrat stran ostane, potem se zavihek sam preklopi.
-            self._drm_obvestilo(pogled, "pripravljam")
-            def koncano(uspeh: bool, z=z, url=url):
-                def v_gui():
-                    z["drm_prenos"] = False
-                    if z in self.zavihki and (z["pogled"].get_uri() or "") == url:
-                        if not (uspeh and self._drm_vdelaj(z["pogled"], url)):
-                            self._drm.odpri(url)  # rezerva: brskalnik z Widevine
-                    return False
-                self.GLib.idle_add(v_gui)
-            safeer_drm.prenesi_v_ozadju(koncano)
-            return True
+            # Safeer DRM je del paketa (od 1.0.127 nic ne prenasamo); brez njega (namestitev iz izvorne kode) klicatelj
+            # stran odpre v namescenem brskalniku z Widevine (_drm_klik).
+            return False
         gost = safeer_drm.Gostitelj(self.Gtk, self.Gdk, self.GLib, ob_celozaslonu=self._drm_celozaslonsko,
                                     ob_koncu=lambda z=z: self._drm_konec(z))
         self._tipke(gost.gradnik, lambda e, gost=gost: self.tipka(e) or gost.tipka(e))
@@ -2609,7 +2615,7 @@ class VdelaniSplet:
         ne prenese in ne zazene (pregled 14. 10. 2026: prej je zastoj videa, napaka zapisa ali oglas v okvirju sam
         prenesel ~120 MB in zagnal Chromium na gostitelju)."""
         z = self._zavihek(pogled)
-        if z is None or not url.startswith("https://") or z.get("drm") is not None or z.get("drm_prenos"):
+        if z is None or not url.startswith("https://") or z.get("drm") is not None:
             return
         prej = z.get("drm_ponudba")
         if prej and _gostitelj(prej[0]) == _gostitelj(url) and not prej[1]:
@@ -2691,20 +2697,6 @@ class VdelaniSplet:
                 g.set_visible(not vklopi)
         if okno is not None and hasattr(okno, "fullscreen"):
             (okno.fullscreen if vklopi else okno.unfullscreen)()
-
-    def _drm_obvestilo(self, pogled, kljuc: str) -> None:
-        besedila = {"sl": "Pripravljam predvajalnik zaščitenih vsebin (enkrat) …",
-                    "en": "Preparing the protected video player (one time) …",
-                    "de": "Player für geschützte Inhalte wird vorbereitet (einmalig) …",
-                    "es": "Preparando el reproductor de contenido protegido (solo una vez) …",
-                    "fr": "Préparation du lecteur de contenus protégés (une seule fois) …",
-                    "it": "Preparazione del lettore di contenuti protetti (una sola volta) …"}
-        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")[:2]
-        koda = drm.OBVESTILO.replace("__BESEDILO__", json.dumps(besedila.get(jezik, besedila["en"])))
-        try:
-            pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _osvezi_orodja(self):
         pogled = self.trenutni()
@@ -2816,14 +2808,32 @@ class VdelaniSplet:
         self.povezava.set_text(("● " if ok else "○ ") + self._t("povezan" if ok else "nepovezan"))
         return True
 
+    def _osvezi_dns_stanje(self) -> bool:
+        """Na nekaj sekund: ali so imena nazadnje sla nesifrirano (DoH ni odgovoril). Ob spremembi osvezi scit."""
+        if getattr(self, "_koncan", False):
+            return False
+        try:
+            from core.doh_proxy import dns_nesifriran
+            zdaj = (bool(self.config.get("doh_enabled", True)) and self.config.get("doh_provider", "scit") != "disabled"
+                    and self.config.get("secure_proxy_mode", "disabled") != "custom" and dns_nesifriran())
+        except Exception:  # noqa: BLE001
+            zdaj = False
+        if zdaj != self._dns_nesifriran:
+            self._dns_nesifriran = zdaj
+            self._osvezi_scit()
+        return True
+
     def _osvezi_scit(self):
-        """Scit v orodni vrstici: izklopljena zascita na tej strani je vidna (kot Firefox)."""
+        """Scit v orodni vrstici: izklopljena zascita na tej strani je vidna (kot Firefox), prav tako - mirno, z
+        ikono srednje zascite in namigom - da DNS trenutno ni sifriran."""
         p = self.trenutni()
         izjema = p is not None and zascita.je_izjema(self.config, p.get_uri() or "")
-        ikona = "security-low-symbolic" if izjema else "security-high-symbolic"
+        nesifriran = bool(getattr(self, "_dns_nesifriran", False))
+        ikona = "security-low-symbolic" if izjema else ("security-medium-symbolic" if nesifriran else "security-high-symbolic")
         try:
             if self._ima_ikono(ikona):
                 self.scit.set_icon_name(ikona)
+            self.scit.set_tooltip_text(self._t("zas_dns_nesifrirano") if nesifriran else self._t("scit"))
         except Exception:  # noqa: BLE001
             pass
 
@@ -2859,6 +2869,11 @@ class VdelaniSplet:
         skatla.append(Gtk.Label(label=self._t("zas_blokirano").format(
             n=int(self.config.get("total_ads_blocked", 0) or 0) + int(self.config.get("total_threats_blocked", 0) or 0)),
             xalign=0))
+        if getattr(self, "_dns_nesifriran", False):
+            dns = Gtk.Label(label=self._t("zas_dns_nesifrirano"), xalign=0, wrap=True)
+            dns.add_css_class("dim-label")
+            dns.set_max_width_chars(40)
+            skatla.append(dns)
         g = Gtk.Button(label=self._t("zas_nastavitve"))
         g.connect("clicked", lambda *_: (pop.popdown(), self._nastavitve()))
         skatla.append(g)
@@ -3772,8 +3787,9 @@ class VdelaniSplet:
         naprej = Gtk.ComboBoxText()
         for kljuc in IZBIRE_NAPREJ:
             naprej.append(kljuc, self._ti("doh_" + ("naprej_router" if kljuc == "router" else kljuc)))
-        naprej.set_active_id(self.config.get("scit_naprej", PRIVZETI_NAPREJ) if self.config.get("scit_naprej") in IZBIRE_NAPREJ
-                             else PRIVZETI_NAPREJ)
+        # Streznik naprej ima en vir (doh_proxy.naprej_iz): v Safeer OS je to Scit, ki ga ima tudi okno Safeer Scit.
+        zdaj_naprej, zdaj_po_meri = naprej_iz(self.config)
+        naprej.set_active_id(zdaj_naprej)
         napis_naprej = napis(self._ti("doh_naprej_lbl"))
 
         def polje_po_meri(besedilo):
@@ -3808,7 +3824,7 @@ class VdelaniSplet:
             return okvir, vnos, izid
 
         okvir_lasten, lasten, izid_lasten = polje_po_meri(self.config.get("custom_doh_url", "") or "")
-        okvir_naprej, naprej_lasten, izid_naprej = polje_po_meri(self.config.get("scit_naprej_po_meri", "") or "")
+        okvir_naprej, naprej_lasten, izid_naprej = polje_po_meri(zdaj_po_meri)
         rezerva = Gtk.CheckButton(label=self._ti("doh_rezerva_lbl"))
         rezerva.set_active(bool(self.config.get("dns_rezerva", True)))
         kdo_vidi = napis("", opis=True)
@@ -3859,6 +3875,8 @@ class VdelaniSplet:
                 for vklop, vnos, izid in ((dns == "custom", lasten, izid_lasten),
                                           (dns == "scit" and n == "custom", naprej_lasten, izid_naprej)):
                     vrsta_vnosa, kljuc = razcleni_po_meri(vnos.get_text())
+                    if vklop and vnos is naprej_lasten and vrsta_vnosa == "ip" and je_zanka_naprej(kljuc):
+                        vrsta_vnosa, kljuc = "", "doh_po_meri_zanka"       # Scit ne sme posredovati sam sebi
                     if vklop and not vrsta_vnosa:
                         izid.set_text(self._ti(kljuc))
                         vnos.grab_focus()
@@ -3871,15 +3889,13 @@ class VdelaniSplet:
                 else:
                     zascita.nastavi_raven(self.config, izbrana)
                 prej = (self.config.get("doh_provider", PRIVZETI_DNS) if self.config.get("doh_enabled", True) else "disabled",
-                        self.config.get("scit_naprej", PRIVZETI_NAPREJ))
+                        naprej_iz(self.config)[0])
                 if (dns, n) != prej or "custom" in (dns, n):
                     self.config.set("dns_izbira_uporabnika", True)    # izrecna izbira: prihodnje selitve je ne povozijo
                 if dns == "custom":
                     self.config.set("custom_doh_url", lasten.get_text().strip())
                 if dns == "scit":
-                    self.config.set("scit_naprej", n)
-                    if n == "custom":
-                        self.config.set("scit_naprej_po_meri", naprej_lasten.get_text().strip())
+                    shrani_naprej(self.config, n, naprej_lasten.get_text().strip())
                 self.config.set("doh_enabled", dns != "disabled")
                 self.config.set("doh_provider", dns)
                 self.config.set("dns_rezerva", rezerva.get_active())
@@ -3921,6 +3937,7 @@ class VdelaniSplet:
         if self.odpri_zapisek and p: self.odpri_zapisek(p.get_title() or self._t("nov"), p.get_uri() or "")
 
     def koncaj(self):
+        self._koncan = True
         if self.filter_agent: self.filter_agent.stop()
         # Vir groženj je skupen za ves proces (threat_intel.skupna: tudi Scit) - ne ustavljamo ga tu.
         # Skupni posrednik DoH ustavimo samo tu: koncaj() klice Safeer OS / brskalnik ob izhodu procesa.

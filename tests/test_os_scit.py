@@ -6,7 +6,9 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core import os_scit  # noqa: E402
@@ -330,8 +332,8 @@ class IzjemeInPremor(unittest.TestCase):
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
-        self.assertIn('"scitDovoli": lambda: self.scit.dovoli(', vir)
-        self.assertIn('"scitPremor": lambda: self.scit.premor(', vir)
+        self.assertIn('"scitDovoli": lambda: self._po_scitu(self.scit.dovoli(', vir)
+        self.assertIn('"scitPremor": lambda: self._po_scitu(self.scit.premor(', vir)
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
             js = f.read()
         self.assertIn('klic("scitDovoli", [x.ime, true])', js)
@@ -662,6 +664,7 @@ class UporabiTest(unittest.TestCase):
                 vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1"],
                 dns_vmesnika=lambda v: dns[v], trenutni_streznik=lambda v: "127.0.0.1:5355",
                 nekdo_poslusa=lambda vrata: poslusa.get(vrata, False),
+                lastniki_vrat=lambda vrata: {os.getuid() + 1001}, _odgovori_kanarcku=lambda vrata, cas: True,
                 usmeri=lambda *a: klici.append("usmeri") or True, pravilo_namesceno=lambda: True,
                 uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m, scit=True)
@@ -768,6 +771,177 @@ class UporabiTest(unittest.TestCase):
         self.assertIn('.scit-zadnje:hover, .scit-zadnje button:focus', js)
         with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
             self.assertEqual(f.read().count('scitNapaka_lastni_dns: "'), 6)
+
+
+class VrataInZanke(unittest.TestCase):
+    """Pregled 18. 10. 2026: vrata 5354-5357 lahko prvi zasede katerikoli lokalni proces; streznik naprej ne sme
+    poizvedbe vrniti Scitu (zanka DoH); tiha izguba sifriranja mora biti vidna."""
+
+    @staticmethod
+    def _proc(mapa, udp="", udp6="", tcp="", tcp6=""):
+        glava = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        for ime, vsebina in (("udp", udp), ("udp6", udp6), ("tcp", tcp), ("tcp6", tcp6)):
+            with open(os.path.join(mapa, ime), "w", encoding="ascii") as f:
+                f.write(glava + vsebina)
+
+    @staticmethod
+    def _v4(naslov: str, vrata: int) -> str:
+        surovo = socket.inet_aton(naslov)
+        if sys.byteorder == "little":
+            surovo = surovo[::-1]
+        return "%s:%04X" % (surovo.hex().upper(), vrata)
+
+    @staticmethod
+    def _v6(naslov: str, vrata: int) -> str:
+        surovo = socket.inet_pton(socket.AF_INET6, naslov)
+        if sys.byteorder == "little":
+            surovo = b"".join(surovo[i:i + 4][::-1] for i in range(0, 16, 4))
+        return "%s:%04X" % (surovo.hex().upper(), vrata)
+
+    def _vrstica(self, lokalno, st="07", uid=1000):
+        return "   0: %s 00000000:0000 %s 00000000:00000000 00:00000000 00000000 %5d        0 123 2\n" % (lokalno, st, uid)
+
+    def test_lastniki_vrat_iz_proc(self):
+        with tempfile.TemporaryDirectory() as m:
+            self._proc(m, udp=self._vrstica(self._v4("127.0.0.1", 5354), uid=1001)
+                       + self._vrstica(self._v4("192.168.0.5", 5354), uid=7)          # drug naslov: ne sprejme
+                       + self._vrstica(self._v4("0.0.0.0", 5355), uid=0),
+                       udp6=self._vrstica(self._v6("::", 5356), uid=65534),
+                       tcp=self._vrstica(self._v4("127.0.0.1", 5354), st="0A", uid=1001)
+                       + self._vrstica(self._v4("127.0.0.1", 5357), st="01", uid=5),  # povezava, ne poslusa
+                       tcp6=self._vrstica(self._v6("::ffff:127.0.0.1", 5357), st="0A", uid=1002))
+            self.assertEqual(os_scit.lastniki_vrat(5354, m), {1001})
+            self.assertEqual(os_scit.lastniki_vrat(5355, m), {0})
+            self.assertEqual(os_scit.lastniki_vrat(5356, m), {65534})
+            self.assertEqual(os_scit.lastniki_vrat(5357, m), {1002})
+            self.assertEqual(os_scit.lastniki_vrat(5399, m), set())
+        self.assertIsNone(os_scit.lastniki_vrat(5354, "/ni/take/mape"))
+
+    def test_lastniki_pravih_vticnic(self):
+        """Na tem sistemu: vticnica, ki jo odpremo sami, ima nas uid."""
+        if not os.path.isdir("/proc/net"):
+            self.skipTest("ni /proc/net")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", 0))
+        self.addCleanup(s.close)
+        self.assertEqual(os_scit.lastniki_vrat(s.getsockname()[1]), {os.getuid()})
+
+    def test_brskalnik_ne_uporabi_tujih_vrat(self):
+        """Proces drugega uporabnika (ali sistemski) je prvi zasedel vrata in odgovarja kot Scit: brskalnik mu imen ne
+        posilja. Nas razresevalnik v tem procesu pa velja brez sprasevanja."""
+        lazni = os_scit.Razresevalnik(lambda ime: None, lambda: [])
+        vrata = lazni.zazeni()
+        if not vrata:
+            self.skipTest("vrata 5354-5357 so zasedena")
+        self.addCleanup(lazni.ustavi)
+        os_scit._AKTIVNA_VRATA.discard(vrata)               # kot da tece v drugem procesu
+        with Zamenjave(lastniki_vrat=lambda v: {os.getuid() + 1234} if v == vrata else set()):
+            self.assertEqual(os_scit.tekoci_scit(), 0)
+        with Zamenjave(lastniki_vrat=lambda v: {os.getuid()} if v == vrata else set()):
+            self.assertEqual(os_scit.tekoci_scit(), vrata)     # nas drug proces (Safeer OS ob Safeer Browserju)
+        with Zamenjave(lastniki_vrat=lambda v: None):
+            self.assertEqual(os_scit.tekoci_scit(), 0)         # lastnika ni mogoce preveriti: ne
+        os_scit._AKTIVNA_VRATA.add(vrata)
+        with Zamenjave(lastniki_vrat=lambda v: None):
+            self.assertEqual(os_scit.tekoci_scit(), vrata)     # razresevalnik v tem procesu
+
+    def test_zasedena_vrata_v_resolved_prevzamemo(self):
+        """systemd-resolved kaze na nasa vrata, tam pa poslusa proces, ki ni Scit cloveka (root, nobody) ali ne odgovori
+        kot Scit: tak vmesnik ni »tuj Scit« - prevzamemo ga (vklopljen Scit) oziroma vrnemo (ostanek)."""
+        sistemski = 7 if os.getuid() != 7 else 8                  # sistemski uporabnik (ne mi)
+        for lastniki, kanarcek in (({sistemski}, True), ({UID_NOBODY}, True), ({os.getuid() + 1500}, False),
+                                   ({os.getuid() + 1500, os.getuid() + 1501}, True)):
+            with self.subTest(lastniki=lastniki), Zamenjave(
+                    nekdo_poslusa=lambda v: True, lastniki_vrat=lambda v, l=lastniki: set(l),
+                    _odgovori_kanarcku=lambda v, c, k=kanarcek: k, dns_vmesnika=lambda v: "127.0.0.1:5355 192.168.0.1"):
+                self.assertFalse(os_scit.tuj_scit("127.0.0.1:5355 192.168.0.1", 5354))
+                self.assertTrue(os_scit.je_ostanek("eth9"))
+        with Zamenjave(nekdo_poslusa=lambda v: True, lastniki_vrat=lambda v: {os.getuid() + 1500},
+                       _odgovori_kanarcku=lambda v, c: True, dns_vmesnika=lambda v: "127.0.0.1:5355 192.168.0.1"):
+            self.assertTrue(os_scit.tuj_scit("127.0.0.1:5355 192.168.0.1", 5354))
+            self.assertFalse(os_scit.je_ostanek("eth9"))
+
+    def test_zanka_naprej(self):
+        for v in ("127.0.0.53", "127.0.0.54", "127.0.0.1:5354", "127.0.0.1:5357", "[::1]:5355", "[::ffff:127.0.0.53]:53"):
+            self.assertTrue(os_scit.je_zanka_naprej(v), v)
+        for v in ("127.0.0.1:5053", "192.168.0.135", "9.9.9.9:53", "[::1]:5053", "ni-naslov"):
+            self.assertFalse(os_scit.je_zanka_naprej(v), v)
+
+        class Posrednik:
+            actual_port = 40123
+        doh = types.ModuleType("core.doh_proxy")
+        doh._global_proxy = Posrednik()
+        with mock.patch.dict(sys.modules, {"core.doh_proxy": doh}):
+            self.assertTrue(os_scit.je_zanka_naprej("127.0.0.1:40123"))     # lokalni posrednik DoH Spleta
+            self.assertFalse(os_scit.je_zanka_naprej("127.0.0.1:40124"))
+
+    def test_ime_streznika_doh_gre_mimo_doh(self):
+        """Ime streznika DoH naprej (dns.quad9.net) razresi sistemski DNS, ta pa je Scit: ne sme nazaj v DoH (zanka), gre
+        naravnost usmerjevalniku - in to ni odpoved DoH (ne steje, ne ustavi DoH za 30 s)."""
+        naprej, usmerjevalnik = [], []
+        r = os_scit.Razresevalnik(lambda ime: None, lambda: ["192.0.2.1"],
+                                  lambda p: naprej.append(os_scit.ime_poizvedbe(p)) or p[:2] + b"\x81\x80" + p[4:],
+                                  zagonsko=lambda ime: ime == "dns.quad9.net")
+        r._vprasaj_usmerjevalnik = lambda p, tcp: usmerjevalnik.append(os_scit.ime_poizvedbe(p)) or p[:2] + b"\x81\x80" + p[4:]
+        self.assertIsNotNone(r._odgovori(vprasanje("dns.quad9.net"), False))
+        self.assertIsNotNone(r._odgovori(vprasanje("example.com"), False))
+        self.assertEqual((naprej, usmerjevalnik, r.rezerv, r.nesifrirano()), (["example.com"], ["dns.quad9.net"], 0, False))
+
+    def test_zagonska_imena_po_izbiri(self):
+        class Shramba(dict):
+            def set(self, k, v):
+                self[k] = v
+        with tempfile.TemporaryDirectory() as m:
+            sc = os_scit.Scit(Shramba(scit_naprej="quad9"), mapa=m)
+            self.assertTrue(sc._zagonsko("dns.quad9.net"))
+            self.assertFalse(sc._zagonsko("example.com"))
+            sc.shramba["scit_naprej"] = "cloudflare"            # naslov IP: imena ni
+            self.assertFalse(sc._zagonsko("1.1.1.1"))
+            self.assertFalse(sc._zagonsko("dns.quad9.net"))
+            sc.shramba.update(scit_naprej="custom", scit_naprej_po_meri="https://dns.primer.si/dns-query")
+            self.assertTrue(sc._zagonsko("dns.primer.si"))
+
+    def test_nesifrirano_je_vidno_usmerjevalnik_pa_ni_odpoved(self):
+        klici = []
+        r = os_scit.Razresevalnik(lambda ime: None, lambda: [], lambda p: klici.append(1) and None)
+        self.assertFalse(r.nesifrirano())
+        r._posreduj(vprasanje("example.com"), False)
+        self.assertTrue(r.nesifrirano())
+        r.nesifrirano_cas -= r.NESIFRIRANO_S + 1                 # DoH spet dela: oznaka izgine sama
+        self.assertFalse(r.nesifrirano())
+        izbran = os_scit.Razresevalnik(lambda ime: None, lambda: [], lambda p: klici.append(2))
+        izbran.sifrirano_naprej = lambda: False                  # uporabnik je izbral »DNS usmerjevalnika«
+        izbran._posreduj(vprasanje("example.com"), False)
+        self.assertEqual((klici, izbran.rezerv, izbran.nesifrirano()), ([1], 0, False))
+
+    def test_stanje_pokaze_nesifrirano(self):
+        class Shramba(dict):
+            def set(self, k, v):
+                self[k] = v
+        with tempfile.TemporaryDirectory() as m, Zamenjave(razlog_nemoznosti=lambda: "", pravilo_namesceno=lambda: True):
+            sc = os_scit.Scit(Shramba(), mapa=m)
+            r = os_scit.Razresevalnik(lambda ime: None, lambda: [], lambda p: None)
+            r.vrata = 5354
+            sc.razresevalnik = r
+            self.assertFalse(sc.stanje()["nesifrirano"])
+            r.nesifrirano_cas = time.time()
+            self.assertTrue(sc.stanje()["nesifrirano"])
+            sc.shramba["scit_naprej"] = "router"
+            r.sifrirano_naprej = lambda: sc.naprej()[0] != "router"
+            self.assertFalse(sc.stanje()["nesifrirano"])
+
+    def test_telemetrija_storitev_tudi_v_dns(self):
+        """Gostitelji samo za telemetrijo (seznam pravil Scita) so blokirani za ves racunalnik kot »oglasi in sledenje«
+        (premor jih spusti); sledilci tretjih in storitve same ne."""
+        s = os_scit.Seznami.__new__(os_scit.Seznami)
+        s.nabor, s.storitev, s._kljuc = os_scit.Nabor(), None, threading.Lock()
+        self.assertEqual(s.kategorija("dit.whatsapp.net"), "oglasi")
+        self.assertEqual(s.kategorija("spade.twitch.tv"), "oglasi")
+        for ime in ("web.whatsapp.com", "gql.twitch.tv", "www.google-analytics.com"):
+            self.assertIsNone(s.kategorija(ime), ime)
+
+
+UID_NOBODY = 65534
 
 
 if __name__ == "__main__":

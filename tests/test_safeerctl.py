@@ -236,6 +236,20 @@ class Posiljanje(Osnova):
         self.assertTrue(vmes[0].startswith("Čakam na napravo Dnevna soba"), vmes)
         self.assertEqual(self.izpisi, ["Poslano napravi Dnevna soba: 1"])
 
+    def test_naprava_ki_je_zdaj_ni_po_idju(self):
+        """Nemo ponudi znano napravo, ki je zdaj ni (pregled 18. 10. 2026): natancen id gre Controlu, ki odloci sam."""
+        self.c.odgovori["Poslji"] = {"ok": True, "id": "p1", "stanje": "caka", "naprava": "Tablica", "datotek": 1}
+        self.assertEqual(self.zazeni("send", "--notify", "/tmp/a.txt", "--to", "n-aaaaaaaaaaaaaaaa"), 0)
+        self.assertEqual(self.c.klici[-1][:2], ("Poslji", "n-aaaaaaaaaaaaaaaa"))
+        self.assertIn("Tablica", self.izpisi[-1])
+        # Control je ne pozna: napaka kot prej.
+        self.c.odgovori["Poslji"] = {"ok": False, "koda": "ni_naprave"}
+        self.assertEqual(self.zazeni("send", "--notify", "/tmp/a.txt", "--to", "n-bbbbbbbbbbbbbbbb"), 1)
+        # Ime ali del imena naprave, ki je ni, ne gre Controlu.
+        klici = len(self.c.klici)
+        self.assertEqual(self.zazeni("send", "/tmp/a.txt", "--to", "spalnica soba"), 1)
+        self.assertFalse([k for k in self.c.klici[klici:] if k[0] == "Poslji"])
+
     def test_naprava_brez_zmoznosti(self):
         self.assertEqual(self.zazeni("send", "a.txt", "--to", "pisarna"), 1)
         self.assertIn("manjka zmožnost »file«", self.napake[-1])

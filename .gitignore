@@ -41,3 +41,6 @@ tests/*
 !tests/stability_runtime.py
 !tests/youtube_live.py
 !tests/youtube_startup.py
+
+# Safeer DRM za razvoj iz izvorne kode (packaging/safeer_drm_paket.py pripravi safeer-drm): ~300 MB, ni v repozitoriju.
+/safeer-drm/

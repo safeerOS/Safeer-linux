@@ -232,9 +232,13 @@ jobs:
         run: bash packaging/webkit-deb/knjiznice.sh
       - name: Verify version consistency
         run: python3 packaging/check_version.py
+      - name: Safeer DRM for the packages (pinned castLabs ECS, SHA-256)
+        # Lastnik, 18. 10. 2026: Safeer DRM je del paketa kot vse drugo in se med delovanjem ne prenasa (pin v
+        # packaging/safeer-drm.json). Widevine CDM ni v paketu: ECS ga ob prvi zasciteni vsebini sam namesti z Googla.
+        run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm
       - name: Debian package with our WebKitGTK, and launch smoke of the payload
         run: |
-          SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
+          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
           DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
           dpkg-deb -f "$DEB" Package Version Architecture Depends Recommends
           # Nas WebKit je v paketu: sistemskega WebKitGTK/libsoup paket ne zahteva, peskovnik pa potrebuje bwrap.
@@ -246,6 +250,11 @@ jobs:
           # Dekoder AV1 dav1ddec v predponi nasega WebKita, libdav1d7 iz noble.
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/lib/gstreamer-1.0/libgstdav1d.so'
           dpkg-deb -f "$DEB" Depends | grep -E '(^|, )libdav1d7( |,|$)'
+          # Safeer DRM je v paketu (ne prenasa se med delovanjem), z obvestili o licencah; Widevine CDM ni v paketu.
+          dpkg-deb -c "$DEB" | grep -E '\./usr/lib/safeer-browser/safeer-drm/safeer-drm$'
+          dpkg-deb -c "$DEB" | grep -F './usr/share/doc/safeer-browser/safeer-drm/OBVESTILO.txt'
+          if dpkg-deb -c "$DEB" | grep -E 'WidevineCdm|libwidevinecdm'; then echo "::error::Widevine CDM je v paketu"; exit 1; fi
+          dpkg-deb -f "$DEB" Depends | grep -F 'libgtk-3-0t64'
           echo "::notice::$(stat -c '%n %s B' "$DEB") | namesceno $(dpkg-deb -f "$DEB" Installed-Size) KiB"
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py build/stage/usr/lib/safeer-browser
       - name: Install, launch and remove the Debian package (system WebKitGTK 6.0 installed too)
@@ -257,6 +266,9 @@ jobs:
           grep -Fx 'StartupWMClass=io.github.memelandfaner.SafeerBrowser' /usr/share/applications/safeer-browser.desktop
           test -f /usr/lib/safeer-browser/safeer_brskalnik.py
           test ! -e /usr/lib/safeer-browser/safeer_mint.py
+          # Safeer DRM iz paketa: pripeti odtisi, brez setuid; Splet ga najde v /usr/lib/safeer-browser/safeer-drm.
+          python3 packaging/safeer_drm_paket.py preveri /usr/lib/safeer-browser/safeer-drm
+          /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-browser'); from core import safeer_drm as d; e = d.izvrsljiva(); print('Safeer DRM:', e); assert str(e) == '/usr/lib/safeer-browser/safeer-drm/safeer-drm', e"
           dpkg -s libwebkitgtk-6.0-4 | grep -E '^(Status|Version)'
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-browser
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py /usr/lib/safeer-browser
@@ -267,7 +279,7 @@ jobs:
       - name: AppImage
         run: |
           bash packaging/fetch_linuxdeploy.sh
-          LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
+          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dbus-run-session -- python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
       - uses: actions/upload-artifact@v7
         with:
@@ -315,11 +327,14 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m pytest -q -p no:cacheprovider tests/
+      - name: Safeer DRM for the packages (pinned castLabs ECS, SHA-256)
+        # Kot v poslu brskalnik: Safeer DRM je del paketa (packaging/safeer-drm.json); Widevine CDM namesti ECS sam.
+        run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm
       - name: Safeer OS package (one package - Safeer OS, Safeer Control and Safeer Cinnamon)
         # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
         run: |
-          SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
+          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
           OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
           dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
           DEB="$OS"
@@ -328,6 +343,11 @@ jobs:
           dpkg-deb -f "$OS" Depends | grep -F 'xdg-dbus-proxy'
           dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/webkit/lib/gstreamer-1.0/libgstdav1d.so'
           dpkg-deb -f "$OS" Depends | grep -E '(^|, )libdav1d7( |,|$)'
+          # Safeer DRM je v paketu (ne prenasa se med delovanjem), z obvestili o licencah; Widevine CDM ni v paketu.
+          dpkg-deb -c "$OS" | grep -E '\./usr/lib/safeer-os/safeer-drm/safeer-drm$'
+          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/safeer-drm/OBVESTILO.txt'
+          if dpkg-deb -c "$OS" | grep -E 'WidevineCdm|libwidevinecdm'; then echo "::error::Widevine CDM je v paketu"; exit 1; fi
+          dpkg-deb -f "$OS" Depends | grep -F 'libnss3'
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(cat packaging/VERSION_CONTROL))"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(cat packaging/VERSION_CINNAMON))"
@@ -346,6 +366,8 @@ jobs:
           done
           echo "::notice::Node.js v$NODE_RAZLICICA v paketu: $(du -sh /usr/lib/safeer-os/node | cut -f1)"
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          python3 packaging/safeer_drm_paket.py preveri /usr/lib/safeer-os/safeer-drm
+          /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-os'); from core import safeer_drm as d; e = d.izvrsljiva(); print('Safeer DRM:', e); assert str(e) == '/usr/lib/safeer-os/safeer-drm/safeer-drm', e"
           xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
           # Safeer Link najde naprave prek mDNS: brez zeroconf ni prijave (ne QR ne 6-mestne kode).
           /usr/bin/python3 -c "import zeroconf"
@@ -382,7 +404,7 @@ jobs:
         run: bash packaging/fetch_linuxdeploy.sh
       - name: Safeer OS AppImage (Safeer OS + Safeer Control)
         run: |
-          LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
+          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
           chmod +x dist/Safeer-OS-*.AppImage
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
@@ -391,6 +413,9 @@ jobs:
           mkdir -p build/os-appimage-x
           (cd build/os-appimage-x && ../../dist/Safeer-OS-*.AppImage --appimage-extract >/dev/null)
           for modul in qrcode zeroconf ifaddr; do test -d "build/os-appimage-x/squashfs-root/usr/lib/python3/dist-packages/$modul"; done
+          # Safeer DRM izven usr/ (linuxdeploy ga ne spreminja), s pripetimi odtisi; AppRun-os poda SAFEER_DRM_MAPA.
+          python3 packaging/safeer_drm_paket.py preveri build/os-appimage-x/squashfs-root/opt/safeer-drm
+          grep -F 'export SAFEER_DRM_MAPA="$APPDIR/opt/safeer-drm"' build/os-appimage-x/squashfs-root/AppRun
       - uses: actions/upload-artifact@v7
         with:
           name: safeer-os
@@ -737,6 +762,13 @@ jobs:
           grep -Eq '^ *[0-9]+ /run/build/webkitgtk6-safeer-pgo$' "$P" && ! grep '/run/build/' "$P" | grep -v '/run/build/webkitgtk6-safeer-pgo$' \
             || { echo "::error::Safeer OS: poti lokalnih funkcij v profilu niso poti gradnje WebKita"; exit 1; }
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
+          # Safeer DRM v paketu (/app, pripet odtis, brez CDM) in na gostitelju po poti iz /.flatpak-info (app-path): ukaz zagona
+          # kaze na isto datoteko, kot jo vidi gostitelj (flatpak info --show-location).
+          flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerOS "$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm
+          GOST="$(flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '/app/lib/safeer-os'); from core import safeer_drm as d; u = d.ukaz_zagona([str(d.izvrsljiva())], peskovnik=False, gostitelj=True); print(u[5])")"
+          echo "Safeer DRM na gostitelju: $GOST"
+          [ "$(readlink -f "$GOST")" = "$(readlink -f "$(flatpak info --show-location io.github.memelandfaner.SafeerOS)/files/lib/safeer-os/safeer-drm/safeer-drm")" ]
+          test -x "$GOST"
           # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
           # Kaj je v paketu (opozorilo posla, ker je konec dnevnika v opozorilu ob napaki prirezan).
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c 'echo "::notice::pdftoppm: $(command -v pdftoppm) | poppler v /app: $(ls /app/lib /app/lib64 2>/dev/null | grep -i poppler | tr "\n" " ") | manjka: $(ldd /app/bin/pdftoppm 2>&1 | grep -i "not found" | tr "\n" " ")"'
@@ -921,6 +953,11 @@ jobs:
             || { echo "::error::brskalnik: poti lokalnih funkcij v profilu niso poti gradnje WebKita"; exit 1; }
           flatpak run --command=sh $APP -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess && test -f /app/lib/safeer-browser/assets/safeer_drm/main.js && test ! -e /app/host-bin && test -x /app/bin/zypak-wrapper && test -x /app/bin/zypak-helper" \
             || { echo "::error::v paketu manjka WebKitWebProcess, main.js ali zypak, ali pa je ostal /app/host-bin"; exit 1; }
+          # Safeer DRM v paketu (/app, samo za branje), pripet odtis, brez Widevine CDM, obvestila o licencah.
+          flatpak run --filesystem="$PWD/packaging:ro" --command=python3 $APP "$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-browser/safeer-drm \
+            || { echo "::error::Safeer DRM v Flatpaku brskalnika ni popoln"; exit 1; }
+          flatpak run --command=sh $APP -c "test -f /app/share/doc/safeer-browser/safeer-drm/OBVESTILO.txt" \
+            || { echo "::error::v Flatpaku brskalnika ni obvestil o licencah Safeer DRM"; exit 1; }
           # Na ravni enot, v paketu: peskovnik zaznan, Safeer DRM gre na zypak-wrapper, portal (Gtk.UriLauncher,
           # Gtk.FileLauncher, OpenURI) je na voljo, privzeti brskalnik ne kliče gostitelja (navodila).
           flatpak run --command=python3 $APP -c "import sys; sys.path.insert(0, '/app/lib/safeer-browser'); import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; from core import gostitelj, safeer_drm, default_browser; u = safeer_drm.ukaz_zagona(['/x/safeer-drm']); print('peskovnik', gostitelj.v_peskovniku(), 'DRM', u); assert gostitelj.v_peskovniku() and not gostitelj.sme_na_gostitelja(), 'ni peskovnika'; assert u == ['/app/bin/zypak-wrapper', '/x/safeer-drm'], u; assert hasattr(Gtk, 'UriLauncher') and hasattr(Gtk, 'FileLauncher'); ok, n = default_browser.set_default_browser('/app/lib/safeer-browser', 'sl'); print('privzeti:', ok, n); assert ok or n == [default_browser.navodila('sl')]" \
@@ -937,14 +974,15 @@ jobs:
           R="$(flatpak run --command=python3 $APP -c "import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst; Gst.init(None); n = [(x, Gst.ElementFactory.find(x)) for x in ('dav1ddec', 'av1dec', 'avdec_av1')]; print(' '.join('%s=%s' % (x, '%s(rang %d)' % (f.get_plugin().get_filename(), f.get_rank()) if f else 'NI') for x, f in n))" 2>&1 | tail -1)"
           echo "::notice::Flatpak $APP: gst-inspect-1.0 dav1ddec: $I | $R"
       - name: Real Safeer DRM (castLabs Electron) inside the browser sandbox
-        # Pravi paket Safeer DRM z izdaje, zagnan po poti Spleta (zypak-wrapper): knjiznice, nalaganje strani, podpeskovnik
-        # procesov strani (seccomp) in Widevine (EME). Glej packaging/smoke_drm_peskovnik.py.
+        # Safeer DRM iz paketa (/app), zagnan po poti Spleta (zypak-wrapper): knjiznice, nalaganje strani, podpeskovnik
+        # procesov strani (seccomp), Widevine CDM, ki ga ECS sam namesti z Googla v uporabnikovo mapo, in EME. Glej
+        # packaging/smoke_drm_peskovnik.py.
         run: |
           xvfb-run -a dbus-run-session -- flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_drm_peskovnik.py" /app/lib/safeer-browser 2>&1 | tee drm.txt || true
           grep '^FAIL: ' drm.txt | while read -r v; do echo "::error::Safeer DRM: ${v#FAIL: }"; done || true
           # Vse diagnostike v eni opombi (GitHub pokaze najvec 10 opomb na korak; %0A = nova vrstica), nato kljucne.
-          echo "::notice title=Safeer DRM diagnostika::$(grep -E '^(krog|zypak:|v peskovniku|koren|ZYPAK|Traceback|  File|[A-Za-z]+Error)' drm.txt | tail -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
-          grep -E '^(ldd|EME|krog [12]: procesi)' drm.txt | head -8 | while read -r v; do echo "::notice::${v}"; done || true
+          echo "::notice title=Safeer DRM diagnostika::$(grep -E '^(krog|zypak:|v peskovniku|Safeer DRM v paketu|uporabnikova mapa|EME|ZYPAK|Traceback|  File|[A-Za-z]+Error)' drm.txt | tail -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          grep -E '^(ldd|EME|krog 1: (procesi|Widevine))' drm.txt | head -8 | while read -r v; do echo "::notice::${v}"; done || true
           grep -qx PASS drm.txt
       - uses: actions/upload-artifact@v7
         with:

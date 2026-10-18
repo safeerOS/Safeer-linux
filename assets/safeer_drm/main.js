@@ -6,12 +6,15 @@
 //   Okno je brez okvirja in brez gumba v opravilni vrstici; v »events.jsonl« zapiše WINDOW_HANDLE, Safeer OS
 //   ga vstavi v svoje okno (uporabnik vidi isti predvajalnik kot vedno). Ukazi v command.txt: back, reload.
 // Spotify (core/spotify_racun.py): safeer-drm --url=https://open.spotify.com/ --spotify=1 [--skrit=1] [--scit=<pravila>]
+//   (--scit velja tudi za vdelani nacin in storitve: sledilci in telemetrija, core/scit_pravila.py)
 //   --profile --state --command, brez --parent: lastno okno za prijavo, po prijavi skrito (ukaza skrij/pokazi).
 //   Medijski center stran upravlja s CDP prek webContents.debugger (brez vrat in brez omrezja): ukaz
 //   cdp:<id>:<base64 JSON {expression}> izvede Runtime.evaluate, odgovor gre v svojo datoteko cdp-<id>.json v mapi
 //   seje (Safeer OS jo prebere in izbrise) - ne v events.jsonl, ki je z vsebino strani rasel brez meje (pregled
 //   18. 10. 2026). events.jsonl seje Spotify ima najvec ~1 MB (nato se zamenja: events.jsonl.1 je prejsnji del).
 // Samostojni način (za preizkus): safeer-drm <https-URL>
+// Safeer DRM je od 1.0.127 v paketu (core/safeer_drm.py, packaging/safeer_drm_paket.py). Widevine CDM ni v paketu: ECS ga
+// ob prvi zaščiteni vsebini sam namesti z Googlovih strežnikov (lastnik, 18. 10. 2026, po FAQ castLabs).
 const fs = require('fs');
 const path = require('path');
 const { app, components, BrowserWindow, session, webFrameMain } = require('electron');
@@ -66,8 +69,14 @@ function zacetniUrl() {
 const prviUrl = zacetniUrl();
 if ((vdelan || argumenti.url) && !prviUrl) { process.exitCode = 2; app.quit(); }
 
-// Profil (piškotki, predpomnilnik) je za vsako sejo svoj, kot pri WebView2; Widevine modul ostane v
-// skupni mapi aplikacije, da se ne prenaša ob vsakem predvajanju.
+// Electron sicer ob nastanku seje prenese slovar črkovalnika z redirector.gvt1.com (izmerjeno 18. 10. 2026); okno Safeer
+// DRM ga ne potrebuje. Izklop mora biti ob nastanku seje - ob »ready« je prenos že stekel.
+app.on('session-created', (ses) => {
+  try { ses.setSpellCheckerEnabled(false); ses.setSpellCheckerLanguages([]); } catch (_) {}
+});
+
+// Profil (piškotki, predpomnilnik) je za vsako sejo svoj, kot pri WebView2; Widevine CDM ostane v skupni mapi
+// aplikacije (<userData>/WidevineCdm), da se ne prenaša ob vsakem predvajanju.
 if (argumenti.profile) { fs.mkdirSync(argumenti.profile, { recursive: true }); app.setPath('sessionData', argumenti.profile); }
 // Samo za meritve: SAFEER_DRM_CDP=<vrata> odpre razhroščevanje na 127.0.0.1 (Safeer OS te spremenljivke nikoli ne nastavi).
 if (/^\d{4,5}$/.test(process.env.SAFEER_DRM_CDP || '')) { app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1'); app.commandLine.appendSwitch('remote-debugging-port', process.env.SAFEER_DRM_CDP); }
@@ -94,11 +103,12 @@ function zaprtGostitelj(raw) {
   return ZAPRTI_ZNAKI.some(z => deli.some(d => d.includes(z))) ? h : '';
 }
 
-// Scit za Spotify (core/adblock.SPOTIFY_OGLASI): Safeer OS zapise pravila v mapo seje (--scit); brez datoteke nic.
+// Scit (core/scit_pravila.py, Pravila.za_drm): Safeer OS zapise pravila v mapo seje (--scit) - sledilci in telemetrija
+// tretjih v vsaki seji (Netflix, Disney+ ...), oglasi Spotifyja samo v seji Spotify; brez datoteke nic.
 function beriPravila(pot) {
   try { const p = JSON.parse(fs.readFileSync(pot, 'utf8')); return p && typeof p === 'object' ? p : null; } catch (_) { return null; }
 }
-const pravila = spotify && argumenti.scit ? beriPravila(argumenti.scit) : null;
+const pravila = argumenti.scit ? beriPravila(argumenti.scit) : null;
 // Skripte, ki jih je uporabnik sam uvozil in vklopil (core/uporabniske_skripte.py): [{ime, koda}], samo v strani Spotify.
 function beriSkripte(pot) {
   try {
@@ -112,7 +122,7 @@ function oglasnaZahteva(raw) {
   let u; try { u = new URL(raw); } catch (_) { return false; }
   const h = u.hostname.toLowerCase();
   if ((pravila.gostitelji || []).some(d => h === d || h.endsWith('.' + d))) return true;
-  const pot = u.pathname;
+  const pot = u.pathname + (u.search || '');      // pravilo »/tr?« velja samo za pot /tr s poizvedbo (ne /translate)
   return (pravila.poti || []).some(([d, p]) => (h === d || h.endsWith('.' + d)) && pot.startsWith(p));
 }
 
@@ -391,6 +401,8 @@ function nastaviSejo(ses) {
   ses.webRequest.onBeforeRequest((d, cb) => {
     const h = zaprtGostitelj(d.url);
     if (h) { zapisi('AD_OR_THREAT_RESOURCE_BLOCKED', h); cb({ cancel: true }); }
+    // Pregled 18. 10. 2026: oglasnaZahteva je bila napisana, a nikjer klicana - oglasni naslovi Spotifyja so sli skozi.
+    else if (oglasnaZahteva(d.url)) { zapisi('SCIT_BLOCKED', varenGostitelj(d.url)); cb({ cancel: true }); }
     else cb({});
   });
   if (spotify) {
@@ -441,7 +453,8 @@ function odpri(url) {
     // Vdelan: brez okvirja, brez gumba v opravilni vrstici, zunaj zaslona, dokler ga Safeer OS ne vstavi v svoje okno.
     frame: !vdelan, skipTaskbar: vdelan, x: vdelan ? -32000 : undefined, y: vdelan ? -32000 : undefined,
     show: !vdelan && !skrit, focusable: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false }
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false,
+      spellcheck: false }
   });
   okno.setMenu(null);
   if (vdelan) {
@@ -458,7 +471,7 @@ function odpri(url) {
     if (storitev && cilj.startsWith('https:') && /(^|\.)(accounts\.google\.com|appleid\.apple\.com|facebook\.com)$/.test(gost)) {
       zapisi('POPUP_LOGIN', varenGostitelj(cilj));
       return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, title: 'Safeer',
-        parent: okno, modal: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } } };
+        parent: okno, modal: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } } };
     }
     // Storitev: drugo novo okno odpremo v istem predvajalniku; drugje pojavna okna zapremo.
     if (storitev && cilj.startsWith('https:')) { wc.loadURL(cilj); zapisi('POPUP_IN_PLACE', varenGostitelj(cilj)); }
@@ -517,8 +530,9 @@ if (prviUrl) {
   app.whenReady().then(async () => {
     nastaviSejo(session.defaultSession);
     try {
-      // Prvi zagon prenese Widevine (nekaj sekund); brez omrezja do Googla ne cakamo v nedogled.
-      await Promise.race([components.whenReady(), new Promise((_, ne) => setTimeout(() => ne(new Error('Widevine ni pripravljen v 15 s')), 15000))]);
+      // Widevine CDM namesti in posodablja ECS sam z Googlovih strežnikov (uporabnik ne namešča ničesar): prvič se
+      // prenese (~22 MB, nekaj sekund), potem je v <userData>/WidevineCdm. Brez omrežja ne čakamo v nedogled.
+      await Promise.race([components.whenReady(), new Promise((_, ne) => setTimeout(() => ne(new Error('Widevine ni pripravljen v 45 s')), 45000))]);
       const s = components.status();
       const wv = Object.values(s).find(c => /widevine/i.test(c.title || '')) || {};
       zapisi('DRM_READY', `widevine ${wv.version || '?'} ${wv.status || ''}`.trim());

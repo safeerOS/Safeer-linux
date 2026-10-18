@@ -87,6 +87,13 @@ PREMOR_S = 300.0
 NAJDALJSI_PREMOR_S = 1800.0
 #: Meje vhoda.
 NAJVEC_ROKOVANJ = 16
+#: En naslov ne sme zasesti vseh mest za rokovanje (pocasen trk drzi mesto do ROK_VHODA_S): najvec toliko hkrati.
+#: Prava naprava jih odpre najvec ~6 hkrati (OkHttp: 5 na gostitelja + WebSocket); 8 dopusti se dve napravi za istim
+#: javnim naslovom brez cakanja. Zavrnjeno rokovanje odjemalca za PREMOR_S vrne na rele - zato meja ni nizja.
+NAJVEC_ROKOVANJ_NA_VIR = 8
+#: Toliko mest je samo za naslove, ki so se v zadnjih link_obramba.ZAUPANJE_S izkazali kot clani kroga: tudi veliko
+#: tujih naslovov hkrati ne izrine naprave, ki se po kratkem izpadu vraca z istega naslova.
+REZERVA_ZAUPANIM = 4
 NAJVEC_TUNELOV = 64
 NAJVEC_NONCEV = 4096
 KOS = 64 * 1024
@@ -420,6 +427,8 @@ class VhodNeposredno:
         self._nonci: "OrderedDict[bytes, float]" = OrderedDict()
         self._zaklep = threading.Lock()
         self._rokovanj = 0
+        #: Tekoca rokovanja po naslovu (NAJVEC_ROKOVANJ_NA_VIR).
+        self._rokovanj_vira: Dict[str, int] = {}
         self._tunelov = 0
         self.zavrnjenih = 0
         self.sprejetih = 0
@@ -451,12 +460,16 @@ class VhodNeposredno:
                 self.zavrnjenih += 1
                 _zapri(s)
                 continue
+            zaupan = self._zaupan(vir)
             with self._zaklep:
-                if self._rokovanj >= NAJVEC_ROKOVANJ or self._tunelov >= NAJVEC_TUNELOV:
+                meja = NAJVEC_ROKOVANJ if zaupan else NAJVEC_ROKOVANJ - REZERVA_ZAUPANIM
+                na_viru = self._rokovanj_vira.get(vir, 0)
+                if self._rokovanj >= meja or na_viru >= NAJVEC_ROKOVANJ_NA_VIR or self._tunelov >= NAJVEC_TUNELOV:
                     polno = True
                 else:
                     polno = False
                     self._rokovanj += 1
+                    self._rokovanj_vira[vir] = na_viru + 1
             if polno:
                 self.zavrnjenih += 1
                 _zapri(s)
@@ -495,6 +508,18 @@ class VhodNeposredno:
         finally:
             with self._zaklep:
                 self._rokovanj -= 1
+                ostane = self._rokovanj_vira.get(vir, 1) - 1
+                if ostane > 0:
+                    self._rokovanj_vira[vir] = ostane
+                else:
+                    self._rokovanj_vira.pop(vir, None)
+
+    def _zaupan(self, vir: str) -> bool:
+        """Ali se je vir v zadnjem casu izkazal kot clan kroga (rezervirana mesta za rokovanje)."""
+        try:
+            return bool(self.obramba.zaupa(vir))
+        except Exception:  # noqa: BLE001 - starejsa ali lazna obramba: brez rezerve
+            return False
 
     def _rokovanje(self, s: socket.socket, vir: str) -> bool:
         konec = time.monotonic() + ROK_VHODA_S

@@ -49,14 +49,15 @@ modules:
         url: https://github.com/refi64/zypak
         tag: v2025.09
         commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
-      # ZYPAK_EXPOSE_PATHS: Safeer DRM se prenese ob prvi potrebi v ~/.var/app/<ID>/data, ne v /app - podpeskovnik
-      # (flatpak-spawn --sandbox) vidi samo /app in runtime, zato mapo izpostavimo samo za branje. Za vrnitev v zypak.
+      # ZYPAK_EXPOSE_PATHS: mapo zunaj /app izpostavi podpeskovnikom samo za branje. Safeer DRM je od 1.0.127 v /app
+      # (podpeskovniki ga vidijo brez tega), popravek ostane za vrnitev v zypak.
       - type: patch
         path: packaging/zypak/zypak-expose-paths.patch
   - name: safeer-browser
     buildsystem: simple
     build-commands:
-      - bash packaging/install_payload.sh /app io.github.memelandfaner.SafeerBrowser
+      - python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm --zip SafeerDRM-0.2.0-linux-x64.zip
+      - SAFEER_DRM_TOVOR=build/safeer-drm bash packaging/install_payload.sh /app io.github.memelandfaner.SafeerBrowser
     sources:
       - type: dir
         path: .
@@ -65,3 +66,11 @@ modules:
           - build
           - dist
           - .flatpak-builder
+          - safeer-drm
+      # Safeer DRM v paketu (lastnik, 18. 10. 2026; packaging/safeer-drm.json): pripet castLabs ECS, flatpak-builder ga
+      # prenese in preveri SHA-256 pred gradnjo. Widevine CDM ni v paketu: ECS ga ob prvi zasciteni vsebini sam namesti
+      # z Googlovih streznikov v ~/.var/app/<ID>/config/Safeer DRM/WidevineCdm (Safeer OS: na gostitelju).
+      - type: file
+        url: https://github.com/safeerOS/Safeer-linux/releases/download/safeer-drm-v0.2.0/SafeerDRM-0.2.0-linux-x64.zip
+        sha256: 018cdfc0d1b4061fa9b7972ce5588be39d70d42ea47a2494a698f6b601737396
+        dest-filename: SafeerDRM-0.2.0-linux-x64.zip

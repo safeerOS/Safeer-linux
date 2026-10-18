@@ -105,7 +105,8 @@
   var PREDVAJALNIK = /[?&]predvajalnik=1(&|$)/.test(location.search);
   // Okno enega razdelka na delovni povrsini (safeer_os.py _odpri_okno_razdelka, lastnik 12. 10. 2026): namizno okolje
   // ne odpira vec cele stare lupine Safeer OS - Zapiski, Sporocila in Nastavitve se odprejo vsak v svojem oknu.
-  var RAZDELEK = (location.search.match(/[?&]razdelek=(zapiski|sporocila|nastavitve)(?:&|$)/) || [])[1] || "";
+  // Safeer Scit (lastnik, 18. 10. 2026) je svoj program z istim blokom nastavitev (#blokScit) in statistiko.
+  var RAZDELEK = (location.search.match(/[?&]razdelek=(zapiski|sporocila|nastavitve|scit)(?:&|$)/) || [])[1] || "";
   // Razdelek, ki ga to okno edini kaze ("" = glavno okno z vsemi razdelki).
   var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;
 
@@ -327,7 +328,8 @@
     if (razdelek === "naprave") { osveziPovezavo(); napraveZanka(); }
     if (razdelek === "sporocila") { sporocilaVrnitev = true; naloziSporocila(); sporocilaZanka(); }
     if (razdelek === "sporocila") naloziVgrajeneKanale();     // vgrajeni kanali (blok »Vgrajeni kanali Sporocil«)
-    if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
+    if (razdelek === "nastavitve") { premakniScit("scitMestoNastavitve"); narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
+    if (razdelek === "scit") { premakniScit("scitMesto"); nalozScit(); scitZanka(); }
     if (razdelek === "programi") nalozNaprave();
     if (razdelek === "media") naloziMedije();
     prikaziMediaBar();
@@ -1644,7 +1646,13 @@
       var sam = jeSkrito("polica:samodejni");
       if (sam) S.samodejni = [];
       else if (!(S.samodejni || []).length) naloziSamodejne();
-      if (typeof POL !== "undefined") { POL.podpis = ""; POL.odkrPodpis = ""; narisiPolice(); narisiOdkrivanje(); }
+      if (typeof POL !== "undefined") {
+        POL.podpis = ""; POL.odkrPodpis = ""; narisiPolice(); narisiOdkrivanje();
+        // Jedro skritih polic ne nalozi (core/os_katalog._police, _odkrivanje): ob spremembi police nalozimo znova -
+        // spet vklopljena se pokaze, skrita sprosti pomnilnik tudi v jedru.
+        if (POL.nalozeno) naloziPolice();
+        if (S.mediaFilter === "domov") naloziOdkrivanje();
+      }
       narisiSamodejne();
     } catch (e) { /* stran se se ne izrisuje */ }
   }
@@ -1776,13 +1784,15 @@
   function predvajajSamodejni(sz) {
     klic("mediaSamodejniSeznam", [sz.id]).then(function (r) {
       var vnosi = (r && r.vnosi) || [];
-      if (!vnosi.length) { obvesti(t("katNapakaVira")); return; }
+      // Seznama ni vec (izracunan znova): brez sporocila, kartica se osvezi (lastnik 18. 10. 2026: kar ne gre, ne kazemo).
+      if (!vnosi.length) { naloziSamodejne(); return; }
       prekliciNaslednjo();
-      // Vrsta strani v stalnem vrstnem redu; mesa samo gumb »Premesaj« (naslednjiVVrsti).
-      kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0; kat.vrstaZgodovina = []; kat.vrstaNapake = 0;
+      // Vrsta strani v stalnem vrstnem redu; mesa samo gumb »Nakljucno« (premesajVrsto).
+      novaVrsta(vnosi, 0, { tip: "samodejni", ref: sz.id, vrsta: sz.vrsta, ime: sz.ime || "" });
+      zacniOdZacetka();
       narisiVrsto();
-      odpriKatalogVnos(vnosi[0].id);
-    }, function () { obvesti(t("katNapakaVira")); });
+      odpriKatalogVnos(kat.vrsta[kat.vrstaMesto]);
+    }, function () {});
   }
   function shraniSamodejni(sz) {
     var ime = imeSamodejnega(sz);
@@ -1967,31 +1977,45 @@
   function narisiVrstoTraku(item, p) {
     var vrstaEl = $("mediaVrsta"); if (!vrstaEl) return;
     if (item) {
-      var vnosi = (kat.vrsta || []).length ? (kat.vrstaVnosi || []) : [item];
+      // Vrstni red predvajanja (ob »Nakljucno« premesan, lastnik 18. 10. 2026): plosca kaze, kar bo res igralo, z
+      // oznako nacina v glavi; skladba, ki igra, je poudarjena in plosca se pomakne do nje. Prenos v zivo ima »V zivo«.
+      var imaVrsto = (kat.vrsta || []).length > 0, vnosi = imaVrsto ? (kat.vrstaVnosi || []) : [item];
       var mesto = Math.max(0, Math.min(vnosi.length - 1, kat.vrstaMesto || 0));
-      var od = Math.max(0, Math.min(mesto - 2, vnosi.length - 30)), prikaz = vnosi.slice(od, od + 30);
+      var red = imaVrsto ? redVrste() : [0], poz = Math.max(0, red.indexOf(mesto)), nakljucno = imaVrsto && !!kat.vrstaRed;
+      var od = Math.max(0, Math.min(poz - 100, red.length - 200)), prikaz = red.slice(od, od + 200);
       $("mediaCakalnaStevec").textContent = String(vnosi.length);
-      var podpis = "kat|" + mesto + "|" + od + "|" + vnosi.length + "|" + (prikaz[0] && prikaz[0].id);
+      $("mediaVrstaNacin").hidden = !nakljucno;
+      var podpis = "kat|" + mesto + "|" + od + "|" + vnosi.length + "|" + (vnosi[0] && vnosi[0].id) + "|" + prikaz.join(",") + "|" + jezik;
       if (podpis === S.mediaQueueKey) return;
       S.mediaQueueKey = podpis;
+      // Tipkovnica in daljinec: izbira ostane v plosci (na skladbi, ki igra), ko se plosca na novo narise.
+      var fokusVPlosci = !!document.activeElement && vrstaEl.contains(document.activeElement);
       vrstaEl.innerHTML = "";
-      prikaz.forEach(function (v, i) {
-        var stevilka = od + i;
-        var b = el("button", "media-vrsta-vnos" + (stevilka === mesto ? " izbran" : ""),
-          '<span class="media-vrsta-stevilka">' + (stevilka === mesto ? "♫" : String(stevilka + 1)) + '</span><span><b>' + ubezi(v.naslov || "") +
-          '</b><small>' + ubezi(v.izvajalec || v.vir || "") + '</small></span>');
+      vrstaEl.classList.toggle("nakljucno", nakljucno);
+      prikaz.forEach(function (indeks, i) {
+        var v = vnosi[indeks] || {}, zdaj = indeks === mesto, zivo = jeVZivo(v);
+        var b = el("button", "media-vrsta-vnos" + (zdaj ? " izbran" : "") + (zivo ? " zivo" : ""),
+          '<span class="media-vrsta-stevilka">' + (zdaj ? "♫" : String(od + i + 1)) + '</span><span><b>' + ubezi(v.naslov || "") +
+          '</b><small>' + ubezi(zivo ? t("mediaVZivo") + (v.izvajalec ? " · " + v.izvajalec : "") : (v.izvajalec || v.vir || "")) + '</small></span>');
         b.type = "button";
-        if (stevilka === mesto) b.setAttribute("aria-current", "true");
+        if (zdaj) b.setAttribute("aria-current", "true");
         b.addEventListener("click", function () {
-          if (stevilka === kat.vrstaMesto) return;
+          if (indeks === kat.vrstaMesto) return;
           zapomniMestoVrste();
-          kat.vrstaMesto = stevilka; kat.izVrste = true; narisiVrsto(); odpriKatalogVnos(v.id);
+          // Rocna izbira skladbe: uporabnik vodi vrsto (ob koncu seznama Safeer ne izbere sam naslednjega).
+          kat.vrstaMesto = indeks; kat.izVrste = true; kat.vrstaSpremenjena = true; kat.vrstaSamodejno = false;
+          narisiVrsto(); odpriKatalogVnos(v.id);
         });
         vrstaEl.appendChild(b);
       });
+      var trenutna = fokusVPlosci && vrstaEl.querySelector(".media-vrsta-vnos.izbran");
+      if (trenutna) { try { trenutna.focus({ preventScroll: true }); } catch (e) { trenutna.focus(); } }
+      pomakniNaTrenutno();
       return;
     }
     var seznam = p.vrstaSeznam || [];
+    $("mediaVrstaNacin").hidden = true;
+    vrstaEl.classList.remove("nakljucno");
     $("mediaCakalnaStevec").textContent = String(p.skupaj || seznam.length);
     var kljuc = p.indeks + "|" + (p.zacetniIndeks || 0) + "|" + seznam.map(function (v) { return v.naslov + v.vrsta; }).join("|");
     if (kljuc === S.mediaQueueKey) return;
@@ -2009,12 +2033,21 @@
       vrstaEl.appendChild(b);
     });
   }
+  // Plosca vrste se pomakne do skladbe, ki igra (na sredino, brez animacije): ob odprtju in ob vsaki naslednji skladbi.
+  function pomakniNaTrenutno() {
+    var plosca = $("mediaVrstaPlosca"), izbran = plosca && plosca.querySelector(".media-vrsta-vnos.izbran");
+    if (!plosca || plosca.hidden || !izbran) return;
+    var p = plosca.getBoundingClientRect(), r = izbran.getBoundingClientRect(), glava = plosca.querySelector(".media-cakalna-glava");
+    var vrh = p.top + (glava ? glava.getBoundingClientRect().height : 0);      // pod lepljivo glavo
+    plosca.scrollTop += (r.top + r.height / 2) - (vrh + (p.bottom - vrh) / 2);
+  }
   function odpriVrstoPlosco() {
     var plosca = $("mediaVrstaPlosca"); if (!plosca) return;
     plosca.hidden = false;
     $("mediaBarVrstaGumb").setAttribute("aria-expanded", "true");
+    pomakniNaTrenutno();
     var izbran = plosca.querySelector(".media-vrsta-vnos.izbran") || plosca.querySelector("button");
-    if (izbran) { try { izbran.focus({ preventScroll: false }); } catch (e) { izbran.focus(); } }
+    if (izbran) { try { izbran.focus({ preventScroll: true }); } catch (e) { izbran.focus(); } }
   }
   function zapriVrstoPlosco(nazajNaGumb) {
     var plosca = $("mediaVrstaPlosca"); if (!plosca || plosca.hidden) return false;
@@ -2126,6 +2159,9 @@
     poveziIzhode();
     $("mediaBarVrstaGumb").addEventListener("click", function () { zapriIzhode(false); if ($("mediaVrstaPlosca").hidden) odpriVrstoPlosco(); else zapriVrstoPlosco(true); });
     document.addEventListener("click", function (e) {
+      // Klik na vrstico vrste plosco na novo narise (vrstica ni vec v dokumentu): plosca ostane odprta, poudarjena je
+      // nova skladba (pregled 18. 10. 2026 - prej se je plosca ob vsaki izbiri zaprla).
+      if (!document.contains(e.target)) return;
       if (!e.target.closest("#mediaVrstaPlosca") && !e.target.closest("#mediaBarVrstaGumb")) zapriVrstoPlosco(false);
     });
     // Escape (tipka Nazaj na daljincu) zapre samo ploščo vrste, ne celega Medijskega centra.
@@ -3143,18 +3179,25 @@
   function scitZanka() {
     clearInterval(scitCas);
     scitCas = setInterval(function () {
-      if (S.razdelek !== "nastavitve") { clearInterval(scitCas); return; }
+      if (S.razdelek !== "nastavitve" && S.razdelek !== "scit") { clearInterval(scitCas); return; }
       // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
       var blok = $("blokScit");
       if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
       if (!scitZaposleno) nalozScit();
     }, 5000);
   }
+  // En blok nastavitev Scita na stran: v Nastavitvah ali v oknu Safeer Scit (premakne se, ne podvaja - obe mesti ne
+  // moreta pokazati razlicnih nastavitev; vir je en sam, Scit v Safeer OS).
+  function premakniScit(mesto) {
+    var b = $("blokScit"), m = $(mesto);
+    if (b && m && b.parentNode !== m && vodnikKorak < 0) m.appendChild(b);
+  }
   function narisiScit() {
     var c = $("blokScit");
     c.innerHTML = "";
     var s = scitStanje;
     if (!s) return;
+    if (S.razdelek === "scit") nalozScitStatistiko();
     var pod;
     if (scitZaposleno) pod = t("scitPripravljam");
     else if (!s.mozno) pod = t(s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : "scitNiMozno");
@@ -3175,6 +3218,12 @@
     }, pod);
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
+    // Tiha izguba sifriranja (pregled 18. 10. 2026): mirna vrstica stanja, brez okna in brez rdece barve.
+    if (s.vklop && s.tece && s.nesifrirano) {
+      var ns = el("div", "scit-zadnje scit-nesifrirano", ubezi(t("scitNesifrirano")));
+      ns.setAttribute("role", "status");
+      c.appendChild(ns);
+    }
     // Spotify v Safeer DRM (core/spotify_racun.py): oglasi brezplačnega računa, neodvisno od filtriranja DNS.
     if (scitSpotify !== null) {
       c.appendChild(stikalo("scitSpotify", "scit", scitSpotify, function (v) {
@@ -3235,6 +3284,36 @@
       });
       c.appendChild(iz);
     }
+  }
+  // Statistika v oknu Safeer Scit: DNS za ves racunalnik, seznami, Splet in Sporocila, pravila proti sledenju.
+  var scitStatCas = 0;
+  function nalozScitStatistiko() {
+    if (Date.now() - scitStatCas < 4000) return;
+    scitStatCas = Date.now();
+    klic("scitStatistika").then(narisiScitStatistiko, function () {});
+  }
+  function scitDatum(sek) {
+    if (!sek) return t("scitStatNikoli");
+    try { return new Date(sek * 1000).toLocaleString(LOKALE[jezik] || "en-GB", { dateStyle: "short", timeStyle: "short" }); }
+    catch (_) { return new Date(sek * 1000).toLocaleString(); }
+  }
+  function narisiScitStatistiko(st) {
+    var dl = $("scitStatistika");
+    if (!dl || !st) return;
+    var s = st.scit || {}, p = st.pravila || {}, sp = st.splet || {};
+    var vrstice = [
+      ["scitStatDns", s.vklop && s.tece ? t("scitStatDnsVrednost", { n: s.blokiranih || 0, p: s.poizvedb || 0 }) : t("scitStatIzklopljen")],
+      ["scitStatSeznami", t("scitStatSeznamiVrednost", { d: s.domen || 0, cas: scitDatum(s.posodobljeno) })],
+      ["scitStatGroznje", t("scitStatGroznjeVrednost", { n: s.pravil || 0 })],
+      ["scitStatNesifrirano", t("scitStatNesifriranoVrednost", { n: s.rezerv || 0 })],
+      ["scitStatSplet", t("scitStatSpletVrednost", { n: (sp.oglasi || 0) + (sp.groznje || 0) })],
+      ["scitStatPravila", t("scitStatPravilaVrednost", { n: p.pravil || 0, v: p.verzija || 0, vir: t("scitVir_" + (p.vir || "vgrajena")) })]
+    ];
+    dl.innerHTML = "";
+    vrstice.forEach(function (v) {
+      dl.appendChild(el("dt", "", ubezi(t(v[0]))));
+      dl.appendChild(el("dd", "", ubezi(v[1])));
+    });
   }
   // Streznik naprej: kam Scit poslje dovoljena imena (privzeto Cloudflare prek DoH) in kdo jih vidi - po resnici.
   var SCIT_NAPREJ = ["cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router"];
@@ -5480,6 +5559,10 @@
               jezikVsebine: "", jezikiZa: null, seznami: [], seznam: null,
               drzavaRadia: "", radioDrzave: null, radioDrzaveZa: "",
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], vrstaNapake: 0, izVrste: false,
+              // vrstaRed: vrstni red predvajanja ob »Nakljucno« (indeksi vrste); vrstaIzvor: seznam, iz katerega je vrsta
+              // (Nazadnje predvajano); zivi: id skladb, ki so prenos v zivo; vrstaSamodejno: do skladbe je prisel samodejni prehod.
+              vrstaRed: null, vrstaIzvor: null, vrstaSpremenjena: false, vrstaSamodejno: false, vrstaIzSafeerja: false,
+              vrstaZeton: 0, zivi: {},
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
@@ -5683,7 +5766,8 @@
         card.appendChild(el("span", "kat-trajanje", Math.floor(sek / 60) + ":" + String(sek % 60).padStart(2, "0")));
       }
       // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč. Znana je v vrstici vira.
-      var znacka = vrsticaVira ? "" : x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
+      // Skladba s seznama, ki je prenos v zivo (core/nazadnje_predvajano: znani prenosi), ima znacko »V zivo«.
+      var znacka = vrsticaVira ? "" : x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" || (izSeznama && jeVZivo(x)) ? t("katVZivo") : "");
       if (vrsticaVira && x.vrsta === "tv-v-zivo") znacka = t("katVZivo");
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
@@ -6196,11 +6280,8 @@
     glava.appendChild(el("h3", "", ubezi(t("spNaslov"))));
     function gumb(besedilo, ob) { var g = el("button", "gumb", ubezi(besedilo)); g.type = "button"; g.onclick = ob; glava.appendChild(g); return g; }
     if (!r.drm) {
-      // Kot pri Netflixu: Safeer DRM se prenese samo po kliku uporabnika (preverjen SHA-256).
-      glava.appendChild(el("small", "", ubezi(r.prenos === "tece" ? t("spPrenasam") : r.prenos === "napaka" ? t("spPrenosNi") : t("spNiDrm"))));
-      if (r.prenos !== "tece") gumb(t("spPrenesi"), function () {
-        klic("mediaSpPrenesi").then(function () { kat.spCas = 0; naloziSpotify(true); cakajSpPrijavo(); }, function () {});
-      });
+      // Safeer DRM je od 1.0.127 del paketa (nič se ne prenaša); brez njega je namestitev iz izvorne kode - samo pojasnilo.
+      glava.appendChild(el("small", "", ubezi(t("spNiDrm"))));
     } else if (!r.prijavljen || r.okno) {
       glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
       if (!r.okno) gumb(t("spPrijava"), spPrijava);
@@ -6456,7 +6537,7 @@
       }
       glava.appendChild(el("small", "", ubezi(stSkladb(sz.vnosi.length) + (sz.vir ? " · " + sz.vir : ""))));
       var vse = el("button", "gumb glavni", ubezi("▶ " + t("seznamPredvajajVse"))); vse.type = "button";
-      vse.onclick = function () { var prvi = sz.vnosi[0]; if (prvi) { nastaviVrsto(prvi); odpriKatalogVnos(prvi.id); } };
+      vse.onclick = function () { var prvi = sz.vnosi[0]; if (prvi) { nastaviVrsto(prvi); zacniOdZacetka(); narisiVrsto(); odpriKatalogVnos(kat.vrsta[kat.vrstaMesto]); } };
       glava.appendChild(vse);
       if (sz.sp) {
         // Seznam računa Spotify: predvaja skrit Safeer DRM; shrani ga uporabnik sam (ostane samo na tej napravi).
@@ -6559,7 +6640,10 @@
   });
 
   // ---- skladba iz kataloga ali s seznama: v spodnji vrstici (naslov, prejšnja/premor/naslednja, premešaj, ponovi, vrsta)
-  function osveziKatTrak() { narisiTrak(); }
+  function osveziKatTrak() {
+    narisiTrak();
+    if (S.mediaFilter === "domov" && POL.zadnjiSeznam) narisiMediaDomov();     // junak: »Nadaljuj« ali »Predvaja se«
+  }
   function skrijKatTrak() { kat.aktivni = null; kat.igra = false; osveziKatTrak(); }
   // Datoteka ali postaja v domacem predvajalniku zamenja skladbo iz kataloga: vrsta kataloga se ustavi (zahteva v teku
   // se ne zacne), spodnja vrstica pokaze, kar res igra, in »Naslednja« ne vzame naslednje skladbe kataloga namesto filma
@@ -6592,40 +6676,167 @@
     try { var v = localStorage.getItem("safeer_glasba_" + kljuc); return v == null ? privzeto : v; } catch (e) { return privzeto; }
   }
   function vrstaShrani(kljuc, vrednost) { try { localStorage.setItem("safeer_glasba_" + kljuc, String(vrednost)); } catch (e) {} }
-  function nastaviVrsto(zacetni, iz) {
-    // Skladba z odprtega seznama predvajanja: vrsta je seznam (v njegovem vrstnem redu), ne katalog; s police na Domov polica.
-    var osnova = iz ? iz : kat.seznam && kat.seznam.vnosi.some(function (x) { return x.id === zacetni.id; }) ? kat.seznam.vnosi : (kat.prikazano || kat.katalog || []);
-    var seznam = osnova.filter(function (x) { return x.vrsta === zacetni.vrsta && !x.stran; });
+  // Odprt seznam (kat.seznam) -> izvor za »Nazadnje predvajano« (core/nazadnje_predvajano.py). Spotify vodi svoj
+  // kontekst (skrit Safeer DRM), Twitch ni seznam skladb: ne nadaljujeta se z Domov.
+  function izvorSeznama(sz) {
+    if (!sz || sz.sp || sz.twitch || !sz.ime) return null;
+    if (sz.yt) return { tip: "yt", ref: String(sz.yt), racun: sz.yt_racun || 0, ime: sz.ime };
+    return { tip: "seznam", ref: sz.ime, ime: sz.ime };
+  }
+  function novaVrsta(seznam, mesto, izvor) {
     kat.vrsta = seznam.map(function (x) { return x.id; });
     kat.vrstaVnosi = seznam;
-    kat.vrstaMesto = Math.max(0, kat.vrsta.indexOf(zacetni.id));
+    kat.vrstaMesto = Math.max(0, Math.min(seznam.length - 1, mesto || 0));
     kat.vrstaZgodovina = []; kat.vrstaNapake = 0;
+    kat.vrstaIzvor = izvor || null; kat.vrstaSpremenjena = false; kat.vrstaSamodejno = false; kat.vrstaIzSafeerja = false;
+    kat.vrstaZeton++;
+    seznam.forEach(function (x) { if (x.v_zivo) kat.zivi[x.id] = 1; });
+    premesajVrsto();
+  }
+  function nastaviVrsto(zacetni, iz) {
+    // Skladba z odprtega seznama predvajanja: vrsta je seznam (v njegovem vrstnem redu), ne katalog; s police na Domov polica.
+    var izSeznama = !iz && !!kat.seznam && kat.seznam.vnosi.some(function (x) { return x.id === zacetni.id; });
+    var osnova = iz ? iz : izSeznama ? kat.seznam.vnosi : (kat.prikazano || kat.katalog || []);
+    var seznam = osnova.filter(function (x) { return x.vrsta === zacetni.vrsta && !x.stran; });
+    novaVrsta(seznam, seznam.map(function (x) { return x.id; }).indexOf(zacetni.id), izSeznama ? izvorSeznama(kat.seznam) : null);
     narisiVrsto();
   }
-  function naslednjiVVrsti(smer) {
+  // »Nakljucno« (lastnik, 18. 10. 2026: pokazi pravi vrstni red): ob vklopu dobi vrsta en premesan red - skladba, ki igra,
+  // prva, nato vse ostale po enkrat (Fisher-Yates). Plosca vrste kaze ta red. Prej je bila vsaka naslednja skladba
+  // izzrebana posebej (lahko tudi ista dvakrat), vrstnega reda pa ni bilo nikjer videti.
+  function nakljucnoVklopljeno() { return vrstaNastavitev("premesaj", "0") === "1"; }
+  function premesaj(indeksi) {
+    for (var j = indeksi.length - 1; j > 0; j--) { var r = Math.floor(Math.random() * (j + 1)), x = indeksi[j]; indeksi[j] = indeksi[r]; indeksi[r] = x; }
+    return indeksi;
+  }
+  // »Predvajaj vse« z vklopljenim »Nakljucno«: zacne s prvo skladbo premesanega reda (ne vedno s prvo s seznama).
+  function zacniOdZacetka() {
+    var n = (kat.vrsta || []).length, vsi = [];
+    if (!nakljucnoVklopljeno() || n < 2) return;
+    for (var i = 0; i < n; i++) vsi.push(i);
+    kat.vrstaRed = premesaj(vsi);
+    kat.vrstaMesto = kat.vrstaRed[0];
+  }
+  function premesajVrsto() {
+    var n = (kat.vrsta || []).length, ostali = [];
+    if (!nakljucnoVklopljeno() || n < 2) { kat.vrstaRed = null; return; }
+    for (var i = 0; i < n; i++) if (i !== kat.vrstaMesto) ostali.push(i);
+    kat.vrstaRed = [kat.vrstaMesto].concat(premesaj(ostali));
+  }
+  // Vrstni red predvajanja (indeksi vrste): premesan ali naraven.
+  function redVrste() {
+    var n = (kat.vrsta || []).length, red = [];
+    if (kat.vrstaRed && kat.vrstaRed.length === n) return kat.vrstaRed;
+    for (var i = 0; i < n; i++) red.push(i);
+    return red;
+  }
+  // Prenos v zivo (postaja, TV, Twitch ali skladba s seznama, ki se je izkazala za tok brez konca): nima konca, zato ga
+  // samodejni prehod v vrsti skladb preskoci - sicer bi vrsta na njem obstala (lastnik, 18. 10. 2026).
+  function jeVZivo(v) { return !!v && (!!(kat.zivi || {})[v.id] || !!v.v_zivo || /^(radio|tv-v-zivo|twitch)$/.test(v.vrsta || "")); }
+  // Vrsta postaj (zavihek Radio, TV): samodejni prehod gre na naslednjo postajo kot doslej (npr. po napaki postaje).
+  function vrstaPostaj() {
+    var v = kat.vrstaVnosi || [];
+    return v.length > 0 && v.every(function (x) { return /^(radio|tv-v-zivo|twitch)$/.test(x.vrsta || ""); });
+  }
+  function naslednjiVVrsti(smer, samodejno) {
     var n = (kat.vrsta || []).length;
     if (!n) return null;
+    var red = redVrste(), poz = red.indexOf(kat.vrstaMesto);
     if (smer < 0) {
       if (kat.vrstaZgodovina && kat.vrstaZgodovina.length) return kat.vrstaZgodovina.pop();
-      return (kat.vrstaMesto - 1 + n) % n;
+      return red[(poz - 1 + n) % n];
     }
     if (vrstaNastavitev("ponovi", "0") === "1") return kat.vrstaMesto;          // ponovi skladbo
-    if (vrstaNastavitev("premesaj", "0") === "1" && n > 1) {
-      var r; do { r = Math.floor(Math.random() * n); } while (r === kat.vrstaMesto);
-      return r;
-    }
-    var naslednji = kat.vrstaMesto + 1;
-    return naslednji < n ? naslednji : (n > 1 && vrstaNastavitev("ponoviVse", "1") === "1" ? 0 : null);
+    var preskoci = samodejno && !vrstaPostaj(), vnosi = kat.vrstaVnosi || [];
+    for (var k = poz + 1; k < n; k++) if (!(preskoci && jeVZivo(vnosi[red[k]]))) return red[k];
+    return null;                                 // konec vrste (predvajajIzVrste: podoben seznam ali znova od zacetka)
   }
-  function predvajajIzVrste(smer) {
-    var mesto = naslednjiVVrsti(smer);
+  // »Ponovi vse« (privzeto): vrsta znova od zacetka; ob »Nakljucno« z novim premesanim redom, ki se ne zacne s skladbo,
+  // ki je pravkar igrala.
+  function zacetekKroga(samodejno) {
+    var n = (kat.vrsta || []).length, vnosi = kat.vrstaVnosi || [];
+    if (n < 2 || vrstaNastavitev("ponoviVse", "1") !== "1") return null;
+    if (nakljucnoVklopljeno()) {
+      var vsi = []; for (var i = 0; i < n; i++) vsi.push(i);
+      kat.vrstaRed = premesaj(vsi);
+      if (kat.vrstaRed[0] === kat.vrstaMesto) { kat.vrstaRed[0] = kat.vrstaRed[1]; kat.vrstaRed[1] = kat.vrstaMesto; }
+    }
+    var red = redVrste(), preskoci = samodejno && !vrstaPostaj();
+    for (var k = 0; k < n; k++) if (!(preskoci && jeVZivo(vnosi[red[k]]))) return red[k];
+    return null;
+  }
+  // samodejno: prehod brez uporabnika (konec skladbe, napaka, preskok prenosa v zivo) - ne izbira uporabnika.
+  function predvajajIzVrste(smer, samodejno) {
+    var mesto = naslednjiVVrsti(smer, samodejno);
+    if (mesto == null && smer > 0 && (kat.vrsta || []).length) {
+      // Seznam je odigran do konca in uporabnik med poslusanjem ni nicesar spremenil (Nakljucno, Ponovi, rocna izbira
+      // skladbe): Safeer sam nadaljuje s seznamom, ki je po zvrsti najblizji (core/nazadnje_predvajano.py).
+      if (kat.vrstaIzvor && !kat.vrstaSpremenjena) { nadaljujPodobni(samodejno); return true; }
+      mesto = zacetekKroga(samodejno);
+    }
     if (mesto == null) return false;
     if (smer > 0) zapomniMestoVrste();
     kat.vrstaMesto = mesto;
+    kat.vrstaSamodejno = !!samodejno;
     narisiVrsto();
     kat.izVrste = true;
     odpriKatalogVnos(kat.vrsta[mesto]);
     return true;
+  }
+  // Vrsta s seznama, ki ga da jedro (»Nadaljuj« na Domov ali podoben seznam): od skladbe `mesto` naprej.
+  function zacniSeznam(r, mesto, odSafeerja) {
+    var vnosi = (r && r.vnosi) || [];
+    if (!vnosi.length) return false;
+    prekliciNaslednjo();
+    novaVrsta(vnosi, mesto, r.izvor);
+    if (nakljucnoVklopljeno() && Array.isArray(r.red) && r.red.length === vnosi.length && r.red[0] !== undefined) {
+      kat.vrstaRed = r.red.slice();         // nadaljevanje v istem premesanem redu, kot je bil
+      if (kat.vrstaRed.indexOf(kat.vrstaMesto) < 0) premesajVrsto();
+    } else if (odSafeerja) zacniOdZacetka();  // podoben seznam ob »Nakljucno«: od prve skladbe premesanega reda
+    if (odSafeerja && !vrstaPostaj()) {
+      // Seznam, ki ga je izbral Safeer, se ne zacne s prenosom v zivo (vrsta bi na njem obstala).
+      var red = redVrste(), poz = red.indexOf(kat.vrstaMesto);
+      while (poz < red.length && jeVZivo(vnosi[red[poz]])) poz++;
+      if (poz >= red.length) return false;
+      kat.vrstaMesto = red[poz];
+    }
+    kat.vrstaIzSafeerja = !!odSafeerja; kat.vrstaSamodejno = !!odSafeerja;
+    narisiVrsto();
+    kat.izVrste = !!odSafeerja;
+    odpriKatalogVnos(vnosi[kat.vrstaMesto].id);
+    return true;
+  }
+  function nadaljujPodobni(samodejno) {
+    var zeton = kat.vrstaZeton;
+    klic("mediaNazadnje", ["naslednji"]).then(function (r) { return r; }, function () { return null; }).then(function (r) {
+      if (zeton !== kat.vrstaZeton) return;              // uporabnik je medtem izbral drugo vsebino
+      if (r && r.vnosi && r.vnosi.length && zacniSeznam(r, 0, true)) return;
+      // Ni podobnega seznama (npr. en sam seznam): kot doslej znova od zacetka; brez sporocila uporabniku.
+      kat.vrstaSpremenjena = true;
+      if (!predvajajIzVrste(1, samodejno)) skrijKatTrak();
+    });
+  }
+  // Skladba s seznama je zacela igrati: zapomnimo si jo za »Nazadnje predvajano« na Domov (mesto v njej javlja jedro).
+  function zapomniZadnjiSeznam() {
+    var vnosi = kat.vrstaVnosi || [], v = vnosi[kat.vrstaMesto] || {}, slike = [];
+    vnosi.forEach(function (x) { if (x.slika && slike.indexOf(x.slika) < 0 && slike.length < 4) slike.push(x.slika); });
+    var izvor = Object.assign({}, kat.vrstaIzvor, { slike: slike }), skladba = { id: v.id, naslov: v.naslov, izvajalec: v.izvajalec, slika: v.slika };
+    klic("mediaNazadnje", ["zapomni", izvor, kat.vrstaMesto, skladba, vnosi.length, kat.vrstaRed || null, kat.vrstaIzSafeerja]).catch(function () {});
+    POL.zadnjiSeznam = { izvor: izvor, mesto: kat.vrstaMesto, poz: redVrste().indexOf(kat.vrstaMesto), skupaj: vnosi.length,
+                         skladba: skladba, pozicija: 0 };
+    if (S.mediaFilter === "domov") narisiMediaDomov();
+  }
+  // Skladba v vrsti se je izkazala za prenos v zivo (domaci predvajalnik: tok brez dolzine; YouTube: prenos): oznaka
+  // »V zivo« (vrsta, seznam) in - ce jo je zacel samodejni prehod - takoj naslednja.
+  function oznaciZivo() {
+    var id = kat.aktivniId;          // skladba, ki res igra (vrstaMesto se ob izbiri premakne ze pred zacetkom)
+    if (!id || jeVZivo({ id: id }) || vrstaPostaj()) return;
+    kat.zivi[id] = 1;
+    klic("mediaNazadnje", ["zivo", id]).catch(function () {});
+    var k = document.querySelector('#katMreza .kat-kartica[data-id="' + String(id).replace(/"/g, "") + '"]');
+    if (k && !k.querySelector(".kat-kakovost")) k.appendChild(el("span", "kat-kakovost", ubezi(t("katVZivo"))));
+    S.mediaQueueKey = ""; narisiVrsto();
+    if (kat.vrstaSamodejno && kat.vrsta[kat.vrstaMesto] === id) predvajajIzVrste(1, true);
   }
   // Zgodovina za »prejsnja« je omejena: dolgo poslusanje s »ponovi vse« je sicer rasla brez meje (pregled 18. 10. 2026).
   var VRSTA_ZGODOVINA_NAJVEC = 200;
@@ -6641,7 +6852,7 @@
   function naprejPoNapaki() {
     kat.vrstaNapake = (kat.vrstaNapake || 0) + 1;
     var meja = vrstaNastavitev("ponovi", "0") === "1" ? 2 : Math.max(1, (kat.vrsta || []).length);
-    if (kat.vrstaNapake >= meja || !predvajajIzVrste(1)) { kat.vrstaNapake = 0; ustaviKatPredvajanje(); }
+    if (kat.vrstaNapake >= meja || !predvajajIzVrste(1, true)) { kat.vrstaNapake = 0; ustaviKatPredvajanje(); }
   }
   // Premešaj in ponovi veljata za vrsto, ki jo vodi stran (vsaj dve skladbi); stanje kaže spodnja vrstica (narisiTrak).
   function narisiVrsto() { narisiTrak(); }
@@ -6686,6 +6897,8 @@
       if (item.stran && !item.native) { katSplet(item.stran); return; }
       kat.aktivni = item; kat.igra = true;
       spOpusti(false);
+      kat.aktivniId = id || item.id;
+      if (kat.vrstaIzvor && id && kat.vrsta[kat.vrstaMesto] === id) zapomniZadnjiSeznam();
       osveziKatTrak();
     }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
   }
@@ -6697,7 +6910,7 @@
   // sta na vsaki kartici (katalog, knjiznica, postaje); meni kartice odpre desni klik, tipka Meni ali Shift+F10,
   // igralni plosek Y in z misko »⋯« na kartici.
   var POL = { priljubljene: {}, ogledano: {}, police: [], zahteva: 0, podpis: "", stanje: null, nalozeno: "",
-              odkrivanje: [], odkrZahteva: 0, odkrPodpis: "", odkrOd: 0 };
+              odkrivanje: [], odkrZahteva: 0, odkrPodpis: "", odkrOd: 0, zadnjiSeznam: null };
   var POLICE_NASLOVI = { nadaljuj: "policaNadaljujGledanje", nazadnje: "policaNazadnje", najvec: "policaNajvec", priljubljene: "policaPriljubljene",
                         glasba: "policaGlasba", odkrij_filmi: "odkrijFilmi", odkrij_serije: "odkrijSerije", odkrij_glasba: "odkrijGlasba",
                         odkrij_youtube: "odkrijYoutube", odkrij_spotify: "odkrijSpotify", odkrij_twitch: "odkrijTwitch", odkrij_radio: "odkrijRadio" };
@@ -6730,6 +6943,7 @@
       POL.priljubljene = {}; (r.priljubljene || []).forEach(function (k) { POL.priljubljene[k] = 1; });
       POL.ogledano = {}; (r.ogledano || []).forEach(function (k) { POL.ogledano[k] = 1; });
       POL.police = Array.isArray(r.police) ? r.police : [];
+      if (S.mediaFilter === "domov") POL.zadnjiSeznam = r.nazadnje_seznam || null;    // Nazadnje predvajano (junak)
       POL.nalozeno = S.mediaFilter;
       narisiPolice();
       narisiVgrajenePloscice();          // ploscice lastnih strani (samo na Domov)
@@ -7085,13 +7299,16 @@
     });
     return najvec || "filmi";
   }
+  // Glavno mesto na Domov (lastnik, 18. 10. 2026: »Nazadnje predvajano« namesto »Nazadnje dodano«): zadnji seznam z
+  // »Nadaljuj«; brez njega, kar je uporabnik nazadnje gledal ali poslusal, sele nato odkrivanje.
   function izbiraJunaka() {
     var police = POL.police || [];
     var prvi = function (id) {
       var p = police.filter(function (x) { return x.id === id; })[0];
       return p && p.vnosi && p.vnosi[0] ? { v: p.vnosi[0], polica: id } : null;
     };
-    return prvi("nadaljuj") || prvi("nazadnje") || junakOdkrivanja();
+    if (POL.zadnjiSeznam && POL.zadnjiSeznam.izvor) return { seznam: POL.zadnjiSeznam, polica: "predvajano" };
+    return prvi("nadaljuj") || prvi("glasba") || junakOdkrivanja();
   }
   function imeZvrsti(id) {
     var z = KAT_FILMSKI_ZANRI.concat(KAT_SERIJSKI_ZANRI).filter(function (x) { return Number(x[0]) === Number(id); })[0];
@@ -7123,11 +7340,76 @@
       ozadje: v.ozadje || ""
     };
   }
+  // ---- Nazadnje predvajano (core/nazadnje_predvajano.py): zadnji seznam kot junak na Domov z »Nadaljuj«.
+  function imeIzvora(izvor) {
+    if (!izvor) return "";
+    return izvor.tip === "samodejni" ? imeSamodejnega({ vrsta: izvor.vrsta, ime: izvor.ime || "" }) : (izvor.ime || "");
+  }
+  // Zadnji seznam je ta trenutek nalozen v vrsti strani (igra ali je na premoru).
+  function seznamVVrsti(rec) {
+    var a = kat.vrstaIzvor, b = rec && rec.izvor;
+    return !!(a && b && kat.aktivni && kat.vrsta.length && kat.aktivniId === kat.vrsta[kat.vrstaMesto] &&
+              a.tip === b.tip && a.ref === b.ref && (a.racun || 0) === (b.racun || 0));
+  }
+  function nadaljujZadnjiSeznam() {
+    var rec = POL.zadnjiSeznam;
+    if (seznamVVrsti(rec)) { if (!kat.igra) premorKatPredvajanja(); return; }
+    klic("mediaNazadnje", ["nadaljuj"]).then(function (r) {
+      if (r && r.vnosi && r.vnosi.length) { zacniSeznam(r, r.mesto || 0, false); return; }
+      // Seznama ni vec ali ga ni mogoce prebrati: tiho izgine z Domov (lastnik 18. 10. 2026), sled je v sled.log.
+      POL.zadnjiSeznam = null; narisiMediaDomov();
+    }, function () {});
+  }
+  function narisiJunakaSeznama(junak, rec) {
+    var izvor = rec.izvor, sk = rec.skladba || {}, igra = seznamVVrsti(rec) && kat.igra;
+    // Mesto v vrstnem redu predvajanja (ob »Nakljucno« premesan red, kot ga kaze plosca vrste).
+    var slike = (izvor.slike || []).slice(0, 4), skupaj = Number(rec.skupaj) || 0, mesto = Math.max(0, Number(rec.poz != null ? rec.poz : rec.mesto) || 0);
+    var podpis = JSON.stringify(["seznam", rec, igra, jezik]);
+    if (junak._podpis === podpis) return;
+    junak._podpis = podpis;
+    var prejFokus = document.activeElement && junak.contains(document.activeElement);
+    junak.innerHTML = "";
+    junak.classList.toggle("z-ozadjem", slike.length > 0);
+    if (slike.length) {
+      var oz = el("div", "media-junak-ozadje zamegljeno"); oz.setAttribute("aria-hidden", "true");
+      var slikaOzadja = document.createElement("img"); slikaOzadja.alt = ""; slikaOzadja.src = slike[0];
+      slikaOzadja.onerror = function () { oz.remove(); junak.classList.remove("z-ozadjem"); };
+      oz.appendChild(slikaOzadja); junak.appendChild(oz);
+    }
+    var plakat = el("div", "media-junak-plakat kvadrat media-junak-seznam"); plakat.setAttribute("aria-hidden", "true");
+    plakat.appendChild(kolaz(slike));
+    if (skupaj > 1) plakat.appendChild(el("span", "kat-merilo", '<i style="width:' + Math.max(2, Math.min(100, Math.round(100 * (mesto + 1) / skupaj))) + '%"></i>'));
+    junak.appendChild(plakat);
+    var besedilo = el("div", "media-junak-besedilo");
+    besedilo.appendChild(el("span", "media-junak-oznaka", ubezi(t("policaNazadnjePredvajano"))));
+    var h = el("h2", "", ubezi(imeIzvora(izvor))); h.id = "mediaJunakNaslov"; besedilo.appendChild(h);
+    var pod = [sk.naslov, sk.izvajalec].filter(Boolean).join(" — ");
+    if (pod) besedilo.appendChild(el("p", "media-junak-pod", ubezi(pod)));
+    var meta = [];
+    if (skupaj > 0) meta.push(t("nazSkladbaOd", { i: Math.min(mesto + 1, skupaj), n: skupaj }));
+    if (rec.pozicija > 0 && !igra) meta.push(casMedija(rec.pozicija));
+    if (izvor.tip === "yt") meta.push("YouTube");
+    if (meta.length) besedilo.appendChild(el("p", "media-junak-meta", meta.map(ubezi).join('<span aria-hidden="true"> · </span>')));
+    var dejanja = el("div", "media-junak-dejanja");
+    if (igra) {
+      // Ze igra: upravljanje je v spodnji vrstici (brez podvojenega gumba), tu samo stanje.
+      dejanja.appendChild(el("span", "media-junak-vir", svg("glasba") + '<span>' + ubezi(t("nazPredvajaSe")) + '</span>'));
+    } else {
+      var gumb = el("button", "gumb glavni", svg("predvajaj") + '<span>' + ubezi(t("domovNadaljuj")) + '</span>');
+      gumb.type = "button"; gumb.id = "mediaJunakPredvajaj";
+      gumb.setAttribute("aria-describedby", "mediaJunakNaslov");
+      gumb.addEventListener("click", nadaljujZadnjiSeznam);
+      dejanja.appendChild(gumb);
+    }
+    besedilo.appendChild(dejanja);
+    junak.appendChild(besedilo);
+    if (prejFokus) { var f = junak.querySelector("button"); if (f) f.focus({ preventScroll: true }); }
+  }
   function narisiMediaDomov() {
     var junak = $("mediaJunak"), prazno = $("mediaPrazno"); if (!junak) return;
     narisiOdkrivanje();                  // brez kartic, ki so ze na osebnih policah (te so lahko prisle sele zdaj)
     var nalozeno = POL.nalozeno === "domov";
-    var ima = (POL.police || []).length > 0 || odkrivanjeVidno().length > 0;
+    var ima = (POL.police || []).length > 0 || odkrivanjeVidno().length > 0 || !!POL.zadnjiSeznam;
     // Prazno stanje sele, ko je odgovor za Domov prisel (ne utripa ob odprtju); ena poteza: Dodaj mapo. Samodejni
     // seznami so tudi knjiznica: z njimi »Tvoja knjiznica se zacne tukaj« ni res (pregled 14. 10. 2026).
     prazno.hidden = !nalozeno || ima || (S.samodejni || []).length > 0;
@@ -7136,6 +7418,7 @@
     var izbor = nalozeno && ima ? izbiraJunaka() : null;
     junak.hidden = !izbor;
     if (!izbor) { junak.innerHTML = ""; junak._podpis = ""; return; }
+    if (izbor.seznam) { narisiJunakaSeznama(junak, izbor.seznam); return; }
     var d = podatkiJunaka(izbor.v);
     var podpis = JSON.stringify([d, izbor.polica, jezik]);
     if (junak._podpis === podpis) return;
@@ -8255,8 +8538,12 @@
     var ukaz = function (u) { klic("predvajalnikUkaz", [u]).catch(function () {}); };
     ob("mediaPrejsnja", "click", function () { if (spNaTraku()) spUkazTraka("nazaj"); else if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });
     ob("mediaNaslednja", "click", function () { if (spNaTraku()) spUkazTraka("naprej"); else if (skladbaKataloga()) predvajajIzVrste(1); else ukaz("naslednja"); });
-    ob("mediaPremesaj", "click", function () { vrstaShrani("premesaj", vrstaNastavitev("premesaj", "0") === "1" ? "0" : "1"); narisiVrsto(); });
-    ob("mediaPonovi", "click", function () { vrstaShrani("ponovi", vrstaNastavitev("ponovi", "0") === "1" ? "0" : "1"); narisiVrsto(); });
+    // Nakljucno in Ponovi: uporabnik je vrsto spremenil - ob koncu seznama Safeer ne izbere sam naslednjega.
+    ob("mediaPremesaj", "click", function () {
+      vrstaShrani("premesaj", nakljucnoVklopljeno() ? "0" : "1"); kat.vrstaSpremenjena = true; premesajVrsto();
+      S.mediaQueueKey = ""; narisiVrsto();
+    });
+    ob("mediaPonovi", "click", function () { vrstaShrani("ponovi", vrstaNastavitev("ponovi", "0") === "1" ? "0" : "1"); kat.vrstaSpremenjena = true; narisiVrsto(); });
     ob("mediaKatPremor", "click", function () { if (spNaTraku()) spUkazTraka("premor"); else if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });
     ob("mediaZapri", "click", function () { if (spNaTraku()) spUstaviTrak(); else if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });
     ob("medijiDodatki", "click", function () { zapriMeniDodaj(false); odpriKatViri(); });
@@ -8368,7 +8655,7 @@
     if (vrsta === "mediaVgrajeniMeritve") naloziVgrajene();
     var zaAktivno = kat.aktivni && podatki && podatki.id === kat.aktivni.id;
     // Skladba je odigrana do konca (domači predvajalnik ali vgradni predvajalnik YouTuba): naslednja iz vrste.
-    if (vrsta === "mediaKonec" && zaAktivno && !predvajajIzVrste(1)) skrijKatTrak();
+    if (vrsta === "mediaKonec" && zaAktivno && !predvajajIzVrste(1, true)) skrijKatTrak();
     // Naslednja epizoda (core/os_katalog.py): ponudba z odstevanjem; konec ponudbe (zacelo ali preklicalo jo je
     // drugo okno, uporabnik je izbral drugo vsebino) jo skrije povsod.
     if (vrsta === "mediaNaslednja" && podatki && podatki.zeton) { pokaziNaslednjo(podatki); naloziPolice(); }
@@ -8377,7 +8664,10 @@
     if (vrsta === "mediaKonec") naloziPolice();
     // Tipka ali daljinec »naslednja/prejšnja« pri skladbi iz kataloga: vrsto vodi stran.
     if (vrsta === "mediaVrstaUkaz" && kat.aktivni) predvajajIzVrste(Number(podatki) < 0 ? -1 : 1);
-    if (vrsta === "mediaYt" && zaAktivno) { kat.igra = !!podatki.igra; if (kat.igra) kat.vrstaNapake = 0; osveziKatTrak(); }
+    if (vrsta === "mediaYt" && zaAktivno) {
+      kat.igra = !!podatki.igra; if (kat.igra) kat.vrstaNapake = 0; osveziKatTrak();
+      if (podatki.zivo && kat.vrsta.length) oznaciZivo();
+    }
     if (vrsta === "mediaYtZaprt" && zaAktivno) { kat.vrsta = []; skrijKatTrak(); }
     if (vrsta === "mediaYtNapaka" && zaAktivno) {
       // Lastnik posnetka vgradnje ne dovoli (ali posnetka ni več): poiščemo drug posnetek iste skladbe, sicer naslednja.
@@ -8399,6 +8689,8 @@
       var igra = podatki.stanje === "predvaja";
       if (igra) kat.vrstaNapake = 0;
       if (igra !== kat.igra) { kat.igra = igra; osveziKatTrak(); }
+      // Tok brez dolzine po 3 s (core/os_predvajalnik.je_v_zivo): skladba s seznama je prenos v zivo.
+      if (igra && podatki.zivo && kat.vrsta.length) oznaciZivo();
     }
   }
 
@@ -8421,6 +8713,8 @@
     if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);
     if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();
     if (vrsta === "stanje") narisiStanje(podatki);
+    // Scit je spremenjen drugje (drugo okno, pult, Splet): ta stran pokaze isto stanje takoj.
+    if (vrsta === "scit" && podatki && !scitZaposleno) { scitStanje = podatki; if ($("blokScit")) narisiScit(); }
     if (vrsta === "okna") narisiOkna(podatki);
     if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);
     if (vrsta === "medijskaKnjiznica") naloziMedije();
@@ -8872,6 +9166,7 @@
     });
     $("mintPreklici").addEventListener("click", zapriSloje);
     $("gumbVodnik").addEventListener("click", odpriVodnik);
+    $("gumbOdpriScit").addEventListener("click", function () { pojdi("scit"); });
     $("vodnikNaprej").addEventListener("click", function () { korakVodnika(1); });
     $("vodnikPreskoci").addEventListener("click", function () { korakVodnika(1); });
     $("vodnikNazaj").addEventListener("click", function () { korakVodnika(-1); });
@@ -9627,7 +9922,7 @@
       if (RAZDELEK) {
         // Okno enega razdelka: ta razdelek (ali ukaz »pojdi«, ki ga je Safeer OS poslal ob odprtju).
         if (S.razdelek !== RAZDELEK) pojdi(RAZDELEK);
-        document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve" }[RAZDELEK]) || document.title;
+        document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve", scit: "scitAplikacija" }[RAZDELEK]) || document.title;
         return;
       }
       if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS

@@ -73,16 +73,25 @@ def _obmocje_zaslona(okno=None):
     return monitor.get_geometry()
 
 
-def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1) -> None:
+#: Ena vrsta posiljanja na proces (SafeerLink.posiljanje_datotek).
+_POSILJANJE_ZAKLEP = threading.Lock()
+
+
+def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1, privzeto: int = -1) -> None:
     """Nemodalno obvestilo z gumbi; ob_odgovoru(indeks gumba ali -1). preklic: gumb, ki velja ob Esc (privzeto
-    zadnji). Gtk.AlertDialog (GTK4)."""
+    zadnji). privzeto: gumb s fokusom (in Enter) - privzeto isti kot preklic, torej varna izbira. Gtk.AlertDialog (GTK4).
+
+    Pregled 18. 10. 2026 (daljinec na televizorju): brez privzetega gumba je GTK fokus dal PRVEMU gumbu - v sporocilu s
+    povezavo »Kopiraj«, en pritisk na V redu je izbral tisto, cesar uporabnik ni zelel. Izmerjeno v Xvfb (GTK 4.14)."""
     d = Gtk.AlertDialog()
     d.set_message(naslov)
     if besedilo:
         d.set_detail(besedilo)
     d.set_buttons(list(gumbi))
     d.set_modal(False)
-    d.set_cancel_button(preklic if preklic >= 0 else len(gumbi) - 1)
+    varen = preklic if preklic >= 0 else len(gumbi) - 1
+    d.set_cancel_button(varen)
+    d.set_default_button(privzeto if 0 <= privzeto < len(gumbi) else varen)
 
     def koncano(dialog, rezultat, *_a):
         try:
@@ -275,6 +284,9 @@ MOST_JS = """
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
     globalLinkStanje: function () { return JSON.stringify(window.__safeerLink.globalLink || null); },
     nastaviNeposredno: function (vklop) { poslji("nastaviNeposredno", [!!vklop]); },
+    // »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi).
+    pomocStanje: function () { return JSON.stringify(window.__safeerLink.pomoc || null); },
+    nastaviPomoc: function (vklop) { poslji("nastaviPomoc", [!!vklop]); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
     nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
@@ -736,6 +748,7 @@ class SafeerLink:
             "deljenje": self._deljenje_stanje(),
             "vzdevki": self._vzdevki(),
             "globalLink": self._global_link_stanje(),
+            "pomoc": self._pomoc_stanje(),
         }
         # ensure_ascii=True: imena naprav pridejo z omrezja, U+2028/U+2029 pa sta
         # v JavaScriptu ločilnika vrstic. Ubezimo vsemu, kar ni ASCII.
@@ -796,6 +809,8 @@ class SafeerLink:
             "deliStandardneMape": lambda: self._deli_standardne_mape(),
             "nastaviNeposredno": lambda: self._v_ozadju(
                 lambda: self._nastavi_neposredno(bool(argumenti[0]) if argumenti else False)),
+            "nastaviPomoc": lambda: self._v_ozadju(
+                lambda: self._nastavi_pomoc(bool(argumenti[0]) if argumenti else True)),
             "zapri": lambda: self._zapri_okno(),
         }.get(metoda)
         if obravnava is not None:
@@ -849,6 +864,29 @@ class SafeerLink:
             self._odziv("napaka", str(e))
             return
         self._odziv("globalLink", {})
+
+    # »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi): privzeto vklopljeno, stran
+    # uporabnika ob seznanitvi enkrat vprasa (vprasano), potem je stikalo v razdelku »Povezava zdoma«.
+    def _pomoc_stanje(self) -> Optional[dict]:
+        try:
+            from core import link_mesh
+            return link_mesh.nastavitve_pomoci()
+        except Exception:  # noqa: BLE001 - stran brez tega stikala
+            return None
+
+    def _nastavi_pomoc(self, vklop: bool) -> None:
+        """Uporabnikova izbira velja takoj: Hub sosedom poslje nov seznam (z ali brez naprav drugih sosedov)."""
+        try:
+            from core import link_mesh
+            link_mesh.shrani_pomoc(bool(vklop))
+            g = getattr(self, "_hub_gostitelj", None)
+            hub = getattr(getattr(g, "streznik", None), "hub", None) if g is not None else None
+            if hub is not None and hasattr(hub, "osvezi_pomoc"):
+                hub.osvezi_pomoc()
+        except Exception as e:  # noqa: BLE001
+            self._odziv("napaka", str(e))
+            return
+        self._odziv("pomoc", {})
 
     def _upravljaj_racunalnik(self, id_naprave: str = "") -> None:
         """Odpre domaci gledalec; odziv strani vsebuje tudi zavrnitev ciljne naprave."""
@@ -1987,25 +2025,18 @@ class SafeerLink:
     # ------------------------------------------------------------------ vlecenje datotek na napravo (GTK4)
     def _na_vlecene_datoteke(self, kontekst) -> None:
         """Ob vstopu vlecenja v okno preberemo seznam datotek iz Gdk.Drop (stran ga ne vidi). Novo vlecenje prejsnje
-        pozabi - tudi ce ne prinasa datotek."""
-        def prebrano(spust, izid) -> None:
-            try:
-                from core import os_datoteke
-                seznam = spust.read_value_finish(izid)
-                naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
-                poti = os_datoteke.poti_iz_naslovov(naslovi)
-                if poti and spust is self._vleceno_kontekst:
-                    self._vlecene_poti = poti
-            except Exception:  # noqa: BLE001 - vlecenje brez datotek ali preklicano
-                pass
+        pozabi - tudi ce ne prinasa datotek. Datoteke iz drugih programov (Nemo, XWayland, Electron) in iz portala
+        dokumentov v Flatpaku (/run/user/<uid>/doc/...) bere os_datoteke.preberi_vlecene."""
+        def prebrano(spust, poti) -> None:
+            if poti and spust is self._vleceno_kontekst:
+                self._vlecene_poti = poti
         try:
             if kontekst is None:
                 return
             if kontekst is not self._vleceno_kontekst:
                 self._vleceno_kontekst, self._vlecene_poti = kontekst, []
-            from gi.repository import Gdk
-            if kontekst.get_formats().contain_gtype(Gdk.FileList.__gtype__):
-                kontekst.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebrano)
+            from core import os_datoteke
+            os_datoteke.preberi_vlecene(kontekst, prebrano)
         except Exception as e:  # noqa: BLE001
             print("[SafeerLink] vlecenje:", e, flush=True)
 
@@ -2021,14 +2052,33 @@ class SafeerLink:
     def posiljanje_datotek(self):
         """Ena vrsta posiljanja (core/link_posiljanje) za stran Linka, Datoteke Safeer OS (D-Bus) in Nemo (safeerctl):
         posiljka pocaka na napravo, ki je ni, in nadaljuje, ko se vrne; zadnja naprava je prva v menijih."""
+        if getattr(self, "_posiljanje", None) is not None:
+            return self._posiljanje
+        # Klicejo jo glavna nit (zagon Controla, stran) in niti D-Bus (Safeer OS, safeerctl): vrsta mora biti ena, sicer
+        # bi se shranjene posiljke obnovile dvakrat.
+        with _POSILJANJE_ZAKLEP:
+            return self._ustvari_posiljanje()
+
+    def _ustvari_posiljanje(self):
         if getattr(self, "_posiljanje", None) is None:
             from core import link_posiljanje
+            # Safeer Control: nekoncane posiljke prezivijo ponovni zagon (vrsta ob nastavitvah Controla, samo poti).
+            shramba = None
+            if getattr(self, "control", False):
+                try:
+                    shramba = os.path.join(os.path.dirname(self.nastavitve.pot), "posiljanje-vrsta.json")
+                except Exception:  # noqa: BLE001 - brez poti nastavitev vrsta ostane v pomnilniku
+                    shramba = None
             self._posiljanje = link_posiljanje.Posiljanje(
                 self.poslji_datoteko_napravi,
-                lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), ""),
+                lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), "")
+                or self._ime_znane(i),
                 dosegljiva=lambda i: any(n.get("id") == i for n in self.naprave),
                 ob_spremembi=self._ob_posiljanju,
-                zabelezi=self._zabelezi_zadnjo)
+                zabelezi=self._zabelezi_zadnjo,
+                shramba=shramba)
+            if shramba:
+                self._posiljanje.obnovi()
         return self._posiljanje
 
     def poslji_datoteke(self, id_naprave: str, poti: List[str], obvesti: bool = False) -> dict:
@@ -2050,13 +2100,50 @@ class SafeerLink:
                    if n.get("id") and n.get("id") != nas and not n.get("jaz") and "file" in (n.get("zmoznosti") or [])]
         return link_posiljanje.razvrsti(naprave)
 
+    def _ime_znane(self, id_naprave: str) -> str:
+        """Ime naprave, ki je zdaj ni v Linku, a je ze sprejemala datoteke (posiljka nanjo caka)."""
+        try:
+            from core import link_posiljanje
+            return link_posiljanje.ime_znane(self.nastavitve, id_naprave)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def sme_posiljati(self, id_naprave: str) -> bool:
+        """Ali sme Control zaceti posiljanje tej napravi: je v Linku ali je znana naprava iz kroga zaupanja, ki je zdaj
+        ni (posiljka pocaka nanjo)."""
+        i = str(id_naprave or "")
+        if not i:
+            return False
+        if any(n.get("id") == i for n in list(self.naprave) + list(getattr(self, "naprave_vse", None) or [])):
+            return True
+        try:
+            return any(n.get("id") == i for n in self.naprave_za_nemo())
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] posiljanje:", e, flush=True)
+            return False
+
+    def naprave_za_nemo(self) -> List[dict]:
+        """Naprave za »Poslji na …« v Nemu: zdaj v Linku in znane, ki jih zdaj ni (posiljka pocaka nanje), dokler so v
+        krogu zaupanja tega racunalnika."""
+        from core import link_krog, link_posiljanje
+        zdaj = self.naprave_za_posiljanje()
+        try:
+            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj)
+        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
+            print("[SafeerLink] znane naprave:", e, flush=True)
+
+        def je_clan(i: str) -> bool:
+            return link_krog.krog().clan_za_id(i) is not None
+        return link_posiljanje.za_meni(zdaj, self.nastavitve, je_clan)
+
     def _osvezi_nemo(self) -> None:
-        """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke."""
+        """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke, in
+        znane naprave, ki jih zdaj ni (posiljka pocaka, da se vrnejo)."""
         if not getattr(self, "control", False):
             return
         try:
             from core import link_nemo
-            link_nemo.zapisi(self.naprave_za_posiljanje())
+            link_nemo.zapisi(self.naprave_za_nemo())
         except Exception as e:  # noqa: BLE001
             print("[SafeerLink] Nemo:", e, flush=True)
 

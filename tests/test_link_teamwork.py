@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from core import link_delta, link_teamwork as tw
 
@@ -426,6 +427,102 @@ class Zaznava(unittest.TestCase):
             for koda in b:
                 if koda != "tukaj":
                     tw.besedilo(jezik, koda, ime="a", kdo="b", kopija="c")
+
+
+class MejeSej(unittest.TestCase):
+    """Pregled 18. 10. 2026: vsaka nova seja kopira celo datoteko v zgodovino (trenutne razlicice so zascitene) in prva
+    prijava tece v svoji niti. Brez meja je ena naprava s files.session za vse deljene datoteke napolnila disk in
+    zagnala neomejeno niti, ki berejo cele datoteke."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.poti = {}
+        for i in range(tw.NAJVEC_SEJ_NA_NAPRAVO + 2):
+            p = os.path.join(self.tmp, "f%d.txt" % i)
+            with open(p, "w") as f:
+                f.write("vsebina %d" % i)
+            self.poti["id%d" % i] = p
+        self.ura = Ura()
+        self.t = tw.Teamwork(razresi=lambda o: self.poti.get(o, ""), ime_naprave=lambda i: i, obvesti=lambda *a: None,
+                             ukaz=None, okna=lambda: [], mapa=os.path.join(self.tmp, "tw"), procesi=None, zdaj=self.ura)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_najvec_sej_na_napravo(self):
+        for i in range(tw.NAJVEC_SEJ_NA_NAPRAVO):
+            self.assertTrue(self.t.prijava("n-zlo", {"id": "id%d" % i})["ok"])
+        r = self.t.prijava("n-zlo", {"id": "id%d" % tw.NAJVEC_SEJ_NA_NAPRAVO})
+        self.assertEqual(r["koda"], "prevec_sej")
+        self.assertEqual(len(self.t._seje), tw.NAJVEC_SEJ_NA_NAPRAVO, "nad mejo ni nove kopije v zgodovini")
+        # Obstojeca seja (javljanje) gre naprej, druga naprava ima svojo mejo.
+        self.assertTrue(self.t.prijava("n-zlo", {"id": "id0"})["ok"])
+        self.assertTrue(self.t.prijava("n-druga", {"id": "id%d" % tw.NAJVEC_SEJ_NA_NAPRAVO})["ok"])
+        # Ko naprava seje dlje ne javlja, mesto se sprosti.
+        self.ura.t += tw.SEJA_VELJA_S + 1
+        self.assertTrue(self.t.prijava("n-zlo", {"id": "id%d" % (tw.NAJVEC_SEJ_NA_NAPRAVO + 1)})["ok"])
+
+    def test_prve_prijave_nad_mejo_zasedeno(self):
+        izvirna = tw._sha
+        sprosti = threading.Event()
+
+        def pocasi(pot):
+            sprosti.wait(10)
+            return izvirna(pot)
+        tw._sha = pocasi
+        niti = []
+        try:
+            for i in range(tw.NAJVEC_PRVIH_PRIJAV):
+                n = threading.Thread(target=self.t.prijava, args=("n-%d" % i, {"id": "id%d" % i}), daemon=True)
+                n.start()
+                niti.append(n)
+            konec = time.monotonic() + 5
+            while self.t._v_ustvarjanju < tw.NAJVEC_PRVIH_PRIJAV and time.monotonic() < konec:
+                time.sleep(0.01)
+            r = self.t.prijava("n-x", {"id": "id%d" % tw.NAJVEC_PRVIH_PRIJAV})
+            self.assertEqual(r, {"ok": False, "koda": "zasedeno"})
+        finally:
+            sprosti.set()
+            for n in niti:
+                n.join(10)
+            tw._sha = izvirna
+        self.assertEqual(self.t._v_ustvarjanju, 0)
+        self.assertTrue(self.t.prijava("n-x", {"id": "id%d" % tw.NAJVEC_PRVIH_PRIJAV})["ok"])
+
+    def test_zgodovina_pusti_rezervo_diska(self):
+        z = tw.Zgodovina(os.path.join(self.tmp, "z"))
+        prosto = shutil.disk_usage(self.tmp).free
+        with mock.patch.object(tw, "REZERVA_DISKA", prosto + 1):
+            self.assertEqual(z.shrani("k", "a" * 64, self.poti["id0"]), "")
+        self.assertTrue(z.shrani("k", "a" * 64, self.poti["id0"]))
+
+    def test_niti_files_session_omejene(self):
+        from core import link_daljinec
+        sprosti = threading.Event()
+
+        class Tw:
+            def prijava(self, posiljatelj, p):
+                sprosti.wait(10)
+                return {"ok": True}
+
+        class Datoteke:
+            teamwork = Tw()
+
+            def streznik_za(self, *_a):
+                return {}
+        odgovori = []
+        link_daljinec._niti_teamwork = None
+        try:
+            for _ in range(link_daljinec.NAJVEC_NITI_TEAMWORK + 1):
+                link_daljinec.izvedi_control("files.session", {"id": "x"}, lambda u: None, odgovori.append,
+                                             datoteke=Datoteke(), posiljatelj="n-1")
+            self.assertEqual([r.get("code") for r in odgovori], ["zasedeno"])
+        finally:
+            sprosti.set()
+        konec = time.monotonic() + 5
+        while len(odgovori) < link_daljinec.NAJVEC_NITI_TEAMWORK + 1 and time.monotonic() < konec:
+            time.sleep(0.01)
+        self.assertEqual(sum(1 for r in odgovori if r.get("ok")), link_daljinec.NAJVEC_NITI_TEAMWORK)
 
 
 if __name__ == "__main__":

@@ -1,22 +1,28 @@
-"""Safeer DRM (Widevine prek castLabs ECS) vdelan v Splet Safeer OS na Linuxu.
+"""Safeer DRM (Widevine prek castLabs ECS) vdelan v Splet Safeer OS in Safeer Browserja na Linuxu.
 
 WebKitGTK nima Widevine. Prej (11. 10. 2026) se je stran z Widevine odprla v drugem brskalniku (Brave ...). Lastnik,
 13. 10. 2026: zasciten video naj se predvaja v Spletu in v nasem predvajalniku, kot en predvajalnik - uporabnik ne sme
 opaziti menjave. Zato: ko stran zaprosi za Widevine, se ista stran odpre v Safeer DRM, katerega okno je vstavljeno
 (X11 XReparentWindow) v isti zavihek Spleta. Zavihek, naslovna vrstica in gumbi ostanejo; Nazaj in Osvezi delujeta.
 
-Paket (~120 MB, castLabs ECS za linux-x64; Linux ne potrebuje VMP podpisa) se prenese enkrat ob prvi potrebi, preveri se
-SHA-256. Logika (main.js) pride s Safeer OS (assets/safeer_drm) in se uskladi ob vsakem zagonu. Safeer OS v Flatpaku
-Safeer DRM zazene na gostitelju (flatpak-spawn --host), da ostane peskovnik Chromiuma v celoti vklopljen.
-Safeer Browser v Flatpaku (od 1.0.127 brez dostopa do gostitelja, lastnik 15. 10. 2026) ga zazene v svojem peskovniku
-prek zypak-wrapper (packaging/zypak, kot Electron programi na Flathubu): Chromium svoje procese (zygote, strani, CDM)
-zapre v podpeskovnike portala Flatpak (flatpak-spawn --sandbox) - peskovnik ostane vklopljen, brez --no-sandbox.
+Od 1.0.127 (lastnik, 18. 10. 2026) je Safeer DRM del paketa kot vse drugo: pripet castLabs ECS (SHA-256) je ob gradnji
+namescen samo za branje v <tovor>/safeer-drm (deb: /usr/lib/safeer-os/safeer-drm, /usr/lib/safeer-browser/safeer-drm;
+Flatpak: /app/lib/...; packaging/safeer_drm_paket.py) in se med delovanjem ne prenasa vec. Widevine CDM NI v paketu
+(lastnik po FAQ castLabs: CDM, ki ga ECS prenese z Googlovih streznikov, pokriva licenca Googla): ECS ga ob prvi
+zasciteni vsebini sam namesti in posodablja v mapa_widevine() - uporabnik ne namesca nicesar (assets/safeer_drm/main.js;
+izmerjeno 18. 10. 2026, peskovnik Chromiuma, svez profil: prenos CDM in EME ok v ~2 s ob istem zagonu).
+Star, ob zagonu prenesen paket (koren()/X.Y.Z, ~280 MB) pospravi pospravi_staro(); profili s prijavami ostanejo.
+
+Safeer OS v Flatpaku Safeer DRM zazene na gostitelju (flatpak-spawn --host, pot programa v /app prevedena v pot na
+gostitelju), da ostane peskovnik Chromiuma v celoti vklopljen. Safeer Browser v Flatpaku (od 1.0.127 brez dostopa do
+gostitelja, lastnik 15. 10. 2026) ga zazene v svojem peskovniku prek zypak-wrapper (packaging/zypak, kot Electron
+programi na Flathubu): Chromium svoje procese (zygote, strani, CDM) zapre v podpeskovnike portala Flatpak
+(flatpak-spawn --sandbox) - peskovnik ostane vklopljen, brez --no-sandbox.
 Brez X11 (Wayland) okna ni mogoce vstaviti: Safeer DRM se odpre v svojem oknu.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -24,20 +30,13 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import time
-import urllib.request
-import zipfile
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from core import vstavi_okno
 
-VERZIJA = "0.2.0"
-URL = ("https://github.com/safeerOS/Safeer-linux/releases/download/"
-       f"safeer-drm-v{VERZIJA}/SafeerDRM-{VERZIJA}-linux-x64.zip")
-SHA256 = "018cdfc0d1b4061fa9b7972ce5588be39d70d42ea47a2494a698f6b601737396"
-OZNAKA = ".preverjeno"
-_zaklep = threading.Lock()
+#: Mapa Safeer DRM v tovoru paketa (<tovor>/safeer-drm, zraven core/). SAFEER_DRM_MAPA jo zamenja (preizkusi, razvoj).
+SPREMENLJIVKA_MAPE = "SAFEER_DRM_MAPA"
 
 
 def v_peskovniku() -> bool:
@@ -50,7 +49,22 @@ def _xdg(ime: str, privzeto: str) -> Path:
     return Path(os.environ.get(ime) or os.path.expanduser(privzeto))
 
 
+def vgrajena_mapa() -> Path:
+    """Safeer DRM, namescen s paketom (samo za branje)."""
+    return Path(os.environ.get(SPREMENLJIVKA_MAPE) or Path(__file__).resolve().parent.parent / "safeer-drm")
+
+
+def izvrsljiva() -> Optional[Path]:
+    """Program Safeer DRM iz paketa (Widevine CDM namesti ECS sam ob prvi zasciteni vsebini)."""
+    exe = vgrajena_mapa() / "safeer-drm"
+    if exe.is_file() and os.access(exe, os.X_OK):
+        return exe
+    return None
+
+
 def koren() -> Path:
+    """Uporabnikovi podatki Safeer DRM: profili s prijavami (profil, profil-spotify). Programa tu ni vec (je v paketu);
+    stare prenesene verzije pospravi pospravi_staro()."""
     if v_peskovniku():
         # Zasebna mapa programa (~/.var/app/<ID>/data): edina, kamor sme peskovnik pisati brez dodatnih dovoljenj.
         return _xdg("XDG_DATA_HOME", "~/.local/share") / "safeer-drm"
@@ -65,9 +79,9 @@ def mapa_sej() -> Path:
 
 
 def mapa_widevine() -> Path:
-    """Kamor castLabs ECS prenese Widevine CDM: <userData>/WidevineCdm, userData = $XDG_CONFIG_HOME/<productName>
-    (package.json: »Safeer DRM«). zypak mapo izpostavi podpeskovnikom (ZYPAK_EXPOSE_WIDEVINE_PATH), sicer se CDM
-    prenese, naloziti pa ga ne more (README zypaka)."""
+    """Kamor castLabs ECS sam prenese in posodablja Widevine CDM: <userData>/WidevineCdm, userData =
+    $XDG_CONFIG_HOME/<productName> (package.json: »Safeer DRM«). zypak mapo izpostavi podpeskovnikom
+    (ZYPAK_EXPOSE_WIDEVINE_PATH), sicer se CDM prenese, naloziti pa ga ne more (README zypaka)."""
     return _xdg("XDG_CONFIG_HOME", "~/.config") / "Safeer DRM" / "WidevineCdm"
 
 
@@ -80,7 +94,7 @@ def ukaz_zagona(argumenti: list, peskovnik: Optional[bool] = None, gostitelj: Op
 
     - Safeer Browser v Flatpaku (peskovnik): zypak-wrapper v istem peskovniku; brez zypaka None (nikoli brez
       peskovnika Chromiuma in nikoli na gostitelju).
-    - Safeer OS v Flatpaku (gostitelj): flatpak-spawn --host, kot doslej.
+    - Safeer OS v Flatpaku (gostitelj): flatpak-spawn --host; program iz /app po poti, kot jo vidi gostitelj.
     - Zunaj Flatpaka: neposredno."""
     peskovnik = v_peskovniku() if peskovnik is None else peskovnik
     gostitelj = (v_flatpaku() and not peskovnik) if gostitelj is None else gostitelj
@@ -90,17 +104,22 @@ def ukaz_zagona(argumenti: list, peskovnik: Optional[bool] = None, gostitelj: Op
             return None
         return [zypak] + list(argumenti)
     if gostitelj:
+        from core import gostitelj as gost
+        program = gost.app_na_gostitelju(str(argumenti[0])) if argumenti else None
+        if not program:
+            print("[SafeerDRM] pot programa na gostitelju ni znana (/.flatpak-info)", flush=True)
+            return None
         # --watch-bus: konca se s Safeer OS. Zaslon izrecno (kot core/os_dock.py): sicer okno Safeer DRM nastane le,
         # ce je DISPLAY v okolju aktivacije D-Bus seje (pregled paketa 14. 10. 2026).
         return ["flatpak-spawn", "--host", "--watch-bus",
                 "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
-                "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + list(argumenti)
+                "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + [program] + list(argumenti[1:])
     return list(argumenti)
 
 
 def okolje_zagona(peskovnik: Optional[bool] = None) -> Optional[dict]:
-    """V peskovniku: zypak mora poznati mapo Widevine (ustvarimo jo vnaprej, ker zypak izpostavi samo obstojeco -
-    sicer bi prvo predvajanje po prenosu CDM odpovedalo)."""
+    """V peskovniku: zypak mora poznati mapo Widevine (ustvarimo jo vnaprej, ker zypak izpostavi samo obstojeco - sicer
+    bi prvo predvajanje po prenosu CDM odpovedalo). Program je v /app, ki ga podpeskovniki vidijo brez dodatnih poti."""
     peskovnik = v_peskovniku() if peskovnik is None else peskovnik
     if not peskovnik:
         return None
@@ -109,126 +128,52 @@ def okolje_zagona(peskovnik: Optional[bool] = None) -> Optional[dict]:
         wv.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
-    # ZYPAK_EXPOSE_PATHS (packaging/zypak/zypak-expose-paths.patch): podpeskovniki Chromiuma vidijo samo /app in
-    # runtime; program Safeer DRM je v zasebni mapi podatkov, zato mapo verzije izpostavimo samo za branje.
-    return dict(os.environ, ZYPAK_EXPOSE_WIDEVINE_PATH=str(wv), ZYPAK_EXPOSE_PATHS=str(mapa_verzije()))
+    return dict(os.environ, ZYPAK_EXPOSE_WIDEVINE_PATH=str(wv))
 
 
-def mapa_verzije() -> Path:
-    return koren() / VERZIJA
-
-
-def izvrsljiva() -> Optional[Path]:
-    exe = mapa_verzije() / "safeer-drm"
-    return exe if (mapa_verzije() / OZNAKA).is_file() and exe.is_file() else None
-
-
-def vir_logike() -> Path:
-    return Path(__file__).resolve().parent.parent / "assets" / "safeer_drm"
-
-
-def uskladi_logiko(exe: Path, vir: Optional[Path] = None) -> None:
-    vir = vir or vir_logike()
-    cilj = exe.parent / "resources" / "app"
-    for ime in ("main.js", "package.json"):
-        izvor = vir / ime
-        if not izvor.is_file():
-            continue
-        try:
-            if (cilj / ime).is_file() and (cilj / ime).read_bytes() == izvor.read_bytes():
-                continue
-            cilj.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(izvor, cilj / ime)
-        except OSError:
-            pass
-
-
-def _varno_razpakiraj(paket: Path, cilj: Path) -> None:
-    with zipfile.ZipFile(paket) as arhiv:
-        for info in arhiv.infolist():
-            pot = Path(info.filename)
-            if pot.is_absolute() or ".." in pot.parts:
-                raise ValueError(f"nevarna pot v paketu: {info.filename}")
-            if (info.external_attr >> 16) & 0o170000 == 0o120000:
-                raise ValueError(f"simbolna povezava v paketu: {info.filename}")
-        for info in arhiv.infolist():
-            arhiv.extract(info, cilj)
-            pravice = (info.external_attr >> 16) & 0o777
-            if pravice and not info.is_dir():
-                # Brez setuid/setgid: chrome-sandbox ni potreben, Chromium uporabi uporabniske imenske prostore.
-                os.chmod(cilj / info.filename, pravice & 0o755)
-
-
-#: Ime mape ene verzije paketa v koren() (druge mape tam so profili s prijavami).
+#: Ime mape ene verzije prej prenesenega paketa v koren() (druge mape tam so profili s prijavami).
 _VERZIJA_MAPE = re.compile(r"\d+\.\d+\.\d+")
 
 
-def prenesi(url: str = URL, sha256: str = SHA256) -> bool:
-    with _zaklep:
-        if izvrsljiva() is not None:
-            return True
-        koren().mkdir(parents=True, exist_ok=True)
-        zacasno = koren() / f"prenos-{VERZIJA}.part"
-        nova = koren() / f"{VERZIJA}.nova"
+def pospravi_staro(mapa: Optional[Path] = None) -> List[str]:
+    """Selitev na paket (1.0.127): odstrani SAMO tisto, kar je prej prenesla in upravljala ta koda - mape verzij paketa
+    (X.Y.Z s programom safeer-drm ali oznako .preverjeno), nedokoncane prenose (prenos-*.part) in razpakiranja (*.nova).
+    Profili s prijavami (profil, profil-spotify) in vse drugo ostanejo. Widevine CDM v mapa_widevine() ostane - ECS ga
+    uporablja in posodablja naprej (ni ga treba prenesti znova)."""
+    mapa = Path(mapa) if mapa else koren()
+    odstranjeno: List[str] = []
+    try:
+        vnosi = list(mapa.iterdir())
+    except OSError:
+        return odstranjeno
+    for pot in vnosi:
         try:
-            odtis = hashlib.sha256()
-            zahteva = urllib.request.Request(url, headers={"User-Agent": "SafeerOS"})
-            with urllib.request.urlopen(zahteva, timeout=60) as odziv, open(zacasno, "wb") as izhod:
-                while True:
-                    kos = odziv.read(1 << 20)
-                    if not kos:
-                        break
-                    odtis.update(kos)
-                    izhod.write(kos)
-            if odtis.hexdigest() != sha256:
-                print("[SafeerDRM] SHA-256 se ne ujema, paket zavrzen", flush=True)
-                return False
-            shutil.rmtree(nova, ignore_errors=True)
-            _varno_razpakiraj(zacasno, nova)
-            if not (nova / "safeer-drm").is_file():
-                return False
-            (nova / OZNAKA).write_text(sha256, encoding="utf-8")
-            shutil.rmtree(mapa_verzije(), ignore_errors=True)
-            os.replace(nova, mapa_verzije())
-            # Samo stare verzije paketa (mape X.Y.Z): profil, profil-spotify ... so uporabnikove prijave (pregled
-            # 18. 10. 2026: nova verzija je brisala vse mape razen svoje in z njimi prijave v Spotify in storitve).
-            for stara in koren().iterdir():
-                if stara.is_dir() and not stara.is_symlink() and _VERZIJA_MAPE.fullmatch(stara.name) \
-                        and stara.name != VERZIJA:
-                    shutil.rmtree(stara, ignore_errors=True)
-            print(f"[SafeerDRM] {VERZIJA} pripravljen", flush=True)
-            return True
-        except Exception as e:  # noqa: BLE001 - brez Safeer DRM stran ostane v Spletu
-            print(f"[SafeerDRM] prenos ni uspel: {e}", flush=True)
-            return False
-        finally:
-            try:
-                zacasno.unlink()
-            except OSError:
-                pass
-            shutil.rmtree(nova, ignore_errors=True)
+            if pot.is_symlink():
+                continue
+            if pot.is_dir() and _VERZIJA_MAPE.fullmatch(pot.name) and (
+                    (pot / "safeer-drm").is_file() or (pot / ".preverjeno").is_file()):
+                shutil.rmtree(pot)
+            elif pot.is_dir() and pot.name.endswith(".nova") and _VERZIJA_MAPE.fullmatch(pot.name[:-5]):
+                shutil.rmtree(pot)
+            elif pot.is_file() and pot.name.startswith("prenos-") and pot.name.endswith(".part"):
+                pot.unlink()
+            else:
+                continue
+            odstranjeno.append(pot.name)
+        except OSError as e:
+            print(f"[SafeerDRM] stare kopije {pot.name} ni bilo mogoce pospraviti: {e}", flush=True)
+    if odstranjeno:
+        print("[SafeerDRM] pospravljeno, kar je bilo prej preneseno:", ", ".join(sorted(odstranjeno)), flush=True)
+    return odstranjeno
 
 
-def prenesi_v_ozadju(ko_koncano: Optional[Callable[[bool], None]] = None) -> None:
+def pospravi_staro_v_ozadju() -> None:
     def delo():
-        izid = prenesi()
-        if ko_koncano:
-            ko_koncano(izid)
-    threading.Thread(target=delo, name="safeer-drm-prenos", daemon=True).start()
-
-
-def pripravi_vnaprej(zamik_s: int = 45) -> None:
-    """Safeer DRM je del Safeer OS in Safeer Browserja: uporabnik ga ne namesti. Paket se enkrat tiho prenese kmalu po
-    zagonu (v ozadju, z nizko prioriteto niti), da je zasciten video pripravljen, ko ga uporabnik prvic odpre.
-    Brez omrezja ali ob napaki se poskusi ob naslednjem zagonu; ob prvi dejanski potrebi se prenese tudi sam."""
-    def delo():
-        time.sleep(max(0, zamik_s))
         try:
-            if izvrsljiva() is None:
-                prenesi()
-        except Exception:
+            pospravi_staro()
+        except Exception:  # noqa: BLE001 - selitev ne sme ustaviti zagona
             pass
-    threading.Thread(target=delo, name="safeer-drm-vnaprej", daemon=True).start()
+    threading.Thread(target=delo, name="safeer-drm-selitev", daemon=True).start()
 
 
 #: Storitve z narocnino: stalen profil (prijava ostane), brez samodejnega klika, prosto premikanje po https.
@@ -308,7 +253,6 @@ class Gostitelj:
         if exe is None or not url.startswith("https://"):
             return False
         self.ustavi()
-        uskladi_logiko(exe)
         self.url = url
         stars = self._xid_starsa()
         seje = mapa_sej()
@@ -321,6 +265,16 @@ class Gostitelj:
                 f"--state={self.stanje}", f"--command={self.ukazi}"]
         if storitev:
             args.append("--storitev=1")
+        # Scit tudi v Safeer DRM (Netflix, Disney+ ...): sledilci in telemetrija tretjih (core/scit_pravila.py) - v
+        # zasebni mapi seje, kot pravila Spotifyja.
+        try:
+            from core import scit_pravila
+            pot_scita = os.path.join(self.seja, "scit.json")
+            with open(pot_scita, "w", encoding="utf-8") as f:
+                json.dump(scit_pravila.trenutna().za_drm(spotify=False), f)
+            args.append("--scit=" + pot_scita)
+        except (OSError, ImportError) as e:
+            print("[Safeer DRM] pravila Scita:", type(e).__name__, flush=True)
         if not stars:
             args = [str(exe), url]   # brez X11: lastno okno (samostojni nacin)
         peskovnik = v_peskovniku()
