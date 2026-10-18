@@ -55,10 +55,14 @@ SONDA_VSAKIH_UTRIPOV = 4          # vsak 4. ping (~100 s) preveri, da smo na hub
 DOKAZ_KLJUCA_NAJVEC_NA_S = 60.0   # dogovor zascite z napravo, s katero nimamo seje: najvec en poskus na minuto
 # Seznam naprav pise sredisce. Z dolgim seznamom ali z veliko oznakami iste naprave (isto jedro, izmisljene pripone) ne
 # sme sproziti veliko podpisov s kljucem naprave na bralni niti (drugi neodvisni pregled, 7. 10. 2026).
-NAJVEC_NAPRAV_V_SEZNAMU = 512     # toliko naprav iz seznama si zapomnimo (zmoznosti)
+# Zmoznosti si zapomnimo za VSE clane kroga v seznamu (lastnik, 18. 10. 2026: prej prvih 512 - v vecjem krogu naprava
+# cez mejo ni bila znana kot naprava z zascito in ukaz bi sel nezascito). Tuje oznake (ne iz nasega kroga - te si
+# sredisce lahko izmisli) samo do te meje.
+NAJVEC_NAPRAV_V_SEZNAMU = 512
 NAJVEC_DOKAZOV_NA_SEZNAM = 16     # najvec dogovorov zascite, ki jih sprozi en seznam naprav
 NAJVEC_DOKAZOV_NA_JEDRO = 4       # najvec dogovorov na minuto z oznakami ene naprave (jedra)
-NAJVEC_ZAPISOV_DOKAZOV = 512      # zapisov o zadnjem poskusu
+# Zapisov o zadnjem poskusu dokaza ne omejuje stevilka: nastanejo samo za clane kroga (pozna_kljuc), najvec
+# NAJVEC_DOKAZOV_NA_JEDRO na minuto na napravo, in izpadejo po 10 minutah (prej meja 512).
 VPRASANJE_VELJA_S = 300.0         # kako dolgo za zasciten ukaz pricakujemo odgovor iz iste seje (ukazi potecejo prej)
 # Oznaka sporocila (id, ref_id) je kratka (nasi programi: do ~50 znakov). Daljse ne sprejmemo: odgovor ali potrditev
 # oznako ukaza ponovi, z zelo dolgo pa je naprava brez pravic polnila pomnilnik prejemnika (cetrti pregled, 7. 10. 2026).
@@ -1474,6 +1478,15 @@ class Povezava:
                         # zapremo, zanka se prijavi znova.
                         break
                     continue
+                if isinstance(sporocilo, dict) and sporocilo.get("type") == "cast.ack" \
+                        and sporocilo.get("error_code") == "ni_virov":
+                    # Sredisce nas je overilo, a nima virov za novo napravo (core/link_viri.py): uporabnik to izve.
+                    try:
+                        from core import link_viri
+                        from urllib.parse import urlparse
+                        link_viri.zavrnila_druga(urlparse(self.ws_naslov).hostname or self.ws_naslov)
+                    except Exception:  # noqa: BLE001
+                        pass
                 if isinstance(sporocilo, dict) and sporocilo.get("type") == "trust.update":
                     # Hub razposlje krog zaupanja ob prijavi in ob vsaki spremembi; shranimo ga,
                     # da nas pozna tudi naslednji hub. Naprej ga ne dajemo.
@@ -1617,11 +1630,19 @@ class Povezava:
         predolga), se prezre - zanjo zascite ni; seznam in zmoznosti imajo mejo."""
         from core import link_e2e
         zmoznosti = {}
+        try:
+            jedra, idji = link_krog.krog().znani()
+        except Exception:  # noqa: BLE001 - brez kroga so vse oznake tuje (meja spodaj)
+            jedra, idji = set(), set()
+        tujih = 0
         for d in naprave if isinstance(naprave, list) else []:
-            if len(zmoznosti) >= NAJVEC_NAPRAV_V_SEZNAMU:
-                break
             if not isinstance(d, dict) or not link_e2e.veljavna_oznaka(d.get("id")):
                 continue
+            i = d["id"]
+            if not (i in idji or (link_krog.je_id_iz_kljuca(i) and i[:link_krog.DOLZINA_ID_IZ_KLJUCA] in jedra)):
+                if tujih >= NAJVEC_NAPRAV_V_SEZNAMU:
+                    continue
+                tujih += 1
             z = d.get("capabilities")
             zmoznosti[d["id"]] = frozenset(x for x in (z if isinstance(z, list) else [])[:64]
                                            if isinstance(x, str) and len(x) <= 64)
@@ -1669,8 +1690,6 @@ class Povezava:
                     continue        # naprej samo se obnavljamo zapis za naprave, s katerimi seja je (zgoraj)
                 jedro = _jedro_oznake(device_id)
                 if nedavni.get(jedro, 0) >= NAJVEC_DOKAZOV_NA_JEDRO:
-                    continue
-                if device_id not in self._dokazi_kljucev and len(self._dokazi_kljucev) >= NAJVEC_ZAPISOV_DOKAZOV:
                     continue
                 self._dokazi_kljucev[device_id] = zdaj
                 nedavni[jedro] = nedavni.get(jedro, 0) + 1

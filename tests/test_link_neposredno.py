@@ -1092,6 +1092,7 @@ def test_odjemalec_pove_zakaj_prek_releja(naprave, monkeypatch):
     link_viri.ponastavi()
     imena = []
     monkeypatch.setattr(link_viri, "POSLUSALCI_DRUGIH", [imena.append])
+    monkeypatch.setattr(link_viri, "POSLUSALCI", [])
     monkeypatch.setattr(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK)
     odmev = Odmev()
     v = vhod(naprave, odmev.vrata)

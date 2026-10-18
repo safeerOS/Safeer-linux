@@ -68,9 +68,11 @@ def _us(t: float) -> int:
 
 #: Krajevne povezave (127.0.0.1) neposredne poti od zunaj in releja, po vratih druge strani zanke: obe sta zanka,
 #: razlikuje ju samo ta zapis (core/link_neposredno.py). Brez zapisa je zanka 'rele' kot doslej.
+#: Brez stevilske meje (prej 4096: pri vec kot 4096 hkratnih tunelih - podjetje, tisoc naprav po ~6 povezav - bi
+#: najstarejsi tunel dobil napacno oznako »rele« in Hub bi izbiral slabso pot). Kljuc so vrata zanke, zato zapisov
+#: nikoli ni vec kot 65536; vsak tunel ob koncu svoj zapis odstrani (odznaci_zanko).
 _ZANKE: dict = {}
 _ZANKE_ZAKLEP = threading.Lock()
-NAJVEC_ZANK = 4096
 #: Vrstni red poti (vecje = boljse): domace omrezje, neposredno od zunaj, rele.
 RANG_POTI = {"rele": 0, "neposredno": 1, "lan": 2}
 
@@ -79,8 +81,6 @@ def oznaci_zanko(vrata: int, pot: str) -> None:
     if not vrata:
         return
     with _ZANKE_ZAKLEP:
-        if len(_ZANKE) >= NAJVEC_ZANK:
-            _ZANKE.pop(next(iter(_ZANKE)))
         _ZANKE[int(vrata)] = pot
 
 

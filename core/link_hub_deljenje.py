@@ -15,8 +15,11 @@ Isti protokol kot Hub na Androidu (HubHttp.kt, HubTokovi.kt), da odjemalcev ni t
 Do te razlicice je racunalnik kot sredisce znal samo posredovati sporocila; teh treh poti ni imel, zato »Poslji
 besedilo« in »Poslji datoteko« med napravami nista delala, kadar je bilo sredisce racunalnik (PUT -> 501, POST -> 404).
 
-Pravila (kot HubTokovi): datoteka se pise na disk v koscih in nikoli ne sestavlja v pomnilniku; hkrati tece omejeno
-stevilo prenosov; prostor na disku se preveri pred sprejemom; neprevzeta datoteka se po eni uri izbrise. Posiljatelj
+Pravila (kot HubTokovi): datoteka se pise na disk v koscih in nikoli ne sestavlja v pomnilniku; prostor na disku se
+preveri pred sprejemom; neprevzeta datoteka se po eni uri izbrise. Stevila hkratnih prenosov, cakajocih datotek,
+deljenih zaslonov in gledalcev ne omejuje stevilka (lastnik, 18. 10. 2026: prej 3 prenosi, 64 datotek, 4 zasloni,
+4 gledalci - v podjetju bi sodelavci dobivali »prevec_…«), ampak viri racunalnika (core/link_viri.py): ob pomanjkanju
+odgovor 503 s kodo ni_virov, ki jo posiljatelj pokaze (in posiljanje poskusi znova). Posiljatelj
 je lastnik zetona - ``from`` iz poizvedbe ne velja nic.
 
 Zaslon (od kroga 109; prej je sredisce racunalnika na te poti odgovorilo 404 in racunalnik racunalniku zaslona ni
@@ -39,7 +42,13 @@ import threading
 import time
 from typing import Callable, Dict, Optional, Tuple
 
-NAJVEC_PRENOSOV = 3
+from core import link_viri
+
+#: Vir za en prenos skozi sredisce (core/link_viri): odprta datoteka in medpomnilniki (KOS 64 KiB, vticnica).
+DESKRIPTORJEV_PRENOSA = 1
+POMNILNIK_PRENOSA = 1024 * 1024
+#: Besedilo napake, kadar sredisce nima virov (posiljatelj ga pokaze po kodi link_viri.KODA v svojem jeziku).
+BESEDILO_BREZ_VIROV = "Središče ima zdaj premalo virov (povezav ali pomnilnika). Poskusi znova čez nekaj trenutkov."
 #: Prej 4 GB. Datoteka gre na disk v koscih in nikoli v pomnilnik, zato je meja samo prostor na disku (preveri);
 #: ta stevilka le zavrne ocitno napacno dolzino (lastnik, 11. 10. 2026: »brez omejitve 4 GB«).
 NAJVECJA_DATOTEKA = 1024 ** 4
@@ -49,7 +58,6 @@ CAKANJE_DELNE_S = 10.0
 NAJVEC_GLOBINA_MAPE = 16
 REZERVA_PROSTORA = 200 * 1024 * 1024
 DATOTEKA_VELJA_S = 3600.0
-NAJVEC_CAKAJOCIH = 64
 NAJVEC_BESEDILA = 20_000
 NAJVEC_IMENA_DATOTEKE = 180
 KOS = 64 * 1024
@@ -153,9 +161,12 @@ class Deljenje:
         return mapa
 
     def _zasedi(self) -> bool:
+        """Nov prenos (sprejem ali prevzem), ce ima racunalnik vire zanj; stevila prenosov ne omejujemo."""
+        razlog = link_viri.preveri(DESKRIPTORJEV_PRENOSA, POMNILNIK_PRENOSA)
+        if razlog:
+            link_viri.zabelezi(razlog, "prenos")
+            return False
         with self._zaklep:
-            if self._prenosov >= NAJVEC_PRENOSOV:
-                return False
             self._prenosov += 1
             return True
 
@@ -191,8 +202,6 @@ class Deljenje:
         if dolzina > NAJVECJA_DATOTEKA:
             return 413, napaka("Datoteka je prevelika.", "prevelika")
         self.pocisti()
-        if self.stevilo() >= NAJVEC_CAKAJOCIH:
-            return 503, napaka("Preveč datotek čaka na prevzem.", "prevec_cakajocih")
         try:
             mapa = self._pripravi_mapo()
             prosto = int(self._prosto(mapa))
@@ -245,7 +254,7 @@ class Deljenje:
         if not self._zasedi():
             if delna is not None:
                 delna.v_teku = False
-            return 503, napaka("Preveč hkratnih prenosov.", "prevec_prenosov"), None
+            return 503, napaka(BESEDILO_BREZ_VIROV, link_viri.KODA), None
         if delna is None:
             pot = os.path.join(self._pripravi_mapo(), secrets.token_hex(6) + "-" + ime)
             try:
@@ -359,11 +368,13 @@ class Deljenje:
 
 # ---------------------------------------------------------------------- zaslon
 
-NAJVEC_ZASLONOV = 4
-NAJVEC_GLEDALCEV = 4
 #: Vrsta okvirjev enega gledalca: kdor ne dohaja, izgubi starejse okvirje, ne pomnilnika sredisca.
 VRSTA_GLEDALCA = 2
 NAJVECJI_OKVIR = 2 * 1024 * 1024
+#: Deljenih zaslonov in gledalcev ne omejuje stevilka (prej 4 in 4), ampak pomnilnik (core/link_viri): deljenje drzi
+#: zadnji okvir in tistega na poti, gledalec svojo vrsto okvirjev; vsak ima eno povezavo (deskriptor).
+POMNILNIK_ZASLONA = 2 * NAJVECJI_OKVIR
+POMNILNIK_GLEDALCA = VRSTA_GLEDALCA * NAJVECJI_OKVIR
 #: Posiljatelj nespremenjen okvir ponovi vsake 4 s (link_deljenje.UTRIP_S); toliko casa brez okvirja pomeni, da je odsel.
 BREZ_OKVIRJA_S = 20.0
 #: Toliko casa ima posiljatelj po zacetku, da odpre tok okvirjev; sicer deljenje koncamo, da cilj ne ostane zaseden.
@@ -476,7 +487,7 @@ class Zasloni:
 
     def zacni(self, posiljatelj: str, cilj: str, ime_posiljatelja: str = "") -> Tuple[Optional[Zaslon], str, str]:
         """(zaslon, "", "") ali (None, koda, kdo): "naprava_zasedena" (kdo = naprava, ki s ciljem deli) ali
-        "prevec_zaslonov"."""
+        link_viri.KODA (racunalniku zmanjkuje virov)."""
         with self._zaklep:
             prejsnji = [z.id for z in self._zasloni.values() if z.posiljatelj == posiljatelj]
         for id_ in prejsnji:
@@ -485,8 +496,10 @@ class Zasloni:
             for z in self._zasloni.values():
                 if z.cilj == cilj:
                     return None, "naprava_zasedena", z.posiljatelj
-            if len(self._zasloni) >= NAJVEC_ZASLONOV:
-                return None, "prevec_zaslonov", ""
+            razlog = link_viri.preveri(1, POMNILNIK_ZASLONA)
+            if razlog:
+                link_viri.zabelezi(razlog, "zaslon")
+                return None, link_viri.KODA, ""
             z = Zaslon(posiljatelj, cilj, self.ura(), ime_posiljatelja)
             self._zasloni[z.id] = z
         self._casovnik(ROK_ZA_TOK_S, lambda: self._preveri_tok(z.id))
@@ -569,12 +582,14 @@ class Zasloni:
 
     # ------------------------------------------------------------------ gledalec (GET /cast/screen/<id>/stream?k=)
     def dodaj_gledalca(self, z: Zaslon) -> Tuple[Optional[Gledalec], str]:
-        """(gledalec, "") ali (None, koda): "ni_zaslona" (deljenje je koncano) ali "prevec_gledalcev"."""
+        """(gledalec, "") ali (None, koda): "ni_zaslona" (deljenje je koncano) ali link_viri.KODA (ni virov)."""
+        razlog = link_viri.preveri(1, POMNILNIK_GLEDALCA)
         with self._zaklep:
             if not z.tece:
                 return None, "ni_zaslona"
-            if len(z.gledalci) >= NAJVEC_GLEDALCEV:
-                return None, "prevec_gledalcev"
+            if razlog:
+                link_viri.zabelezi(razlog, "gledalec")
+                return None, link_viri.KODA
             g = Gledalec()
             z.gledalci.append(g)
             z.brez_gledalcev_od = 0.0

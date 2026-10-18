@@ -38,7 +38,8 @@ NAJVEC_KONCANIH = 20
 #: Napake, po katerih ima nov poskus smisel, ko je naprava spet dosegljiva (izpad omrezja, naprava spi ali je ugasnjena,
 #: sredisce zasedeno). Vse druge (napacen odtis, ni prostora, prevelika, naprava ni seznanjena ...) so koncne.
 PREHODNE = frozenset({"naprava_ni_povezana", "sredisce_naprave_ni_dosegljivo", "posiljanje_ni_uspelo",
-                      "prenos_prekinjen", "hub_ni_znan", "prevec_prenosov", "prevec_cakajocih", "ze_v_teku"})
+                      "prenos_prekinjen", "hub_ni_znan", "prevec_prenosov", "prevec_cakajocih", "ze_v_teku",
+                      "ni_virov"})     # sredisce zdaj nima virov (core/link_viri) - ko jih bo imelo, gre naprej
 #: Najdlje toliko cakamo, da se naprava vrne; potem posiljanje konca z zadnjo napako.
 CAKA_NAJVEC_S = 24 * 3600.0
 #: Razmiki med poskusi, ko naprava v seznamu je, sredisce pa je ne doseze (s, zadnji velja naprej).

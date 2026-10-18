@@ -114,6 +114,7 @@ def test_nit_ki_je_sistem_ne_da(monkeypatch):
         def start(self):
             raise RuntimeError("can't start new thread")
     monkeypatch.setattr(link_viri.threading, "Thread", Nit)
+    monkeypatch.setattr(link_viri, "POSLUSALCI", [])
     assert link_viri.zazeni_nit(lambda: None, kje="preizkus") is False
     assert link_viri.stanje()["razlog"] == link_viri.NITI
 

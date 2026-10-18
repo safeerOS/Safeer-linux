@@ -34,7 +34,9 @@ UTRIP_S = 10.0
 PONOVNO_PO_S = 2.0
 #: Vrata Huba, kadar naslov soseda poznamo samo iz dohodne povezave (IP brez oglasa mDNS).
 PRIVZETA_VRATA = 8990
-#: Najvec zapomnjenih naslovov sosedov.
+#: Zapomnjeni naslovi sosedov: za clane kroga brez stevilske meje (lastnik, 18. 10. 2026: prej 32 - v podjetju bi
+#: sredisca izgubljala naslove drugih in jih iskala znova); naslove iz oglasov mDNS, ki jih lahko objavi kdorkoli v
+#: omrezju (ne clan kroga), samo do te meje.
 NAJVEC_ZNANIH = 32
 #: Najvec cakajocih sporocil na sosednjo povezavo, preden jo zapremo (sosed ne bere).
 NAJVEC_V_VRSTI = 512
@@ -312,10 +314,20 @@ class MeshPovezovalec:
         with self._zaklep:
             if self._znani.get(hid, {}).get("naslov") == naslov:
                 return
-            self._znani[hid] = {"id": hid, "naslov": naslov, "tls": True, "mesh": link_hub_streznik_mesh()}
+            self._znani[hid] = {"id": hid, "naslov": naslov, "tls": True, "mesh": link_hub_streznik_mesh(),
+                                "clan": self._kljuc_clana(hid) is not None}
             while len(self._znani) > NAJVEC_ZNANIH:
-                self._znani.pop(next(iter(self._znani)))
+                tuj = next((h for h, z in self._znani.items() if not self._je_clan_zapis(h, z)), None)
+                if tuj is None:
+                    break               # sami clani kroga: brez stevilske meje
+                self._znani.pop(tuj)
         self._shrani_znane()
+
+    def _je_clan_zapis(self, hid: str, zapis: dict) -> bool:
+        """Ali je zapomnjeni sosed clan kroga (oznaka v zapisu; starejsi zapisi z diska je nimajo)."""
+        if "clan" not in zapis:
+            zapis["clan"] = self._kljuc_clana(hid) is not None
+        return bool(zapis["clan"])
 
     def naslov_prek_releja(self, hid: str) -> str:
         """Naslov sosednjega sredisca prek Global Linka: krajevni konec releja (wss://127.0.0.1:vrata/cast/ws) ali

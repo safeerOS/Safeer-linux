@@ -236,6 +236,93 @@ class PrijavaSPodpisom(unittest.TestCase):
             self.assertIsNone(self.hub.vstopnica_s_podpisom("n-ffffffffffffffff", izziv["nonce"], podpis))
 
 
+class MejeClanov(unittest.TestCase):
+    """Lastnik, 18. 10. 2026 (podjetje, kot je BSH): naprav, sej, vstopnic in sosedov clanov ne omejuje stevilka -
+    samo viri racunalnika (core/link_viri.py), in takrat jasen odgovor ni_virov. Fiksna meja ostane samo za
+    nepreverjene (izziv dobi kdorkoli)."""
+
+    def setUp(self):
+        from core import link_viri
+        link_viri.ponastavi()
+        # Preizkus ne sme pokazati pravega obvestila namizja (sredisce ga prijavi ob zagonu).
+        tiho = mock.patch.object(link_viri, "POSLUSALCI", [])
+        tiho.start()
+        self.addCleanup(tiho.stop)
+        self.hub = link_hub_streznik.Hub(odtis="ab" * 32, nas_id="n-racunalnik")
+
+    def tearDown(self):
+        from core import link_viri
+        link_viri.ponastavi()
+
+    def test_vec_kot_32_naprav_hkrati(self):
+        class Lahka(LaznaPovezava):
+            """Brez shranjevanja vsakega seznama (200 naprav = 20 000 seznamov)."""
+            def poslji(self, besedilo):
+                self.poslano = [besedilo]
+                return True
+        for i in range(200):                                    # prej najvec 32
+            odgovor = json.loads(self.hub.obdelaj(Lahka("10.1.0.%d" % (i + 1)), _prijava("naprava-%d" % i)))
+            self.assertEqual(odgovor["status"], "accepted", i)
+        self.assertEqual(len(self.hub.povezane()), 200)
+
+    def test_brez_virov_jasna_zavrnitev(self):
+        from core import link_viri
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK):
+            odgovor = json.loads(self.hub.obdelaj(LaznaPovezava(), _prijava("nova")))
+        self.assertEqual((odgovor["status"], odgovor["error_code"]), ("rejected", link_viri.KODA))
+        self.assertEqual(odgovor["error"], link_viri.besedilo(link_viri.KODA, ime="Safeer Link")[1])
+        self.assertEqual(link_viri.stanje()["kje"], "naprava")
+        # Ze znana naprava (nova povezava iste naprave) ni zavrnjena - ne zasede novega mesta.
+        p = LaznaPovezava()
+        self.assertEqual(json.loads(self.hub.obdelaj(p, _prijava("znana")))["status"], "accepted")
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK):
+            self.assertEqual(json.loads(self.hub.obdelaj(LaznaPovezava(), _prijava("znana")))["status"], "accepted")
+
+    def test_seje_in_vstopnice_samo_na_napravo(self):
+        """Prej skupna meja 64 sej: 65. naprava je izrinila sejo druge naprave. Zdaj izrine samo svojo staro."""
+        seje = [self.hub._nova_seja("naprava-%d" % i) for i in range(300)]
+        self.assertEqual(len(self.hub._seje), 300)
+        self.assertTrue(all(z in self.hub._seje for z in seje))
+        svoje = [self.hub._nova_seja("ista") for _ in range(link_hub_streznik.NAJVEC_NA_NAPRAVO + 5)]
+        self.assertEqual(len([v for v in self.hub._seje.values() if v[0] == "ista"]), link_hub_streznik.NAJVEC_NA_NAPRAVO)
+        self.assertNotIn(svoje[0], self.hub._seje)
+        self.assertIn(svoje[-1], self.hub._seje)
+        self.assertTrue(all(z in self.hub._seje for z in seje), "druge naprave ostanejo")
+        vstopnice = [self.hub._nova_vstopnica("naprava-%d" % i) for i in range(300)]
+        self.assertEqual(sum(1 for v in vstopnice if self.hub.porabi_vstopnico(v)), 300)
+
+    def test_izzivov_poplava_ne_zapre_prijave(self):
+        """Izziv dobi vsakdo (nepreverjen): fiksna meja ostane, a polna tabela ne zavrne novega izziva - prej je
+        poplava za 60 s zaprla prijavo vsem clanom."""
+        for i in range(link_hub_streznik.NAJVEC_IZZIVOV + 50):
+            self.assertIsNotNone(self.hub.izziv("tujec-%d" % i))
+        self.assertEqual(len(self.hub._izzivi), link_hub_streznik.NAJVEC_IZZIVOV)
+        self.assertIsNotNone(self.hub.izziv("n-0123456789abcdef"), "clan dobi izziv tudi med poplavo")
+
+    def test_sosedov_brez_meje_16_in_brez_virov(self):
+        from core import link_viri
+        for i in range(40):                                     # prej najvec 16
+            p = LaznaPovezava()
+            self.assertTrue(self.hub.dodaj_soseda("n-sosed%02d" % i, p, "n-racunalnik"), i)
+        self.assertEqual(len(self.hub.sosedje()), 40)
+        p = LaznaPovezava()
+        p.podatki = {"id": "n-novsosed", "podpis": True}
+        with mock.patch.object(self.hub, "_je_clan", return_value=True), \
+                mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.DESKRIPTORJI):
+            odgovor = json.loads(self.hub._sprejmi_soseda(p, {"device_id": "n-novsosed", "role": "hub"}, "s1"))
+        self.assertEqual((odgovor["status"], odgovor["error_code"]), ("rejected", link_viri.KODA))
+        self.assertEqual(link_viri.stanje()["kje"], "sosed")
+
+    def test_seznam_soseda_brez_meje_32(self):
+        """Seznam naprav soseda: prej samo prvih 32 - naprave cez mejo niso bile vidne."""
+        sosed = LaznaPovezava()
+        self.assertTrue(self.hub.dodaj_soseda("n-sosed", sosed, "n-racunalnik"))
+        naprave = {"n-%016x" % i: {"name": "N%d" % i, "role": "receiver", "capabilities": []} for i in range(150)}
+        with mock.patch.object(self.hub, "_je_clan", return_value=True):
+            self.hub._sosedove_naprave("n-sosed", sosed, naprave)
+        self.assertEqual(len(self.hub._sosed_naprave["n-sosed"]), 150)
+
+
 class Seznanitev(unittest.TestCase):
     def setUp(self):
         self.odtis = "ab" * 32

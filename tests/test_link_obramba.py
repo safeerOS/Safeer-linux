@@ -246,6 +246,7 @@ class Pravila(unittest.TestCase):
         self.assertEqual(v(405, "metoda_ni_dovoljena"), "")
         self.assertEqual(v(409, "manjka_korak"), "")
         self.assertEqual(v(503, "prevec_prenosov"), "")
+        self.assertEqual(v(503, "ni_virov"), "", "clan, ki ga sredisce zaradi virov ne sprejme, ni sovraznik")
         self.assertEqual(v(200, "ni_poti"), "")
         self.assertTrue(set(link_obramba.VRSTA_PO_NAPAKI.values()) <= set(link_obramba.TEZE))
 

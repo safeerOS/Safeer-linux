@@ -439,6 +439,9 @@ class MejeSej(unittest.TestCase):
     def setUp(self):
         from core import link_viri
         link_viri.ponastavi()
+        tiho = mock.patch.object(link_viri, "POSLUSALCI", [])      # brez pravega obvestila namizja
+        tiho.start()
+        self.addCleanup(tiho.stop)
         self.tmp = tempfile.mkdtemp()
         self.poti = {}
         for i in range(self.SEJ):
