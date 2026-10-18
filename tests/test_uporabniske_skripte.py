@@ -92,6 +92,57 @@ class TestVezava(unittest.TestCase):
         self.assertIn("skriptaOpozorilo", js)           # opozorilo pred uvozom
         self.assertIn("uporabniske_skripte", (KOREN / "packaging" / "install_os_payload.sh").read_text(encoding="utf-8"))
 
+class TestPreberiPot(unittest.TestCase):
+    """Pot, vpisana rocno (lastnik, 18. 10. 2026): samo .js/.sh v domaci mapi, ne v skritih mapah; ~ se razsiri."""
+
+    def setUp(self):
+        self.dom = tempfile.mkdtemp(prefix="dom-")
+        self.stari = os.environ.get("HOME")
+        os.environ["HOME"] = self.dom
+        os.makedirs(os.path.join(self.dom, "Prejemi"))
+        os.makedirs(os.path.join(self.dom, ".ssh"))
+        Path(self.dom, "Prejemi", "moja.js").write_text("console.log(1)", encoding="utf-8")
+        Path(self.dom, "Prejemi", "beri.txt").write_text("x", encoding="utf-8")
+        Path(self.dom, ".ssh", "skrito.sh").write_text("echo 1", encoding="utf-8")
+
+    def tearDown(self):
+        if self.stari is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.stari
+        shutil.rmtree(self.dom, ignore_errors=True)
+
+    def test_tilda_in_relativna_pot(self):
+        for pot in ("~/Prejemi/moja.js", "Prejemi/moja.js", os.path.join(self.dom, "Prejemi", "moja.js")):
+            r = us.preberi_pot(pot)
+            self.assertTrue(r["ok"], pot)
+            self.assertEqual((r["ime"], r["vsebina"]), ("moja.js", "console.log(1)"))
+
+    def test_zavrne_zunaj_doma_skrito_napacno_vrsto_in_manjkajoce(self):
+        self.assertEqual(us.preberi_pot("/etc/passwd")["napaka"], "pot")
+        self.assertEqual(us.preberi_pot("~/../../etc/hosts.js")["napaka"], "pot")
+        self.assertEqual(us.preberi_pot("~/.ssh/skrito.sh")["napaka"], "pot")
+        self.assertEqual(us.preberi_pot("~/Prejemi/beri.txt")["napaka"], "vrsta")
+        self.assertEqual(us.preberi_pot("~/Prejemi/ni.js")["napaka"], "ni_datoteke")
+        self.assertEqual(us.preberi_pot("")["napaka"], "pot")
+
+    def test_simbolna_povezava_ven_iz_doma_je_zavrnjena(self):
+        os.symlink("/etc/hostname", os.path.join(self.dom, "Prejemi", "povezava.sh"))
+        self.assertEqual(us.preberi_pot("~/Prejemi/povezava.sh")["napaka"], "pot")
+
+    def test_prevelika(self):
+        Path(self.dom, "Prejemi", "velika.sh").write_text("#" * (us.NAJVEC_BAJTOV + 1), encoding="utf-8")
+        self.assertEqual(us.preberi_pot("~/Prejemi/velika.sh")["napaka"], "velikost")
+
+    def test_vmesnik_pot_in_besedila(self):
+        js = (KOREN / "assets/os/os.js").read_text(encoding="utf-8")
+        self.assertIn('klic("mediaSkriptaPreberi"', js)
+        self.assertIn('"mediaSkriptaPreberi": "_skripta_preberi"', (KOREN / "core/os_katalog.py").read_text(encoding="utf-8"))
+        besedila = (KOREN / "assets/os/besedila.js").read_text(encoding="utf-8")
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            for kljuc in ("skriptaPot", "skriptaPotPrimer", "skriptaUvoziPot", "skriptaNapakaPot"):
+                self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{[^\n]*\"%s\"" % (jezik, kljuc))
+
 
 if __name__ == "__main__":
     unittest.main()

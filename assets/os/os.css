@@ -1323,6 +1323,9 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .skripta-izpis { max-height: 140px; overflow: auto; margin: 4px 0 0; padding: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; border-radius: 8px; background: var(--kartica); border: 1px solid var(--rob); }
 .skripta-opozorilo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .skripta-opozorilo p { flex: 1 1 100%; }
+.skripta-pot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.skripta-pot small { flex: 1 1 100%; }
+.skripta-pot input { flex: 1 1 220px; min-width: 0; }
 .prilagodi-vrstica input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; accent-color: var(--zelena); }
 /* Neobkljukano polje je bilo v temni temi crn kvadrat brez obrobe (posnetek 14. 10. 2026): vidna obroba in kljukica. */
 .prilagodi-vrstica input[type=checkbox] { -webkit-appearance: none; appearance: none; display: grid; place-content: center;

@@ -414,7 +414,7 @@ class Katalog:
         "mediaSamodejniShrani": "_samodejni_shrani",
         # Skripte, ki jih uporabnik sam uvozi (core/uporabniske_skripte.py): JavaScript v strani Spotify, shell na ukaz.
         "mediaPlakat": "_plakat",
-        "mediaSkripte": "_skripte_seznam", "mediaSkriptaUvozi": "_skripta_uvozi", "mediaSkriptaVklop": "_skripta_vklop",
+        "mediaSkripte": "_skripte_seznam", "mediaSkriptaUvozi": "_skripta_uvozi", "mediaSkriptaPreberi": "_skripta_preberi", "mediaSkriptaVklop": "_skripta_vklop",
         "mediaSkriptaOdstrani": "_skripta_odstrani", "mediaSkriptaZazeni": "_skripta_zazeni",
         "mediaJellyfinVticniki": "_jf_vticniki", "mediaJellyfinVticnik": "_jf_vticnik",
         "mediaJellyfinNamesti": "_jf_namesti", "mediaJellyfinZagon": "_jf_zagon",
@@ -1034,6 +1034,9 @@ class Katalog:
 
     def _skripta_uvozi(self, a: list) -> Any:
         return uporabniske_skripte.uvozi(a[0] if a else "", a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "")
+
+    def _skripta_preberi(self, a: list) -> Any:
+        return uporabniske_skripte.preberi_pot(self._niz(a, 0))
 
     def _skripta_vklop(self, a: list) -> Any:
         return uporabniske_skripte.vklopi(self._niz(a, 0), bool(a[1]) if len(a) > 1 else False)
