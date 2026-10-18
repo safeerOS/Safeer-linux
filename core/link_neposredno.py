@@ -617,6 +617,8 @@ class VhodNeposredno:
         from core import link_vticnik
         link_vticnik.brez_zamika(h)
         link_vticnik.brez_zamika(t)
+        # Tunel je brez roka (WebSocket sme dolgo molcati): mrtvo drugo stran zazna keepalive in mesto se sprosti.
+        link_vticnik.ohrani_zivost(t)
         with self._zaklep:
             self._tunelov += 1
 
@@ -981,6 +983,7 @@ class LokalniOdZunaj:
                 _oznaci(vrata_odjemalca, POT_NEPOSREDNO)
                 from core import link_vticnik
                 link_vticnik.brez_zamika(tcp)
+                link_vticnik.ohrani_zivost(t)
                 _pipe(link_vticnik.zavaruj(t), tcp, lambda: _odznaci(vrata_odjemalca))
                 return
         if samo_neposredno:

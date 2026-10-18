@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import struct
+import sys
 import tempfile
 import threading
 import time
@@ -613,6 +614,9 @@ class Teamwork:
         self.zgodovina = Zgodovina(self.mapa)
         self.zgodovina.ohrani = lambda: {x.sha for x in list(self._seje.values())}
         self._seje: Dict[str, _Seja] = {}
+        #: Oznaka -> kljucavnica, dokler se seja ustvarja (zgoscena vrednost in kopija velike datoteke): drugi klic za
+        #: isto datoteko pocaka nanjo, namesto da bi datoteko bral in kopiral se enkrat.
+        self._ustvarjanje: Dict[str, threading.Lock] = {}
         self._udelezbe: Dict[str, _Udelezba] = {}
         self._zaklep = threading.RLock()
         self._nit: Optional[threading.Thread] = None
@@ -659,17 +663,47 @@ class Teamwork:
             s = self._seje.get(oznaka)
             if s is not None or not ustvari:
                 return s
+            ustvarjanje = self._ustvarjanje.setdefault(oznaka, threading.Lock())
         # Branje cele datoteke (zgoscena vrednost, kopija v zgodovino) ne sme drzati skupne kljucavnice: sicer caka
         # D-Bus (TeamworkStanje) in vsak tik, dokler se velika datoteka ne prebere.
-        pot = self.razresi(oznaka) or ""
-        if not pot or not os.path.isfile(pot):
-            return None
-        nova = _Seja(oznaka, pot)
-        nova.stat = _stat(pot)
-        nova.sha = _sha(pot)
-        self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
+        with ustvarjanje:
+            try:
+                with self._zaklep:
+                    s = self._seje.get(oznaka)
+                if s is not None:
+                    return s
+                pot = self._razresi(oznaka)
+                if not pot or not os.path.isfile(pot):
+                    return None
+                nova = _Seja(oznaka, pot)
+                nova.stat = _stat(pot)
+                nova.sha = _sha(pot)
+                self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
+                with self._zaklep:
+                    return self._seje.setdefault(oznaka, nova)
+            finally:
+                with self._zaklep:
+                    if self._ustvarjanje.get(oznaka) is ustvarjanje:
+                        self._ustvarjanje.pop(oznaka, None)
+
+    def _razresi(self, oznaka: str) -> str:
+        try:
+            return str(self.razresi(oznaka) or "")
+        except Exception:  # noqa: BLE001 - brez razresitve datoteka ni deljena
+            return ""
+
+    def _se_deli(self, s: _Seja) -> bool:
+        """Ali uporabnik datoteko seje se deli. Seja si zapomni pot ob nastanku; ce uporabnik mapo medtem odstrani iz
+        deljenih (ali oznaka zdaj kaze drugam), naprava v to datoteko ne sme vec pisati (core/link_dostop: o vsebinah
+        te naprave odloca samo ta naprava)."""
+        pot = self._razresi(s.oznaka)
+        return bool(pot) and os.path.normpath(pot) == os.path.normpath(s.pot)
+
+    def _opusti(self, s: _Seja) -> None:
         with self._zaklep:
-            return self._seje.setdefault(oznaka, nova)
+            if self._seje.get(s.oznaka) is s:
+                self._seje.pop(s.oznaka, None)
+        print("[Teamwork] datoteka ni vec deljena, seja koncana:", os.path.basename(s.pot), file=sys.stderr)
 
     def _urejajo(self, s: _Seja) -> List[Tuple[str, str]]:
         """(id, ime) naprav, ki imajo datoteko zdaj odprto; "" = ta naprava."""
@@ -682,7 +716,12 @@ class Teamwork:
     def prijava(self, posiljatelj: str, p: dict) -> dict:
         """Ukaz `files.session` z udelezenca: {id, odprto, program, osnova}. Vrne stanje seje (za odgovor)."""
         oznaka = str(p.get("id") or "")
-        s = self._seja(oznaka, ustvari=True)
+        s = self._seja(oznaka, ustvari=False)
+        if s is not None and not self._se_deli(s):
+            self._opusti(s)
+            s = None
+        if s is None:
+            s = self._seja(oznaka, ustvari=True)
         if s is None:
             return {"ok": False, "koda": "ni_datoteke"}
         with s.zaklep:
@@ -734,6 +773,10 @@ class Teamwork:
     def popravek(self, posiljatelj: str, oznaka: str, pot_telesa: str) -> Tuple[int, dict]:
         """`POST /popravek/<id>`: shranitev z druge naprave. Udelezenec mora biti prijavljen v sejo te datoteke."""
         s = self._seja(oznaka, ustvari=False)
+        if s is not None and not self._se_deli(s):
+            # Mapa ni vec deljena: nic se ne zapise. Naprava se prijavi znova in dobi »ni_datoteke«.
+            self._opusti(s)
+            s = None
         if s is None or posiljatelj not in s.udelezenci:
             return 409, {"ok": False, "koda": "ni_seje"}
         ime = s.udelezenci[posiljatelj].get("ime") or posiljatelj
@@ -1010,6 +1053,8 @@ class Teamwork:
                 return
             if koda == 409 and odgovor.get("koda") == "ni_seje":
                 self._ping(u, odprto=u.odprto)
+                if not u.podprto:
+                    return                           # lastnik datoteke ne deli vec: nic vec ne posiljamo
                 continue
             if koda == 409 and odgovor.get("koda") == "ponovi":
                 continue
@@ -1132,6 +1177,34 @@ class Teamwork:
                     izid.append({"ime": os.path.basename(s.pot), "naprava": "", "teamwork": len(ur) >= 2,
                                  "drugi": [ime for i, ime in ur if i]})
         return {"ok": True, "datoteke": izid}
+
+
+def na_glavni_niti(delo: Callable[[], object], rok_s: float = 3.0):
+    """Izid `delo()` z glavne niti GLib (seznam oken bere samo ona) ali None, ce ga v `rok_s` ni.
+
+    Ce je klicatelj ze glavna nit, delo izvede takoj: prej je klic z glavne niti (prijava Teamworka) cakal nase
+    in jo zamrznil za ves rok - ob vsakem javljanju udelezenca (vsakih 5 s) 3 s brez odziva."""
+    from gi.repository import GLib
+    try:
+        na_glavni = GLib.MainContext.default().is_owner() or threading.current_thread() is threading.main_thread()
+    except Exception:  # noqa: BLE001
+        na_glavni = threading.current_thread() is threading.main_thread()
+    if na_glavni:
+        return delo()
+    izid: list = [None]
+    koncano = threading.Event()
+
+    def ovoj() -> bool:
+        try:
+            izid[0] = delo()
+        finally:
+            koncano.set()
+        return False
+    # Prednost kot dogodki (ne »idle«): zasedena glavna zanka Safeer OS bi klic sicer zadrzevala.
+    GLib.idle_add(ovoj, priority=GLib.PRIORITY_DEFAULT)
+    if not koncano.wait(rok_s):
+        return None
+    return izid[0]
 
 
 def _odstrani(pot: str) -> None:
