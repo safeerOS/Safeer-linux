@@ -49,7 +49,7 @@ if [ "${SAFEER_DEB_BREZ_QT:-0}" != 1 ]; then
 fi
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \
-    "$BUILD_ROOT"/usr/share/applications/safeer-os.{splet,sporocila,zapiski,nastavitve}.desktop
+    "$BUILD_ROOT"/usr/share/applications/safeer-os.{splet,sporocila,zapiski,nastavitve,scit}.desktop
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
 # SAFEER_DAV1D=MAPA (CI: posel dav1d-deb): se dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
 # Nas WebKitGTK in libsoup (core/zasebni_webkit.py; Safeer Control iz /usr/lib/safeer-control uporabi istega). Njune

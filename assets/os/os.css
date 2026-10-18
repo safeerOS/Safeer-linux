@@ -798,6 +798,14 @@ div.vrstica { cursor: default; }
 .scit-naprej input { min-width: 260px; }
 .scit-naprej span { width: 100%; }
 .scit-zadnje button.nevarno { border-color: var(--rdeca); color: #ffb3b3; }
+/* Tiha izguba sifriranega DNS: mirna vrstica stanja (brez rdece in brez okna), pregled 18. 10. 2026. */
+.scit-nesifrirano { border-left: 3px solid var(--opozorilo); padding-left: 10px; color: var(--besedilo); }
+/* Statistika v oknu Safeer Scit: pari oznaka - vrednost. */
+.scit-statistika { display: grid; grid-template-columns: max-content 1fr; gap: 8px 22px; max-width: 1100px; margin: 0;
+  padding: 16px 20px; background: var(--kartica); border: 1px solid var(--tanka); border-radius: var(--polmer); }
+.scit-statistika dt { color: var(--medlo); }
+.scit-statistika dd { margin: 0; color: var(--besedilo); font-variant-numeric: tabular-nums; }
+#scitMesto { margin-bottom: 26px; }
 .scit-premor { align-items: center; }
 .scit-premor button { margin-left: 0; padding: 3px 12px; }
 .zvok-jbl { margin-top: 10px; max-width: 1100px; }
@@ -1580,3 +1588,4 @@ body.en-razdelek .nabiralnik { height:calc(100vh - 60px); max-height:calc(100vh 
   .mehurcek { max-width:88%; }
 }
 /* ==== konec: nabiralnik Sporocil ==== */
+@media (max-width: 560px) { .scit-statistika { grid-template-columns: 1fr; } }

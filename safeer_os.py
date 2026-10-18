@@ -260,9 +260,8 @@ def _razresevalnik_slik(nastavitve=None):
     razresevalnik = doh_proxy._global_resolver         # isti (in isti predpomnilnik) kot Splet, ce ze tece
     if razresevalnik is None:
         razresevalnik = doh_proxy.DoHResolver(ponudnik, lasten)
-        if nastavitve is not None:      # Scit: isti streznik naprej kot Splet
-            razresevalnik.naprej = nastavitve.get("scit_naprej", "cloudflare")
-            razresevalnik.naprej_po_meri = nastavitve.get("scit_naprej_po_meri", "") or ""
+        # Scit: isti streznik naprej kot Splet in Scit (en vir, doh_proxy.naprej_iz)
+        razresevalnik.naprej, razresevalnik.naprej_po_meri = doh_proxy.naprej_iz(nastavitve)
     else:
         razresevalnik.set_provider(ponudnik, lasten)
 
@@ -1531,7 +1530,7 @@ RAZRED_SAFEER_OS = "safeer-os"
 #: io.github.memelandfaner.SafeerOS.splet - Flatpak izvozi samo imena z ID-jem spredaj). Male crke: Plank (bamf)
 #: razred okna spremeni v male crke in ga isce med imeni vnosov. Slika ikone je assets/os/<pripona>.svg.
 #: Safeer Player ima svoj vnos ze od prej (WMCLASS_PREDVAJALNIKA, packaging/safeer-player.desktop).
-OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve")
+OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve", "scit")
 #: Okna, ki sodijo k drugemu programu: Medijski center (stran vira) in njegov dialog sta del Safeer Playerja.
 _OKNA_PREDVAJALNIKA = ("Medijski", "Dialog")
 
@@ -1660,14 +1659,15 @@ def ikona_kuverte(n: int, mapa: str, velikost: int = 48) -> str:
 
 
 #: Razdelki, ki se na delovni povrsini odprejo vsak v svojem oknu (ne cela stara lupina Safeer OS).
-RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve")
+#: Safeer Scit (lastnik, 18. 10. 2026) je svoj program kot Sporocila: svoj vnos v meniju, okno, ikona v pultu in docku.
+RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve", "scit")
 _NASLOVI_RAZDELKOV = {
-    "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS"},
-    "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings"},
-    "de": {"zapiski": "Notizen", "sporocila": "Nachrichten", "nastavitve": "Safeer OS Einstellungen"},
-    "es": {"zapiski": "Notas", "sporocila": "Mensajes", "nastavitve": "Ajustes de Safeer OS"},
-    "fr": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Réglages de Safeer OS"},
-    "it": {"zapiski": "Note", "sporocila": "Messaggi", "nastavitve": "Impostazioni di Safeer OS"},
+    "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS", "scit": "Safeer Ščit"},
+    "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings", "scit": "Safeer Shield"},
+    "de": {"zapiski": "Notizen", "sporocila": "Nachrichten", "nastavitve": "Safeer OS Einstellungen", "scit": "Safeer Schild"},
+    "es": {"zapiski": "Notas", "sporocila": "Mensajes", "nastavitve": "Ajustes de Safeer OS", "scit": "Safeer Escudo"},
+    "fr": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Réglages de Safeer OS", "scit": "Safeer Bouclier"},
+    "it": {"zapiski": "Note", "sporocila": "Messaggi", "nastavitve": "Impostazioni di Safeer OS", "scit": "Safeer Scudo"},
 }
 
 
@@ -1787,6 +1787,7 @@ class SafeerOS(Gtk.Application):
         self.sporocila.obvesti_novo = self._obvesti_novo_pismo
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
+        self._en_vir_naprej()
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
         self.posodabljanje = os_posodobitve.Posodabljanje()
@@ -2679,6 +2680,21 @@ class SafeerOS(Gtk.Application):
         self._osvezi_kuverto()
         return True
 
+    def _en_vir_naprej(self) -> None:
+        """Streznik naprej za »Safeer Scit« ima en vir: Scit (velja za ves racunalnik in za Splet; doh_proxy.naprej_iz).
+        Kdor ga je do zdaj izbral samo v Spletu (nastavitve brskalnika), ga obdrzi: ob prvem zagonu ga prevzame Scit."""
+        try:
+            from core import doh_proxy
+            if self.shramba.get("scit_naprej") is None:
+                from core.config import ConfigManager
+                c = ConfigManager()
+                izbira = c.get("scit_naprej")
+                if c.get("dns_izbira_uporabnika") and izbira in os_scit.IZBIRE_NAPREJ and izbira != os_scit.PRIVZETI_NAPREJ:
+                    self.scit.nastavi_naprej(izbira, str(c.get("scit_naprej_po_meri", "") or ""))
+            doh_proxy.nastavi_vir_naprej(self.scit)
+        except Exception as e:  # noqa: BLE001 - brez libsoup Splet ni na voljo, Scit dela naprej
+            print("[SafeerOS] scit, streznik naprej:", type(e).__name__, e, flush=True)
+
     # ------------------------------------------------------------------ Safeer Scit v pultu (poleg kuverte)
     #: Stanje in stevec blokiranih v pultu se osvezita na toliko sekund, takoj pa po preklopu iz pulta ali Nastavitev.
     SCIT_PULT_OSVEZI_S = 15
@@ -2693,7 +2709,7 @@ class SafeerOS(Gtk.Application):
             from core import pladenj_sni
             self.scit_pult = pladenj_sni.ScitPult(
                 pladenj_sni.BESEDILA_SCITA.get(_jezik(), pladenj_sni.BESEDILA_SCITA["en"]),
-                lambda: GLib.idle_add(lambda: (self._odpri_razdelek("nastavitve#blokScit"), False)[1]),
+                lambda: GLib.idle_add(lambda: (self._odpri_razdelek("scit"), False)[1]),
                 self._preklopi_scit_iz_pulta, os.path.join(GLib.get_user_cache_dir(), "safeer-os"),
                 barve=os_lupina.tokeni())
         except Exception as e:  # noqa: BLE001 - brez vodila D-Bus ikone Scita ni, Scit dela naprej
@@ -2739,9 +2755,30 @@ class SafeerOS(Gtk.Application):
         threading.Thread(target=delo, name="safeer-scit-preklop", daemon=True).start()
 
     def _po_scitu(self, stanje: dict) -> dict:
-        """Stikalo v Nastavitvah je Scit preklopilo: pult pokaze novo stanje takoj, ne sele ob naslednjem osvezevanju."""
+        """Scit je spremenjen (Nastavitve, okno Safeer Scit, pult): pult in vse odprte strani pokazejo novo stanje takoj -
+        vir je en sam (self.scit), nobeno okno ne kaze starega."""
         GLib.idle_add(lambda: (self._osvezi_scit_pult(stanje), False)[1])
+        # Klici mostu za Scit tecejo v svoji niti: dogodek (tudi QML) posljemo iz glavne niti.
+        GLib.idle_add(lambda: (self._dogodek("scit", stanje), False)[1])
         return stanje
+
+    def _scit_statistika(self) -> dict:
+        """Statistika za okno Safeer Scit: DNS za ves racunalnik, Splet in Sporocila (skupni stevci brskalnika), pravila
+        proti sledenju (core/scit_pravila.py: vgrajen ali podpisan seznam)."""
+        izid: dict = {"scit": self.scit.stanje()}
+        try:
+            from core.config import ConfigManager
+            c = ConfigManager()
+            izid["splet"] = {"oglasi": int(c.get("total_ads_blocked", 0) or 0),
+                             "groznje": int(c.get("total_threats_blocked", 0) or 0)}
+        except Exception:  # noqa: BLE001
+            izid["splet"] = {}
+        try:
+            from core import scit_pravila
+            izid["pravila"] = scit_pravila.skupna(zazeni=False).stanje()
+        except Exception:  # noqa: BLE001
+            izid["pravila"] = {}
+        return izid
 
     # ------------------------------------------------------------------ okna razdelkov (delovna povrsina)
     def _odpri_okno_razdelka(self, ime: str, cilj: str = "") -> bool:
@@ -3487,9 +3524,11 @@ class SafeerOS(Gtk.Application):
         rod = okno.odpri(naslov or kanal, self._okno_pogleda(pogled))
 
         def je_blokirano(url: str) -> bool:
-            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu.
-            from core import adblock
-            return adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu - tudi pravila Scita (sledilci in
+            # telemetrija; slika v pismu je vedno vir tretje strani).
+            from core import adblock, scit_pravila
+            return (adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+                    or scit_pravila.trenutna().blokira(url))
 
         def delo(slike: bool = False) -> None:
             try:
@@ -3587,14 +3626,39 @@ class SafeerOS(Gtk.Application):
             self._vgrajeni_pogledi.add(pogled)
             self._vgrajeno_scit_pripravi()
             self._vgrajeno_filter()
+            # Sledilci in telemetrija (core/scit_pravila.py) tudi v vgrajenih virih: en poslusalec za vse (nov seznam ->
+            # vsi odprti viri), pogled pa filter dobi takoj.
+            try:
+                self._sledilci_v_pogled(pogled)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] vgrajeni viri, sledilci:", e, flush=True)
         else:
             self._vgrajeni_pogledi.discard(pogled)
             try:
                 from core.filter_lists import FILTER_ID
+                from core.scit_pravila import FILTER_ID as SLEDILCI
                 pogled.get_user_content_manager().remove_filter_by_id(FILTER_ID)
+                pogled.get_user_content_manager().remove_filter_by_id(SLEDILCI)
             except Exception:  # noqa: BLE001
                 pass
         return bool(da)
+
+    def _sledilci_v_pogled(self, pogled) -> None:
+        """Filter sledilcev (core/scit_pravila.FilterSledilcev) na pogled vgrajenega vira ali predvajalnika Medijskega
+        centra. Poslusalec za nov seznam je en sam (brez kopicenja ob vsakem odprtju) in velja za trenutne poglede."""
+        from core import scit_pravila
+        sledilci = scit_pravila.filter_sledilcev(WebKit2, GLib)
+        if sledilci is None:
+            return
+        if not getattr(self, "_sledilci_prijava", False):
+            self._sledilci_prijava = True
+
+            def nov(_f) -> None:
+                medijski = getattr(self, "_medijski_pogled", None)
+                for p in list(getattr(self, "_vgrajeni_pogledi", ())) + ([medijski] if medijski is not None else []):
+                    sledilci.uporabi(p)
+            sledilci.ob_novem(nov)
+        sledilci.uporabi(pogled)
 
     def _vgrajeno_scit_pripravi(self) -> None:
         """Vir groženj (podpisan seznam Safeer, isti kot Splet in Scit) za preverjanje okvirjev - enkrat na proces."""
@@ -3608,15 +3672,17 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - vgrajeni seznam domen ostane
             print("[SafeerOS] vgrajeni viri, vir groženj:", e, flush=True)
 
-    def _vgrajeno_filter(self) -> None:
+    def _vgrajeno_filter(self, pripravi: bool = True) -> None:
         """EasyList (preveden filter Spleta, ista shramba in id) na poglede z vgrajenim virom. Ce prevedenega se ni
-        (Splet se ni tekel), ga enkrat pripravimo iz shranjenega seznama oziroma prenosa, kot Splet."""
+        (Splet se ni tekel), ga enkrat pripravimo iz shranjenega seznama oziroma prenosa, kot Splet - razen ce
+        pripravi=False (samo ze preveden filter, brez pretvorbe)."""
         from core.filter_lists import FILTER_ID, FilterListAgent
         from core.threat_intel import default_data_dir
 
         def uporabi(filter_) -> None:
             self._vgrajeni_filter = filter_
-            for p in list(getattr(self, "_vgrajeni_pogledi", ())):
+            medijski = getattr(self, "_medijski_pogled", None)
+            for p in list(getattr(self, "_vgrajeni_pogledi", ())) + ([medijski] if medijski is not None else []):
                 try:
                     upravitelj = p.get_user_content_manager()
                     upravitelj.remove_filter_by_id(FILTER_ID)
@@ -3657,6 +3723,9 @@ class SafeerOS(Gtk.Application):
                 uporabi(st.load_finish(rezultat))
                 self._vgrajeni_filter_nalagam = False
             except Exception:  # noqa: BLE001 - se ni preveden: iz shranjenega seznama ali prenosa
+                if not pripravi:
+                    self._vgrajeni_filter_nalagam = False
+                    return
                 try:
                     from core import adblock
                     self._vgrajeni_agent = FilterListAgent(mapa, on_rules=pravila, first_delay=0,
@@ -4338,10 +4407,11 @@ class SafeerOS(Gtk.Application):
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
             "scitVklop": lambda: self._po_scitu(self.scit.nastavi(bool(a[0]) if a else False)),
-            "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
-            "scitNaprej": lambda: self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
-            "scitTwitch": lambda: self.scit.nastavi_twitch(bool(a[0]) if a else True),
-            "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
+            "scitDovoli": lambda: self._po_scitu(self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True)),
+            "scitNaprej": lambda: self._po_scitu(self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")),
+            "scitTwitch": lambda: self._po_scitu(self.scit.nastavi_twitch(bool(a[0]) if a else True)),
+            "scitPremor": lambda: self._po_scitu(self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0)),
+            "scitStatistika": self._scit_statistika,
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),
                                                              a[3] if len(a) > 3 and isinstance(a[3], list) else None),
@@ -6865,6 +6935,11 @@ class SafeerOS(Gtk.Application):
         pogled = WebKit2.WebView(**lastnosti)
         pogled.connect("decide-policy", self._medijski_odlocitev)
         nastavitve = pogled.get_settings()
+        # Scit tudi tu (lastnik 18. 10. 2026: »nihce ne sme slediti uporabnikom«): proti prstnim odtisom, sledilci in
+        # telemetrija (core/scit_pravila.py) ter EasyList kot v Spletu - za YouTube, RTV 365 in strani virov.
+        from core import scit_pravila
+        scit_pravila.zasebnost_pogleda(WebKit2, nastavitve)
+        self._sledilci_v_pogled(pogled)
         # Skripte strani izklopimo (markup), API skripte ostanejo - z njimi preverimo, ali je na strani video.
         nastavitve.set_property("enable-javascript-markup", False)
         nastavitve.set_property("enable-webgl", False)
@@ -6873,6 +6948,9 @@ class SafeerOS(Gtk.Application):
         self._medijska_plast = os_medijska_plast.MedijskaPlast(Gtk, pogled, self._mb, self._medijska_plast_nazaj)
         self._medijska_plast_css()
         self._medijski_pogled = pogled
+        # EasyList (isti preveden filter kot Splet) tudi na ta pogled - samo ze preveden: pretvorba seznama v Pythonu bi
+        # procesu pustila ~150 MiB (meritev 11. 10. 2026), tega predvajanje skladbe ne sme sproziti.
+        self._vgrajeno_filter(pripravi=False)
         return True
 
     def _medijska_plast_css(self) -> None:

@@ -1,0 +1,28 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Shield
+Name[sl]=Safeer Ščit
+Name[de]=Safeer Schild
+Name[es]=Safeer Escudo
+Name[fr]=Safeer Bouclier
+Name[it]=Safeer Scudo
+GenericName=Ad and tracker protection
+GenericName[sl]=Zaščita pred oglasi in sledilci
+GenericName[de]=Schutz vor Werbung und Trackern
+GenericName[es]=Protección contra anuncios y rastreadores
+GenericName[fr]=Protection contre les publicités et les traqueurs
+GenericName[it]=Protezione da pubblicità e tracker
+Comment=Settings and statistics of the Shield for the whole computer, the Web and Messages
+Comment[sl]=Nastavitve in statistika Ščita za ves računalnik, Splet in Sporočila
+Comment[de]=Einstellungen und Statistik des Schilds für den ganzen Computer, das Web und Nachrichten
+Comment[es]=Ajustes y estadísticas del Escudo para todo el ordenador, la Web y Mensajes
+Comment[fr]=Réglages et statistiques du Bouclier pour tout l’ordinateur, le Web et Messages
+Comment[it]=Impostazioni e statistiche dello Scudo per tutto il computer, il Web e Messaggi
+Keywords=adblock;tracker;privacy;dns;firewall;shield;scit;zasebnost;
+Exec=safeer-os --razdelek scit
+Icon=safeer-os.scit
+Terminal=false
+Categories=Network;Security;System;
+# Safeer Scit je svoj program (lastnik, 18. 10. 2026): v meniju je viden, okno je razdelek Safeer OS (safeer_os.OKNA_V_PULTU)
+# z istim blokom nastavitev kot Nastavitve, razred okna je safeer-os.scit.
+StartupWMClass=safeer-os.scit

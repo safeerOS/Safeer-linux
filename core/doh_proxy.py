@@ -670,11 +670,12 @@ class DoHResolver:
             return self._razresi_scit(hostname, timeout)
         izid = self._vprasaj(hostname, timeout, self.provider, self.custom_url)
         stanje = stanje_izida(izid)
-        if stanje in (NAPAKA, BLOKIRANO) and self.rezerva and self.provider != "custom":
-            # Lastnik: Quad9 strogo blokira in preverja DNSSEC - poizvedbo ponovimo pri drugem ponudniku. Nikoli za ime,
-            # ki ga blokira Scit sam; blokade ponudnika ne obidemo, ce Scitovega nabora ni (ne vemo, ali je nevarno).
-            scit = scit_kategorija(hostname, samo_z_diska=True)
-            if not scit and (stanje == NAPAKA or scit is not None):
+        if stanje == NAPAKA and self.rezerva and self.provider != "custom":
+            # Samo ob pravi napaki (SERVFAIL - tudi pokvarjen DNSSEC pri Quad9 -, cas, prenos) vprasamo drugega
+            # ponudnika. Blokade, ki jo je vrnil ponudnik, ki ga je uporabnik izbral zato, ker filtrira (Quad9, AdGuard,
+            # OpenDNS), rezerva ne obide (pregled 18. 10. 2026: prej je ime razresila pri Cloudflaru). Nikoli za ime, ki
+            # ga blokira Scit sam.
+            if not scit_kategorija(hostname, samo_z_diska=True):
                 rezervni = REZERVNI_PONUDNIK.get(self.provider, "cloudflare")
                 self._zabelezi_rezervo(self.provider, rezervni, stanje)
                 drugi = self._vprasaj(hostname, timeout, rezervni, "")
@@ -726,12 +727,22 @@ class DoHResolver:
         if not ponudnik:
             return sistemski_dns(hostname)
         izid = self._vprasaj(hostname, timeout, ponudnik, lasten)
-        if stanje_izida(izid) in (NAPAKA, BLOKIRANO) and self.rezerva and ponudnik != "custom":
+        if stanje_izida(izid) == NAPAKA and self.rezerva and ponudnik != "custom":
+            # Samo ob pravi napaki; blokade ponudnika (filtrirni DNS, ki ga je izbral uporabnik) ne obidemo.
             self._zabelezi_rezervo(ponudnik, "sistemski DNS", stanje_izida(izid))
             drugi = sistemski_dns(hostname)
             if drugi[0]:
+                self.nesifrirano_cas = time.time()      # ime je slo nesifrirano: Splet to mirno pokaze ob scitu
                 return drugi
         return izid
+
+    #: time.time() zadnjega imena, ki ga je bilo treba zaradi odpovedi DoH razresiti nesifrirano (0 = se nobenega).
+    nesifrirano_cas = 0.0
+    #: Kako dolgo po tem Splet kaze, da DNS ni sifriran (ko DoH spet odgovarja, oznaka izgine sama).
+    NESIFRIRANO_S = 120.0
+
+    def nesifrirano(self) -> bool:
+        return bool(self.nesifrirano_cas) and time.time() - self.nesifrirano_cas < self.NESIFRIRANO_S
 
     def _vprasaj_scit(self, hostname: str, timeout: float, vrata: int) -> Tuple[Optional[str], int]:
         izid = _izid(None, 15, NAPAKA)
@@ -1453,6 +1464,23 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
         return _global_proxy
 
 
+def dns_nesifriran() -> bool:
+    """Ali so imena Spleta (ali Scita v tem procesu, ki ga Splet vprasa) nazadnje sla nesifrirano, ker sifriran DNS ni
+    odgovoril. Brez okna in opozorila: Splet to mirno pokaze ob scitu v vrstici (pregled 18. 10. 2026: tiha izguba
+    DoH ni bila vidna nikjer)."""
+    r = _global_resolver
+    if r is not None and r.nesifrirano():
+        return True
+    if r is not None and r.provider != "scit":
+        return False
+    try:
+        import sys
+        os_scit = sys.modules.get("core.os_scit")
+        return bool(os_scit is not None and os_scit.nesifrirano_v_procesu())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def ustavi_doh_proxy() -> None:
     """Ustavi skupni posrednik - samo ob izhodu procesa (nikoli ob spremembi nastavitev ene seje)."""
     global _global_proxy
@@ -1492,12 +1520,26 @@ def posreduj_paket(ponudnik: str, lasten: str, paket: bytes, timeout: float) -> 
         return None
     if not data or len(data) < 12 or len(data) > 65535 or data[3] & 0x0F == 2:
         return None
-    if ponudnik in BLOKIRAJO and _blokada_ponudnika(data, ponudnik):
-        return None      # ime, ki ga Scit ne blokira, ponudnik pa (lazno pozitivno): vprasa usmerjevalnik
+    if _blokada_ponudnika(data, ponudnik):
+        # Ponudnik je ime blokiral (uporabnik ga je izbral zato, ker filtrira - druzinski DNS, Quad9, AdGuard): to je
+        # odgovor, ne napaka, zato ne gremo k usmerjevalniku (pregled 18. 10. 2026: prej je rezerva blokado obsla).
+        # Odjemalec dobi NXDOMAIN namesto 0.0.0.0 - povezava na 0.0.0.0 bi na Linuxu sla na ta racunalnik.
+        return _nxdomain(paket)
     return paket[:2] + data[2:]
 
 
+def _nxdomain(paket: bytes) -> bytes:
+    """NXDOMAIN z ID in vprasanjem izvirne poizvedbe (kot ga vrne Scit za blokirano ime)."""
+    konec = 12
+    while konec < len(paket) and paket[konec] != 0:
+        konec += 1 + paket[konec]
+    konec += 5
+    return paket[:2] + b"\x81\x83\x00\x01\x00\x00\x00\x00\x00\x00" + paket[12:konec]
+
+
 def _blokada_ponudnika(data: bytes, ponudnik: str) -> bool:
+    """Odgovor je blokada: NXDOMAIN brez SOA ali REFUSED pri ponudnikih, ki blokirajo, ali (pri vseh, tudi po meri)
+    naslov blokade - 0.0.0.0, ::, stran blokade OpenDNS."""
     stanje = razvrsti_odgovor(data, ponudnik)
     if stanje != OK:
         return stanje == BLOKIRANO
@@ -1510,6 +1552,52 @@ def _blokada_ponudnika(data: bytes, ponudnik: str) -> bool:
     return bool(ip) and je_naslov_blokade(ip)
 
 
+#: Streznik naprej za izbiro »Safeer Scit« ima en sam vir (lastnik, 18. 10. 2026: nastavitve Scita na enem mestu, ki se ne
+#: morejo razhajati). V procesu s Safeer OS je to Scit (core/os_scit.Scit: naprej(), nastavi_naprej()) - isti streznik
+#: velja za ves racunalnik in za Splet; prej sta Splet (ConfigManager) in Scit (shramba Safeer OS) imela vsak svojega.
+#: Brez vira (samostojni Safeer Browser) velja ConfigManager.
+_vir_naprej = None
+
+
+def nastavi_vir_naprej(vir) -> None:
+    global _vir_naprej
+    _vir_naprej = vir
+
+
+def naprej_iz(config) -> Tuple[str, str]:
+    """(izbira, naslov po meri) streznika naprej iz enega vira (Scit v Safeer OS ali nastavitve brskalnika)."""
+    vir = _vir_naprej
+    if vir is not None:
+        try:
+            izbira, po_meri = vir.naprej()
+            return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), str(po_meri or "")
+        except Exception:  # noqa: BLE001
+            pass
+    izbira = config.get("scit_naprej", PRIVZETI_NAPREJ) if config is not None else PRIVZETI_NAPREJ
+    po_meri = str(config.get("scit_naprej_po_meri", "") or "") if config is not None else ""
+    return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), po_meri
+
+
+def shrani_naprej(config, izbira: str, po_meri: str = "") -> str:
+    """Shrani streznik naprej v en vir; vrne kljuc napake (prazno = shranjeno)."""
+    vir = _vir_naprej
+    if vir is not None:
+        stanje = vir.nastavi_naprej(izbira, po_meri) or {}
+        return str(stanje.get("napaka") or "")
+    config.set("scit_naprej", izbira)
+    if izbira == "custom":
+        config.set("scit_naprej_po_meri", po_meri)
+    return ""
+
+
+def osvezi_naprej() -> None:
+    """Scit je dobil nov streznik naprej: Splet (skupni razresevalnik) ga uporabi takoj, s praznim predpomnilnikom."""
+    r, vir = _global_resolver, _vir_naprej
+    if r is not None and vir is not None:
+        izbira, po_meri = naprej_iz(None)
+        r.set_provider(r.provider, r.custom_url, izbira, po_meri)
+
+
 def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalDoHProxy]:
     """Posrednik po nastavitvah brskalnika (ConfigManager) - ena pot za Splet in Safeer Browser."""
     izbira = config.get("doh_provider", PRIVZETI_DNS)
@@ -1517,10 +1605,10 @@ def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalD
         return get_doh_proxy(enabled=False)
     if izbira not in IZBIRE_DNS:
         izbira = PRIVZETI_DNS
+    naprej, naprej_po_meri = naprej_iz(config)
     return get_doh_proxy(provider=izbira, custom_url=config.get("custom_doh_url", "") or "", enabled=True,
                          lokalno=bool(config.get("doh_lokalno_omrezje", False)) if lokalno is None else lokalno,
-                         naprej=config.get("scit_naprej", PRIVZETI_NAPREJ),
-                         naprej_po_meri=config.get("scit_naprej_po_meri", "") or "",
+                         naprej=naprej, naprej_po_meri=naprej_po_meri,
                          rezerva=bool(config.get("dns_rezerva", True)))
 
 

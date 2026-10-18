@@ -178,7 +178,12 @@ class Paketi(unittest.TestCase):
                 razred = safeer_os.razred_in_ikona(vloga)[1]
                 self.assertEqual(razredi[razred], razred + ".desktop")   # bamf: ime vnosa = razred
                 v = _vnos(prefix / "share/applications" / (razred + ".desktop"))
-                self.assertEqual(v["NoDisplay"], "true")
+                # Safeer Scit je svoj program (lastnik, 18. 10. 2026): v meniju viden, z varnostno kategorijo.
+                if vloga == "scit":
+                    self.assertNotEqual(v.get("NoDisplay"), "true")
+                    self.assertIn("Security", v["Categories"])
+                else:
+                    self.assertEqual(v["NoDisplay"], "true")
                 self.assertEqual(v["Exec"].split(), ["safeer-os", "--razdelek", vloga])
                 for jezik in ("sl", "de", "es", "fr", "it"):
                     self.assertIn("Name[%s]" % jezik, v)
@@ -212,7 +217,7 @@ class Paketi(unittest.TestCase):
 
     def test_deb_pot_do_ukaza(self):
         deb = _beri("build_os_deb.sh")
-        self.assertIn("safeer-os.{splet,sporocila,zapiski,nastavitve}.desktop", deb)
+        self.assertIn("safeer-os.{splet,sporocila,zapiski,nastavitve,scit}.desktop", deb)
 
 
 class Razdelek(unittest.TestCase):

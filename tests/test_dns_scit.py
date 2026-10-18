@@ -347,7 +347,9 @@ class SamodejnaRezerva(unittest.TestCase):
             self.assertEqual(r.resolve("example.com"), "8.8.4.4")
         self.assertEqual(zanka.klici[-1], "https://dns.google/dns-query")
 
-    def test_lazna_blokada_ponudnikov(self):
+    def test_blokade_ponudnika_rezerva_ne_obide(self):
+        """Pregled 18. 10. 2026: uporabnik je izbral filtrirni (druzinski) DNS - njegove blokade rezerva ne sme obiti s
+        Cloudflarom; drug ponudnik samo ob pravi napaki (SERVFAIL, cas)."""
         primeri = {
             "quad9": lambda ime, q: odgovor(ime, rcode=3),                   # NXDOMAIN brez SOA
             "adguard": lambda ime, q: odgovor(ime, "0.0.0.0" if q == 1 else "::", qtype=q),
@@ -358,7 +360,26 @@ class SamodejnaRezerva(unittest.TestCase):
                 r, zanka, ok = self._r(lambda u, ime, q, o=odg: o(ime, q) if "1.1.1.1" not in u
                                        else odgovor(ime, "104.16.1.1", qtype=q), ponudnik=ponudnik)
                 with ok, contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(r.resolve("lazno-pozitiven.example"), "104.16.1.1")
+                    self.assertIsNone(r.resolve("blokirano-pri-ponudniku.example"))
+                self.assertTrue(zanka.klici and all("1.1.1.1" not in u for u in zanka.klici), zanka.klici)
+                self.assertEqual(r.stevci["rezerva"], 0)
+
+    def test_scit_naprej_blokada_ponudnika_ne_gre_v_sistemski_dns(self):
+        """Splet z izbiro »Safeer Scit« in filtrirnim streznikom naprej: blokada ponudnika ostane (ne sistemski DNS);
+        ob pravi napaki gre ime nesifrirano v sistemski DNS - to Splet mirno pokaze (dns_nesifriran)."""
+        r = DoHResolver("scit", naprej="adguard", rezerva=True)
+        zanka = LaznaZanka(lambda u, ime, q: odgovor(ime, "0.0.0.0" if q == 1 else "::", qtype=q))
+        with okolje(zanka), mock.patch.object(doh_proxy, "sistemski_dns", side_effect=AssertionError("mimo filtra")), \
+                mock.patch.object(doh_proxy, "_global_resolver", r):
+            self.assertIsNone(r.resolve("druzinsko-blokirano.example"))
+            self.assertFalse(doh_proxy.dns_nesifriran())
+        r2 = DoHResolver("scit", naprej="adguard", rezerva=True)
+        zanka2 = LaznaZanka(lambda u, ime, q: None)                       # DoH ne odgovori
+        with okolje(zanka2), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(doh_proxy, "sistemski_dns", return_value=doh_proxy._izid("192.0.2.9", 60, "ok")), \
+                mock.patch.object(doh_proxy, "_global_resolver", r2):
+            self.assertEqual(r2.resolve("example.com"), "192.0.2.9")
+            self.assertTrue(doh_proxy.dns_nesifriran())
 
     def test_pravi_nxdomain_ni_blokada(self):
         r, zanka, ok = self._r(self.quad9(lambda ime, q: odgovor(ime, rcode=3, soa=True)))
@@ -405,7 +426,7 @@ class SistemskiScitNaprej(unittest.TestCase):
                 self.assertEqual(s.naprej()[0], izbira)
             st = s.nastavi_naprej("custom", "192.168.0.135")
             self.assertEqual((st["naprej"], st["naprejPoMeri"], st["napaka"]), ("custom", "192.168.0.135", ""))
-            self.assertEqual(s.nastavi_naprej("custom", "127.0.0.1:5354")["napaka"], "naprej")   # sam sebi ne
+            self.assertEqual(s.nastavi_naprej("custom", "127.0.0.1:5354")["napaka"], "naprej_zanka")   # sam sebi ne
             self.assertEqual(s.nastavi_naprej("custom", "http://x")["napaka"], "naprej")
             self.assertEqual(s.naprej(), ("custom", "192.168.0.135"))
 
@@ -425,9 +446,16 @@ class SistemskiScitNaprej(unittest.TestCase):
             o = doh_proxy.posreduj_paket("cloudflare", "", paket, 1.0)
         self.assertEqual(o[:2], b"\xab\xcd")
         self.assertEqual(poslano, [("https://1.1.1.1/dns-query", b"\x00\x00")])     # DoH: ID 0 (RFC 8484)
-        for slab in (odgovor("example.com", rcode=2), odgovor("example.com", rcode=3)):
+        with mock.patch.object(DoHResolver, "_poslji_doh",
+                               lambda *a: (200, "application/dns-message", odgovor("example.com", rcode=2))):
+            self.assertIsNone(doh_proxy.posreduj_paket("quad9", "", paket, 1.0))          # SERVFAIL: usmerjevalnik
+        # Blokada filtrirnega ponudnika ni napaka: Scit odgovori NXDOMAIN (ne vprasa usmerjevalnika, pregled 18. 10.).
+        for ponudnik, slab in (("quad9", odgovor("example.com", rcode=3)), ("adguard", odgovor("example.com", "0.0.0.0")),
+                               ("custom", odgovor("example.com", "0.0.0.0"))):
             with mock.patch.object(DoHResolver, "_poslji_doh", lambda *a, s=slab: (200, "application/dns-message", s)):
-                self.assertIsNone(doh_proxy.posreduj_paket("quad9", "", paket, 1.0))      # SERVFAIL / lazna blokada
+                o = doh_proxy.posreduj_paket(ponudnik, "https://druzina.example/dns-query", paket, 1.0)
+            self.assertIsNotNone(o, ponudnik)
+            self.assertEqual((o[:2], o[3] & 0x0F, o[6:8]), (b"\xab\xcd", 3, b"\x00\x00"), ponudnik)
         with mock.patch.object(DoHResolver, "_poslji_doh",
                                lambda *a: (200, "application/dns-message", odgovor("example.com", rcode=3))):
             self.assertIsNotNone(doh_proxy.posreduj_paket("cloudflare", "", paket, 1.0))  # Cloudflare ne blokira
