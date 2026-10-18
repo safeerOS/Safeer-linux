@@ -22,6 +22,12 @@ on:
         description: 'Id teka z artefaktom profila PGO (prazno = samodejno po kljucu)'
         type: string
         default: ''
+      bolt:
+        # BOLT za nas WebKitGTK v paketih .deb (packaging/webkit-deb/bolt.sh): samo rocno, za meritev na testnem PC.
+        # Privzeto izklopljen, dokler meritev ne potrdi koristi (odloci lastnik); gradnja z BOLT ima svoj kljuc.
+        description: 'WebKitGTK v paketih .deb z BOLT (post-link optimizacija, za meritev)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -112,6 +118,8 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: UTC
+      # BOLT samo z rocnim zagonom (vhod bolt); zgradi.sh ga prebere iz okolja, kljuc predpomnilnika ga loci.
+      SAFEER_WEBKIT_BOLT: ${{ github.event_name == 'workflow_dispatch' && inputs.bolt && '1' || '0' }}
     steps:
       - name: Free disk space and tools for the cache
         run: |
@@ -125,7 +133,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/webkit-${{ matrix.paket }}.tar.zst
-          key: webkit-deb-pgo-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-pgo-${{ matrix.paket }}-${{ env.SAFEER_WEBKIT_BOLT == '1' && format('bolt-{0}-', hashFiles('packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py')) || '' }}${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - uses: actions/download-artifact@v8
         if: steps.wk.outputs.cache-hit != 'true'
         with:
@@ -134,7 +142,7 @@ jobs:
       - name: Build dependencies (Clang 22 from apt.llvm.org, noble libraries)
         if: steps.wk.outputs.cache-hit != 'true'
         run: bash packaging/webkit-deb/odvisnosti.sh
-      - name: WebKitGTK and libsoup for /usr/lib/${{ matrix.paket }}/webkit (Clang 22, ThinLTO, PGO)
+      - name: WebKitGTK and libsoup for /usr/lib/${{ matrix.paket }}/webkit (Clang 22, ThinLTO, PGO, BOLT=${{ env.SAFEER_WEBKIT_BOLT }})
         if: steps.wk.outputs.cache-hit != 'true'
         run: |
           SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw \
@@ -148,7 +156,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/webkit-${{ matrix.paket }}.tar.zst
-          key: webkit-deb-pgo-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-pgo-${{ matrix.paket }}-${{ env.SAFEER_WEBKIT_BOLT == '1' && format('bolt-{0}-', hashFiles('packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py')) || '' }}${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - name: Build record (Clang 22, ThinLTO, lld, PGO)
         run: |
           tar -I zstd -xOf build/webkit-${{ matrix.paket }}.tar.zst usr/lib/${{ matrix.paket }}/webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt
@@ -158,6 +166,7 @@ jobs:
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' gradnja.txt
           grep -q '^USE_PGO_PROFILE:BOOL=ON$' gradnja.txt
           grep -q '^build.ninja -fprofile-use: [1-9]' gradnja.txt
+          if [ "$SAFEER_WEBKIT_BOLT" = 1 ]; then grep -q '^bolt: da' gradnja.txt; else grep -q '^bolt: ne$' gradnja.txt; fi
       - uses: actions/upload-artifact@v7
         with:
           name: webkit-deb-${{ matrix.paket }}
