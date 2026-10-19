@@ -14,6 +14,7 @@ za razumevanje.naslov_modela in za zmoznost 'agent' v Safeer Linku, zato rocno v
 Brez GTK; pisanje je atomarno (zacasna datoteka + os.replace)."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import tempfile
@@ -81,10 +82,17 @@ def odpri(zahteva, cas: float):
 
 
 def domace_omrezje(gostitelj: str) -> bool:
-    """http je dovoljen samo tja: zasebni IP, zanka, lokalna imena (os_vgrajeni_viri) ali ime brez pike (npr. telefon)."""
-    from core.os_vgrajeni_viri import je_zasebni_gostitelj
-    g = (gostitelj or "").strip().rstrip(".").lower()
-    return je_zasebni_gostitelj(g) or (bool(g) and "." not in g and ":" not in g)
+    """http je dovoljen samo tja: zasebni IP, zanka, lokalna imena (.local, .lan, .home.arpa, .internal, localhost) ali
+    ime brez pike (npr. telefon) - isto kot os_vgrajeni_viri.je_zasebni_gostitelj, ki ga tovor Controla nima."""
+    g = (gostitelj or "").strip().strip("[]").rstrip(".").lower()
+    if not g:
+        return False
+    try:
+        ip = ipaddress.ip_address(g)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        pass
+    return ("." not in g and ":" not in g) or g.endswith((".localhost", ".local", ".lan", ".home.arpa", ".internal"))
 
 
 def preveri_naslov(naslov) -> str:
