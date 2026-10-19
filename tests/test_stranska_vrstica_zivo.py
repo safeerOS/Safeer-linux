@@ -324,6 +324,13 @@ class OknoNastavitev(_Stran):
         isci("")
         self._js("document.getElementById('__glasnost').remove(), document.getElementById('__omrezje').remove(), 1")
 
+    def test_skriti_bloki_niso_vidni(self):
+        """.hitre ima display:grid, ki je prepisal atribut hidden: opomba o posodobitvi na domacem zaslonu je bila vedno
+        vidna brez naslova (testni PC 19. 10. 2026)."""
+        for i in ("domPosodobitev", "blokZaupanje"):
+            self._js("document.getElementById('%s').hidden = true, 1" % i)
+            self.assertEqual(self._js("getComputedStyle(document.getElementById('%s')).display" % i), "none", i)
+
     def test_safeer_agent(self):
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('agentStanje').textContent")
                                == "Ni nastavljen – vpiši naslov modela spodaj.", 5))
