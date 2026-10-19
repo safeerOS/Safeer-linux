@@ -199,6 +199,19 @@ class StranskaVrstica(_Stran):
         self.assertFalse(self._js("document.body.classList.contains('vrstica-plava')"))
         self.assertEqual(self._js("window.__klik"), 0)
 
+    def test_nizko_okno_trak_dosegljiv(self):
+        """Trak je visji od razsirjene vrstice (gumb nad znakom, visji gumbi): v nizkem ozkem oknu (900 x 640) so bili
+        Nastavitve, uporabnik in gumb Izklop pod robom okna in nedosegljivi - brez drsenja (pregled 19. 10. 2026)."""
+        self._js("localStorage.clear(), 1")
+        self.odpri(900, 640)
+        self.assertEqual(self.sirina("stranska", 76), 76)
+        vrh = self._js("Math.round(document.getElementById('vrh').getBoundingClientRect().top)")
+        self._js("document.getElementById('gumbNapajanje').focus(), 1")
+        _cakaj(lambda: False, 0.3)
+        self.assertLessEqual(self._js("Math.round(document.getElementById('gumbNapajanje').getBoundingClientRect().bottom)"), 640)
+        self.assertEqual(self._js("Math.round(document.getElementById('vrh').getBoundingClientRect().top)"), vrh, "stran se ne premakne")
+        self.assertEqual(self._js("document.documentElement.scrollWidth"), 900, "brez vodoravnega drsenja")
+
     def test_lupa_zlozena_tipkanje_in_ctrl_k(self):
         self.assertFalse(self._js("document.getElementById('iskanjeLupa').classList.contains('razsirjena')"))
         ozka = self._sirina("iskanjeLupa")
