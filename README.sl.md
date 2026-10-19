@@ -14,6 +14,21 @@ English: [README.md](README.md) · Spletna stran: [safeer.si](https://safeer.si)
 
 ---
 
+## Trenutna različica
+
+| | |
+|---|---|
+| **Safeer Browser za Linux** | **1.0.127** — oznaka [`v1.0.127`](../../releases/tag/v1.0.127) |
+| **Safeer OS za Linux** (s Safeer Control 2.1.82) | **0.4.85** — ista izdaja |
+| Različice v kodi | `packaging/VERSION`, `packaging/VERSION_OS`, `packaging/VERSION_CONTROL` (preveri jih `packaging/check_version.py`) |
+| Kaj je novega | [CHANGELOG.md](CHANGELOG.md) · vse različice: [docs/releases/](docs/releases/) |
+| Prenos | [safeer.si](https://safeer.si/#prenosi) · [GitHub Releases](../../releases/latest) |
+
+Druge različice: Windows 1.0.51 v [safeerOS/Safeer-windows](https://github.com/safeerOS/Safeer-windows) ·
+brskalnik za Android TV 2.1.215, Safeer OS 0.5.93 za TV, tablico in telefon ter Safeer Predvajalnik 0.2.77 v
+[safeerOS/Android-tv](https://github.com/safeerOS/Android-tv) · brskalnik za telefon v
+[safeerOS/Mobile-android](https://github.com/safeerOS/Mobile-android).
+
 ## Kaj zna
 
 **Nativni GTK4, naš WebKit.** Nativni GTK4 z WebKitGTK 6.0 — brez Electrona, brez drugega
