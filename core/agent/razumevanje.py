@@ -100,14 +100,13 @@ def preveri(odgovor) -> List[Naloga]:
 
 
 def naslov_modela() -> str:
-    """Kje tece jezikovni model: SAFEER_AGENT ali ~/.config/safeer-agent/naslov (npr. http://telefon:8085)."""
-    n = os.environ.get("SAFEER_AGENT", "").strip()
-    if not n:
-        try:
-            with open(os.path.expanduser("~/.config/safeer-agent/naslov"), encoding="utf-8") as f:
-                n = f.read().strip()
-        except OSError:
-            n = ""
+    """Kje tece jezikovni model: SAFEER_AGENT ali ~/.config/safeer-agent/naslov (npr. http://telefon:8085), ki ga od
+    19. 10. 2026 nastavijo Nastavitve Safeer OS (core/agent/nastavitve.py). Agent, izklopljen v Nastavitvah, nima
+    naslova - tudi ce je ta v okolju."""
+    from core.agent import nastavitve
+    if not nastavitve.vklopljen():
+        return ""
+    n = os.environ.get("SAFEER_AGENT", "").strip() or nastavitve.naslov_shranjen()
     return n if n.startswith(("http://", "https://")) else ""
 
 
@@ -115,11 +114,8 @@ def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callab
     """Klic llama-serverja (OpenAI-zdruzljiv) z izhodom, omejenim na JSON shemo."""
     naslov = naslov or naslov_modela()
     if not kljuc:
-        try:
-            with open(os.path.expanduser("~/.config/safeer-agent/kljuc"), encoding="utf-8") as f:
-                kljuc = f.read().strip()
-        except OSError:
-            kljuc = ""
+        from core.agent import nastavitve
+        kljuc = nastavitve._beri("kljuc")
 
     def klic(sporocila_: list, shema: dict) -> dict:
         if not naslov.startswith(("http://", "https://")):

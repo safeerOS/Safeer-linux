@@ -652,7 +652,18 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Dodano: {ime}",
     spletnaOdstranjena: "Odstranjeno: {ime}",
     dodaj: "Dodaj",
-    skSporocila: "Sporočila"
+    skSporocila: "Sporočila",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Išči …",
+    lupaKratkoAgent: "Išči ali vprašaj …",
+    isciAliUkazi: "Išči ali ukaži Safeer Agentu …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Vprašaj Safeer Agenta: »{q}«",
+    agentOpisZadetka: "Ukaz za naprave · Ctrl+Enter",
+    agentDela: "Safeer Agent dela …",
+    agentNiNastavljen: "Safeer Agent ni nastavljen – Nastavitve → Safeer Agent.",
+    agentNedosegljiv: "Jezikovni model Safeer Agenta ni dosegljiv.",
+    lupaZlozena: "Zložena iskalna lupa"
   },
   en: {
     dostopProsnjaPoslana: "Access request sent. Approve it on {naprava}.",
@@ -1303,7 +1314,18 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Added: {ime}",
     spletnaOdstranjena: "Removed: {ime}",
     dodaj: "Add",
-    skSporocila: "Messages"
+    skSporocila: "Messages",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Search …",
+    lupaKratkoAgent: "Search or ask …",
+    isciAliUkazi: "Search or tell Safeer Agent …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Ask Safeer Agent: “{q}”",
+    agentOpisZadetka: "Command for your devices · Ctrl+Enter",
+    agentDela: "Safeer Agent is working …",
+    agentNiNastavljen: "Safeer Agent is not set up – Settings → Safeer Agent.",
+    agentNedosegljiv: "Safeer Agent’s language model is not reachable.",
+    lupaZlozena: "Compact search magnifier"
   },
   de: {
     dostopProsnjaPoslana: "Zugriffsanfrage gesendet. Bestätige sie auf {naprava}.",
@@ -1954,7 +1976,18 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Hinzugefügt: {ime}",
     spletnaOdstranjena: "Entfernt: {ime}",
     dodaj: "Hinzufügen",
-    skSporocila: "Nachrichten"
+    skSporocila: "Nachrichten",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Suchen …",
+    lupaKratkoAgent: "Suchen oder fragen …",
+    isciAliUkazi: "Suchen oder Safeer Agent beauftragen …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Safeer Agent fragen: „{q}“",
+    agentOpisZadetka: "Befehl für deine Geräte · Strg+Enter",
+    agentDela: "Safeer Agent arbeitet …",
+    agentNiNastavljen: "Safeer Agent ist nicht eingerichtet – Einstellungen → Safeer Agent.",
+    agentNedosegljiv: "Das Sprachmodell von Safeer Agent ist nicht erreichbar.",
+    lupaZlozena: "Kompakte Suchlupe"
   },
   es: {
     dostopProsnjaPoslana: "Solicitud de acceso enviada. Apruébala en {naprava}.",
@@ -2605,7 +2638,18 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Añadida: {ime}",
     spletnaOdstranjena: "Quitada: {ime}",
     dodaj: "Añadir",
-    skSporocila: "Mensajes"
+    skSporocila: "Mensajes",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Buscar …",
+    lupaKratkoAgent: "Buscar o preguntar …",
+    isciAliUkazi: "Busca o pide algo a Safeer Agent …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Preguntar a Safeer Agent: «{q}»",
+    agentOpisZadetka: "Orden para tus dispositivos · Ctrl+Intro",
+    agentDela: "Safeer Agent está trabajando …",
+    agentNiNastavljen: "Safeer Agent no está configurado: Ajustes → Safeer Agent.",
+    agentNedosegljiv: "El modelo de lenguaje de Safeer Agent no es accesible.",
+    lupaZlozena: "Lupa de búsqueda compacta"
   },
   fr: {
     dostopProsnjaPoslana: "Demande d'accès envoyée. Approuvez-la sur {naprava}.",
@@ -3256,7 +3300,18 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Ajoutée : {ime}",
     spletnaOdstranjena: "Retirée : {ime}",
     dodaj: "Ajouter",
-    skSporocila: "Messages"
+    skSporocila: "Messages",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Rechercher …",
+    lupaKratkoAgent: "Rechercher ou demander …",
+    isciAliUkazi: "Rechercher ou demander à Safeer Agent …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Demander à Safeer Agent : « {q} »",
+    agentOpisZadetka: "Commande pour tes appareils · Ctrl+Entrée",
+    agentDela: "Safeer Agent travaille …",
+    agentNiNastavljen: "Safeer Agent n’est pas configuré – Réglages → Safeer Agent.",
+    agentNedosegljiv: "Le modèle de langage de Safeer Agent n’est pas joignable.",
+    lupaZlozena: "Loupe de recherche compacte"
   },
   it: {
     dostopProsnjaPoslana: "Richiesta di accesso inviata. Approvala su {naprava}.",
@@ -3907,6 +3962,17 @@ var BESEDILA_NAMIZJA = {
     spletnaDodana: "Aggiunta: {ime}",
     spletnaOdstranjena: "Rimossa: {ime}",
     dodaj: "Aggiungi",
-    skSporocila: "Messaggi"
+    skSporocila: "Messaggi",
+    // Iskalna lupa izven poti in Safeer Agent v lupi (19. 10. 2026)
+    lupaKratko: "Cerca …",
+    lupaKratkoAgent: "Cerca o chiedi …",
+    isciAliUkazi: "Cerca o chiedi a Safeer Agent …",
+    skAgent: "Safeer Agent",
+    agentVprasaj: "Chiedi a Safeer Agent: «{q}»",
+    agentOpisZadetka: "Comando per i tuoi dispositivi · Ctrl+Invio",
+    agentDela: "Safeer Agent sta lavorando …",
+    agentNiNastavljen: "Safeer Agent non è configurato – Impostazioni → Safeer Agent.",
+    agentNedosegljiv: "Il modello linguistico di Safeer Agent non è raggiungibile.",
+    lupaZlozena: "Lente di ricerca compatta"
   }
 };

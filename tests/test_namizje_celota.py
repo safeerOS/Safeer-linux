@@ -197,7 +197,8 @@ class Tipkovnica(unittest.TestCase):
 
     def test_escape_zapre_vrhnji_sloj(self):
         nam = _beri("assets", "os", "qml", "Namizje.qml")
-        self.assertIn("Keys.onEscapePressed: koren.zapriVrhnje()", nam)
+        # Escape v lupi zapre, kar je odprto; prazna lupa se zlozi (fokus namizju) - 19. 10. 2026.
+        self.assertIn("Keys.onEscapePressed: { if (!koren.zapriVrhnje()) koren.forceActiveFocus() }", nam)
         self.assertIn("sequences: [StandardKey.Cancel, \"Back\"]", nam)
         pri = _beri("assets", "os", "qml", "Prilagodi.qml")
         self.assertIn("Keys.onEscapePressed: zapri()", pri)

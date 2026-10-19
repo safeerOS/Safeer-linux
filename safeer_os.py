@@ -4539,6 +4539,14 @@ class SafeerOS(Gtk.Application):
             "nocna": lambda: os_sistem.nastavi_nocno_luc(bool(a[0])),
             "wifi": lambda: os_sistem.nastavi_wifi(bool(a[0])),
             "nastavitve": lambda: os_sistem.odpri_nastavitve(str(a[0]) if a else ""),
+            # Safeer Agent (core/agent): Nastavitve -> Safeer Agent in iskalna lupa (lastnik, 19. 10. 2026). V ozadju -
+            # preverba dosegljivosti in ukaz agentu cakata na omrezje.
+            "agentStanje": lambda: self._agent("stanje"),
+            "agentNastavi": lambda: self._agent("naslov", a[0] if a else ""),
+            "agentVklop": lambda: self._agent("vklop", a[0] is True if a else True),
+            "agentTrajanje": lambda: self._agent("trajanje", a[0] if a else None),
+            "agentDosegljivost": lambda: self._agent("dosegljivost"),
+            "agentVprasaj": lambda: self._agent("vprasaj", str(a[0]) if a else ""),
             "napajanje": lambda: os_sistem.napajanje(str(a[0]) if a else ""),
             "mapa": lambda: os_datoteke.preglej(str(a[0]) if a else "~"),
             # Iz indeksa v pomnilniku (takoj, po vsej globini); drugi parameter: koliko zadetkov (razdelek Datoteke vec).
@@ -4855,6 +4863,23 @@ class SafeerOS(Gtk.Application):
                                       "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
                                       "prenesiDatotekoNaprave"})
 
+    def _agent(self, kaj: str, vrednost=None):
+        """Nastavitve in klic Safeer Agenta (core/agent/nastavitve.py, storitev.vprasaj_tukaj). Sprememba nastavitev gre
+        vsem pogledom kot dogodek »agent« (iskalna lupa na namizju pokaze ali skrije vnos agenta)."""
+        from core.agent import nastavitve as agent_nastavitve
+        from core.agent import storitev as agent_storitev
+        if kaj == "stanje":
+            return agent_nastavitve.stanje()
+        if kaj == "dosegljivost":
+            return agent_nastavitve.dosegljivost()
+        if kaj == "vprasaj":
+            return agent_storitev.vprasaj_tukaj(vrednost)
+        izid = {"naslov": agent_nastavitve.nastavi_naslov, "vklop": agent_nastavitve.nastavi_vklop,
+                "trajanje": agent_nastavitve.nastavi_trajanje}[kaj](vrednost)
+        if izid.get("ok"):
+            self._dogodek("agent", {"na_voljo": bool(izid.get("na_voljo"))})
+        return izid
+
     def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
         """Shramba priljubljenih; vsaka sprememba gre obema namizjema (QML in WebKit) kot dogodek »priljubljeno«."""
         return priljubljeno.shramba(lambda stanje: self._dogodek("priljubljeno", stanje))
@@ -4941,7 +4966,9 @@ class SafeerOS(Gtk.Application):
             "videz": videz_cinnamon(),
             "vlecenjeDatotek": self._vlecenje_na_voljo(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
-            "razpolozljivo": os_sistem.razpolozljivo(),
+            "razpolozljivo": os_sistem.razpolozljivo(_jezik()),
+            # Iskalna lupa: vnos »Vprasaj Safeer Agenta« samo, ce ima agent nastavljen in vklopljen model.
+            "agent": {"na_voljo": bool(self._agent("stanje").get("na_voljo"))},
             "mape": os_datoteke.uporabniske_mape(),
             "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,
@@ -5249,8 +5276,12 @@ class SafeerOS(Gtk.Application):
     def _nastavitve_delov(self) -> dict:
         """Kateri deli Safeerja imajo nastavitve v Nastavitvah Safeer OS: Control (v tem procesu), Splet (WebKitov
         peskovnik dela) in namizje QML (lupina tece)."""
-        return {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
+        izid = {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
                 "namizje": self.lupina is not None, "sporocila": sporocila_vklop.sporocila_vklopljena()}
+        if izid["namizje"]:
+            # Iskalna lupa na namizju QML: zlozena (privzeto) ali vedno razsirjena - core/priljubljeno.py »lupa«.
+            izid["lupa"] = self._priljubljeno().stanje()["nastavitve"].get("lupa", "zlozena")
+        return izid
 
     def _nastavitev_dela(self, pogled, kljuc: str, vrednost=None):
         """Klik v skupinah Naprave in Link, Splet in Namizje (Nastavitve Safeer OS)."""
@@ -5258,6 +5289,10 @@ class SafeerOS(Gtk.Application):
             return nastavi_control(kljuc, bool(vrednost))
         if kljuc == "sporocila":
             return self._nastavi_sporocila(bool(vrednost))
+        if kljuc == "lupa":
+            # Stikalo »Zlozena iskalna lupa«: sprememba gre namizju kot dogodek »priljubljeno« (_priljubljeno).
+            stanje = self._priljubljeno().nastavi("lupa", "zlozena" if vrednost else "razsirjena")
+            return stanje["nastavitve"].get("lupa") == "zlozena"
         if kljuc == "mape":
             c = en_proces.control_app()
             if c is None:
@@ -5440,12 +5475,15 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _pokazi_spletni_nacin(self) -> bool:
-        """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino."""
+        """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino. V nacinu Splet je vrstica vedno
+        razsirjena (trak bi bil ozji od gumbov za razdelke): meri se razsirjena, ne trak - prej je skrcena vrstica dala
+        rezervnih 375 px, siroka pa 250-300 px (19. 10. 2026)."""
         if not self._ustvari_spletni():
             return False
         self._spletni_nacin = True
         koda = (
             "(function(){var s=document.getElementById('stranska'),b=document.body;"
+            "if(!b.classList.contains('nacin-splet'))b.classList.remove('vrstica-skrcena','vrstica-plava');"
             "var w=b.classList.contains('nacin-splet')?Number(b.dataset.stranska||0):"
             "(s?s.getBoundingClientRect().width:0);b.dataset.stranska=String(w);"
             "b.classList.add('nacin-splet');"
