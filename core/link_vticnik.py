@@ -284,3 +284,109 @@ def delez_retrans(prej: Optional[dict], zdaj: Optional[dict]) -> Optional[float]
                 return None
             return max(0.0, min(1.0, (zdaj[stevec] - prej[stevec]) / float(d_imen)))
     return None
+
+
+# ---------------------------------------------------------------------------------------------- sprejem s pozdravom
+
+#: Toliko povezav hkrati sme biti v rokovanju TLS in pozdravu (deljenje zaslona, zvok na napravo). Ko jih je vec, se
+#: zapre NAJSTAREJSA: prava naprava rokovanje in pozdrav opravi v nekaj ms, tiha povezava pa caka - nova povezava
+#: tako vedno dobi mesto, napadalec pa bi moral odpirati povezave hitreje, kot traja rokovanje prave naprave.
+NAJVEC_HKRATNIH_POZDRAVOV = 8
+
+
+def _zapri_tiho(s) -> None:
+    if s is None:
+        return
+    try:
+        s.shutdown(socket.SHUT_RDWR)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        s.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: float, rok_rokovanja: float,
+                        najvec_hkrati: int = NAJVEC_HKRATNIH_POZDRAVOV, prej=None, presledek: float = 0.25,
+                        ob_sprejemu=None):
+    """Sprejema povezave do `konec` (time.monotonic) in vsako - rokovanje TLS in vrstica pozdrava - obdela v svoji niti,
+    najvec `najvec_hkrati` hkrati (cez to se zapre najstarejsa). Vrne prvo povezavo, katere pozdrav velja
+    (pozdrav_velja(vrstica)), ali None.
+
+    Prej se je vsaka povezava obdelala po vrsti z rokom ROKOVANJE_S: dve ali tri tihe povezave v omrezju so pokrile ves
+    cas cakanja in televizor se ni mogel povezati (neodvisni pregled 19. 10. 2026). Vsaka povezava ima svoj rok
+    `rok_rokovanja`; povezava, sprejeta tik pred `konec`, ga dobi celega (zanka nanjo pocaka).
+    `prej()`: med cakanjem, ce vrne kaj drugega kot None, se to vrne takoj (npr. povezava, ki jo je prevzel Hub).
+    `ob_sprejemu(surov)`: nastavitev vticnice pred rokovanjem (npr. brez_zamika). Napaka posluha (zaprt) gre klicatelju.
+    """
+    zaklep = threading.Lock()
+    najden = threading.Event()
+    #: Povezave v rokovanju: kljuc -> [trenutna vticnica (surova, po rokovanju TLS ovita), cas sprejema].
+    v_teku: dict = {}
+    stanje = {"koncano": False, "izid": None, "st": 0}
+
+    def obdelaj(kljuc: int, surov) -> None:
+        odjemalec = None
+        try:
+            rok = time.monotonic() + rok_rokovanja
+            surov.settimeout(rok_rokovanja)        # rokovanje: CPython ga omeji v celoti, ne po branjih
+            if ob_sprejemu is not None:
+                ob_sprejemu(surov)
+            odjemalec = ctx.wrap_socket(surov, server_side=True)
+            with zaklep:
+                if kljuc in v_teku:
+                    v_teku[kljuc][0] = odjemalec   # izrinjanje mora zapreti ovito vticnico (surova je odklopljena)
+            vrstica = preberi_vrstico(odjemalec, rok=rok)
+            if pozdrav_velja(vrstica):
+                with zaklep:
+                    if not stanje["koncano"] and stanje["izid"] is None and kljuc in v_teku:
+                        odjemalec.settimeout(rok_rokovanja)   # glava seje gre ven s celim rokom, ne z ostankom
+                        stanje["izid"] = odjemalec
+                        v_teku.pop(kljuc, None)
+                        najden.set()
+                        return
+        except Exception:  # noqa: BLE001 - tuja ali izrinjena povezava ne sme podreti cakanja
+            pass
+        with zaklep:
+            v_teku.pop(kljuc, None)
+        _zapri_tiho(odjemalec if odjemalec is not None else surov)
+
+    prevzeto = None
+    try:
+        while not najden.is_set():
+            if prej is not None:
+                prevzeto = prej()
+                if prevzeto is not None:
+                    break
+            zdaj = time.monotonic()
+            if zdaj >= konec:
+                with zaklep:
+                    ostalo = len(v_teku)
+                if ostalo == 0 or zdaj >= konec + rok_rokovanja:
+                    break
+                najden.wait(0.05)
+                continue
+            posluh.settimeout(max(0.05, min(presledek, konec - zdaj)))
+            try:
+                surov, _ = posluh.accept()
+            except socket.timeout:
+                continue
+            izrinjena = None
+            with zaklep:
+                if len(v_teku) >= najvec_hkrati:
+                    najstarejsa = min(v_teku, key=lambda k: v_teku[k][1])
+                    izrinjena = v_teku.pop(najstarejsa)[0]
+                stanje["st"] += 1
+                kljuc = stanje["st"]
+                v_teku[kljuc] = [surov, time.monotonic()]
+            _zapri_tiho(izrinjena)                  # njena nit se zbudi z napako in pospravi
+            threading.Thread(target=obdelaj, args=(kljuc, surov), name="safeer-pozdrav", daemon=True).start()
+    finally:
+        with zaklep:
+            stanje["koncano"] = True          # niti, ki koncajo pozneje, svojo povezavo zaprejo
+            izid = stanje["izid"]
+    if prevzeto is not None:
+        _zapri_tiho(izid)                    # hkrati je prisla se neposredna povezava: velja prevzeta
+        return prevzeto
+    return izid

@@ -945,7 +945,8 @@ class Zaslon:
         ne podre - televizor, ki mu je zaslon namenjen, se lahko se vedno poveze. (Prej je prva tuja povezava
         sejo koncala: kdorkoli v omrezju je lahko deljenje zaslona preprecil.)"""
         konec = time.monotonic() + CAKANJE_S
-        while time.monotonic() < konec:
+
+        def prevzeti():
             # Gledalec zdoma ne pride na ta vrata, ampak do Huba; povezavo, ki jo je Hub ze sprejel (TLS z istim
             # potrdilom) in nadgradil, dobimo tu - zeton je preveril prevzemi().
             prevzet = self._vzemi_prevzetega()
@@ -954,32 +955,25 @@ class Zaslon:
                     link_vticnik.brez_zamika(prevzet[0])
                 except Exception:  # noqa: BLE001 - nastavitev vticnice je dodatek
                     pass
-                return prevzet
-            posluh.settimeout(max(0.05, min(PREVERI_PREVZETE_S, konec - time.monotonic())))
-            try:
-                surov, _ = posluh.accept()
-            except socket.timeout:
-                continue
-            odjemalec = None
-            # En rok za rokovanje TLS in pozdrav skupaj (pregled 19. 10. 2026): prej je vsak bajt pozdrava dobil
-            # svojih 10 s, zato je odjemalec, ki je bajt poslal vsakih nekaj sekund, drzal sprejem do 256 x 10 s
-            # (42 min) - dlje od CAKANJE_S, televizor se medtem ni mogel povezati.
-            rok = time.monotonic() + ROKOVANJE_S
-            try:
-                surov.settimeout(ROKOVANJE_S)          # rokovanje: CPython ga omeji v celoti, ne po branjih
-                # Slika in zvok sta drobni, pogosti okvirji: vsak naj gre takoj, ne sele po potrditvi prejsnjega.
-                link_vticnik.brez_zamika(surov)
-                odjemalec = ctx.wrap_socket(surov, server_side=True)
-                pozdrav = self._preberi_vrstico(odjemalec, rok=rok)
-                zeton = self._zeton
-                if zeton and pozdrav.startswith("SAFEER-ZASLON ") and secrets.compare_digest(
-                        pozdrav.split(" ", 1)[1].strip().encode("utf-8"), zeton.encode("utf-8")):
-                    odjemalec.settimeout(ROKOVANJE_S)      # glava seje gre ven s celim rokom, ne z ostankom
-                    return odjemalec, None
-            except (OSError, ssl.SSLError, ValueError):
-                pass
-            _zapri(odjemalec if odjemalec is not None else surov)
-        return None
+            return prevzet
+
+        def velja(pozdrav: str) -> bool:
+            zeton = self._zeton
+            return bool(zeton) and pozdrav.startswith("SAFEER-ZASLON ") and secrets.compare_digest(
+                pozdrav.split(" ", 1)[1].strip().encode("utf-8"), zeton.encode("utf-8"))
+
+        # Vsaka povezava ima svoj rok za rokovanje TLS in pozdrav skupaj (ROKOVANJE_S) in tece v svoji niti
+        # (link_vticnik.sprejmi_s_pozdravom): prej je vsak bajt pozdrava dobil svojih 10 s (do 42 min na povezavo),
+        # povezave pa so se obdelale po vrsti - nekaj tihih je pokrilo ves CAKANJE_S (pregleda 19. 10. 2026).
+        # Slika in zvok sta drobni, pogosti okvirji: vsak naj gre takoj, ne sele po potrditvi prejsnjega (brez_zamika).
+        odjemalec = link_vticnik.sprejmi_s_pozdravom(
+            posluh, ctx, velja, self._preberi_vrstico, konec, ROKOVANJE_S, prej=prevzeti,
+            presledek=PREVERI_PREVZETE_S, ob_sprejemu=link_vticnik.brez_zamika)
+        if odjemalec is None:
+            return None
+        if isinstance(odjemalec, tuple):
+            return odjemalec
+        return odjemalec, None
 
     # ------------------------------------------------------------------ gledalec prek Huba (Global Link)
 

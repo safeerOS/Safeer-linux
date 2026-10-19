@@ -71,8 +71,10 @@ CAS_UPSTREAM = 2.5
 #: interneta): DoH je cakal 2,5 s, resolved je presel na usmerjevalnik in »Blokiraj spet« ni veljal. Odgovor zato
 #: vedno v ROK_NAPREJ + cas usmerjevalnika (LAN); DoH tece naprej v ozadju in odloci, ali gremo za nekaj casa mimo njega.
 ROK_NAPREJ = 0.4
-#: Toliko poizvedb sme hkrati cakati na DoH (knjiznica TLS roka ne spostuje vedno): vec pomeni, da DoH visi.
-NAJVEC_CAKAJOCIH_NAPREJ = 8
+#: Varovalo niti: toliko poizvedb sme hkrati cakati na DoH. DoH, ki visi, zazna _naprej_visi po STAROSTI najstarejse
+#: cakajoce poizvedbe; stevilo samo ne pomeni nic - ena stran (5 imen x A in AAAA) jih hkrati vprasa 10 in vec.
+#: Prej (meja 8, 19. 10. 2026) je navadno nalaganje strani za 30 s preklopilo DNS na nesifrirano (neodvisni pregled).
+NAJVEC_CAKAJOCIH_NAPREJ = 64
 #: Strezniki naprej (isti kljuci kot core/doh_proxy.IZBIRE_NAPREJ; tu, da modul ne potrebuje libsoup ob uvozu).
 IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
 PRIVZETI_NAPREJ = "cloudflare"
@@ -405,19 +407,21 @@ class Razresevalnik:
             except Exception:  # noqa: BLE001
                 odgovor = None
             with self._kljuc:
-                self._cakajoci_naprej -= 1
-                if self._cakajoci_naprej <= 0:
-                    self._naprej_caka_od = None
+                self._naprej_zacetki.pop(st, None)
                 if not odgovor:
                     self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
                     self.nesifrirano_cas = time.time()
             izid.append(odgovor)
 
         with self._kljuc:
-            self._cakajoci_naprej = getattr(self, "_cakajoci_naprej", 0) + 1
-            if getattr(self, "_naprej_caka_od", None) is None:
-                self._naprej_caka_od = time.monotonic()
-            if self._cakajoci_naprej > NAJVEC_CAKAJOCIH_NAPREJ:
+            # Zacetek vsake cakajoce poizvedbe posebej: prej je cas cakanja tekel od prve poizvedbe, dokler niso vse
+            # koncale - pri neprekinjenem prekrivanju (brskanje) je po 2,5 s sprozil premor, ceprav je DoH delal.
+            if not hasattr(self, "_naprej_zacetki"):
+                self._naprej_zacetki = {}
+            self._st_naprej = getattr(self, "_st_naprej", 0) + 1
+            st = self._st_naprej
+            self._naprej_zacetki[st] = time.monotonic()
+            if len(self._naprej_zacetki) > NAJVEC_CAKAJOCIH_NAPREJ:
                 self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
         nit = threading.Thread(target=delo, name="safeer-scit-naprej", daemon=True)
         nit.start()
@@ -426,8 +430,10 @@ class Razresevalnik:
 
     def _naprej_visi(self) -> bool:
         """DoH ima poizvedbo, ki caka dlje od CAS_UPSTREAM (knjiznica TLS roka ni spostovala): kot odpoved."""
-        od = getattr(self, "_naprej_caka_od", None)
-        return od is not None and time.monotonic() - od >= CAS_UPSTREAM
+        with self._kljuc:
+            zacetki = getattr(self, "_naprej_zacetki", None)
+            najstarejsa = min(zacetki.values()) if zacetki else None
+        return najstarejsa is not None and time.monotonic() - najstarejsa >= CAS_UPSTREAM
 
     #: Ali je streznik naprej sifriran (False: uporabnik je izbral »DNS usmerjevalnika« - takrat nesifrirana pot ni
     #: odpoved in je ne stejemo ne kazemo kot izgubo sifriranja).
@@ -439,7 +445,8 @@ class Razresevalnik:
         if self.naprej is not None and self._naprej_visi():
             with self._kljuc:
                 self._brez_naprej_do = max(getattr(self, "_brez_naprej_do", 0.0), time.monotonic() + self.PREMOR_NAPREJ_S)
-                self._naprej_caka_od = None     # premor je zacet; po njem DoH poskusimo znova
+                # Premor je zacet; po njem DoH poskusimo znova (visece poizvedbe ne stejejo vec).
+                getattr(self, "_naprej_zacetki", {}).clear()
         if self.naprej is not None and time.monotonic() >= getattr(self, "_brez_naprej_do", 0.0):
             odgovor = self._vprasaj_naprej(paket)
             if odgovor:

@@ -544,6 +544,7 @@ class Namestitev(unittest.TestCase):
     def _root_skripta(self, vsebina: bytes, vsota: str):
         """NAMESTI_DEB_KOT_ROOT z laznim apt-get (zapise, katere poti in vsebine je dobil); vrne (izhod, klic apt)."""
         d = tempfile.mkdtemp(prefix="safeer-root-namestitev-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)     # vsak preizkus za sabo pospravi (AGENTS.md)
         paket = os.path.join(d, "safeer-os_9.9.9_amd64.deb")
         with open(paket, "wb") as f:
             f.write(vsebina)
