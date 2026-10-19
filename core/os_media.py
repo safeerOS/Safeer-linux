@@ -5098,6 +5098,8 @@ def odpri(pot: str) -> bool:
         return False
     try:
         from core import zasebni_webkit      # sistemski predvajalnik brez nasih zasebnih poti v okolju
+        if zasebni_webkit.odpri_privzeto(str(path)):      # v procesu (Gio), xdg-open je rezerva
+            return True
         subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
         return True

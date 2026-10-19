@@ -199,3 +199,144 @@ def test_program_za_shemo():
         assert p == {"oznaka": "thunderbird.desktop", "ime": "Thunderbird"}
         assert oz.program_za_shemo("mailto", gio=lambda a: (1, ""), mape=[d]) is None
         assert oz.program_za_shemo("../x", gio=lambda a: (0, izpis), mape=[d]) is None
+
+
+# ---------------------------------------------------------------------- GIO v procesu (19. 10. 2026)
+# Privzeti programi, »Odpri z« in odpiranje datotek gredo v paketu .deb skozi GIO v procesu (isti klici g_app_info_*, kot
+# jih naredita ukaza gio in xdg-open/xdg-mime na Cinnamonu), brez podprocesov. Vsak primer tece v svojem procesu z
+# loceno mapo XDG (GIO bazo programov prebere enkrat na proces) in se primerja z ukazom gio v istem okolju.
+import json as _json  # noqa: E402
+import shutil as _shutil  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+KOREN_GIO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _okolje_gio(tmp, namizje="X-Cinnamon", **dodatno):
+    """Locena mapa XDG: programi a, b (text/plain, zapisi.sh zapise argumente), c (Exec ni vec), mimeapps.list (b) in
+    x-cinnamon-mimeapps.list (a) - namizna datoteka ima po specifikaciji prednost."""
+    prog = os.path.join(tmp, "data", "applications")
+    os.makedirs(prog)
+    os.makedirs(os.path.join(tmp, "config"))
+    os.makedirs(os.path.join(tmp, "prazno"))
+    zapisi = os.path.join(tmp, "zapisi.sh")
+    with open(zapisi, "w") as f:
+        f.write('#!/bin/sh\necho "$@" >> "%s"\n' % os.path.join(tmp, "zapis.txt"))
+    os.chmod(zapisi, 0o755)
+    for ime, exe in (("a", zapisi), ("b", zapisi), ("c", "/nikjer/zbrisan-program")):
+        with open(os.path.join(prog, ime + ".desktop"), "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=%s\nExec=%s %%f\nMimeType=text/plain;\n" % (ime.upper(), exe))
+    with open(os.path.join(tmp, "config", "mimeapps.list"), "w") as f:
+        f.write("[Default Applications]\ntext/plain=b.desktop\n")
+    with open(os.path.join(tmp, "config", "x-cinnamon-mimeapps.list"), "w") as f:
+        f.write("[Default Applications]\ntext/plain=a.desktop\n")
+    okolje = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "XDG_CONFIG_HOME": os.path.join(tmp, "config"),
+              "XDG_DATA_HOME": os.path.join(tmp, "data"), "XDG_DATA_DIRS": os.path.join(tmp, "prazno") + ":/usr/share",
+              "XDG_CURRENT_DESKTOP": namizje, "LC_ALL": "C.UTF-8"}
+    okolje.update(dodatno)
+    return okolje
+
+
+def _v_procesu(okolje, koda):
+    r = _subprocess.run([sys.executable, "-c", "import sys, json; sys.path.insert(0, %r)\n%s" % (KOREN_GIO, koda)],
+                        env=okolje, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return _json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def _gio_ukaz(okolje, vrsta):
+    r = _subprocess.run(["gio", "mime", vrsta], env=dict(okolje, LC_ALL="C", LANGUAGE="C"), capture_output=True,
+                        text=True, timeout=30)
+    return list(O.razcleni_mime(r.stdout)) if r.returncode == 0 else None
+
+
+_PROGRAMI = ("from core import os_odpri_z as O\n"
+             "print(json.dumps([O.programi_v_procesu('text/plain'), O._programi_vrste('text/plain', O._gio)]))")
+
+
+@pytest.mark.skipif(_shutil.which("gio") is None, reason="brez ukaza gio")
+@pytest.mark.parametrize("namizje,privzeti", [("X-Cinnamon", "a.desktop"), ("", "b.desktop")])
+def test_v_procesu_kot_gio_namizni_mimeapps(tmp_path, namizje, privzeti):
+    """Namizni mimeapps (XDG_CURRENT_DESKTOP=X-Cinnamon -> x-cinnamon-mimeapps.list) ima prednost, kot pri ukazu gio."""
+    okolje = _okolje_gio(str(tmp_path), namizje)
+    v_procesu, prek_vmesnika = _v_procesu(okolje, _PROGRAMI)
+    assert v_procesu[0] == privzeti
+    assert v_procesu == prek_vmesnika == _gio_ukaz(okolje, "text/plain")
+
+
+@pytest.mark.skipif(_shutil.which("gio") is None, reason="brez ukaza gio")
+def test_v_procesu_odstranjen_program(tmp_path):
+    """Privzeti program, ki ga ni vec (Exec ni razresljiv ali vnosa .desktop ni), ni privzet ne na seznamu - kot gio."""
+    okolje = _okolje_gio(str(tmp_path))
+    for vrstica in ("text/plain=c.desktop\n", "text/plain=odstranjen.desktop;a.desktop\n"):
+        with open(os.path.join(okolje["XDG_CONFIG_HOME"], "x-cinnamon-mimeapps.list"), "w") as f:
+            f.write("[Default Applications]\n" + vrstica)
+        v_procesu, _ = _v_procesu(okolje, _PROGRAMI)
+        assert v_procesu == _gio_ukaz(okolje, "text/plain")
+        assert "c.desktop" not in v_procesu[1] and "odstranjen.desktop" not in v_procesu[1]
+        assert v_procesu[0] in ("a.desktop", "b.desktop")
+
+
+@pytest.mark.parametrize("paket", [{"FLATPAK_ID": "io.github.memelandfaner.SafeerOS"},
+                                   {"APPIMAGE": "/nikjer/Safeer-OS.AppImage", "APPDIR": "/nikjer/appdir"}])
+def test_rezerva_ukaz_gio_v_flatpaku(tmp_path, paket):
+    """Flatpak: GIO v procesu ne vidi programov racunalnika. AppImage: XDG_DATA_DIRS procesa ima $APPDIR/usr/share
+    (packaging/AppRun-os) z nasimi vnosi .desktop (magnet, stremio), ki jih racunalnik nima. V obeh ostane ukaz gio
+    (tu lazni v PATH) z okoljem racunalnika."""
+    okolje = _okolje_gio(str(tmp_path), **paket)
+    lazni = os.path.join(str(tmp_path), "bin")
+    os.makedirs(lazni)
+    with open(os.path.join(lazni, "gio"), "w") as f:
+        f.write('#!/bin/sh\necho "$@" >> "%s/gio-klici.txt"\n'
+                'printf "Default application for \\"text/plain\\": rezerva.desktop\\nRegistered applications:\\n'
+                '\\trezerva.desktop\\n"\n' % tmp_path)
+    os.chmod(os.path.join(lazni, "gio"), 0o755)
+    okolje["PATH"] = lazni + ":" + okolje["PATH"]
+    v_procesu, prek_vmesnika = _v_procesu(okolje, _PROGRAMI)
+    assert v_procesu is None
+    assert prek_vmesnika == ["rezerva.desktop", ["rezerva.desktop"]]
+    assert open(os.path.join(str(tmp_path), "gio-klici.txt")).read().split() == ["mime", "text/plain"]
+    # Odpiranje datoteke v Flatpaku tudi ne gre skozi GIO v procesu (klicatelj uporabi xdg-open).
+    assert _v_procesu(okolje, "from core import zasebni_webkit as z\nprint(json.dumps(z.odpri_privzeto('/etc/hostname')))") is False
+
+
+def test_odpri_privzeto_zazene_privzeti_program(tmp_path):
+    """Datoteka se odpre s privzetim programom namizja (x-cinnamon-mimeapps.list: a) v procesu, brez xdg-open."""
+    okolje = _okolje_gio(str(tmp_path))
+    datoteka = os.path.join(str(tmp_path), "zapiski.txt")
+    with open(datoteka, "w") as f:
+        f.write("besedilo\n")
+    lazni = os.path.join(str(tmp_path), "bin")
+    os.makedirs(lazni)
+    for ukaz in ("xdg-open", "gio"):        # rezerva se ne sme poklicati
+        with open(os.path.join(lazni, ukaz), "w") as f:
+            f.write('#!/bin/sh\necho "%s" >> "%s/rezerva.txt"\n' % (ukaz, tmp_path))
+        os.chmod(os.path.join(lazni, ukaz), 0o755)
+    okolje["PATH"] = lazni + ":" + okolje["PATH"]
+    koda = ("from core import os_datoteke\nimport time, os\nok = os_datoteke.odpri(%r)\n"
+            "for _ in range(100):\n    time.sleep(0.05)\n    if os.path.exists(%r): break\n"
+            "print(json.dumps(ok))" % (datoteka, os.path.join(str(tmp_path), "zapis.txt")))
+    assert _v_procesu(okolje, koda) is True
+    assert open(os.path.join(str(tmp_path), "zapis.txt")).read().strip() == datoteka
+    assert not os.path.exists(os.path.join(str(tmp_path), "rezerva.txt"))
+
+
+def test_nastavi_privzetega_v_procesu(tmp_path):
+    """»Vedno odpri s tem« zapise ~/.config/mimeapps.list kot `gio mime VRSTA PROGRAM`; ponovno branje ga vrne."""
+    okolje = _okolje_gio(str(tmp_path), "")
+    koda = ("from core import os_odpri_z as O\nok = O.nastavi_privzetega('text/plain', 'a.desktop')\n"
+            "print(json.dumps([ok, O.programi_v_procesu('text/plain')[0]]))")
+    assert _v_procesu(okolje, koda) == [True, "a.desktop"]
+    assert "text/plain=a.desktop" in open(os.path.join(okolje["XDG_CONFIG_HOME"], "mimeapps.list")).read()
+
+
+def test_sheme_magnet_stremio_skozi_gio_v_procesu():
+    """Magnet in stremio (vsak zagon Safeer OS) ne zazeneta vec skripte xdg-mime, razen kot rezervo."""
+    with open(os.path.join(KOREN_GIO, "safeer_os.py"), encoding="utf-8") as f:
+        vir = f.read()
+    telo = vir[vir.index("def magnet_privzeto"):vir.index("def naprave_z_datotekami")]
+    assert telo.count("os_odpri_z.programi_v_procesu(vrsta)") == 1
+    assert telo.count("os_odpri_z.nastavi_v_procesu(vrsta, nastavi)") == 1
+    assert telo.count('"xdg-mime"') == 2                       # rezerva: query in default

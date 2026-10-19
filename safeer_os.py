@@ -871,14 +871,25 @@ def magnet_privzeto(nastavi: Optional[bool] = None) -> bool:
     if not vnos:
         return False
     try:
-        if nastavi:
-            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/magnet"], timeout=10, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/magnet"], timeout=10,
-                           capture_output=True, text=True)
-        return r.stdout.strip() == vnos
+        return _privzeti_za_shemo("magnet", vnos if nastavi else "") == vnos
     except Exception:
         return False
+
+
+def _privzeti_za_shemo(shema: str, nastavi: str = "") -> str:
+    """Privzeti program (vnos .desktop) za povezave sheme; z `nastavi` ga prej nastavi. V procesu (GIO - isto kot
+    xdg-mime na Cinnamonu, ki klice gio mime), xdg-mime ostane rezerva in pot v Flatpaku in AppImage. Meritev
+    19. 10. 2026 v commitu: xdg-mime je lupinska skripta, ki zazene se gio (vsak zagon Safeer OS za stremio)."""
+    from core import os_odpri_z
+    vrsta = "x-scheme-handler/" + shema
+    if nastavi and not os_odpri_z.nastavi_v_procesu(vrsta, nastavi):
+        subprocess.run(["xdg-mime", "default", nastavi, vrsta], timeout=10, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    v_procesu = os_odpri_z.programi_v_procesu(vrsta)
+    if v_procesu is not None:
+        return v_procesu[0]
+    r = subprocess.run(["xdg-mime", "query", "default", vrsta], timeout=10, capture_output=True, text=True)
+    return r.stdout.strip()
 
 
 def stremio_privzeto() -> str:
@@ -889,12 +900,9 @@ def stremio_privzeto() -> str:
     vnos = next((ime for ime in ("safeer-os.Stremio.desktop", APP_ID + ".Stremio.desktop")
                  for m in mape if os.path.isfile(os.path.join(m, "applications", ime))), "")
     try:
-        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/stremio"], timeout=10,
-                           capture_output=True, text=True)
-        zdaj = r.stdout.strip()
+        zdaj = _privzeti_za_shemo("stremio")
         if not zdaj and vnos:
-            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/stremio"], timeout=10, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _privzeti_za_shemo("stremio", vnos)
             return vnos
         return zdaj
     except Exception:
