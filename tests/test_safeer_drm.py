@@ -218,9 +218,11 @@ class Splet(unittest.TestCase):
     def test_flatpak_safeer_os_zazene_na_gostitelju(self):
         """Safeer OS (Flatpak z org.freedesktop.Flatpak): na gostitelju, program iz paketa po poti, kot jo vidi gostitelj
         ([Instance] app-path v /.flatpak-info)."""
-        ukaz = p.ukaz_zagona(["/d/safeer-drm", "--url=https://a.test/"], peskovnik=False, gostitelj=True)
+        # Zaslon gre gostitelju samo, ce je DISPLAY nastavljen (prazen se ne poslje - Wayland, 18. 10. 2026).
+        with mock.patch.dict(os.environ, {"DISPLAY": ":5"}):
+            ukaz = p.ukaz_zagona(["/d/safeer-drm", "--url=https://a.test/"], peskovnik=False, gostitelj=True)
         self.assertEqual(ukaz[:3], ["flatpak-spawn", "--host", "--watch-bus"])
-        self.assertTrue(any(a.startswith("--env=DISPLAY=") for a in ukaz))
+        self.assertIn("--env=DISPLAY=:5", ukaz)
         self.assertEqual(ukaz[-2:], ["/d/safeer-drm", "--url=https://a.test/"])
         vir = (KOREN / "core" / "safeer_drm.py").read_text(encoding="utf-8")
         self.assertIn('f"--lastnik={os.getpid()}"', vir)
