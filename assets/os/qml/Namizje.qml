@@ -47,6 +47,8 @@ Item {
             if (vrsta === "sporocilaStevilo" && p) { koren.sporocilNeprebranih = Math.max(0, Number(p.n) || 0); zadetki.sporocilaCas = 0 }
             // Tiha preverba posodobitev (safeer_os._posodobitve_tiho): opomba pod iskanjem, kot na Domov aplikacije.
             if (vrsta === "posodobitev" && p) koren.posodobitev = (p.nove || []).length ? String(p.opis || "") : ""
+            // Safeer Agent nastavljen ali izklopljen v Nastavitvah: lupa pokaze ali skrije vnos agenta.
+            if (vrsta === "agent" && p) koren.agentNaVoljo = !!p.na_voljo
         }
     }
     property string jezik: "sl"
@@ -123,6 +125,15 @@ Item {
         return d.toLocaleDateString(Qt.locale(l), Locale.ShortFormat)
     }
     function obvesti(besedilo, dejanje, ob) { obvestilo.pokazi(besedilo, dejanje, ob) }
+    // Stavek za Safeer Agenta (core/agent/storitev.vprasaj_tukaj): izid pove obvestilo - brez modela to tudi pove.
+    function vprasajAgenta(q) {
+        obvesti(t("agentDela"))
+        klic("agentVprasaj", [q], function (r) {
+            if (r && r.koda === "ni_modela") obvesti(t("agentNiNastavljen"))
+            else if (r && r.koda === "model_ni_dosegljiv") obvesti(t("agentNedosegljiv"))
+            else obvesti((r && r.povzetek) || t("niUspelo"))
+        }, function () { obvesti(t("niUspelo")) })
+    }
     // Razdelek Datoteke ali Programi z drugega mesta (okno Zapiski, Nastavitve …): plosca na namizju dobi fokus, Datoteke
     // pri mapi. Prej se je odprlo staro glavno okno Safeer OS (popis 3.1, safeer_os._pokazi_na_namizju, 18. 10. 2026).
     function pokaziNaNamizju(p) {
@@ -174,33 +185,66 @@ Item {
     // nastavitve sistema, Safeer OS, naprave v Linku, datoteke, zapiski, mediji (knjiznica, katalog iz predpomnilnika,
     // »Poisci v Medijskem centru«) in »Prikazi na …« (npr. »film na tv«). Iskanje z glasom (core/os_govor.py) na tem
     // racunalniku. Enter odpre oznaceno (program pred spletom, nauceno najprej), Shift+Enter vedno splet.
+    // Lupa izven poti (lastnik, 19. 10. 2026: »stranska vrstica in iskalna lupa morata ostati izven poti, a preprosto
+    // dosegljivi«; v lupi je tudi Safeer Agent): zlozena je kratko polje z namigom Ctrl+K, cipi (Safeer Link, Sporocila)
+    // so v isti vrstici, paneli zato zacnejo visje. Klik, Ctrl+K ali tipkanje kjerkoli na namizju (kot Rofi) jo razsiri;
+    // sredina ostane na istem mestu (brez skoka panelov in gumba Nastavitve). Izbira »razsirjena« (Nastavitve -> Namizje)
+    // vrne prejsnjo postavitev. Samo Linux: na Windows ta QML ni preizkusen (izven obsega te spremembe).
+    property bool agentNaVoljo: false
+    readonly property bool lupaZlozljiva: platforma === "linux" && (priljubljeno.nastavitve || {}).lupa !== "razsirjena"
+    readonly property bool lupaOdprta: !lupaZlozljiva || polje.activeFocus || polje.text !== "" || govor.plosca !== "" || govor.poslusa()
+    readonly property real sredinaLupe: robZgoraj + 18 + 27
+    readonly property real sirinaLupe: Math.min(640, koren.width * 0.46)
+    readonly property real sirinaZlozene: Math.min(sirinaLupe, px(300))
     Steklo {
         id: iskanje
+        objectName: "iskanje"
         zamegljeno: zamegljeno
-        width: Math.min(640, koren.width * 0.46); height: 54
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: koren.robZgoraj + 18
-        polmer: 27
+        z: koren.lupaZlozljiva && koren.lupaOdprta ? 12 : 0
+        width: koren.lupaOdprta ? koren.sirinaLupe : koren.sirinaZlozene
+        height: koren.lupaOdprta ? 54 : 44
+        // Zlozena: lupa in cipi skupaj na sredini; razsirjena: lupa na sredini (cipi se umaknejo).
+        x: koren.lupaOdprta ? (koren.width - width) / 2 : (koren.width - width - (vrsticaCipov.width > 0 ? vrsticaCipov.width + 12 : 0)) / 2
+        y: koren.sredinaLupe - height / 2
+        polmer: height / 2
+        Behavior on width { enabled: koren.gibanje; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on height { enabled: koren.gibanje; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on x { enabled: koren.gibanje; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         TextField {
             id: polje
             objectName: "iskalnoPolje"
-            anchors.fill: parent; anchors.leftMargin: 52; anchors.rightMargin: mikrofon.visible ? 56 : 18
-            placeholderText: govor.stanje === "poslusam" ? koren.t("govorPoslusam") : govor.stanje === "prepoznavam" ? koren.t("govorPrepoznavam") : koren.t("isci")
+            anchors.fill: parent; anchors.leftMargin: 52; anchors.rightMargin: (mikrofon.visible ? 56 : 18) + (namigLupe.visible ? namigLupe.width + 8 : 0)
+            placeholderText: govor.stanje === "poslusam" ? koren.t("govorPoslusam") : govor.stanje === "prepoznavam" ? koren.t("govorPrepoznavam")
+                           : !koren.lupaOdprta ? koren.t(koren.agentNaVoljo ? "lupaKratkoAgent" : "lupaKratko")
+                           : koren.t(koren.agentNaVoljo ? "isciAliUkazi" : "isci")
             placeholderTextColor: koren.paleta.medlo
-            color: koren.paleta.besedilo; font.pixelSize: koren.px(16)
+            color: koren.paleta.besedilo; font.pixelSize: koren.px(koren.lupaOdprta ? 16 : 15)
             background: Item {}
-            Accessible.name: koren.t("isci")
+            Accessible.name: koren.t(koren.agentNaVoljo ? "isciAliUkazi" : "isci")
+            Accessible.description: "Ctrl+K"
             onTextChanged: casovnikIskanja.restart()
             Keys.onReturnPressed: function (d) {
                 if (d.modifiers & Qt.ShiftModifier) { if (polje.text.trim()) zadetki.izberiVnos({ vrsta: "splet", kljuc: polje.text.trim() }) }
+                // Ctrl+Enter: stavek gre Safeer Agentu (kot v oknu Safeer OS).
+                else if ((d.modifiers & Qt.ControlModifier) && koren.agentNaVoljo) { if (polje.text.trim()) zadetki.izberiVnos({ vrsta: "agent", kljuc: polje.text.trim() }) }
                 else zadetki.enter()
             }
             Keys.onEnterPressed: zadetki.enter()
             Keys.onDownPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.min(zadetki.trenutni + 1, zadetkiModel.count - 1) }
             Keys.onUpPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.max(zadetki.trenutni - 1, 0) }
-            Keys.onEscapePressed: koren.zapriVrhnje()
+            // Escape: najprej zapre, kar je odprto (besedilo, govor); prazna lupa se zlozi (fokus gre namizju).
+            Keys.onEscapePressed: { if (!koren.zapriVrhnje()) koren.forceActiveFocus() }
         }
         Lupa { x: 20; anchors.verticalCenter: parent.verticalCenter }
+        Text {
+            id: namigLupe
+            objectName: "namigLupe"
+            visible: !koren.lupaOdprta
+            text: "Ctrl+K"
+            anchors.right: parent.right; anchors.rightMargin: mikrofon.visible ? 56 : 16; anchors.verticalCenter: parent.verticalCenter
+            color: koren.paleta.tise; font.pixelSize: koren.px(11)
+            Accessible.ignored: true
+        }
         // Mikrofon: prvi pritisk ponudi prenos prepoznave (ce je se ni), sicer poslusa; med poslusanjem konca govor.
         GumbIkona {
             id: mikrofon
@@ -227,11 +271,26 @@ Item {
     }
     Shortcut {
         sequences: [StandardKey.Cancel, "Back"]
+        // V lupi Escape obdela polje samo (Keys.onEscapePressed): prvi pocisti, drugi lupo zlozi - brez dvojnega klica.
         enabled: (prilagodi.visible || polje.text !== "" || govor.plosca !== "" || govor.poslusa()) && !izhodi.visible && !meniNamizja.visible
+                 && !polje.activeFocus
         onActivated: koren.zapriVrhnje()
     }
     // Ctrl+K (kot na delovni povrsini): v iskanje od koderkoli na namizju.
     Shortcut { sequence: "Ctrl+K"; onActivated: { polje.forceActiveFocus(); polje.selectAll() } }
+    // Tipkanje kjerkoli na namizju (kot Rofi, lastnik, 19. 10. 2026): natisljiv znak brez Ctrl/Alt/Meta, ki ga noben
+    // gradnik ni porabil (polje za vnos, seznam Datotek ...), odpre lupo s tem znakom. Presledek ne (predogled v Datotekah).
+    focus: true
+    function tipkaZaLupo(d) {
+        return !!d.text && d.text.length === 1 && d.text !== " " && d.text.charCodeAt(0) >= 32 && d.text.charCodeAt(0) !== 127
+            && !(d.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+    }
+    Keys.onPressed: function (d) {
+        if (!koren.tipkaZaLupo(d) || prilagodi.visible) return
+        polje.forceActiveFocus()
+        polje.insert(polje.cursorPosition, d.text)
+        d.accepted = true
+    }
 
     // ------------------------------------------------------------------ iskanje z glasom (core/os_govor.py)
     // Kot delovna.js (mikrofonKlik, govorDogodek): prepoznava na tem racunalniku, nic ne gre na splet; prepoznano
@@ -369,7 +428,7 @@ Item {
         onTrenutniChanged: if (trenutni >= 0 && trenutni < zadetkiModel.count) seznamZadetkov.positionViewAtIndex(trenutni, ListView.Contain)
         function nizUcenja(q) { return Iskanje.SafeerIskanje.brezNaglasa(q).replace(/\s+/g, " ").trim() }
         function kljucZadetka(z) {
-            if (z.vrsta === "splet" || z.vrsta === "mediji") return z.vrsta
+            if (z.vrsta === "splet" || z.vrsta === "mediji" || z.vrsta === "agent") return z.vrsta
             return (z.vrsta === "mapa" ? "datoteka" : z.vrsta) + ":" + z.kljuc
         }
         function ocene(ql) {
@@ -529,6 +588,10 @@ Item {
                 else v.push({ vrsta: "naCilj", skupina: koren.t("skPrikaziNa"), ime: koren.t("niNapraveCilja"), opis: "", kljuc: "", ikona: "", podatki: "{}" })
             }
             v.push({ vrsta: "splet", skupina: koren.t("skSplet"), ime: koren.t("isciVSpletu", { q: q }), opis: koren.t("odpreVBrskalniku"), kljuc: q, ikona: "", podatki: "{}" })
+            // Safeer Agent v lupi (ce je nastavljen): ukaz z besedami, npr. »daj to na TV« - ta vrstica ali Ctrl+Enter.
+            if (koren.agentNaVoljo && zadnjiNiz.length >= 2)
+                v.push({ vrsta: "agent", skupina: koren.t("skAgent"), ime: koren.t("agentVprasaj", { q: zadnjiNiz }), opis: koren.t("agentOpisZadetka"),
+                         kljuc: zadnjiNiz, ikona: "", podatki: "{}" })
             d.programi.forEach(function (p) { v.push({ vrsta: "program", skupina: koren.t("skProgrami"), ime: p.ime, opis: p.opis || "", kljuc: p.id, ikona: p.ikona || "", podatki: "{}" }) })
             d.nastavitve.forEach(function (p) { v.push({ vrsta: "program", skupina: koren.t("skNastavitve"), ime: p.ime, opis: p.opis || "", kljuc: p.id, ikona: p.ikona || "", podatki: "{}" }) })
             d.safeer.forEach(function (x) { v.push({ vrsta: "safeer", skupina: koren.t("skSafeer"), ime: koren.t(x[1]), opis: koren.t(x[0] === "media" ? "odprePredvajalnik" : "odpreSafeerOs"),
@@ -623,6 +686,7 @@ Item {
             else if (z.vrsta === "katalog" && cilj) { prikaziKatalogNa(p.k); return }
             else if (z.vrsta === "katalog") odpriIzKataloga(p.k)
             else if (z.vrsta === "naCilj") prikaziNa(p.n, p.k, p.naslov)
+            else if (z.vrsta === "agent") koren.vprasajAgenta(z.kljuc)
             else odpriSplet(z.kljuc)
             polje.text = ""
         }
@@ -691,7 +755,7 @@ Item {
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
                     Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
                                : (model.vrsta === "medij" || model.vrsta === "katalog" || model.vrsta === "mediji") ? "🎵"
-                               : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : model.vrsta === "safeer" ? "✦"
+                               : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : (model.vrsta === "safeer" || model.vrsta === "agent") ? "✦"
                                : model.vrsta === "program" ? "▣" : "📄"
                            visible: model.ikona === ""; font.pixelSize: koren.px(18); width: 26; color: koren.paleta.medlo }
                     Column {
@@ -718,9 +782,10 @@ Item {
     Row {
         id: vrsticaCipov
         objectName: "vrsticaCipov"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: iskanje.y + iskanje.height + 10
-        visible: !zadetki.visible
+        // Zlozena lupa: cipi desno od nje v isti vrstici (paneli zato zacnejo visje); razsirjena: pod njo kot prej.
+        x: koren.lupaZlozljiva ? (koren.width - koren.sirinaZlozene - width - 12) / 2 + koren.sirinaZlozene + 12 : (koren.width - width) / 2
+        y: koren.lupaZlozljiva ? koren.sredinaLupe - height / 2 : iskanje.y + iskanje.height + 10
+        visible: !zadetki.visible && !(koren.lupaZlozljiva && koren.lupaOdprta)
         spacing: 8
         Rectangle {
             id: linkGumb
@@ -834,7 +899,9 @@ Item {
     property real robLevo: 0
     property real robDesno: 0
     // Paneli pod gumbom Safeer Link (ta zraste z vecjim besedilom sistema)
-    readonly property real vrhPanelov: Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)
+    // Zlozena lupa: ena vrstica (lupa in cipi) - paneli 26 px visje; vrh ni odvisen od tega, ali je lupa odprta.
+    readonly property real vrhPanelov: lupaZlozljiva ? Math.max(robZgoraj + 80, sredinaLupe + vrsticaCipov.height / 2 + 14)
+                                                     : Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)
     // Medijski center: kaj se predvaja (lastnik, 14. 10. 2026: med glasbo je pripomocek kazal »Ni predvajanja«). Isto stanje
     // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik ali skladba s seznama v vgradnem predvajalniku
     // YouTuba), osvezevanje 1 s med predvajanjem, sicer 3 s; dogodek »predvajalnik« osvezi takoj.
@@ -1335,6 +1402,7 @@ Item {
             koren.vOknu = !!z.vOknu
             // Dock, ki ga Safeer OS ureja (Plank na X11, priljubljeni GNOME): brez njega »Prilagodi dock« ni v meniju.
             koren.dockNaVoljo = !!z.dock
+            koren.agentNaVoljo = !!(z.agent && z.agent.na_voljo)
             koren.dom = (z.mape && z.mape[0] && z.mape[0].pot) || ""
             koren.ozadjeUrl = z.ozadje || ""
             if (z.videz) koren.uporabiVidez(z.videz)
@@ -1407,6 +1475,12 @@ Item {
         MeniVnos { text: koren.t("prilagodi"); onTriggered: prilagodi.odpri() }
         MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux" && koren.dockNaVoljo; onTriggered: programi.urediDock() }
         MeniVnos { text: koren.t("temaSistema"); onTriggered: koren.klic("odpriRazdelek", ["nastavitve"]) }
+        MeniVnos {
+            objectName: "meniLupa"
+            visible: koren.platforma === "linux"; checkable: true; checked: koren.lupaZlozljiva
+            text: koren.t("lupaZlozena")
+            onTriggered: koren.klic("priljubljenoNastavi", ["lupa", koren.lupaZlozljiva ? "razsirjena" : "zlozena"], function (p) { koren.nastaviPriljubljeno(p) })
+        }
     }
     Prilagodi { id: prilagodi; objectName: "prilagodi"; z: 30; anchors.fill: parent }
 

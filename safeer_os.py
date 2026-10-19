@@ -5276,8 +5276,12 @@ class SafeerOS(Gtk.Application):
     def _nastavitve_delov(self) -> dict:
         """Kateri deli Safeerja imajo nastavitve v Nastavitvah Safeer OS: Control (v tem procesu), Splet (WebKitov
         peskovnik dela) in namizje QML (lupina tece)."""
-        return {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
+        izid = {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
                 "namizje": self.lupina is not None, "sporocila": sporocila_vklop.sporocila_vklopljena()}
+        if izid["namizje"]:
+            # Iskalna lupa na namizju QML: zlozena (privzeto) ali vedno razsirjena - core/priljubljeno.py »lupa«.
+            izid["lupa"] = self._priljubljeno().stanje()["nastavitve"].get("lupa", "zlozena")
+        return izid
 
     def _nastavitev_dela(self, pogled, kljuc: str, vrednost=None):
         """Klik v skupinah Naprave in Link, Splet in Namizje (Nastavitve Safeer OS)."""
@@ -5285,6 +5289,10 @@ class SafeerOS(Gtk.Application):
             return nastavi_control(kljuc, bool(vrednost))
         if kljuc == "sporocila":
             return self._nastavi_sporocila(bool(vrednost))
+        if kljuc == "lupa":
+            # Stikalo »Zlozena iskalna lupa«: sprememba gre namizju kot dogodek »priljubljeno« (_priljubljeno).
+            stanje = self._priljubljeno().nastavi("lupa", "zlozena" if vrednost else "razsirjena")
+            return stanje["nastavitve"].get("lupa") == "zlozena"
         if kljuc == "mape":
             c = en_proces.control_app()
             if c is None:

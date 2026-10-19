@@ -18,7 +18,11 @@ def test_brez_delovnega_obmocja():
 
 def test_qml_uporablja_robove():
     q = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
-    assert "y: koren.robZgoraj + 18" in q and "vrhPanelov: Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)" in q and "koren.robSpodaj - 70" in q
+    # Lupa in paneli upostevajo pult zgoraj (robZgoraj): sredina lupe je stalna (zlozena in razsirjena, 19. 10. 2026),
+    # paneli zacnejo pod vrstico lupe in cipov.
+    assert "readonly property real sredinaLupe: robZgoraj + 18 + 27" in q and "y: koren.sredinaLupe - height / 2" in q
+    assert "vrhPanelov: lupaZlozljiva ? Math.max(robZgoraj + 80, sredinaLupe + vrsticaCipov.height / 2 + 14)" in q
+    assert ": Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)" in q and "koren.robSpodaj - 70" in q
 
 
 def test_dock_plank():

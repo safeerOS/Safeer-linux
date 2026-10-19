@@ -18,7 +18,7 @@ Zapis:
      "datoteke": [{"pot", "ime", "mapa", "videno"}],   vrstni red = uporabnikov; videno = nazadnje na poti (unix s)
      "programi": ["ta:gimp.desktop", ...],       kljuc kot kljucPrograma v delovna.js: naprava + ":" + id
      "kategorije": {"ta:gimp.desktop": "mediji"},
-     "nastavitve": {"programiRazvrsti": "ime", "programiPogled": "mreza"},
+     "nastavitve": {"programiRazvrsti": "ime", "programiPogled": "mreza", "lupa": "zlozena"},
      "preseljeno": true}                         localStorage delovne povrsine je ze prenesen
 """
 
@@ -48,8 +48,10 @@ KATEGORIJE = ("pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo")
 IZ_SKUPINE = {"pisarna": "pisarna", "ucenje": "pisarna", "programiranje": "ustvarjanje", "ustvarjanje": "ustvarjanje",
               "predstavnost": "mediji", "mediji": "mediji", "splet": "splet", "igre": "igre", "orodja": "drugo",
               "sistem": "drugo", "drugo": "drugo"}
-#: Dovoljene nastavitve in njihove vrednosti (prva je privzeta).
-NASTAVITVE = {"programiRazvrsti": ("ime", "nazadnje", "najveckrat"), "programiPogled": ("mreza", "seznam")}
+#: Dovoljene nastavitve in njihove vrednosti (prva je privzeta). »lupa«: iskalna lupa na namizju je zlozena, dokler je ne
+#: uporabis, ali vedno razsirjena (lastnik, 19. 10. 2026: »izven poti, a preprosto dosegljiva«).
+NASTAVITVE = {"programiRazvrsti": ("ime", "nazadnje", "najveckrat"), "programiPogled": ("mreza", "seznam"),
+              "lupa": ("zlozena", "razsirjena")}
 
 
 def privzeta_pot() -> str:
