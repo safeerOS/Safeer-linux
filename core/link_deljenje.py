@@ -295,14 +295,15 @@ def _ciljna_mapa(mapa: Optional[str], podmapa: str) -> str:
 
 
 def prevzemi_datoteko(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
-                      mapa: Optional[str] = None, podmapa: str = "") -> Tuple[Optional[str], str]:
+                      mapa: Optional[str] = None, podmapa: str = "", velikost: int = -1) -> Tuple[Optional[str], str]:
     """Prenese datoteko s Huba v mapo prenosov. Vrne (pot, "") ali (None, razlog)."""
-    cilj, razlog, _koda = _prevzemi(ws_naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa)
+    cilj, razlog, _koda = _prevzemi(ws_naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa,
+                                    velikost=velikost)
     return cilj, razlog
 
 
 def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: str,
-                           mapa: Optional[str] = None, podmapa: str = "") -> Tuple[Optional[str], str]:
+                           mapa: Optional[str] = None, podmapa: str = "", velikost: int = -1) -> Tuple[Optional[str], str]:
     """Datoteko prevzame pri prvem sredisci s seznama [(naslov, odtis), ...], ki jo ima. Vrne kot prevzemi_datoteko.
 
     Pot v `share.file` je relativna na sredisce, ki je datoteko sprejelo - to pa je lahko nase (posiljatelj jo je
@@ -313,7 +314,8 @@ def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: 
     for naslov, odtis in sredisca:
         if not naslov or not odtis:
             continue
-        cilj, razlog, koda = _prevzemi(naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa)
+        cilj, razlog, koda = _prevzemi(naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa,
+                                       velikost=velikost)
         if cilj or koda != 404:
             return cilj, razlog
     return None, razlog
@@ -321,14 +323,19 @@ def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: 
 
 def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
               mapa: Optional[str] = None, podmapa: str = "",
-              spi: Callable[[float], None] = time.sleep) -> Tuple[Optional[str], str, int]:
+              spi: Callable[[float], None] = time.sleep, velikost: int = -1) -> Tuple[Optional[str], str, int]:
     """(pot, "", 200) ali (None, razlog, koda HTTP sredisca); koda 0 = do odgovora ni prislo ali prenos ni uspel.
+
+    `velikost` (share.file size, -1 = neznana): ce po prejemu na disku ne bi ostala rezerva, prevzema ne zacnemo -
+    sredisce datoteko obdrzi za nov poskus (prej je prejem pisal do polnega diska, ENOSPC; koncni pregled 19. 10. 2026).
 
     Prekinjen prevzem (izpad Wi-Fi) nadaljuje, kjer je ostal (Range), do POSKUSOV krat; kar je ze prislo, je v
     datoteki ».safeer-delno« ob cilju in dobi koncno ime sele, ko je cela in se odtis ujema."""
     u = urlparse(ws_naslov)
     gostitelj, vrata = u.hostname or "127.0.0.1", u.port or 443
     mapa_cilja = _ciljna_mapa(mapa, podmapa)
+    if velikost >= 0 and not _dovolj_prostora(mapa_cilja, velikost):
+        return None, "ni prostora", 0
     delno = enolicna_pot(mapa_cilja, varno_ime(ime) + ".safeer-delno")
     razlog, koda = "", 0
     try:
@@ -377,9 +384,6 @@ def _prevzem_enkrat(gostitelj: str, vrata: int, odtis: str, pot_huba: str, delno
         odgovor = povezava.getresponse()
         if odgovor.status not in (200, 206):
             return "koncno", f"Hub je odgovoril {odgovor.status}", int(odgovor.status)
-        prihaja = odgovor.getheader("Content-Length")
-        if prihaja and prihaja.isdigit() and not _dovolj_prostora(os.path.dirname(delno) or ".", int(prihaja)):
-            return "koncno", "ni prostora", 0
         h = hashlib.sha256()
         if odgovor.status == 206 and imamo:
             with open(delno, "rb") as f:

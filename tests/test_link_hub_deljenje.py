@@ -15,7 +15,7 @@ import time
 import unittest
 from unittest import mock
 
-from core import link_deljenje, link_hub, link_hub_deljenje, link_hub_streznik, link_krog
+from core import link_deljenje, link_hub, link_hub_deljenje, link_hub_streznik, link_krog, link_viri
 
 
 class LaznaPovezava:
@@ -210,6 +210,10 @@ class DeljenjeVZivo(unittest.TestCase):
         if not cls.streznik.zazeni():
             raise unittest.SkipTest("huba ni bilo mogoce zagnati")
         cls.tmp = tempfile.TemporaryDirectory()
+        # Prejemnik (link_deljenje._dovolj_prostora) meri pravi disk z rezervo link_viri.rezerva_diska (2 %): ta je v
+        # testnem vsebniku lahko vecja od prostega prostora - preizkus meri prenos, ne disk.
+        cls._rezerva = mock.patch.object(link_viri, "rezerva_diska", lambda mapa: 0)
+        cls._rezerva.start()
         # Prostor diska je lazen: rezerva pravega diska (link_viri.rezerva_diska, 2 %) je odvisna od okolja preizkusa.
         cls.streznik.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: os.path.join(cls.tmp.name, "zaloga"),
                                                                prosto=lambda _m: 50 * 1024 ** 3,
@@ -220,6 +224,7 @@ class DeljenjeVZivo(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls._rezerva.stop()
         cls.streznik.ustavi()
         cls.tmp.cleanup()
 

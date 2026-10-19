@@ -325,6 +325,9 @@ class PrejetaNiIzvrsljiva(unittest.TestCase):
         odtis, _k = link_tls.potrdilo_huba(naslov)
         prejemi = os.path.join(mapa, "Prejemi")
         os.makedirs(prejemi)
+        rezerva = mock.patch.object(link_viri, "rezerva_diska", lambda _m: 0)     # pravi disk vsebnika je majhen
+        rezerva.start()
+        self.addCleanup(rezerva.stop)
         pot, razlog = link_deljenje.prevzemi_datoteko(naslov, odtis, d.pot_prevzema(), "zagon.sh",
                                                       hashlib.sha256(vsebina).hexdigest(), mapa=prejemi)
         self.assertTrue(pot, razlog)
@@ -671,6 +674,21 @@ class NastavitveNaWindows(unittest.TestCase):
             n.shrani()
         with open(pot, encoding="utf-8") as d:
             self.assertEqual(json.load(d), {"control_token": "z"}, "seznanitev se ne sme izgubiti")
+
+
+class DovoljenjaNaWindows(unittest.TestCase):
+    """Koncni pregled b8e39da: ista napaka kot link.json - link_dostop._na_disk je klical os.fchmod, ki ga Windows
+    (Python pred 3.13) nima; AttributeError ni OSError, zapis dovoljenj se ni shranil."""
+
+    def test_na_disk_brez_fchmod(self):
+        from core import link_dostop
+        mapa = tempfile.mkdtemp(prefix="safeer-ostanki-")
+        self.addCleanup(shutil.rmtree, mapa, ignore_errors=True)
+        pot = os.path.join(mapa, "dovoljenja.json")
+        with mock.patch.object(link_dostop, "os", _OsBrez()):
+            self.assertIsNotNone(link_dostop._na_disk(pot, {"n-0123456789abcdef": {"files"}}, set(), 0.0))
+        with open(pot, encoding="utf-8") as d:
+            self.assertIn("n-0123456789abcdef", json.load(d)["naprave"])
 
 
 # ---------------------------------------------------------------------- G. zeton mostu z ne-ASCII

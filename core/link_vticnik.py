@@ -292,6 +292,9 @@ def delez_retrans(prej: Optional[dict], zdaj: Optional[dict]) -> Optional[float]
 #: zapre NAJSTAREJSA: prava naprava rokovanje in pozdrav opravi v nekaj ms, tiha povezava pa caka - nova povezava
 #: tako vedno dobi mesto, napadalec pa bi moral odpirati povezave hitreje, kot traja rokovanje prave naprave.
 NAJVEC_HKRATNIH_POZDRAVOV = 8
+#: Trda meja zivih niti pozdrava (tudi izrinjenih, ki se se zapirajo): cez njo se nova povezava zapre takoj, ne dobi
+#: niti - poplava povezav ne sme porabiti niti in deskriptorjev celega procesa (en proces, core/en_proces.py).
+NAJVEC_NITI_POZDRAVA = 2 * NAJVEC_HKRATNIH_POZDRAVOV
 
 
 def _zapri_tiho(s) -> None:
@@ -324,7 +327,7 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
     najden = threading.Event()
     #: Povezave v rokovanju: kljuc -> [trenutna vticnica (surova, po rokovanju TLS ovita), cas sprejema].
     v_teku: dict = {}
-    stanje = {"koncano": False, "izid": None, "st": 0}
+    stanje = {"koncano": False, "izid": None, "st": 0, "niti": 0}
 
     def obdelaj(kljuc: int, surov) -> None:
         odjemalec = None
@@ -333,10 +336,15 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
             surov.settimeout(rok_rokovanja)        # rokovanje: CPython ga omeji v celoti, ne po branjih
             if ob_sprejemu is not None:
                 ob_sprejemu(surov)
-            odjemalec = ctx.wrap_socket(surov, server_side=True)
+            # wrap_socket surovo vticnico takoj odklopi (detach), rokovanje pa tece sele potem: ovito vticnico vpisemo,
+            # PREDEN se rokovanje zacne - izrinjanje mora zapreti njo, sicer povezava in nit zivita do roka
+            # (koncni pregled b8e39da).
+            odjemalec = ctx.wrap_socket(surov, server_side=True, do_handshake_on_connect=False)
             with zaklep:
-                if kljuc in v_teku:
-                    v_teku[kljuc][0] = odjemalec   # izrinjanje mora zapreti ovito vticnico (surova je odklopljena)
+                if kljuc not in v_teku:
+                    raise OSError("izrinjena")
+                v_teku[kljuc][0] = odjemalec
+            odjemalec.do_handshake()
             vrstica = preberi_vrstico(odjemalec, rok=rok)
             if pozdrav_velja(vrstica):
                 with zaklep:
@@ -348,6 +356,9 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
                         return
         except Exception:  # noqa: BLE001 - tuja ali izrinjena povezava ne sme podreti cakanja
             pass
+        finally:
+            with zaklep:
+                stanje["niti"] -= 1
         with zaklep:
             v_teku.pop(kljuc, None)
         _zapri_tiho(odjemalec if odjemalec is not None else surov)
@@ -374,6 +385,12 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
                 continue
             izrinjena = None
             with zaklep:
+                prevec_niti = stanje["niti"] >= NAJVEC_NITI_POZDRAVA
+            if prevec_niti:
+                _zapri_tiho(surov)                  # izrinjene se se zapirajo: nova povezava ne dobi niti
+                continue
+            with zaklep:
+                stanje["niti"] += 1
                 if len(v_teku) >= najvec_hkrati:
                     najstarejsa = min(v_teku, key=lambda k: v_teku[k][1])
                     izrinjena = v_teku.pop(najstarejsa)[0]
@@ -381,7 +398,13 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
                 kljuc = stanje["st"]
                 v_teku[kljuc] = [surov, time.monotonic()]
             _zapri_tiho(izrinjena)                  # njena nit se zbudi z napako in pospravi
-            threading.Thread(target=obdelaj, args=(kljuc, surov), name="safeer-pozdrav", daemon=True).start()
+            try:
+                threading.Thread(target=obdelaj, args=(kljuc, surov), name="safeer-pozdrav", daemon=True).start()
+            except RuntimeError:                    # sistem niti ne da: povezava odpade, stetje ostane pravo
+                with zaklep:
+                    stanje["niti"] -= 1
+                    v_teku.pop(kljuc, None)
+                _zapri_tiho(surov)
     finally:
         with zaklep:
             stanje["koncano"] = True          # niti, ki koncajo pozneje, svojo povezavo zaprejo

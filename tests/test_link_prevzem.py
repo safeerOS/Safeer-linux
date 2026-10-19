@@ -132,7 +132,8 @@ class PrevzemPriSrediscih(unittest.TestCase):
 
     def _prevzemi(self, sredisca, tovor, odtis=None):
         return link_deljenje.prevzemi_pri_srediscih(sredisca, tovor["path"], tovor["name"],
-                                                    tovor["sha256"] if odtis is None else odtis, mapa=self.mapa)
+                                                    tovor["sha256"] if odtis is None else odtis, mapa=self.mapa,
+                                                    velikost=int(tovor.get("size", -1)))
 
     def _zaloga_prazna(self, sredisce, sporocilo=None):
         """Sredisce datoteko odstrani v niti streznika SELE po zadnjem poslanem bajtu (finally v _prevzem_datoteke),

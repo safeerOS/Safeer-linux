@@ -357,7 +357,8 @@ def _na_disk(pot: str, naprave: Dict[str, Set[str]], zascita: Set[str], podedova
         with os.fdopen(rocaj, "w", encoding="utf-8") as d:
             json.dump(vsebina, d, indent=1)
             d.flush()
-            os.fchmod(d.fileno(), 0o600)
+            if hasattr(os, "fchmod"):                  # Windows (Python pred 3.13) ga nima; mkstemp ze da 0600
+                os.fchmod(d.fileno(), 0o600)
             os.fsync(d.fileno())
             st = os.fstat(d.fileno())
         if pricakovan is not _NE_PREVERJAJ and _odtis_zapisa(pot) != pricakovan:

@@ -335,6 +335,15 @@ def _kljuc_clana_kroga(kljuc: str) -> bool:
         return False
 
 
+def _velikost_tovora(telo: dict) -> int:
+    """Velikost iz share.file (-1, ce je ni ali ni stevilo): prejem jo preveri proti prostemu prostoru pred prevzemom."""
+    try:
+        v = int(telo.get("size", -1))
+    except (TypeError, ValueError):
+        return -1
+    return v if v >= 0 else -1
+
+
 def zeton_velja(sporocilo) -> bool:
     """Sporocilo mostu safeerLink je iz glavnega okvirja strani Linka (MOST_JS), ne iz vgrajenega okvirja.
     Primerjamo bajte: compare_digest(str, str) za niz z ne-ASCII znakom vrze TypeError (okvir strani ga lahko poslje)."""
@@ -1981,7 +1990,8 @@ class SafeerLink:
         return link_deljenje.prevzemi_pri_srediscih(sredisca, str(telo.get("path", "") or ""),
                                                     str(telo.get("name", "") or "datoteka"),
                                                     str(telo.get("sha256", "") or ""),
-                                                    podmapa=str(telo.get("dir", "") or ""))
+                                                    podmapa=str(telo.get("dir", "") or ""),
+                                                    velikost=_velikost_tovora(telo))
 
     def prejem_datotek(self):
         """Ena instanca core/link_prejem.Prejem za ta Link (prvic ob prvi prejeti datoteki)."""
