@@ -1,16 +1,16 @@
 """Zasebno vodilo D-Bus za preizkuse: lasten dbus-daemon kot navaden podproces, brez Gio.TestDBus.
 
-Zakaj ne Gio.TestDBus (19. 10. 2026): up() naslov vodila zapise v okolje procesa (g_setenv), down() ga izbrise
-(g_unsetenv). Vsi preizkusi tecejo v enem procesu, kjer tecejo tudi niti prejsnjih preizkusov (streznikov, GDBus,
-WebKit), ki okolje berejo (getenv). setenv med getenv druge niti je v glibc nedefinirano - polni tek se je sesul
-(Fatal Python error: Segmentation fault v test_obvestila.setUp, ob zagonu Gio.TestDBus). Tu okolja procesa nihce ne
-spreminja: naslov dobi samo, kdor ga zahteva (povezava(), okolje()).
+Zakaj ne Gio.TestDBus (19. 10. 2026): up() v vecnitnem procesu naredi dvoje, kar tam ni varno - fork() brez exec
+(proces-cuvaj, ki dbus-daemon pobije, ko nas proces umre) in g_setenv naslova vodila (down() pa g_unsetenv), medtem ko
+niti prejsnjih preizkusov (strezniki, GDBus, WebKit) tecejo in okolje berejo. Vsi preizkusi tecejo v enem procesu:
+lokalni polni tek se je sesul v test_obvestila.setUp ob up() (Fatal Python error: Segmentation fault), CI pa je od
+19. 10. na koncu teka izpisoval Fatal Python error iz procesa-cuvaja. Tu je dbus-daemon navaden podproces (fork+exec
+prek subprocess), okolja procesa nihce ne spreminja: naslov dobi samo, kdor ga zahteva (povezava(), okolje()).
 
 Uporablja ga tudi conftest.py (vodilo seje za ves tek).
 """
 import os
 import shutil
-import signal
 import subprocess
 import tempfile
 
@@ -30,13 +30,11 @@ NASTAVITEV = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Config
 """
 
 
-def _umri_s_starsem() -> None:
-    """V otroku pred exec: ce pytest umre (tudi SIGKILL), jedro vodilu poslje SIGTERM - nic ne ostane teci."""
-    try:
-        import ctypes
-        ctypes.CDLL(None, use_errno=True).prctl(1, int(signal.SIGTERM))   # PR_SET_PDEATHSIG
-    except Exception:  # noqa: BLE001 - brez prctl vodilo pospravi ustavi()
-        pass
+def _s_cuvajem(ukaz: list) -> list:
+    """Ce pytest umre (tudi SIGKILL), jedro vodilu poslje SIGTERM (PR_SET_PDEATHSIG) - nic ne ostane teci. Nastavi ga
+    setpriv (util-linux) pred exec, ne preexec_fn: ta bi v otroku vecnitnega procesa izvajal Python (mrtva zanka)."""
+    setpriv = shutil.which("setpriv")
+    return [setpriv, "--pdeathsig", "TERM"] + ukaz if setpriv else ukaz
 
 
 def na_voljo() -> bool:
@@ -61,9 +59,8 @@ class ZasebnoVodilo:
         with open(nastavitev, "w", encoding="utf-8") as d:
             d.write(NASTAVITEV % self.mapa)
         self._proces = subprocess.Popen(
-            [program, "--config-file=" + nastavitev, "--nofork", "--nopidfile", "--print-address=1"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            preexec_fn=_umri_s_starsem)
+            _s_cuvajem([program, "--config-file=" + nastavitev, "--nofork", "--nopidfile", "--print-address=1"]),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.naslov = (self._proces.stdout.readline() or "").strip()
         if not self.naslov:
             self.ustavi()
