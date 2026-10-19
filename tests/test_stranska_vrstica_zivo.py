@@ -165,6 +165,21 @@ class StranskaVrstica(_Stran):
         self.assertEqual(self._js("localStorage.getItem('safeer_vrstica')"), "")
         self.assertEqual(self._js("document.activeElement.getAttribute('data-razdelek')"), "domov", "fokus na izbranem razdelku")
 
+    def test_ctrl_b_v_polju_ne_vzame_fokusa(self):
+        """Ctrl+B med pisanjem v polje razsiri vrstico, fokus pa ostane v polju (pregled 19. 10. 2026: fokus je skocil na
+        meni, naslednja crka je sla v lupo namesto v polje)."""
+        self._js("localStorage.clear(), 1")
+        self.odpri(self.SIRINA, self.VISINA)
+        self._js("document.getElementById('gumbVrstica').click(), 1")
+        self._js("""(function () { document.querySelector('[data-razdelek=zapiski]').click();
+            var v = document.getElementById('zapiskiIskanje'); v.focus(); v.value = 'nakup'; return 1; })()""")
+        self.assertEqual(self._js("document.activeElement.id"), "zapiskiIskanje")
+        self.tipka("b", ctrlKey=True)
+        self.assertEqual(self.sirina("stranska", 250), 250)
+        self.assertEqual(self._js("document.activeElement.id"), "zapiskiIskanje")
+        self.tipka("x")
+        self.assertEqual(self._js("document.getElementById('iskanje').value"), "")
+
     def test_prej_skrita_postane_skrcena(self):
         self._js("localStorage.clear(), localStorage.setItem('safeer_vrstica_skrita', '1'), 1")
         self.odpri(self.SIRINA, self.VISINA)

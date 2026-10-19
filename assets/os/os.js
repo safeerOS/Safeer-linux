@@ -203,7 +203,9 @@
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         vrsticaPreklopi();
-        if (vrsticaPlava || !vrsticaSkrcena()) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
+        // Fokus na izbrani razdelek, razen med pisanjem v polje: tam ostane (naslednja crka bi sla v lupo).
+        var a = document.activeElement, vPolju = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable);
+        if (!vPolju && (vrsticaPlava || !vrsticaSkrcena())) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
       } else if (e.key === "Escape" && vrsticaPlava) {
         e.preventDefault(); e.stopImmediatePropagation();
         vrsticaZapriPlavajoco(true);
