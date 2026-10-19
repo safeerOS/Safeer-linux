@@ -5292,8 +5292,9 @@ class SafeerOS(Gtk.Application):
         izid = {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
                 "namizje": self.lupina is not None, "sporocila": sporocila_vklop.sporocila_vklopljena()}
         if izid["namizje"]:
-            # Iskalna lupa na namizju QML: zlozena (privzeto) ali vedno razsirjena - core/priljubljeno.py »lupa«.
-            izid["lupa"] = self._priljubljeno().stanje()["nastavitve"].get("lupa", "zlozena")
+            # Iskalna lupa na namizju QML: zlozena (privzeto) ali vedno razsirjena - core/priljubljeno.py »lupa«. Glavna
+            # nit: samo nastavitev, ne stanje() (stat vseh priljubljenih, zaklep, fsync - tests/test_nastavitve_delov.py).
+            izid["lupa"] = self._priljubljeno().nastavitev("lupa")
         return izid
 
     def _nastavitev_dela(self, pogled, kljuc: str, vrednost=None):
@@ -5303,9 +5304,12 @@ class SafeerOS(Gtk.Application):
         if kljuc == "sporocila":
             return self._nastavi_sporocila(bool(vrednost))
         if kljuc == "lupa":
-            # Stikalo »Zlozena iskalna lupa«: sprememba gre namizju kot dogodek »priljubljeno« (_priljubljeno).
-            stanje = self._priljubljeno().nastavi("lupa", "zlozena" if vrednost else "razsirjena")
-            return stanje["nastavitve"].get("lupa") == "zlozena"
+            # Stikalo »Zlozena iskalna lupa«: sprememba gre namizju kot dogodek »priljubljeno« (_priljubljeno). Shranjevanje
+            # v ozadju, kot vsi klici priljubljeno* (stanje() pregleda priljubljene datoteke, _pisi naredi fsync).
+            lupa = "zlozena" if vrednost else "razsirjena"
+            threading.Thread(target=lambda: self._priljubljeno().nastavi("lupa", lupa), daemon=True,
+                             name="safeer-lupa").start()
+            return lupa == "zlozena"
         if kljuc == "mape":
             c = en_proces.control_app()
             if c is None:

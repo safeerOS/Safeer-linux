@@ -129,6 +129,37 @@ class NastavitveControla(unittest.TestCase):
         self.assertIn('vrsta === "prilagodi"', beri("assets", "os", "qml", "Namizje.qml"))
 
 
+class LupaBrezDatotekNaGlavniNiti(unittest.TestCase):
+    """nastavitveDelov in nastavitevDela tecejo na glavni niti (slovar »glavna« v _obdelaj_klic). Stanje priljubljenih
+    (Priljubljeno.stanje) pregleda vsako priljubljeno datoteko (stat, exists - tudi na omreznem ali odklopljenem disku),
+    caka na zaklep niti in datoteke in ob pospravljanju zapise s fsync - zato so vsi klici priljubljeno* v ozadju.
+    Nastavitev »lupa« (19. 10. 2026) se tega ne sme dotakniti na glavni niti (zamrznitev, varuh po 30 s SIGABRT)."""
+
+    def test_branje_in_preklop_lupe_brez_stanja_priljubljenih(self):
+        import tempfile
+        import safeer_os as so
+        from core import priljubljeno
+        with tempfile.TemporaryDirectory() as d:
+            p = priljubljeno.Priljubljeno(pot=os.path.join(d, "priljubljeno.json"))
+            p.nastavi("lupa", "razsirjena")
+            o = mock.Mock(lupina=mock.Mock(), okno=None, _spletni=None, _spletni_namizje=None)
+            o._peskovnik_na_voljo.return_value = True
+            o._priljubljeno.return_value = p
+            niti = []
+
+            def nit(target=None, **_k):
+                niti.append(target)
+                return mock.Mock()
+            with mock.patch.object(priljubljeno.Priljubljeno, "stanje", side_effect=AssertionError("glavna nit")), \
+                    mock.patch.object(so.threading, "Thread", side_effect=nit):
+                self.assertEqual(so.SafeerOS._nastavitve_delov(o)["lupa"], "razsirjena")
+                self.assertIs(so.SafeerOS._nastavitev_dela(o, None, "lupa", True), True)
+            self.assertEqual(len(niti), 1)          # shranjevanje (fsync, dogodek s stanjem) v ozadju
+            niti[0]()
+            self.assertEqual(p.stanje()["nastavitve"]["lupa"], "zlozena")
+            self.assertEqual(so.SafeerOS._nastavitve_delov(o)["lupa"], "zlozena")
+
+
 class Vmesnik(unittest.TestCase):
     def test_besedila_v_vseh_jezikih(self):
         besedila = beri("assets", "os", "besedila.js")
