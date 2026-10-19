@@ -4539,6 +4539,14 @@ class SafeerOS(Gtk.Application):
             "nocna": lambda: os_sistem.nastavi_nocno_luc(bool(a[0])),
             "wifi": lambda: os_sistem.nastavi_wifi(bool(a[0])),
             "nastavitve": lambda: os_sistem.odpri_nastavitve(str(a[0]) if a else ""),
+            # Safeer Agent (core/agent): Nastavitve -> Safeer Agent in iskalna lupa (lastnik, 19. 10. 2026). V ozadju -
+            # preverba dosegljivosti in ukaz agentu cakata na omrezje.
+            "agentStanje": lambda: self._agent("stanje"),
+            "agentNastavi": lambda: self._agent("naslov", a[0] if a else ""),
+            "agentVklop": lambda: self._agent("vklop", a[0] is True if a else True),
+            "agentTrajanje": lambda: self._agent("trajanje", a[0] if a else None),
+            "agentDosegljivost": lambda: self._agent("dosegljivost"),
+            "agentVprasaj": lambda: self._agent("vprasaj", str(a[0]) if a else ""),
             "napajanje": lambda: os_sistem.napajanje(str(a[0]) if a else ""),
             "mapa": lambda: os_datoteke.preglej(str(a[0]) if a else "~"),
             # Iz indeksa v pomnilniku (takoj, po vsej globini); drugi parameter: koliko zadetkov (razdelek Datoteke vec).
@@ -4855,6 +4863,23 @@ class SafeerOS(Gtk.Application):
                                       "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
                                       "prenesiDatotekoNaprave"})
 
+    def _agent(self, kaj: str, vrednost=None):
+        """Nastavitve in klic Safeer Agenta (core/agent/nastavitve.py, storitev.vprasaj_tukaj). Sprememba nastavitev gre
+        vsem pogledom kot dogodek »agent« (iskalna lupa na namizju pokaze ali skrije vnos agenta)."""
+        from core.agent import nastavitve as agent_nastavitve
+        from core.agent import storitev as agent_storitev
+        if kaj == "stanje":
+            return agent_nastavitve.stanje()
+        if kaj == "dosegljivost":
+            return agent_nastavitve.dosegljivost()
+        if kaj == "vprasaj":
+            return agent_storitev.vprasaj_tukaj(vrednost)
+        izid = {"naslov": agent_nastavitve.nastavi_naslov, "vklop": agent_nastavitve.nastavi_vklop,
+                "trajanje": agent_nastavitve.nastavi_trajanje}[kaj](vrednost)
+        if izid.get("ok"):
+            self._dogodek("agent", {"na_voljo": bool(izid.get("na_voljo"))})
+        return izid
+
     def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
         """Shramba priljubljenih; vsaka sprememba gre obema namizjema (QML in WebKit) kot dogodek »priljubljeno«."""
         return priljubljeno.shramba(lambda stanje: self._dogodek("priljubljeno", stanje))
@@ -4941,7 +4966,9 @@ class SafeerOS(Gtk.Application):
             "videz": videz_cinnamon(),
             "vlecenjeDatotek": self._vlecenje_na_voljo(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
-            "razpolozljivo": os_sistem.razpolozljivo(),
+            "razpolozljivo": os_sistem.razpolozljivo(_jezik()),
+            # Iskalna lupa: vnos »Vprasaj Safeer Agenta« samo, ce ima agent nastavljen in vklopljen model.
+            "agent": {"na_voljo": bool(self._agent("stanje").get("na_voljo"))},
             "mape": os_datoteke.uporabniske_mape(),
             "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,

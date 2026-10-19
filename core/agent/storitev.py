@@ -30,6 +30,10 @@ def _seja(posiljatelj: str, minute) -> seja_mod.Seja:
             _seje.pop(k, None); _zadnjic.pop(k, None)
         s = _seje.get(posiljatelj)
         if s is None or not s.tece() or minute is not None:
+            if minute is None:
+                # Naprava trajanja ni povedala: privzeto iz Nastavitev Safeer OS (0 = neomejeno, kot do zdaj).
+                from core.agent import nastavitve
+                minute = nastavitve.trajanje()
             trajanje = int(minute) if isinstance(minute, (int, float)) and minute > 0 else None
             s = nova_seja(trajanje_min=trajanje, tukaj=posiljatelj)
             _seje[posiljatelj] = s
@@ -72,3 +76,27 @@ def vprasaj(parametri: dict, posiljatelj: str, koncaj: Callable[[dict], None],
         threading.Thread(target=delo, name="safeer-agent", daemon=True).start()
     else:
         delo()
+
+
+def vprasaj_tukaj(besedilo: str, izvajalec=None) -> dict:
+    """Iskalna lupa Safeer OS na tem racunalniku (lastnik, 19. 10. 2026: »znotraj iskalne lupe je nas AI asistent«):
+    stavek gre istemu agentu kot z druge naprave, »tukaj« je ta racunalnik (naprava »ta« v seznamu Linka). Brez nastavljenega
+    ali vklopljenega modela agent ne dela in to pove (koda »ni_modela«) - nic se ne ugiba.
+    Vrne {"ok", "koda", "koraki": [{"ok", "besedilo", "naprava"}], "povzetek"}."""
+    from core.agent import izvajanje
+    from core.agent.razumevanje import naslov_modela
+    besedilo = " ".join(str(besedilo or "").split())[:300]
+    if not besedilo:
+        return {"ok": False, "koda": "prazno", "koraki": [], "povzetek": ""}
+    if not naslov_modela():
+        return {"ok": False, "koda": "ni_modela", "koraki": [], "povzetek": ""}
+    izv = izvajalec or izvajanje.Izvajalec()
+    tukaj = next((str(n.get("id")) for n in izv.naprave() if n.get("ta")), "")
+    s = _seja("lupa", None)
+    s.izvajalec = izv
+    s.tukaj = tukaj
+    koraki = s.narocilo(besedilo)
+    brez_modela = len(koraki) == 1 and not koraki[0].ok and koraki[0].izid.startswith("model ni dosegljiv")
+    return {"ok": any(k.ok for k in koraki), "koda": "model_ni_dosegljiv" if brez_modela else "",
+            "koraki": [{"ok": k.ok, "besedilo": k.izid, "naprava": k.naprava} for k in koraki],
+            "povzetek": " ".join(k.izid for k in koraki)[:300]}
