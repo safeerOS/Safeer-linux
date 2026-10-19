@@ -588,6 +588,29 @@ class DebWebkitTests(unittest.TestCase):
         smoke=(ROOT/'packaging/smoke_webkit_deb.py').read_text()
         self.assertIn('"\\nbolt: da (" not in gradnja',smoke)
         self.assertIn('b"BOLT revision"',smoke)
+        # Poskusi (obe knjiznici, nato vsaka sama), JavaScriptCore brez zbirnika LLInt, sklad klicev ob padcu (gdb).
+        for niz in ('webkit jsc;webkit;jsc','llintPCRangeStart','llintPCRangeEnd','--skip-funcs=','gdb -q -batch',
+                    'brez BOLT','obnovi'):
+            self.assertIn(niz,bolt)
+        self.assertIn('xauth dbus procps git gdb\n',posel)
+        self.assertIn('"; %s brez BOLT" % os.path.basename(os.path.realpath(pot)) in gradnja',smoke)
+        # Nadaljevanje (lastnik, 19. 10. 2026): stanje pred BOLT v predpomnilniku tudi ob padcu, nadaljuj.sh brez prevoda.
+        nadaljuj=(self.WEBKIT_DEB/'nadaljuj.sh').read_text()
+        subprocess.run(['bash','-n',str(self.WEBKIT_DEB/'nadaljuj.sh')],check=True)
+        self.assertIn('bash "$KOREN/packaging/webkit-deb/bolt.sh" "$PREDPONA" "$DELO/bolt"',nadaljuj)
+        for niz in ('$Z/cmake.txt','$Z/stevci.txt','--strip-unneeded',"tar -C / -I 'zstd -19 -T0'",'zstd -q -t "$IZHOD.del"'):
+            self.assertIn(niz,nadaljuj)
+        self.assertNotIn('ninja',nadaljuj.replace('build.ninja',''))
+        self.assertIn('SAFEER_BOLT_PREDBOLT',bolt)
+        self.assertEqual(posel.count('key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('),2)
+        self.assertIn("if: always() && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'"
+                      " && hashFiles('build/webkit-predbolt.tar.zst') != ''",posel)
+        self.assertIn('bash packaging/webkit-deb/nadaljuj.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst',posel)
+        self.assertEqual(posel.count("'packaging/webkit-deb/nadaljuj.sh'"),2)
+        # Zapis gradnje v nadaljuj.sh je enak kot v zgradi.sh (iste vrstice za webkitgtk, libsoup, popravke, sistem).
+        zgradi_zapis=zgradi.split('> "$d/gradnja.txt"')[0].rsplit('{\n',1)[1]
+        for vrstica in zgradi_zapis.splitlines()[-6:]:
+            self.assertIn(vrstica.strip(),nadaljuj)
 
     def test_bolt_na_preizkusni_knjiznici(self):
         """bolt.sh od instrumentacije do optimizirane knjiznice na majhnih knjiznicah z imeni WebKita (Clang 22, lld,
@@ -1262,7 +1285,8 @@ class DebWebkitTests(unittest.TestCase):
         for datoteka in ('packaging/webkit/webkitgtk6-safeer.yml','packaging/webkit/*.patch','packaging/libsoup/**',
                          'packaging/webkit-deb/zgradi.sh','packaging/webkit-deb/modul.py','packaging/webkit-deb/typelibi.py',
                          'packaging/webkit-deb/odvisnosti.sh','packaging/webkit/pgo_trening.py','packaging/webkit-deb/ucni_tek.sh'):
-            self.assertEqual(posel.count("'%s'"%datoteka),2,datoteka)
+            # Koncni arhiv (2x) in stanje pred BOLT (2x, nadaljevanje po padcu BOLT, lastnik 19. 10. 2026).
+            self.assertEqual(posel.count("'%s'"%datoteka),4,datoteka)
             self.assertEqual(profil.count("'%s'"%datoteka),2,datoteka)
         self.assertNotIn('restore-keys',posel+profil)
         # Paket safeer-webkit iz arhiva (tudi iz predpomnilnika: pakiranje ni v kljucu, traja minute) kot artefakt.
@@ -1718,7 +1742,13 @@ sys.exit("neznan ukaz")
         shrani=posel.index('- name: Save our WebKitGTK')
         self.assertLess(preveri,shrani)
         self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true'\n",posel[shrani:])
-        self.assertNotIn('if: always()',posel)
+        # always() samo za stanje pred BOLT (nadaljevanje po padcu BOLT): bolt.sh ga zapise pod koncnim imenom sele po
+        # zstd -t, zato prirezan arhiv ne pride v predpomnilnik.
+        self.assertEqual(posel.count('if: always()'),1)
+        self.assertIn("if: always() && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'"
+                      " && hashFiles('build/webkit-predbolt.tar.zst') != ''",posel)
+        bolt=(ROOT/'packaging/webkit-deb/bolt.sh').read_text()
+        self.assertLess(bolt.index('-cf "$ARHIV.del"'),bolt.index('zstd -q -t "$ARHIV.del" && mv "$ARHIV.del" "$ARHIV"'))
         zgradi=(ROOT/'packaging/webkit-deb/zgradi.sh').read_text()
         kos=zgradi.split('if [ -n "$IZHOD" ]; then',1)[1]
         self.assertLess(kos.index('-cf "$IZHOD.del"'),kos.index('zstd -q -t "$IZHOD.del"'))

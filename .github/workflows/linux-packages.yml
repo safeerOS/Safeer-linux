@@ -126,9 +126,19 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py') }}
-      - uses: actions/download-artifact@v8
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
+      - name: Restore our WebKitGTK before BOLT (resume after a failed BOLT, without the 2.5 h build)
+        # Lastnik, 19. 10. 2026: gradnja nadaljuje tam, kjer je padla. bolt.sh shrani stanje pred BOLT (namescena
+        # predpona s simboli in relokacijami); kljuc iz istih datotek kot profil PGO (brez datotek BOLT), zato popravek
+        # BOLT (bolt.sh, bolt_trening.py) pomeni samo nadaljuj.sh, ne novega prevajanja.
+        id: predbolt
         if: steps.wk.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: build/webkit-predbolt.tar.zst
+          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+      - uses: actions/download-artifact@v8
+        if: steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'
         with:
           name: webkit-deb-profraw
           path: build/pgo/profraw
@@ -136,13 +146,26 @@ jobs:
         if: steps.wk.outputs.cache-hit != 'true'
         run: |
           bash packaging/webkit-deb/odvisnosti.sh
-          apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps git
+          apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps git gdb
       - name: WebKitGTK and libsoup for /usr/lib/safeer-webkit (Clang 22, ThinLTO, PGO, BOLT)
-        # BOLT (lastnik 18. 10. 2026: v izdaji): packaging/webkit-deb/bolt.sh po namestitvi; ce pade, pade gradnja.
+        # BOLT (lastnik 18. 10. 2026: v izdaji): packaging/webkit-deb/bolt.sh po namestitvi; ce noben poskus ne uspe,
+        # pade gradnja. Stanje pred BOLT je v build/webkit-predbolt.tar.zst (naslednji korak ga shrani tudi ob padcu);
+        # ce je iz predpomnilnika, nadaljuj.sh naredi samo BOLT, zapis gradnje, strip in arhiv.
         if: steps.wk.outputs.cache-hit != 'true'
         run: |
-          SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1 \
-            bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst
+          export SAFEER_BOLT_PREDBOLT="$PWD/build/webkit-predbolt.tar.zst"
+          if [ -f "$SAFEER_BOLT_PREDBOLT" ]; then
+            bash packaging/webkit-deb/nadaljuj.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst
+          else
+            SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1 \
+              bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst
+          fi
+      - name: Save the pre-BOLT state of our WebKitGTK (also when BOLT failed)
+        if: always() && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true' && hashFiles('build/webkit-predbolt.tar.zst') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/webkit-predbolt.tar.zst
+          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - name: Archive is complete (zstd -t)
         # Tudi arhiv iz predpomnilnika; prirezan arhiv (poln disk, preklic) ne gre v predpomnilnik ne v paket.
         run: zstd -q -t build/safeer-webkit.tar.zst
@@ -152,7 +175,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py') }}
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
       - name: Build record (Clang 22, ThinLTO, lld, PGO, BOLT)
         run: |
           tar -I zstd -xOf build/safeer-webkit.tar.zst usr/lib/safeer-webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt

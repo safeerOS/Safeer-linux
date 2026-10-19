@@ -124,6 +124,10 @@ def preveri_knjiznice():
     for pot in knjiznice():
         if "libsoup-3.0" in pot:
             continue
+        # bolt.sh: ce BOLT z obema knjiznicama ne uspe, poskusi z eno; druga je v zapisu oznacena (19. 10. 2026).
+        if "; %s brez BOLT" % os.path.basename(os.path.realpath(pot)) in gradnja:
+            print("OPOZORILO: %s brez BOLT (gradnja.txt)" % pot, flush=True)
+            continue
         with open(pot, "rb") as f:
             vsebina = f.read()
         i = vsebina.find(b"BOLT revision")
