@@ -423,6 +423,16 @@ class Priljubljeno:
             return True
         return self._spremeni(kaj)
 
+    def nastavitev(self, kljuc: str) -> str:
+        """Ena nastavitev iz zapisa, brez stanja(): brez pregleda datotek, zaklepa in pisanja - za glavno nit
+        (Nastavitve Safeer OS). Zapis se zamenja atomarno (_pisi), zato ga beremo brez zaklepa."""
+        privzeta = NASTAVITVE[kljuc][0]
+        try:
+            with open(self.pot, encoding="utf-8") as f:
+                return _preveri(json.load(f))["nastavitve"].get(kljuc, privzeta)
+        except (OSError, ValueError):
+            return privzeta
+
     def nastavi(self, kljuc: Any, vrednost: Any) -> dict:
         k = str(kljuc or "")
         if k not in NASTAVITVE or vrednost not in NASTAVITVE[k]:

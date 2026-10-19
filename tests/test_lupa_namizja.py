@@ -173,5 +173,7 @@ def test_izbira_lupe_v_priljubljenih(tmp_path):
 def test_stikalo_v_nastavitvah():
     with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
         so = f.read()
-    assert 'izid["lupa"] = self._priljubljeno().stanje()["nastavitve"].get("lupa", "zlozena")' in so
-    assert 'stanje = self._priljubljeno().nastavi("lupa", "zlozena" if vrednost else "razsirjena")' in so
+    # Glavna nit: brez stanja priljubljenih (stat, fsync) - vedenje preverja tests/test_nastavitve_delov.py.
+    assert 'izid["lupa"] = self._priljubljeno().nastavitev("lupa")' in so
+    assert 'lupa = "zlozena" if vrednost else "razsirjena"' in so
+    assert 'self._priljubljeno().nastavi("lupa", lupa)' in so
