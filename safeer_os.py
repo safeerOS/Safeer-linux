@@ -806,10 +806,10 @@ def _skupina_paketa(paket: str) -> str:
     return "drugo"
 
 
-def naprave_s_programi() -> list:
+def naprave_s_programi(izid: Optional[dict] = None) -> list:
     """Naprave v Safeer Linku, ki znajo nasteti in zagnati programe (zmoznost apps ali remote); brez tega
-    racunalnika (njegovi programi so ze v meniju)."""
-    izid = _control_naprave("Seznam")
+    racunalnika (njegovi programi so ze v meniju). izid: ze prebran seznam (Control "Seznam"), sicer ga vprasa."""
+    izid = _control_naprave("Seznam") if izid is None else izid
     naprave = []
     for n in izid.get("naprave") or []:
         z = n.get("zmoznosti") or []
@@ -824,9 +824,9 @@ def naprave_s_programi() -> list:
     return naprave
 
 
-def vse_naprave() -> list:
+def vse_naprave(izid: Optional[dict] = None) -> list:
     """Vse naprave v Safeer Linku (tudi ta racunalnik) za stran Naprave: id, ime, platforma, vrsta, ta."""
-    izid = _control_naprave("Seznam")
+    izid = _control_naprave("Seznam") if izid is None else izid
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta")), "ozji": bool(n.get("ozji") or n.get("ta"))}
             for n in izid.get("naprave") or [] if n.get("id")]
@@ -909,9 +909,9 @@ def stremio_privzeto() -> str:
         return ""
 
 
-def naprave_z_datotekami() -> list:
+def naprave_z_datotekami(izid: Optional[dict] = None) -> list:
     """Druge naprave v Linku, ki delijo datoteke (zmoznost "files"): za Safeer Media -> Naprave."""
-    izid = _control_naprave("Seznam")
+    izid = _control_naprave("Seznam") if izid is None else izid
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and n.get("ozji")
@@ -4616,7 +4616,8 @@ class SafeerOS(Gtk.Application):
                 str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", 120,
                 int(a[2]) if len(a) > 2 else 0),
             "odstraniLokalniMedij": lambda: self._odstrani_lokalni_medij(str(a[0]) if a else ""),
-            "povezava": stanje_povezave,
+            # »brez« (namizje QML): stanje brez iskanja Hubov po mDNS - namizje jih ne kaze (stran Naprave jih).
+            "povezava": lambda: stanje_povezave("brez" if a and a[0] == "brez" else "cakaj"),
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
             "predajanje": lambda: nastavi_predajanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
@@ -6621,6 +6622,11 @@ class SafeerOS(Gtk.Application):
         self._dogodek("predvajalnik", self._medijski_podatki())
         self._mpris_osvezi()
 
+    def _sp_spremenjeno(self) -> None:
+        """Spotify (nit strazarja, core/spotify_racun.py) je zacel, ustavil ali zamenjal skladbo: isto kot _yt_spremenjeno,
+        iz glavne niti. Namizje QML zato ne bere stanja vsake 3 s (Namizje.qml osveziMedij)."""
+        GLib.idle_add(lambda: (self._yt_spremenjeno(), False)[1])
+
     def _yt_ukaz(self, ukaz: str, yt: dict) -> bool:
         """Tipke pripomockov in sistema za skladbo v vgradnem predvajalniku YouTuba (glavna nit)."""
         if ukaz == "premor":
@@ -6717,6 +6723,7 @@ class SafeerOS(Gtk.Application):
                 youtube=self._katalog_youtube, youtube_ukaz=self._katalog_youtube_ukaz,
                 jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav, knjiznica=_knjiznica())
             self._katalog.twitch_brez_oglasov = self.scit.twitch_brez_oglasov
+            self._katalog.ob_spotify = self._sp_spremenjeno
         return self._katalog
 
     def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool,

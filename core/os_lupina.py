@@ -638,8 +638,12 @@ class Namizje:
                 return r
             self._odgovor_v_ozadju(klic_id, delo)
         elif metoda == "napraveNamizja":
-            self._odgovor_v_ozadju(klic_id, lambda: naprave_za_izbiro(
-                so.vse_naprave(), so.naprave_s_programi(), so.naprave_z_datotekami()))
+            # En seznam Controla za vse tri izbore (prej trikrat isti klic "Seznam" vsakih 20 s - 19. 10. 2026).
+            def naprave():
+                seznam = so._control_naprave("Seznam")
+                return naprave_za_izbiro(so.vse_naprave(seznam), so.naprave_s_programi(seznam),
+                                         so.naprave_z_datotekami(seznam))
+            self._odgovor_v_ozadju(klic_id, naprave)
         elif metoda == "oddaljeniZaslon":
             # Gumb »Oddaljeno« v Programih (isti QML kot na Windows): na Linuxu odpre zaslon naprave Safeer Control
             # (upravljaj_racunalnik, kot »Upravljaj« na delovni povrsini). Prej je klic koncal z neznano metodo (15. 10. 2026).

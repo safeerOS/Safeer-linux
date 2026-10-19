@@ -156,7 +156,10 @@ class NamizjeQmlStaticno(unittest.TestCase):
         # Prej: vedno »Ni predvajanja« brez stanja in tipk (pravilo: brez nadomestkov v vmesniku).
         self.assertIn('koren.klic("predvajalnikStanje"', self.q)
         self.assertIn('koren.klic("predvajalnikUkaz", v === undefined ? [u] : [u, v]', self.q)
-        self.assertIn('interval: koren.medij.stanje === "predvaja" ? 1000 : 3000', self.q)
+        # Linux: spremembe in napredek pridejo z dogodkom »predvajalnik«, branje na 30 s je varovalka (19. 10. 2026:
+        # prej vsake 3 s - polovica bujenj lupine v mirovanju). Drugje branje kot prej.
+        self.assertIn('Timer { interval: koren.platforma === "linux" ? 30000 : koren.medij.stanje === "predvaja" ? 1000 : 3000',
+                      self.q)
         self.assertIn('if (vrsta === "predvajalnik" && p) koren.medij = p', self.q)
         self.assertIn('text: koren.medijIgra ? koren.medij.naslov : koren.t("niPredvajanja")', self.q)
 
