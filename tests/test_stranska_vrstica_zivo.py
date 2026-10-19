@@ -253,6 +253,23 @@ class OknoNastavitev(_Stran):
         self.assertEqual(self._js("document.activeElement.id"), "nastavitveIskanje")
         self.assertEqual(self._js("document.getElementById('nastavitveIskanje').value"), "z")
 
+    def test_enter_v_iskanju_odpre_ne_preklopi(self):
+        """Enter v iskanju Nastavitev odpre najdeno nastavitev, stikala pa ne preklopi - samo fokus nanj (pregled 19. 10.
+        2026: »wifi« + Enter je izklopil Wi-Fi v hitrih nastavitvah, »beta« + Enter vklopil beta kanal). Najprej vnos, ki
+        ustreza sam: »zvok« je Zvok, ne prvi vnos skupine »Zaslon in zvok« (Zasloni)."""
+        self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.focus(); v.value='beta'; v.dispatchEvent(new Event('input')); return 1;})()")
+        self.tipka("Enter")
+        self.assertEqual(self._js("document.getElementById('stikaloBeta').getAttribute('aria-checked')"), "false")
+        self.assertEqual(self._js("document.activeElement.id"), "stikaloBeta")
+        self._js("""(function () { window.__kliknjeni = [];
+            document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('.nastavitev');
+                if (b) { window.__kliknjeni.push(b.textContent.trim()); e.stopPropagation(); e.preventDefault(); } }, true);
+            var v = document.getElementById('nastavitveIskanje'); v.focus(); v.value = 'zvok'; v.dispatchEvent(new Event('input'));
+            return 1; })()""")
+        self.assertIn("Zasloni", self._vidne(), "skupina ustreza po naslovu - ostane cela")
+        self.tipka("Enter")
+        self.assertEqual(self._js("window.__kliknjeni"), ["Zvok"])
+
     def test_safeer_agent(self):
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('agentStanje').textContent")
                                == "Ni nastavljen – vpiši naslov modela spodaj.", 5))
