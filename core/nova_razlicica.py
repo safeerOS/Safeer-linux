@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Sequence
@@ -358,7 +359,13 @@ def preberi_stanje(program: str, razlicica: str = "", ime: str = "nova-razlicica
     """Shranjeno stanje (in datoteko izbrise); {} ce ga ni, je staro ali za drugo razlicico."""
     pot = pot_stanja(program, ime)
     try:
-        with open(pot, encoding="utf-8") as d:
+        # Samo navadna datoteka, ki je nasa in je drugi ne morejo pisati; simbolni povezavi ne sledimo (neodvisni
+        # pregled 19. 10. 2026 - XDG_RUNTIME_DIR je sicer 0700, a odlocitev ne sme sloneti samo na tem).
+        fd = os.open(pot, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, encoding="utf-8") as d:
+            st = os.fstat(d.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022:
+                return {}
             stanje = json.load(d)
     except (OSError, ValueError):
         return {}

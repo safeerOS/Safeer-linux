@@ -39,7 +39,6 @@ import shutil
 import socket
 import struct
 import subprocess
-import tempfile
 import threading
 import time
 import urllib.error
@@ -174,6 +173,17 @@ def _zazeni(ukaz: List[str], cas: float = 8.0) -> Tuple[int, str]:
         return 127, ""
     try:
         r = subprocess.run(ukaz, capture_output=True, text=True, timeout=cas)
+        return r.returncode, r.stdout
+    except Exception:
+        return 1, ""
+
+
+def _zazeni_z_vhodom(ukaz: List[str], vhod: str, cas: float = 8.0) -> Tuple[int, str]:
+    """Kot _zazeni, z besedilom na standardnem vhodu (npr. vsebina, ki jo root zapise brez vmesne datoteke)."""
+    if not ukaz or shutil.which(ukaz[0]) is None:
+        return 127, ""
+    try:
+        r = subprocess.run(ukaz, input=vhod, capture_output=True, text=True, timeout=cas)
         return r.returncode, r.stdout
     except Exception:
         return 1, ""
@@ -1080,35 +1090,20 @@ def namesti_pravilo() -> bool:
         return True
     if shutil.which("pkexec") is None:
         return False
-    # V peskovniku Flatpak je /tmp zaseben - `install` na gostitelju datoteke tam ne bi nasel. Predpomnilnik
-    # programa (~/.var/app/<id>/cache) je na isti poti viden tudi gostitelju.
-    mapa = None
-    if v_flatpaku():
-        mapa = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-        try:
-            os.makedirs(mapa, exist_ok=True)
-        except OSError:
-            return False
-    with tempfile.NamedTemporaryFile("w", suffix=".rules", delete=False, encoding="utf-8", dir=mapa) as f:
-        f.write(PRAVILO)
-        zacasna = f.name
+    # Vsebina gre rootu po standardnem vhodu (install /dev/stdin), ne iz zacasne datoteke: datoteka bi bila v lasti
+    # uporabnika in program, ki ze tece kot uporabnik, bi jo lahko po vpisu gesla zamenjal s poljubnim pravilom polkit -
+    # to je root (neodvisni pregled 19. 10. 2026). V Flatpaku vhod do gostitelja prenese flatpak-spawn (/app/host-bin).
+    koda, _ = _zazeni_z_vhodom(["pkexec", "install", "-m", "644", "-o", "root", "-g", "root", "/dev/stdin", PRAVILO_POT],
+                               PRAVILO, cas=180.0)
+    if koda != 0:
+        return False
     try:
-        os.chmod(zacasna, 0o644)
-        koda, _ = _zazeni(["pkexec", "install", "-m", "644", "-o", "root", "-g", "root", zacasna, PRAVILO_POT], cas=180.0)
-        if koda != 0:
-            return False
-        try:
-            os.makedirs(os.path.dirname(_znak_pravila()), mode=0o700, exist_ok=True)
-            with open(_znak_pravila(), "w", encoding="utf-8") as f:
-                f.write(hashlib.sha256(PRAVILO.encode()).hexdigest() + "\n")
-        except OSError:
-            pass
-        return True
-    finally:
-        try:
-            os.unlink(zacasna)
-        except OSError:
-            pass
+        os.makedirs(os.path.dirname(_znak_pravila()), mode=0o700, exist_ok=True)
+        with open(_znak_pravila(), "w", encoding="utf-8") as f:
+            f.write(hashlib.sha256(PRAVILO.encode()).hexdigest() + "\n")
+    except OSError:
+        pass
+    return True
 
 
 def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> bool:

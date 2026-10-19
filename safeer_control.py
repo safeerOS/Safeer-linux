@@ -2168,9 +2168,10 @@ class SafeerControl(_OSNOVA):
 
         def delo(p: os_posodobitve.Posodabljanje) -> None:
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-control", "posodobitve")
-            datoteke = []
+            datoteke, vsote = [], []       # vsote iz podpisanega seznama: root jih preveri na svoji kopiji
             for n in nove:
                 for d in os_posodobitve.datoteke_namestitve(n):
+                    vsote.append(str(d.get("sha256") or ""))
                     ime = str(d["url"]).rsplit("/", 1)[-1]
                     GLib.idle_add(napis.set_text, besedilo(jezik, "posodobi_prenasam").replace("{ime}", ime))
                     datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
@@ -2180,7 +2181,7 @@ class SafeerControl(_OSNOVA):
             p.faza = "namescanje"
             GLib.idle_add(napis.set_text, besedilo(jezik, "posodobi_namescam"))
             GLib.idle_add(vrstica.set_fraction, 1.0)
-            r = os_posodobitve.namesti_linux("deb", datoteke)
+            r = os_posodobitve.namesti_linux("deb", datoteke, vsote)
             if r.returncode != 0:
                 raise RuntimeError((r.stderr or r.stdout or "").strip()[-300:] or "apt-get")
             for d in datoteke:

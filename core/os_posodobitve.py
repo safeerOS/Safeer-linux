@@ -462,13 +462,49 @@ def prenesi(url: str, cilj: str, sha256: str, velikost: int = 0, napredek: Optio
     return cilj
 
 
-def namesti_linux(nacin: str, poti: List[str]) -> subprocess.CompletedProcess:
-    """Namestitev prenesenih datotek: deb -> pkexec apt-get install (polkit geslo), flatpak -> flatpak install --user.
+#: Namestitev .deb kot root (pkexec). Paket v ~/.cache je v lasti uporabnika: ce bi apt-get bral kar njega, bi ga lahko
+#: program, ki ze tece kot uporabnik, zamenjal PO preverbi SHA-256 in po vpisanem geslu - in dobil root (neodvisni
+#: pregled 19. 10. 2026). Zato root vsak paket najprej prekopira v svojo mapo (0700, samo root), preveri SHA-256 KOPIJE
+#: proti vsoti iz podpisanega seznama (argument, ki ga uporabnik ne more spremeniti) in namesti samo kopije.
+#: Brez --allow-downgrades: posodobitev nikoli ne namesti starejse razlicice, kot je namescena.
+NAMESTI_DEB_KOT_ROOT = r"""set -eu
+d="$(mktemp -d /var/cache/safeer-posodobitev.XXXXXX 2>/dev/null || mktemp -d)"
+trap 'rm -rf "$d"' EXIT
+i=0
+datoteke=""
+while [ "$#" -ge 2 ]; do
+    i=$((i + 1))
+    k="$d/$i.deb"
+    cp -- "$2" "$k"
+    printf '%s  %s\n' "$1" "$k" | sha256sum -c --quiet - || { echo "SHA-256 se ne ujema: $2" >&2; exit 3; }
+    datoteke="$datoteke $k"
+    shift 2
+done
+[ "$#" -eq 0 ] && [ -n "$datoteke" ] || { echo "manjka paket ali SHA-256" >&2; exit 2; }
+apt-get install -y $datoteke
+"""
 
-    Brez --allow-downgrades: posodobitev nikoli ne namesti starejse razlicice, kot je namescena.
+
+def _ukaz_deb(poti: List[str], vsote: Optional[List[str]]) -> List[str]:
+    """pkexec /bin/sh -c NAMESTI_DEB_KOT_ROOT safeer-posodobitev SHA POT [SHA POT ...]."""
+    if vsote is None or len(vsote) != len(poti):
+        raise ValueError("SHA-256 paketov manjka")
+    pari: List[str] = []
+    for pot, vsota in zip(poti, vsote):
+        vsota = str(vsota or "").lower()
+        if _SHA256.fullmatch(vsota) is None:
+            raise ValueError("SHA-256 paketa ni veljaven")
+        pari += [vsota, os.path.abspath(pot)]
+    return ["pkexec", "/bin/sh", "-c", NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev", *pari]
+
+
+def namesti_linux(nacin: str, poti: List[str], vsote: Optional[List[str]] = None) -> subprocess.CompletedProcess:
+    """Namestitev prenesenih datotek: deb -> kot root (pkexec, polkit geslo) iz preverjene kopije, flatpak -> --user.
+
+    `vsote`: SHA-256 vsake datoteke iz `poti` (isti vrstni red) iz podpisanega seznama - za .deb obvezne.
     """
     if nacin == "deb":
-        return subprocess.run(["pkexec", "apt-get", "install", "-y", *poti], capture_output=True, text=True, timeout=900)
+        return subprocess.run(_ukaz_deb(poti, vsote), capture_output=True, text=True, timeout=900)
     if nacin == "flatpak":
         return subprocess.run(["flatpak", "install", "--user", "-y", "--reinstall", *poti], capture_output=True, text=True, timeout=900)
     if nacin == "flatpak+deb":
@@ -476,7 +512,8 @@ def namesti_linux(nacin: str, poti: List[str]) -> subprocess.CompletedProcess:
         debi = [p for p in poti if p.endswith(".deb")]
         flatpaki = [p for p in poti if not p.endswith(".deb")]
         if debi:
-            r = subprocess.run(["flatpak-spawn", "--host", "pkexec", "apt-get", "install", "-y", *debi],
+            vsote_debov = None if vsote is None else [v for p, v in zip(poti, vsote) if p.endswith(".deb")]
+            r = subprocess.run(["flatpak-spawn", "--host", *_ukaz_deb(debi, vsote_debov)],
                                capture_output=True, text=True, timeout=900)
             if r.returncode != 0:
                 return r

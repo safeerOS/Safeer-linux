@@ -4028,9 +4028,10 @@ class SafeerOS(Gtk.Application):
 
         def delo(p: os_posodobitve.Posodabljanje) -> None:
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
-            datoteke = []
+            datoteke, vsote = [], []       # vsote iz podpisanega seznama: root jih preveri na svoji kopiji
             for n in nove:
                 for d in os_posodobitve.datoteke_namestitve(n):
+                    vsote.append(str(d.get("sha256") or ""))
                     ime = str(d["url"]).rsplit("/", 1)[-1]
                     p.sporocilo = ime
                     datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
@@ -4038,7 +4039,7 @@ class SafeerOS(Gtk.Application):
                                                            lambda a, b: setattr(p, "odstotek", int(a * 100 / b) if b else 0),
                                                            lambda: p.prekinjeno, agent="SafeerOS/" + RAZLICICA))
             p.faza, p.odstotek = "namescanje", 100
-            r = os_posodobitve.namesti_linux(nacin, datoteke)
+            r = os_posodobitve.namesti_linux(nacin, datoteke, vsote)
             if r.returncode != 0:
                 p.faza, p.sporocilo = "napaka", (r.stderr or r.stdout or "").strip()[-300:] or "namestitev ni uspela"
                 return

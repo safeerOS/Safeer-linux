@@ -6,6 +6,7 @@ Najprej najnovejše izdaje. Celotne opombe vseh različic so v [docs/releases/](
 
 ## Safeer Browser for Linux · Safeer OS · Safeer Control
 
+- **1.0.128** — Safeer Browser for Linux 1.0.128 · Safeer OS 0.4.86 (with Safeer Control 2.1.83) — Security fixes for updates and the Shield. · [notes](docs/releases/RELEASE_NOTES_1.0.128.md)
 - **1.0.127** — Safeer Browser for Linux 1.0.127 · Safeer OS 0.4.85 (with Safeer Control 2.1.82) — Safeer Browser on GTK 4. · [notes](docs/releases/RELEASE_NOTES_1.0.127.md)
 - **1.0.126** (2026-10-11) — Safeer Browser for Linux 1.0.126 · Safeer Control 2.1.81 · Safeer OS 0.4.83 — Dock your way. Right-click a program on the desktop and choose Add to dock or Remove from dock. · [notes](docs/releases/RELEASE_NOTES_1.0.126.md) · [release](https://github.com/safeerOS/Safeer-linux/releases/tag/v1.0.126)
 - **1.0.125** — Safeer Browser for Linux 1.0.125 · Safeer Control 2.1.80 · Safeer OS 0.4.82 — Couch mode. The Media Center has a Couch mode button: big tiles, a clear selection frame, the window fills the screen. · [notes](docs/releases/RELEASE_NOTES_1.0.125.md)

@@ -503,15 +503,13 @@ class Flatpak(unittest.TestCase):
         with Zamenjave(_zazeni=s, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
             self.assertFalse(os_scit.pravilo_namesceno())
 
-    def test_pravilo_iz_mape_ki_jo_vidi_gostitelj(self):
+    def test_pravilo_rootu_po_vhodu_brez_datoteke(self):
+        """Neodvisni pregled 19. 10. 2026: pravilo polkit gre rootu po standardnem vhodu. Zacasna datoteka bi bila v
+        lasti uporabnika in jo bi program, ki tece kot uporabnik, po vpisu gesla zamenjal s poljubnim pravilom."""
         klici = []
 
-        def zazeni(ukaz, cas=8.0):
-            klici.append(list(ukaz))
-            if ukaz[0] == "pkexec":
-                self.assertTrue(os.path.isfile(ukaz[-2]), "datoteka mora obstajati, ko jo `install` bere")
-                with open(ukaz[-2], encoding="utf-8") as f:
-                    self.assertIn("org.freedesktop.resolve1.set-dns-servers", f.read())
+        def z_vhodom(ukaz, vhod, cas=8.0):
+            klici.append((list(ukaz), vhod))
             return 0, ""
         with tempfile.TemporaryDirectory() as m:
             okolje = {"XDG_CACHE_HOME": os.path.join(m, "cache"), "XDG_CONFIG_HOME": os.path.join(m, "config")}
@@ -520,8 +518,17 @@ class Flatpak(unittest.TestCase):
             izvirni_which = os_scit.shutil.which
             os_scit.shutil.which = lambda ime: "/app/host-bin/" + ime
             try:
-                with Zamenjave(_zazeni=zazeni, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
-                    self.assertTrue(os_scit.namesti_pravilo())
+                for flatpak in (False, True):
+                    klici.clear()
+                    znak = os.path.join(m, "config", "safeer-os", "scit-pravilo")
+                    if os.path.exists(znak):
+                        os.remove(znak)
+                    with Zamenjave(_zazeni_z_vhodom=z_vhodom, v_flatpaku=lambda f=flatpak: f,
+                                   PRAVILO_POT="/ni/te/poti.rules"):
+                        self.assertTrue(os_scit.namesti_pravilo())
+                    self.assertEqual(klici, [(["pkexec", "install", "-m", "644", "-o", "root", "-g", "root", "/dev/stdin",
+                                               "/ni/te/poti.rules"], os_scit.PRAVILO)])
+                    self.assertTrue(os.path.isfile(znak))
             finally:
                 os_scit.shutil.which = izvirni_which
                 for k, v in stare.items():
@@ -529,11 +536,8 @@ class Flatpak(unittest.TestCase):
                         os.environ.pop(k, None)
                     else:
                         os.environ[k] = v
-            pkexec = [k for k in klici if k[0] == "pkexec"][0]
-            self.assertEqual(pkexec[:8], ["pkexec", "install", "-m", "644", "-o", "root", "-g", "root"])
-            self.assertTrue(pkexec[-2].startswith(os.path.join(m, "cache") + os.sep), "ne v /tmp, ki je v peskovniku zaseben")
-            self.assertFalse(os.path.exists(pkexec[-2]), "zacasna datoteka se pospravi")
-            self.assertTrue(os.path.isfile(os.path.join(m, "config", "safeer-os", "scit-pravilo")))
+            self.assertFalse(os.path.exists(os.path.join(m, "cache")) and os.listdir(os.path.join(m, "cache")),
+                             "nobene vmesne datoteke")
 
     def test_nastavitve_gostitelja_beremo_na_gostitelju(self):
         """Zrcalo /etc/resolv.conf v peskovniku zamuja, nsswitch.conf pa je tam od runtime-a: oboje preberemo zunaj."""

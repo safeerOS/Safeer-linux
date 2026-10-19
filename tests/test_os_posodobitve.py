@@ -521,13 +521,62 @@ class Prenos(unittest.TestCase):
 
 
 class Namestitev(unittest.TestCase):
+    A, B = "a" * 64, "b" * 64
+
     def test_deb_brez_znizanja_razlicice(self):
         """Posodobitev nikoli ne namesti starejse razlicice (brez --allow-downgrades)."""
         with mock.patch.object(op.subprocess, "run", return_value=op.subprocess.CompletedProcess([], 0, "", "")) as run:
-            op.namesti_linux("deb", ["/tmp/a.deb", "/tmp/b.deb"])
+            op.namesti_linux("deb", ["/tmp/a.deb", "/tmp/b.deb"], [self.A, self.B])
         argv = run.call_args[0][0]
-        self.assertEqual(argv, ["pkexec", "apt-get", "install", "-y", "/tmp/a.deb", "/tmp/b.deb"])
-        self.assertNotIn("--allow-downgrades", argv)
+        self.assertEqual(argv, ["pkexec", "/bin/sh", "-c", op.NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev",
+                                self.A, "/tmp/a.deb", self.B, "/tmp/b.deb"])
+        self.assertNotIn("--allow-downgrades", " ".join(argv))
+
+    def test_deb_samo_z_vsotami_iz_seznama(self):
+        """Brez SHA-256 iz podpisanega seznama (ali z neveljavno) se root sploh ne vprasa."""
+        with mock.patch.object(op.subprocess, "run") as run:
+            for vsote in (None, [self.A], ["ni-vsota"], [self.A, "x" * 64]):
+                with self.assertRaises(ValueError):
+                    op.namesti_linux("deb", ["/tmp/a.deb", "/tmp/b.deb"], vsote)
+        run.assert_not_called()
+
+    def _root_skripta(self, vsebina: bytes, vsota: str):
+        """NAMESTI_DEB_KOT_ROOT z laznim apt-get (zapise, katere poti in vsebine je dobil); vrne (izhod, klic apt)."""
+        d = tempfile.mkdtemp(prefix="safeer-root-namestitev-")
+        paket = os.path.join(d, "safeer-os_9.9.9_amd64.deb")
+        with open(paket, "wb") as f:
+            f.write(vsebina)
+        bin_ = os.path.join(d, "bin")
+        os.mkdir(bin_)
+        zapis = os.path.join(d, "apt.txt")
+        with open(os.path.join(bin_, "apt-get"), "w") as f:
+            # Lazni apt najprej (kot napadalec, ki tece kot uporabnik) prepise uporabnikovo datoteko, nato prebere,
+            # kar je dobil: namesti se mora preverjena kopija, ne prepisana datoteka.
+            f.write('#!/bin/sh\nprintf podtaknjeno > "%s"\nfor a in "$@"; do case "$a" in /*) '
+                    'printf "%%s %%s\\n" "$a" "$(sha256sum < "$a" | cut -c1-64)" >> "%s";; esac; done\n' % (paket, zapis))
+        os.chmod(os.path.join(bin_, "apt-get"), 0o755)
+        okolje = dict(os.environ, PATH=bin_ + os.pathsep + os.environ.get("PATH", ""))
+        r = op.subprocess.run(["/bin/sh", "-c", op.NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev", vsota, paket],
+                              env=okolje, capture_output=True, text=True, timeout=30)
+        klic = open(zapis).read().split() if os.path.exists(zapis) else []
+        return r, klic, paket
+
+    def test_root_namesti_preverjeno_kopijo(self):
+        """Neodvisni pregled 19. 10. 2026: apt-get ne sme brati datoteke v ~/.cache (uporabnik bi jo zamenjal po
+        preverbi in po vpisanem geslu). Root jo prekopira k sebi, preveri SHA-256 kopije in namesti kopijo."""
+        vsebina = b"pravi paket"
+        r, klic, paket = self._root_skripta(vsebina, hashlib.sha256(vsebina).hexdigest())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(klic), 2, klic)
+        self.assertNotEqual(klic[0], paket, "apt-get ne bere uporabnikove datoteke")
+        self.assertEqual(klic[1], hashlib.sha256(vsebina).hexdigest(), "namescena vsebina je preverjena kopija")
+        self.assertFalse(os.path.exists(klic[0]), "kopija se po namestitvi pospravi")
+
+    def test_root_zavrne_napacno_vsoto(self):
+        r, klic, _ = self._root_skripta(b"podtaknjen paket", hashlib.sha256(b"pravi paket").hexdigest())
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("SHA-256 se ne ujema", r.stderr)
+        self.assertEqual(klic, [], "apt-get se ne zazene")
 
     def test_v_izdaji_ni_lokalnega_http(self):
         self.assertFalse(op._LOKALNI_HTTP)

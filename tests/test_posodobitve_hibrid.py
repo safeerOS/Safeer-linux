@@ -38,15 +38,17 @@ class Hibrid(unittest.TestCase):
             klici.append(ukaz)
             return mock.Mock(returncode=0, stdout="", stderr="")
         with mock.patch.object(P.subprocess, "run", side_effect=run):
-            P.namesti_linux("flatpak+deb", ["/home/u/.cache/a.flatpak", "/home/u/.cache/a.deb"])
-        self.assertEqual(klici[0][:5], ["flatpak-spawn", "--host", "pkexec", "apt-get", "install"])
-        self.assertIn("/home/u/.cache/a.deb", klici[0])
+            P.namesti_linux("flatpak+deb", ["/home/u/.cache/a.flatpak", "/home/u/.cache/a.deb"], ["f" * 64, "d" * 64])
+        # .deb kot root iz preverjene kopije (P.NAMESTI_DEB_KOT_ROOT), z vsoto .deb, ne Flatpaka
+        self.assertEqual(klici[0][:7], ["flatpak-spawn", "--host", "pkexec", "/bin/sh", "-c", P.NAMESTI_DEB_KOT_ROOT,
+                                        "safeer-posodobitev"])
+        self.assertEqual(klici[0][7:], ["d" * 64, "/home/u/.cache/a.deb"])
         self.assertEqual(klici[1][:3], ["flatpak", "install", "--user"])
         self.assertIn("/home/u/.cache/a.flatpak", klici[1])
 
     def test_neuspel_deb_ustavi(self):
         with mock.patch.object(P.subprocess, "run", return_value=mock.Mock(returncode=126, stdout="", stderr="preklicano")) as run:
-            r = P.namesti_linux("flatpak+deb", ["/x.flatpak", "/x.deb"])
+            r = P.namesti_linux("flatpak+deb", ["/x.flatpak", "/x.deb"], ["f" * 64, "d" * 64])
         self.assertEqual(r.returncode, 126)
         self.assertEqual(run.call_count, 1)
 

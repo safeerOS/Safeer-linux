@@ -181,6 +181,21 @@ class Stanje(unittest.TestCase):
         self.assertFalse(pot.exists())
         self.assertEqual(nr.preberi_stanje("safeer-os", "0.4.86"), {})
 
+    def test_ne_sledi_povezavi_in_ne_bere_tuje_zapisljive(self):
+        """Neodvisni pregled 19. 10. 2026: stanje (zavihki, predvajanje) se prebere samo iz nase navadne datoteke."""
+        nr.shrani_stanje("safeer-os", {"v": "0.4.86", "splet": ["https://a.si/"]})
+        pot = Path(nr.pot_stanja("safeer-os"))
+        drugje = Path(self._d.name) / "podtaknjeno.json"
+        drugje.write_text(pot.read_text().replace("https://a.si/", "https://napad.example/"))
+        pot.unlink()
+        pot.symlink_to(drugje)
+        self.assertEqual(nr.preberi_stanje("safeer-os", "0.4.86"), {}, "simbolni povezavi ne sledimo")
+        self.assertFalse(pot.is_symlink(), "povezava se pospravi")
+        self.assertTrue(drugje.exists(), "cilj povezave ostane nedotaknjen")
+        nr.shrani_stanje("safeer-os", {"v": "0.4.86", "splet": ["https://a.si/"]})
+        os.chmod(pot, 0o666)
+        self.assertEqual(nr.preberi_stanje("safeer-os", "0.4.86"), {}, "datoteke, ki jo lahko pisejo drugi, ne beremo")
+
     def test_vsak_program_svojo_datoteko(self):
         """E2E 18. 10. 2026: vgrajeni Control je prebral (in izbrisal) stanje Safeer OS, ko sta imela isto pot."""
         nr.shrani_stanje("safeer-os", {"v": "0.4.86", "splet": ["https://a.si/"]})
