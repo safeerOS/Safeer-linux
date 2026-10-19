@@ -1139,8 +1139,10 @@
     });
   }
 
-  function izvediBesedilo(besedilo) {
-    var cisto = String(besedilo || "").trim();
+  function izvediBesedilo(izgovorjeno) {
+    // Parameter se ne sme imenovati "besedilo": zakril bi funkcijo besedilo() in iskanje na racunalniku (search.query)
+    // je padlo s TypeError (19. 10. 2026).
+    var cisto = String(izgovorjeno || "").trim();
     if (!cisto) return;
     stanje.zadnjeSliseno = cisto;
     var e = el("daljinecSliseno");

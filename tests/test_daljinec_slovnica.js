@@ -250,6 +250,41 @@ for (const jezik of Object.keys(PAVZA)) {
   preveri("en »resume playback« -> play_pause", tipkaJe(r(naloziNaprava("en", TELEFON), "resume playback"), "play_pause"));
 }
 
+// Racunalnik s Safeer OS (search.query): izgovorjeno gre v iskalno lupo racunalnika. Do 19. 10. 2026 je parameter
+// izvediBesedilo(besedilo) zakril funkcijo besedilo() in ta pot je vedno padla s TypeError.
+{
+  const koda = fs.readFileSync(path.join(__dirname, "..", "assets", "link", "daljinec.js"), "utf8");
+  const klici = [];
+  const element = () => ({ textContent: "", hidden: false, style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, removeAttribute() {}, addEventListener() {}, appendChild() {}, querySelector: () => null, querySelectorAll: () => [] });
+  const elementi = {};
+  const okno = {
+    SafeerLink: { jezik: () => "sl", ukaz: (id, dejanje, parametri, ref) => klici.push({ id, dejanje, parametri: JSON.parse(parametri || "{}"), ref }), znaGovor: () => false },
+    SafeerLinkStran: { jezik: "sl", prijaznoIme: (n) => n.ime },
+    localStorage: { getItem: () => null, setItem: () => {} },
+    addEventListener: () => {},
+  };
+  const dokument = { getElementById: (id) => (elementi[id] = elementi[id] || element()), querySelectorAll: () => [], addEventListener: () => {},
+    visibilityState: "visible", body: element(), createElement: () => element() };
+  const ctx = { window: okno, document: dokument, navigator: { language: "sl" }, setTimeout, clearTimeout, Date, JSON, Math, encodeURIComponent,
+    String, Number, parseInt, RegExp, Object, Array };
+  ctx.window.window = ctx.window;
+  vm.createContext(ctx);
+  let napaka = null;
+  try {
+    vm.runInContext(koda, ctx);
+    const d = ctx.window.SafeerDaljinec;
+    d.odpri(RACUNALNIK);
+    const stanjeKlic = klici.find((k) => k.dejanje === "status");
+    if (stanjeKlic) d.odziv({ ref: stanjeKlic.ref, ok: true, data: { actions: ["search.query", "volume", "key"] } });
+    d.govor({ stanje: "koncno", besedilo: "poisci vreme v ljubljani" });
+  } catch (e) {
+    napaka = e;
+  }
+  preveri("racunalnik: izgovorjeno gre v search.query brez napake", !napaka && klici.some((k) => k.dejanje === "search.query" && /vreme/.test(k.parametri.q || "")));
+  if (napaka) console.log("   " + napaka);
+}
+
 console.log();
 if (napak) { console.log("Napak: " + napak); process.exit(1); }
 console.log("Vse v redu.");
