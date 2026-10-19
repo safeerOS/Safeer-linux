@@ -980,10 +980,20 @@
     var surovo = String(besedilo || "").trim();
     if (!surovo) return null;
     var nap = frazeNaprav(surovo);
-    if (nap.druga) return drugaNaprava(nap.druga);
+    if (nap.druga) {
+      // Ali je stavek ukaz daljinca (glasnost, tipke …)? Racunalnik (search.query) dobi stavek, ki to ni, cel v svojo
+      // lupo - ta zna »Prikazi na …« (»predvajaj film na televizorju«, pregled 19. 10. 2026).
+      var z = drugaNaprava(nap.druga);
+      z.ukazDaljinca = jeUkazDaljinca(razumiUkaz(nap.besedilo));
+      return z;
+    }
     var u = razumiUkaz(nap.besedilo);
     if (u) u.ocisceno = nap.besedilo;
     return u;
+  }
+
+  function jeUkazDaljinca(u) {
+    return !!u && ["volume", "key", "scroll", "digits", "screenshot", "restart", "clear_cache"].indexOf(u.dejanje) >= 0;
   }
 
   /**
@@ -1152,7 +1162,7 @@
     if (u && u.ocisceno) cisto = u.ocisceno;
     // Na racunalniku s Safeer OS (search.query) gre vse, kar ni ukaz daljinca (glasnost, tipke, drsenje, posnetek),
     // v iskalno lupo racunalnika - programi, datoteke, nastavitve, mediji in splet so tam na enem mestu.
-    var ukazDaljinca = u && (!!u.drugaNaprava || ["volume", "key", "scroll", "digits", "screenshot", "restart", "clear_cache"].indexOf(u.dejanje) >= 0);
+    var ukazDaljinca = u && (u.drugaNaprava ? u.ukazDaljinca : jeUkazDaljinca(u));
     if (stanje.isceNaRacunalniku && !ukazDaljinca) {
       var opis = t("iscemNaRacunalniku", { kaj: cisto });
       besedilo("daljinecOdgovor", opis);

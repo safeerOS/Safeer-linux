@@ -165,6 +165,21 @@ class StranskaVrstica(_Stran):
         self.assertEqual(self._js("localStorage.getItem('safeer_vrstica')"), "")
         self.assertEqual(self._js("document.activeElement.getAttribute('data-razdelek')"), "domov", "fokus na izbranem razdelku")
 
+    def test_ctrl_b_v_polju_ne_vzame_fokusa(self):
+        """Ctrl+B med pisanjem v polje razsiri vrstico, fokus pa ostane v polju (pregled 19. 10. 2026: fokus je skocil na
+        meni, naslednja crka je sla v lupo namesto v polje)."""
+        self._js("localStorage.clear(), 1")
+        self.odpri(self.SIRINA, self.VISINA)
+        self._js("document.getElementById('gumbVrstica').click(), 1")
+        self._js("""(function () { document.querySelector('[data-razdelek=zapiski]').click();
+            var v = document.getElementById('zapiskiIskanje'); v.focus(); v.value = 'nakup'; return 1; })()""")
+        self.assertEqual(self._js("document.activeElement.id"), "zapiskiIskanje")
+        self.tipka("b", ctrlKey=True)
+        self.assertEqual(self.sirina("stranska", 250), 250)
+        self.assertEqual(self._js("document.activeElement.id"), "zapiskiIskanje")
+        self.tipka("x")
+        self.assertEqual(self._js("document.getElementById('iskanje').value"), "")
+
     def test_prej_skrita_postane_skrcena(self):
         self._js("localStorage.clear(), localStorage.setItem('safeer_vrstica_skrita', '1'), 1")
         self.odpri(self.SIRINA, self.VISINA)
@@ -198,6 +213,19 @@ class StranskaVrstica(_Stran):
             c.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); return 1; })()""")
         self.assertFalse(self._js("document.body.classList.contains('vrstica-plava')"))
         self.assertEqual(self._js("window.__klik"), 0)
+
+    def test_nizko_okno_trak_dosegljiv(self):
+        """Trak je visji od razsirjene vrstice (gumb nad znakom, visji gumbi): v nizkem ozkem oknu (900 x 640) so bili
+        Nastavitve, uporabnik in gumb Izklop pod robom okna in nedosegljivi - brez drsenja (pregled 19. 10. 2026)."""
+        self._js("localStorage.clear(), 1")
+        self.odpri(900, 640)
+        self.assertEqual(self.sirina("stranska", 76), 76)
+        vrh = self._js("Math.round(document.getElementById('vrh').getBoundingClientRect().top)")
+        self._js("document.getElementById('gumbNapajanje').focus(), 1")
+        _cakaj(lambda: False, 0.3)
+        self.assertLessEqual(self._js("Math.round(document.getElementById('gumbNapajanje').getBoundingClientRect().bottom)"), 640)
+        self.assertEqual(self._js("Math.round(document.getElementById('vrh').getBoundingClientRect().top)"), vrh, "stran se ne premakne")
+        self.assertEqual(self._js("document.documentElement.scrollWidth"), 900, "brez vodoravnega drsenja")
 
     def test_lupa_zlozena_tipkanje_in_ctrl_k(self):
         self.assertFalse(self._js("document.getElementById('iskanjeLupa').classList.contains('razsirjena')"))
@@ -252,6 +280,23 @@ class OknoNastavitev(_Stran):
         self.tipka("z")
         self.assertEqual(self._js("document.activeElement.id"), "nastavitveIskanje")
         self.assertEqual(self._js("document.getElementById('nastavitveIskanje').value"), "z")
+
+    def test_enter_v_iskanju_odpre_ne_preklopi(self):
+        """Enter v iskanju Nastavitev odpre najdeno nastavitev, stikala pa ne preklopi - samo fokus nanj (pregled 19. 10.
+        2026: »wifi« + Enter je izklopil Wi-Fi v hitrih nastavitvah, »beta« + Enter vklopil beta kanal). Najprej vnos, ki
+        ustreza sam: »zvok« je Zvok, ne prvi vnos skupine »Zaslon in zvok« (Zasloni)."""
+        self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.focus(); v.value='beta'; v.dispatchEvent(new Event('input')); return 1;})()")
+        self.tipka("Enter")
+        self.assertEqual(self._js("document.getElementById('stikaloBeta').getAttribute('aria-checked')"), "false")
+        self.assertEqual(self._js("document.activeElement.id"), "stikaloBeta")
+        self._js("""(function () { window.__kliknjeni = [];
+            document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('.nastavitev');
+                if (b) { window.__kliknjeni.push(b.textContent.trim()); e.stopPropagation(); e.preventDefault(); } }, true);
+            var v = document.getElementById('nastavitveIskanje'); v.focus(); v.value = 'zvok'; v.dispatchEvent(new Event('input'));
+            return 1; })()""")
+        self.assertIn("Zasloni", self._vidne(), "skupina ustreza po naslovu - ostane cela")
+        self.tipka("Enter")
+        self.assertEqual(self._js("window.__kliknjeni"), ["Zvok"])
 
     def test_safeer_agent(self):
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('agentStanje').textContent")

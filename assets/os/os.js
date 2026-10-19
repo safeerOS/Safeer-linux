@@ -203,7 +203,9 @@
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         vrsticaPreklopi();
-        if (vrsticaPlava || !vrsticaSkrcena()) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
+        // Fokus na izbrani razdelek, razen med pisanjem v polje: tam ostane (naslednja crka bi sla v lupo).
+        var a = document.activeElement, vPolju = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable);
+        if (!vPolju && (vrsticaPlava || !vrsticaSkrcena())) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
       } else if (e.key === "Escape" && vrsticaPlava) {
         e.preventDefault(); e.stopImmediatePropagation();
         vrsticaZapriPlavajoco(true);
@@ -3730,8 +3732,11 @@
     if (prazno) { prazno.hidden = !niz || zadetkov > 0; prazno.textContent = t("nastavitveNiZadetkov", { niz: niz }); }
   }
   function prvaNajdenaNastavitev() {
-    return Array.prototype.find.call(document.querySelectorAll("#r-nastavitve .stikalo, #r-nastavitve .nastavitev"),
-      function (e) { return !e.hidden && !e.classList.contains("ni-zadetek") && e.offsetParent !== null && !e.disabled; }) || null;
+    var vidni = Array.prototype.filter.call(document.querySelectorAll("#r-nastavitve .stikalo, #r-nastavitve .nastavitev"),
+      function (e) { return !e.hidden && !e.classList.contains("ni-zadetek") && e.offsetParent !== null && !e.disabled; });
+    // Najprej vnos, ki ustreza sam: skupina, ki ustreza po naslovu (»Zaslon in zvok«), ostane cela, a »zvok« je Zvok.
+    var niz = ($("nastavitveIskanje") || {}).value || "";
+    return vidni.filter(function (e) { return window.SafeerIskanje.ujemaBesede(besediloZaIskanje(e), niz.trim()); })[0] || vidni[0] || null;
   }
   function poveziIskanjeNastavitev() {
     var polje = $("nastavitveIskanje");
@@ -3739,7 +3744,9 @@
     polje.addEventListener("input", filtrirajNastavitve);
     polje.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && polje.value) { e.preventDefault(); e.stopPropagation(); polje.value = ""; filtrirajNastavitve(); }
-      else if (e.key === "Enter") { var p = prvaNajdenaNastavitev(); if (p) { e.preventDefault(); p.click(); } }
+      // Enter odpre najdeno nastavitev; stikala in dejanja (Wi-Fi, beta kanal, posodobitev, nazaj v Mint) ne sprozi -
+      // fokus gre nanje, potrdi jih uporabnik (pregled 19. 10. 2026: »wifi« + Enter je izklopil Wi-Fi).
+      else if (e.key === "Enter") { var p = prvaNajdenaNastavitev(); if (p) { e.preventDefault(); if (p.classList.contains("nastavitev")) p.click(); else p.focus(); } }
       else if (e.key === "ArrowDown") { var q = prvaNajdenaNastavitev(); if (q) { e.preventDefault(); q.focus(); } }
     });
   }

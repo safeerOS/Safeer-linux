@@ -927,6 +927,12 @@ body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .znamka .skrci-vrstic
 body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) nav button { justify-content: center; padding: 14px 0; }
 body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .uporabnik { flex-direction: column; padding: 8px 4px; }
 body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .stranska-dno { padding: 0; }
+/* Trak je visji od razsirjene vrstice: v nizkem oknu (900 x 640) so bili Nastavitve in Izklop pod robom, fokus nanje
+   pa je premaknil celo stran (pregled 19. 10. 2026). Trak se zato drsi sam. */
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) #stranska { overflow-x: hidden; overflow-y: auto; scrollbar-width: thin;
+  scrollbar-color: var(--rob) transparent; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) #stranska::-webkit-scrollbar { width: 6px; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) #stranska::-webkit-scrollbar-thumb { background: var(--rob); border-radius: 3px; }
 body.vrstica-plava:not(.nacin-splet) #stranska {
   position: fixed; top: 0; left: 0; bottom: 0; z-index: 70; width: 280px; box-sizing: border-box; overflow-y: auto;
   background: var(--kartica-trdna); border-right: 1px solid var(--rob); box-shadow: var(--senca);
