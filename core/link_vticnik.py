@@ -409,7 +409,8 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
                 stanje["st"] += 1
                 kljuc = stanje["st"]
                 v_teku[kljuc] = [surov, time.monotonic()]
-            _zbudi_tiho(izrinjena)                  # njena nit se zbudi z napako in jo SAMA zapre
+            if izrinjena is not None:
+                _zbudi_tiho(izrinjena)              # njena nit se zbudi z napako in jo SAMA zapre
             try:
                 threading.Thread(target=obdelaj, args=(kljuc, surov), name="safeer-pozdrav", daemon=True).start()
             except RuntimeError:                    # sistem niti ne da: povezava odpade, stetje ostane pravo

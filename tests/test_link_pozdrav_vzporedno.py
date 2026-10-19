@@ -132,47 +132,57 @@ class TihePovezave(unittest.TestCase):
     def test_izrinjanje_ne_zapre_tuje_stevilke(self):
         """Pregled 72d1d79: glavna nit je izrinjeno vticnico zaprla (close) - stevilka deskriptorja se je sprostila in
         nit pozdrava bi jo lahko zaprla, ko jo je jedro ze dalo drugi povezavi istega procesa. Glavna nit sme izrinjeno
-        samo zbuditi (shutdown); zapre jo nit, ki jo ima."""
+        samo zbuditi (shutdown); zapre jo nit, ki jo ima - odjemalec izrinjene povezave dobi konec.
+        sprejmi_s_pozdravom klicemo neposredno z najvec_hkrati=2 (privzeti argument se veze ob definiciji, pregled
+        92e0d6a), 5 tihih povezav -> 3 izrinjenja."""
         posluh = socket.socket()
         posluh.bind(("127.0.0.1", 0))
         posluh.listen(64)
         port = posluh.getsockname()[1]
-        z = link_zvok.ZvokNaNapravo(tls_mapa=self.mapa, ffmpeg=sys.executable)
-        z._zeton = "pravi-zeton"
-        izid, tihe, zbujene, glavna = {}, [], [], {}
+        tihe, zbujene, zaprte_glavna = [], [], []
         pravi_zbudi = getattr(link_vticnik, "_zbudi_tiho", lambda s: None)
         pravi_zapri = link_vticnik._zapri_tiho
 
         def zbudi(s):
-            zbujene.append(threading.current_thread().name)
+            if s is not None:
+                zbujene.append(threading.current_thread().name)
             pravi_zbudi(s)
 
         def zapri(s):
-            if threading.current_thread().name == glavna.get("ime"):
-                glavna.setdefault("zaprla", 0)
-                glavna["zaprla"] += 1
+            if s is not None and threading.current_thread().name == "preizkus-sprejem":
+                zaprte_glavna.append(s)
             pravi_zapri(s)
+
+        izid = {}
         try:
             with mock.patch.object(link_vticnik, "_zbudi_tiho", side_effect=zbudi, create=True), \
-                    mock.patch.object(link_vticnik, "_zapri_tiho", side_effect=zapri), \
-                    mock.patch.object(link_vticnik, "NAJVEC_HKRATNIH_POZDRAVOV", 2), \
-                    mock.patch.object(link_zvok, "ROKOVANJE_S", 10.0), mock.patch.object(link_zvok, "CAKANJE_S", 2):
-                def tece():
-                    glavna["ime"] = threading.current_thread().name
-                    izid["sprejeto"] = z._sprejmi(posluh, self.ctx)
-                nit = threading.Thread(target=tece, name="preizkus-sprejem", daemon=True)
+                    mock.patch.object(link_vticnik, "_zapri_tiho", side_effect=zapri):
+                nit = threading.Thread(target=lambda: izid.update(sprejeto=link_vticnik.sprejmi_s_pozdravom(
+                    posluh, self.ctx, lambda _v: False, link_zvok.ZvokNaNapravo._preberi_vrstico,
+                    time.monotonic() + 2.0, 10.0, najvec_hkrati=2)), name="preizkus-sprejem", daemon=True)
                 nit.start()
                 for _ in range(5):
                     tihe.append(socket.create_connection(("127.0.0.1", port), timeout=10))
-                    time.sleep(0.05)
+                    time.sleep(0.1)
+                time.sleep(0.5)
+                konec_pri_odjemalcu = 0
+                for s in tihe[:3]:                  # najstarejse tri so izrinjene
+                    s.settimeout(1.0)
+                    try:
+                        konec_pri_odjemalcu += s.recv(1) == b""
+                    except socket.timeout:
+                        pass
+                    except OSError:
+                        konec_pri_odjemalcu += 1
                 nit.join(20)
         finally:
             for s in tihe:
                 s.close()
             posluh.close()
-        self.assertGreaterEqual(len(zbujene), 3, "cez mejo se najstarejsa izrine (zbudi)")
+        self.assertEqual(len(zbujene), 3, "vsaka izrinjena povezava se zbudi enkrat")
         self.assertTrue(all(ime == "preizkus-sprejem" for ime in zbujene))
-        self.assertEqual(glavna.get("zaprla", 0), 0, "glavna nit izrinjene vticnice ne zapre (close)")
+        self.assertEqual(zaprte_glavna, [], "glavna nit izrinjene vticnice ne zapre (close)")
+        self.assertEqual(konec_pri_odjemalcu, 3, "nit pozdrava izrinjeno povezavo zapre sama")
 
     def test_meja_niti_zapre_novo_povezavo_brez_niti(self):
         """Ko je zivih niti pozdrava NAJVEC_NITI_POZDRAVA, nova povezava ne dobi niti (zapre se takoj)."""
@@ -184,8 +194,8 @@ class TihePovezave(unittest.TestCase):
         z._zeton = "pravi-zeton"
         izid, tihe = {}, []
         try:
+            # NAJVEC_NITI_POZDRAVA se bere ob izvajanju; meja hkratnih ostane privzetih 8 (vec od 5 povezav).
             with mock.patch.object(link_vticnik, "NAJVEC_NITI_POZDRAVA", 2), \
-                    mock.patch.object(link_vticnik, "NAJVEC_HKRATNIH_POZDRAVOV", 8), \
                     mock.patch.object(link_zvok, "ROKOVANJE_S", 10.0), mock.patch.object(link_zvok, "CAKANJE_S", 3):
                 nit = threading.Thread(target=lambda: izid.update(sprejeto=z._sprejmi(posluh, self.ctx)), daemon=True)
                 nit.start()
