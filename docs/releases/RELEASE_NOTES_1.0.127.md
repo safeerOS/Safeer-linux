@@ -12,7 +12,7 @@
 
 **Linux Mint.** The desktop no longer hides behind the Mint panel or the dock; a mouse applet in the panel replaces the misleading battery icon on desktop PCs.
 
-**Our WebKit everywhere.** GTK 4 is the default everywhere, and the .deb packages now carry the same patched WebKitGTK 2.54.1 (profile-optimised) and libsoup 3.8.0 as the Flatpak. Our WebKit fix stops pages with many `backdrop-filter` layers (for example www.24ur.com) from eating memory and a whole CPU core; it is also proposed upstream to WebKit.
+**Our WebKit everywhere, and faster.** GTK 4 is the default everywhere, and the .deb packages now carry the same patched WebKitGTK 2.54.1 and libsoup 3.8.0 as the Flatpak. It is built with Clang 22, ThinLTO and profile-guided optimisation (PGO), and in the .deb also optimised with BOLT. On our test PC (Intel Core i5-4590), Speedometer 3.1 went from 8.2 with our earlier GCC build to 11.1–11.4 with PGO and 11.9 with PGO and BOLT; BOLT also adds about 2 % on JetStream and 3 % on MotionMark. Our WebKit fix stops pages with many `backdrop-filter` layers (for example www.24ur.com) from eating memory and a whole CPU core. WebKit has accepted it (324100@main) and it is in the WebKitGTK 2.54 branch, so it also reaches other WebKitGTK users with their next update.
 
 **Tabs like a modern browser.** Tabs shrink instead of breaking the layout, show the site icon and the full title on hover, and sit in the window's title bar. Web pages follow the system's dark mode (you can change it).
 
@@ -32,6 +32,8 @@
 **Your own scripts in the Media Center.** In *Customize menu → My scripts* you can import JavaScript (.js) and shell (.sh) files yourself. JavaScript runs in the Spotify page when Spotify starts (off until you switch it on, no access to Safeer OS itself); a shell script runs only when you press Run, with your own permissions, for at most 60 seconds, and its output is shown. Safeer does not supply or review scripts; what you import is your responsibility, and you confirm a warning before every import.
 
 **Spotify and ads.** Shield mutes an ad on a free account and the music carries on afterwards; Safeer no longer blocks or replaces Spotify's ad requests (that stalled the player after an ad). Spotify's terms forbid avoiding ads, and Safeer does not promise to hide them.
+
+**Small fixes.** Settings search finds *Network connections* when you type »wifi« and hides the volume slider like every other setting that does not match. The update note on Home shows only when there is an update. Hidden Safeer OS windows no longer refresh the clock, the Shield counter, sound, network, devices and the message list in the background; they catch up as soon as you show them.
 
 **Hide shelves.** *Automatic playlists* and *Recently added* on Home can be hidden for good (button *Hide*, bring them back under *Customize menu*); hidden shelves are not loaded.
 

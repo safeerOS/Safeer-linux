@@ -32,11 +32,12 @@ Android TV browser 2.1.215, Safeer OS 0.5.93 for TV, tablet and phone, and Safee
 ## What it does
 
 **Native GTK4, our own WebKit.** Native GTK4 with WebKitGTK 6.0 — no Electron, no second browser
-engine, no background updater. The Flatpak ships WebKitGTK 2.54.1 built with fixes we developed
+engine, no background updater. The Flatpak and the .deb packages ship WebKitGTK 2.54.1 built with
+Clang 22, ThinLTO and profile-guided optimisation (plus BOLT in the .deb), with fixes we developed
 ourselves ([packaging/webkit](packaging/webkit)): backdrop-filter layers in the Skia compositor no
 longer redraw 2ⁿ times, and muted off-screen MediaSource video no longer leaves streams stuck in
-"buffering". The fixes are written for upstream WebKit; once WebKitGTK itself has them, our own
-build goes away.
+"buffering". The backdrop-filter fix is now part of WebKit (324100@main, also in the 2.54 branch);
+once WebKitGTK itself has both fixes, our patches go away.
 
 **Same engine as Safeer OS.** The browser and the web view in Safeer OS are one code base, so every
 improvement to the web lands in both at once.
