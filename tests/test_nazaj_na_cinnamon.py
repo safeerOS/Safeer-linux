@@ -58,7 +58,11 @@ class NazajNaCinnamon(unittest.TestCase):
         self.tmp.cleanup()
 
     def _python(self, koda: str) -> str:
-        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r)\n%s" % (KOREN, koda)],
+        # safeer-cinnamon Safeer OS isce samo v sistemskih mapah (core/root_ukaz.sistemski_program, ne po PATH): lazno
+        # orodje preizkusa dodamo na zacetek teh map v podprocesu, ne v okolje.
+        priprava = ("import sys; sys.path.insert(0, %r)\nfrom core import root_ukaz\n"
+                    "root_ukaz.SISTEMSKE_MAPE = (%r,) + root_ukaz.SISTEMSKE_MAPE\n" % (KOREN, os.path.join(self.tmp.name, "bin")))
+        r = subprocess.run([sys.executable, "-c", priprava + koda],
                            env=self.o["env"], capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         return r.stdout
@@ -102,10 +106,10 @@ class NazajNaCinnamon(unittest.TestCase):
         # Safeer OS je skril Mintov pult (prvotne vrednosti v os.json, kot skrij_mintov_pult).
         self._zapisi_os_json({"samozagon": True, "samozagon_izbral": True,
                               "mintov_pult": {"panels-autohide": "['1:false']", "panels-show-delay": "['1:0']"}})
-        r = subprocess.run([sys.executable, os.path.join(KOREN, "safeer_os.py"), "--nazaj-na-cinnamon"],
-                           env=self.o["env"], capture_output=True, text=True, timeout=120)
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
-        self.assertIn("Cinnamon", r.stdout)
+        # Kot `safeer_os.py --nazaj-na-cinnamon`, a z laznim safeer-cinnamon med sistemskimi mapami (_python).
+        izpis = self._python("import runpy\nsys.argv = [%r, '--nazaj-na-cinnamon']\nrunpy.run_path(%r, run_name='__main__')"
+                             % (os.path.join(KOREN, "safeer_os.py"), os.path.join(KOREN, "safeer_os.py")))
+        self.assertIn("Cinnamon", izpis)
         # safeer-cinnamon --izklopi: tema, pult in dock iz shranjenega stanja pred Safeer Cinnamon.
         self.assertFalse(os.path.exists(os.path.join(self.o["mapa"], "vklopljeno")))
         self.assertEqual(_vrednost(self.o, "org.cinnamon.theme", "name"), "'Mint-Y-Dark-Aqua'")
