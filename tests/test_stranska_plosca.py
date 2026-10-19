@@ -21,7 +21,9 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 Gtk.init()
 
 
-def _cakaj(pogoj, cas=5.0):
+# 15 s kot drugi zivi preizkusi WebKita: v CI tece vseh ~4800 preizkusov v enem procesu in spletni proces se zazene
+# pocasneje kot sam (CI 39237036888, 19. 10. 2026: znacka ni prisla v 5 s, sama datoteka 0,6 s).
+def _cakaj(pogoj, cas=15.0):
     kontekst = GLib.MainContext.default()
     rok = time.monotonic() + cas
     while time.monotonic() < rok:
@@ -61,7 +63,9 @@ class Plosca(unittest.TestCase):
         self.assertIn(a.pogled, splet.aplikacije, "ista seja in zascita kot zavihki")
         self.assertTrue(p.razkrij.get_reveal_child())
         a.pogled.load_html("<title>(3) WhatsApp</title>", "https://web.whatsapp.com/")
-        self.assertTrue(_cakaj(lambda: "3" in (p.gumbi["whatsapp"].get_label() or "")))
+        self.assertTrue(_cakaj(lambda: "3" in (p.gumbi["whatsapp"].get_label() or "")),
+                        "znacka %r, naslov %r, nalaganje %r" % (p.gumbi["whatsapp"].get_label(), a.pogled.get_title(),
+                                                             a.pogled.is_loading()))
         p.preklopi("whatsapp")
         self.assertFalse(p.razkrij.get_reveal_child(), "drugi klik skrije plosco, storitev tece naprej")
         self.assertIn("whatsapp", p.aplikacije)
