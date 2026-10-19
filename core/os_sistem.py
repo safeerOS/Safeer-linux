@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from typing import Dict, List, Optional
 
-from core import zasebni_webkit
+from core import root_ukaz, zasebni_webkit
 
 CAS = 4.0
 
@@ -263,10 +263,10 @@ ORODJA: Dict[str, List[List[str]]] = {
     "tiskalniki": [["system-config-printer"]],
     "jezik": [["mintlocale"]],
     "vnosna-metoda": [["mintlocale-im"]],
-    "viri-programov": [["pkexec", "mintsources"], ["software-properties-gtk"]],
+    "viri-programov": [["pkexec", root_ukaz.MINTSOURCES], ["software-properties-gtk"]],
     "paketi": [["synaptic-pkexec"]],
     "uporabniki": [["cinnamon-settings-users"]],
-    "prijavno-okno": [["pkexec", "lightdm-settings"]],
+    "prijavno-okno": [["pkexec", root_ukaz.LIGHTDM_SETTINGS]],
     "pozarni-zid": [["gufw"]],
     "spletni-racuni": [["gnome-online-accounts-gtk"]],
     "gesla": [["seahorse"]],
@@ -300,7 +300,12 @@ def _program(ukaz: List[str]) -> str:
 
 def _ukaz_orodja(oznaka: str) -> Optional[List[str]]:
     for ukaz in ORODJA.get(oznaka, []):
-        if shutil.which(_program(ukaz)) and (ukaz[0] != "pkexec" or shutil.which("pkexec")):
+        if ukaz[0] == "pkexec":
+            # Kot root: pkexec in program z absolutno potjo, ne po uporabnikovem PATH (core/root_ukaz.py).
+            if shutil.which(_program(ukaz)) and root_ukaz.na_voljo():
+                return root_ukaz.ukaz(*ukaz[1:])
+            continue
+        if shutil.which(_program(ukaz)):
             return ukaz
     return None
 

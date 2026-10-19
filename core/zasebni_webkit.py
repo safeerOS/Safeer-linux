@@ -57,6 +57,13 @@ def predpona(koren: str) -> Optional[str]:
     return None
 
 
+def _nastavi_ce_drugacna(ime: str, vrednost: str) -> None:
+    """Ponovni klic (Control, uvozen v procesu Safeer OS, kjer ze tecejo niti) da isto vrednost: brez setenv
+    (core/okolje_procesa.py)."""
+    if os.environ.get(ime) != vrednost:
+        os.environ[ime] = vrednost
+
+
 def nastavi(koren: str) -> Optional[str]:
     """Klici pred `import gi`. Vrne uporabljeno predpono ali None (Flatpak, AppImage, izvorna koda, ni nasega WebKita)."""
     global _nastavljena
@@ -68,12 +75,12 @@ def nastavi(koren: str) -> Optional[str]:
     _nastavljena = mapa
     typelibi = os.path.join(mapa, "lib", "girepository-1.0")
     poti = [p for p in os.environ.get("GI_TYPELIB_PATH", "").split(os.pathsep) if p and p != typelibi]
-    os.environ["GI_TYPELIB_PATH"] = os.pathsep.join([typelibi] + poti)
+    _nastavi_ce_drugacna("GI_TYPELIB_PATH", os.pathsep.join([typelibi] + poti))
     # Pred prvim zagonom GStreamerja in spletnega procesa: vticnik GStreamer bere poti ob Gst.init.
     vticniki = os.path.join(mapa, GST_VTICNIKI)
     if os.path.isdir(vticniki):
         poti = [p for p in os.environ.get("GST_PLUGIN_PATH", "").split(os.pathsep) if p and p != vticniki]
-        os.environ["GST_PLUGIN_PATH"] = os.pathsep.join(poti + [vticniki])
+        _nastavi_ce_drugacna("GST_PLUGIN_PATH", os.pathsep.join(poti + [vticniki]))
     return mapa
 
 
@@ -127,7 +134,8 @@ def okolje_za_zunanje(okolje: Optional[Mapping[str, str]] = None) -> dict:
     if okolje.get("APPIMAGE"):
         for ime in SAMO_APPIMAGE:
             okolje.pop(ime, None)
-    return okolje
+    from core import okolje_procesa
+    return okolje_procesa.prazne_rezervacije(okolje)
 
 
 def gio_v_procesu():

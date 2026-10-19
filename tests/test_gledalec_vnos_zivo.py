@@ -7,14 +7,17 @@ sta poslali OBE poti. Tu naložimo stran z enakimi poslušalci, kot jih ima stra
 vbrizgamo skripto iz safeer_control.py in sprožimo dogodke miške na sliki.
 
 Most safeerVnos je od 19. 10. 2026 v locenem svetu (drugi neodvisni pregled): skripte strani gledalca in njenih okvirjev
-do njega ne sezejo (StranNeDosezeMostu). Okno zato sestavi pravi SafeerControl.upravitelj_gledalca.
+do njega ne sezejo (StranNeDosezeMostu). Okno zato sestavi pravi SafeerControl.upravitelj_gledalca. DOM pa je skupen:
+skripta strani lahko sprozi lazen dogodek miske (dispatchEvent) - skripta Controla uposteva samo dogodke uporabnika
+(isTrusted, tretji neodvisni pregled). Zato kliki v teh preizkusih pridejo od X strežnika (xdotool), kot pri uporabniku.
 
-Preizkus potrebuje zaslon in WebKitGTK, zato se brez njiju preskoči.
+Preizkus potrebuje zaslon, WebKitGTK in xdotool, zato se brez njih preskoči.
 """
 
 import json
 import os
-import re
+import shutil
+import subprocess
 import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,7 +43,8 @@ s.addEventListener('mousedown',dol); s.addEventListener('mouseup',gor);
 
 
 def _dogodki(tocke) -> str:
-    """JS: mousedown na prvi točki, mouseup na zadnji (deleži okna); vrne, kaj so naredili poslušalci strani."""
+    """JS: LAZNA dogodka (mousedown na prvi točki, mouseup na zadnji, deleži okna), kot bi ju sprozila skripta strani;
+    vrne, kaj so naredili poslušalci strani."""
     return """(function(){var s=document.getElementById('zaslon'), t=%s;
 function d(vrsta, p){s.dispatchEvent(new MouseEvent(vrsta,{bubbles:true,cancelable:true,button:0,
   clientX:p[0]*window.innerWidth,clientY:p[1]*window.innerHeight}));}
@@ -59,8 +63,13 @@ def _webkit():
         return None
 
 
+SIRINA, VISINA = 800, 600
+STRAN_JS = "JSON.stringify(window.__stran)"
+
+
 @unittest.skipUnless(os.path.isfile(CONTROL), "Safeer Control za Linux")
-@unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
+@unittest.skipUnless(os.environ.get("DISPLAY"), "potrebuje zaslon X11 (xdotool)")
+@unittest.skipUnless(shutil.which("xdotool"), "potrebuje xdotool (pravi dogodki miske)")
 @unittest.skipUnless(_webkit() is not None, "potrebuje WebKitGTK")
 class KlikVOknuGledalca(unittest.TestCase):
     def _klikni(self, tocke, s_skripto=True, stran=STRAN, js=None):
@@ -81,8 +90,10 @@ class KlikVOknuGledalca(unittest.TestCase):
             upravitelj.register_script_message_handler("safeerVnos", None)
             upravitelj.connect("script-message-received::safeerVnos", sprejmi)
         pogled = WebKit2.WebView(user_content_manager=upravitelj)
-        okno = Gtk.Window()                         # GTK4 nima OffscreenWindow; zaslon je Xvfb ali pravi
-        okno.set_default_size(800, 600)
+        ime = "gledalec-preizkus-%d" % os.getpid()
+        okno = Gtk.Window(title=ime)                # GTK4 nima OffscreenWindow; zaslon je Xvfb ali pravi
+        okno.set_decorated(False)                   # brez naslovne vrstice: koordinate okna = koordinate strani
+        okno.set_default_size(SIRINA, VISINA)
         okno.set_child(pogled)
         okno.present()
         zanka = GLib.MainLoop()
@@ -97,7 +108,18 @@ class KlikVOknuGledalca(unittest.TestCase):
             GLib.timeout_add(300, lambda: (zanka.quit(), False)[1])      # sporocila skripte pridejo za odgovorom
 
         def sprozi():
-            pogled.evaluate_javascript(js or _dogodki(tocke), -1, None, None, None, po_dogodkih)
+            if js is None and tocke:
+                # Pravi klik ali poteg z X streznika (isTrusted): pritisk na prvi tocki, spust na zadnji.
+                ukaz = ["xdotool", "search", "--sync", "--name", ime, "mousemove", "--window", "%1",
+                        str(int(tocke[0][0] * SIRINA)), str(int(tocke[0][1] * VISINA)), "mousedown", "1"]
+                for x, y in tocke[1:]:
+                    ukaz += ["mousemove", "--window", "%1", str(int(x * SIRINA)), str(int(y * VISINA))]
+                ukaz += ["mouseup", "1"]
+                subprocess.run(ukaz, check=True, timeout=10, capture_output=True)
+                GLib.timeout_add(300, lambda: (pogled.evaluate_javascript(STRAN_JS, -1, None, None, None,
+                                                                          po_dogodkih), False)[1])
+            else:
+                pogled.evaluate_javascript(js or STRAN_JS, -1, None, None, None, po_dogodkih)
             return False
 
         def ob_nalaganju(_p, dogodek):
@@ -167,6 +189,11 @@ class StranNeDosezeMostu(KlikVOknuGledalca):
     # Preizkusi zgoraj tecejo ze v KlikVOknuGledalca.
     test_stran_sama_poslje_dotik = test_en_klik_je_en_dotik = test_poteg_je_en_poteg = None
     test_klik_na_crni_rob_ni_dotik = test_koordinate_so_delez_slike_ne_okna = None
+
+    def test_lazen_dogodek_strani_ni_dotik(self):
+        """Skripta strani sprozi dispatchEvent na sliki: to ni uporabnik, na napravo ne gre nic (stran ga obdela sama)."""
+        stran, ukazi = self._klikni([], js=_dogodki([[0.5, 0.5]]))
+        self.assertEqual((stran, ukazi), (["tap"], []))
 
     def test_stran_in_okvir_ne_posljeta_vnosa(self):
         stran, ukazi = self._klikni([], stran=STRAN_VDOR, js=VDOR_JS)

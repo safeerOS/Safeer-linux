@@ -1090,9 +1090,10 @@ od_vklopa() {
     local izpis koda
     if [ "$(id -u)" = 0 ]; then
         izpis="$("$POMOCNIK" "$1" 2>&1)"; koda=$?
-    elif command -v pkexec >/dev/null 2>&1; then
+    elif [ -x /usr/bin/pkexec ]; then
+        # Absolutna pot: pkexec iz uporabnikovega PATH (~/.local/bin) bi lahko podtaknil program, ki tece kot uporabnik.
         [ -t 1 ] || sporoci "Pripravljam zagonski in prijavni zaslon. To lahko traja do minute."
-        izpis="$(pkexec "$POMOCNIK" "$1" 2>&1)"; koda=$?
+        izpis="$(/usr/bin/pkexec "$POMOCNIK" "$1" 2>&1)"; koda=$?
     else
         sporoci "pkexec ni na voljo. V terminalu pozeni: sudo $POMOCNIK $1"; return 1
     fi

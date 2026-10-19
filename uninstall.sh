@@ -29,8 +29,9 @@ echo "=========================================================="
 
 # 1. Zaustavi morebitne tekoče procese
 echo "1. Ustavljanje morebitnih aktivnih procesov Safeer..."
-pkill -f safeer_brskalnik.py 2>/dev/null || true
-pkill -f safeer-mint.sh 2>/dev/null || true
+# Samo procesi tega uporabnika iz te mape (klon), ne Safeer Browser iz paketa ali drug program s tem imenom v ukazu.
+DIR_VZOREC="$(cd "$(dirname "$0")" && pwd | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+pkill -u "$(id -u)" -f "$DIR_VZOREC/(safeer_brskalnik\.py|safeer-mint\.sh)" 2>/dev/null || true
 
 # 2. Odstrani zaganjalne povezave (CLI)
 echo "2. Odstranjevanje povezav v $BIN_DIR..."

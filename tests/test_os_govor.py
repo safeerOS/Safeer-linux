@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.request
 from unittest import mock
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -154,7 +155,11 @@ class TestNamestitev(unittest.TestCase):
                     if vrsta in ("namesceno", "napaka"):
                         koncano.set()
                 model = dict(os_govor.MODEL, url=url, sha256=sha, velikost=len(vsebina))
-                with mock.patch.object(os_govor, "MODEL", model), mock.patch.object(os_govor.Govor, "snemalnik", return_value=["x"]):
+                # Lokalni preizkusni streznik je http; v izdaji gre prenos samo prek https (core/https_prenos.py).
+                http_dovoljen = mock.patch.object(os_govor.https_prenos, "odpri",
+                                                  lambda u, timeout=30: urllib.request.urlopen(u, timeout=timeout))
+                with mock.patch.object(os_govor, "MODEL", model), http_dovoljen, \
+                        mock.patch.object(os_govor.Govor, "snemalnik", return_value=["x"]):
                     self.assertEqual(self.g.stanje()["prenos"], len(vsebina))
                     self.assertTrue(self.g.namesti(dogodek))
                     self.assertTrue(koncano.wait(10))

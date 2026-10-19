@@ -17,12 +17,18 @@ class BrezGtkTeme(unittest.TestCase):
     def test_cinnamon_brez_gtk3_med_ustvarjanjem_in_vrnjeno_po(self):
         okolje = {"XDG_CURRENT_DESKTOP": "X-Cinnamon", "DESKTOP_SESSION": "cinnamon", "QT_QPA_PLATFORMTHEME": "gtk3"}
         with mock.patch.dict(os.environ, okolje, clear=False):
+            kljuci = set(os.environ)
             with self.lupina.brez_gtk_teme_qt():
-                self.assertNotIn("XDG_CURRENT_DESKTOP", os.environ)
-                self.assertNotIn("DESKTOP_SESSION", os.environ)
+                # Prazna vrednost je za Qt enaka nenastavljeni; spremenljivka ostane (core/okolje_procesa.py).
+                self.assertEqual(os.environ["XDG_CURRENT_DESKTOP"], "")
+                self.assertEqual(os.environ["DESKTOP_SESSION"], "")
                 self.assertEqual(os.environ["QT_QPA_PLATFORMTHEME"], "xdgdesktopportal")
+                self.assertEqual(set(os.environ), kljuci, "med tekom niti se spremenljivke ne dodajajo ne brisejo")
             self.assertEqual(os.environ["XDG_CURRENT_DESKTOP"], "X-Cinnamon")
             self.assertEqual(os.environ["DESKTOP_SESSION"], "cinnamon")
+            # Tema xdgdesktopportal velja samo za QApplication tega procesa; zagnani programi dobijo uporabnikovo.
+            self.assertEqual(os.environ["QT_QPA_PLATFORMTHEME"], "gtk3")
+            self.assertEqual(set(os.environ), kljuci)
 
     def test_uporabnikova_tema_ostane(self):
         with mock.patch.dict(os.environ, {"QT_QPA_PLATFORMTHEME": "kde"}, clear=False):

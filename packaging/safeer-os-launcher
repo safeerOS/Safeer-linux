@@ -142,7 +142,8 @@ while :; do
     zagonov=$((zagonov + 1))
     signal=$((koda - 128))
     echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: Safeer OS se je ustavil zaradi signala $signal (poskus $zagonov)" >> "$DNEVNIK"
-    "$PY" -c "import sys; sys.path.insert(0, '$APP_DIR'); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje('safeer-os', $koda)" 2>/dev/null
+    # Pot in koda kot argumenta, ne vstavljena v kodo Pythona (pot z ' bi jo pokvarila ali vanjo vrinila kodo).
+    "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje("safeer-os", int(sys.argv[2]))' "$APP_DIR" "$koda" 2>/dev/null
 
     if [ "$zagonov" -ge "$NAJVEC_ZAGONOV" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: prevec ponovnih zagonov, odneham (glej sled.log)" >> "$DNEVNIK"

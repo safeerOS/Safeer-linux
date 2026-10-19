@@ -48,6 +48,7 @@ from array import array
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from core import root_ukaz
 from core.signed_feed import _atomic_write, isti_gostitelj
 
 NASLOV = "127.0.0.1"
@@ -64,6 +65,14 @@ polkit.addRule(function (action, subject) {
 });
 """
 CAS_UPSTREAM = 2.5
+#: Toliko najvec caka nas odgovor na sifriran streznik naprej (DoH), preden isto ime vprasamo usmerjevalnik. systemd-resolved
+#: na nas caka ~750 ms (DNS_TIMEOUT_MIN_USEC), nato vprasa naslednji streznik - usmerjevalnik, MIMO Scita - in pri njem
+#: ostane: do naslednjega pregleda straze (PREGLED_S) bi se blokirane strani razresevale. CI 8ac36e9 (Flatpak, brez
+#: interneta): DoH je cakal 2,5 s, resolved je presel na usmerjevalnik in »Blokiraj spet« ni veljal. Odgovor zato
+#: vedno v ROK_NAPREJ + cas usmerjevalnika (LAN); DoH tece naprej v ozadju in odloci, ali gremo za nekaj casa mimo njega.
+ROK_NAPREJ = 0.4
+#: Toliko poizvedb sme hkrati cakati na DoH (knjiznica TLS roka ne spostuje vedno): vec pomeni, da DoH visi.
+NAJVEC_CAKAJOCIH_NAPREJ = 8
 #: Strezniki naprej (isti kljuci kot core/doh_proxy.IZBIRE_NAPREJ; tu, da modul ne potrebuje libsoup ob uvozu).
 IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
 PRIVZETI_NAPREJ = "cloudflare"
@@ -384,20 +393,41 @@ class Razresevalnik:
     #: (CI, Flatpak, 17. 10. 2026: imena se v 12 s niso razresila).
     PREMOR_NAPREJ_S = 30.0
 
-    def _vprasaj_naprej(self, paket: bytes) -> Optional[bytes]:
-        """Streznik naprej s trdim rokom CAS_UPSTREAM (knjiznica TLS ga ne spostuje vedno, ko paketi izginejo)."""
+    def _vprasaj_naprej(self, paket: bytes, rok: Optional[float] = None) -> Optional[bytes]:
+        """Odgovor sifriranega streznika naprej, ce pride v `rok` (privzeto ROK_NAPREJ), sicer None - klicatelj takrat
+        vprasa usmerjevalnik. Poizvedba tece naprej v ozadju: ce DoH ne odgovori niti v polnem roku (CAS_UPSTREAM znotraj
+        self.naprej) ali visi, gremo PREMOR_NAPREJ_S naravnost na usmerjevalnik (kot prej)."""
         izid: list = []
 
         def delo() -> None:
             try:
-                izid.append(self.naprej(paket))
+                odgovor = self.naprej(paket)
             except Exception:  # noqa: BLE001
-                izid.append(None)
+                odgovor = None
+            with self._kljuc:
+                self._cakajoci_naprej -= 1
+                if self._cakajoci_naprej <= 0:
+                    self._naprej_caka_od = None
+                if not odgovor:
+                    self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
+                    self.nesifrirano_cas = time.time()
+            izid.append(odgovor)
 
+        with self._kljuc:
+            self._cakajoci_naprej = getattr(self, "_cakajoci_naprej", 0) + 1
+            if getattr(self, "_naprej_caka_od", None) is None:
+                self._naprej_caka_od = time.monotonic()
+            if self._cakajoci_naprej > NAJVEC_CAKAJOCIH_NAPREJ:
+                self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
         nit = threading.Thread(target=delo, name="safeer-scit-naprej", daemon=True)
         nit.start()
-        nit.join(CAS_UPSTREAM)
+        nit.join(min(ROK_NAPREJ, CAS_UPSTREAM) if rok is None else rok)
         return izid[0] if izid else None
+
+    def _naprej_visi(self) -> bool:
+        """DoH ima poizvedbo, ki caka dlje od CAS_UPSTREAM (knjiznica TLS roka ni spostovala): kot odpoved."""
+        od = getattr(self, "_naprej_caka_od", None)
+        return od is not None and time.monotonic() - od >= CAS_UPSTREAM
 
     #: Ali je streznik naprej sifriran (False: uporabnik je izbral »DNS usmerjevalnika« - takrat nesifrirana pot ni
     #: odpoved in je ne stejemo ne kazemo kot izgubo sifriranja).
@@ -406,14 +436,18 @@ class Razresevalnik:
     def _posreduj(self, paket: bytes, tcp: bool) -> Optional[bytes]:
         if self.naprej is not None and not self.sifrirano_naprej():
             return self._vprasaj_usmerjevalnik(paket, tcp)
+        if self.naprej is not None and self._naprej_visi():
+            with self._kljuc:
+                self._brez_naprej_do = max(getattr(self, "_brez_naprej_do", 0.0), time.monotonic() + self.PREMOR_NAPREJ_S)
+                self._naprej_caka_od = None     # premor je zacet; po njem DoH poskusimo znova
         if self.naprej is not None and time.monotonic() >= getattr(self, "_brez_naprej_do", 0.0):
             odgovor = self._vprasaj_naprej(paket)
             if odgovor:
                 return odgovor if tcp or len(odgovor) <= NAJVEC_UDP else prirezan(paket)
             with self._kljuc:
                 self.rezerv += 1          # samo stetje, brez imen
-                self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
                 self.nesifrirano_cas = time.time()
+            # Premor mimo DoH (PREMOR_NAPREJ_S) doloci poizvedba v ozadju, ko res ne odgovori (_vprasaj_naprej).
         elif self.naprej is not None:
             with self._kljuc:
                 self.rezerv += 1
@@ -1093,7 +1127,8 @@ def namesti_pravilo() -> bool:
     # Vsebina gre rootu po standardnem vhodu (install /dev/stdin), ne iz zacasne datoteke: datoteka bi bila v lasti
     # uporabnika in program, ki ze tece kot uporabnik, bi jo lahko po vpisu gesla zamenjal s poljubnim pravilom polkit -
     # to je root (neodvisni pregled 19. 10. 2026). V Flatpaku vhod do gostitelja prenese flatpak-spawn (/app/host-bin).
-    koda, _ = _zazeni_z_vhodom(["pkexec", "install", "-m", "644", "-o", "root", "-g", "root", "/dev/stdin", PRAVILO_POT],
+    koda, _ = _zazeni_z_vhodom(root_ukaz.ukaz(root_ukaz.INSTALL, "-m", "644", "-o", "root", "-g", "root", "/dev/stdin",
+                                              PRAVILO_POT),
                                PRAVILO, cas=180.0)
     if koda != 0:
         return False
@@ -1299,6 +1334,13 @@ class Scit:
         r = self.razresevalnik
         if r is not None and r.vrata:
             izprazni_predpomnilnik()
+            # Ce je resolved medtem presel na rezervo (nas razresevalnik mu ni odgovoril pravocasno), naj uporabnikova
+            # izbira (»Blokiraj spet«, konec premora) velja takoj, ne sele ob naslednjem utripu straze (do UTRIP_S).
+            try:
+                with self._kljuc:
+                    self._uporabi()
+            except Exception as e:  # noqa: BLE001 - straza poskusi znova
+                print("[Scit] ponovna nastavitev DNS po spremembi ni uspela:", e, flush=True)
 
     def premor_se(self) -> int:
         """Koliko sekund premora je se ostalo (0 = Scit blokira)."""

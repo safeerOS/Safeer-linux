@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from core import os_sistem
+from core import os_sistem, root_ukaz
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -70,7 +70,10 @@ def test_razpolozljivo_po_seji(tmp_path, monkeypatch):
     monkeypatch.setattr(os_sistem, "MAPE_PROGRAMOV", (str(prog),))
     monkeypatch.setattr(os_sistem, "MAPE_MODULOV", (str(tmp_path / "ni"),))
     programi = {"cinnamon-settings", "gnome-control-center", "mintupdate", "mintsources", "gufw"}
-    monkeypatch.setattr(os_sistem.shutil, "which", lambda x: "/usr/bin/" + x if x in programi else None)
+    # Programi kot root imajo absolutno pot (core/root_ukaz.py): ime je zadnji del poti.
+    monkeypatch.setattr(os_sistem.shutil, "which",
+                        lambda x: "/usr/bin/" + os.path.basename(x) if os.path.basename(x) in programi else None)
+    monkeypatch.setattr(root_ukaz, "na_voljo", lambda: "pkexec" in programi)
     # Seja Cinnamon: moduli Cinnamona, brez plosc GNOME.
     monkeypatch.setattr(os_sistem, "_gnome_seja", lambda: False)
     r = os_sistem.razpolozljivo("sl")
@@ -93,13 +96,15 @@ def test_odpri_samo_znano(tmp_path, monkeypatch):
     monkeypatch.setattr(os_sistem, "MAPE_PROGRAMOV", (str(prog),))
     pognani = []
     monkeypatch.setattr(os_sistem, "_v_ozadju", lambda u: pognani.append(u) or True)
-    monkeypatch.setattr(os_sistem.shutil, "which", lambda x: "/usr/bin/" + x)
+    monkeypatch.setattr(os_sistem.shutil, "which", lambda x: "/usr/bin/" + os.path.basename(x))
+    monkeypatch.setattr(root_ukaz, "na_voljo", lambda: True)
     assert os_sistem.odpri_nastavitve("p:about")
     assert not os_sistem.odpri_nastavitve("p:wifi"), "plosce ni na racunalniku"
     assert not os_sistem.odpri_nastavitve("p:about; rm")
     assert os_sistem.odpri_nastavitve("info") and os_sistem.odpri_nastavitve("viri-programov")
     assert not os_sistem.odpri_nastavitve("--help")
-    assert pognani == [["gnome-control-center", "system", "about"], ["cinnamon-settings", "info"], ["pkexec", "mintsources"]]
+    assert pognani == [["gnome-control-center", "system", "about"], ["cinnamon-settings", "info"],
+                       ["/usr/bin/pkexec", "/usr/bin/mintsources"]]
 
 
 @pytest.fixture(scope="module")

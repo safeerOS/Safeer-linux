@@ -25,3 +25,7 @@ exec flatpak-spawn --host ${DISPLAY:+"--env=DISPLAY=$DISPLAY"} ${WAYLAND_DISPLAY
 EOF
     chmod 755 "$DEST/$tool"
 done
+# pkexec na gostitelju z absolutno potjo: flatpak-spawn --host bi ga sicer iskal po uporabnikovem PATH (~/.local/bin pred
+# /usr/bin), kamor lahko program, ki tece kot uporabnik, podtakne svojega (core/root_ukaz.py).
+sed -i 's|"$(basename "$0")" "$@"|/usr/bin/pkexec "$@"|' "$DEST/pkexec"
+grep -q '/usr/bin/pkexec "$@"' "$DEST/pkexec"

@@ -23,6 +23,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from core import okolje_procesa
+
 KOREN = Path(__file__).resolve().parents[1]
 QML = KOREN / "assets" / "os" / "qml" / "Namizje.qml"
 #: PySide6, ki ga prinese paket .deb (Mint 22 ga v svojih paketih nima; build_os_deb.sh -> packaging/pyside6_vendor.py).
@@ -72,13 +74,20 @@ def brez_gtk_teme_qt():
     »cannot register existing type 'GtkWidget'«, vidno samo ozadje). Qt temo GTK3 izbere po XDG_CURRENT_DESKTOP
     (GNOME, Cinnamon, Unity ...), zato med ustvarjanjem QApplication: tema xdgdesktopportal (portal, brez GTK), namizne
     spremenljivke pa zacasno skrite in nato vrnjene - programi, ki jih Safeer OS zazene, jih potrebujejo."""
+    # Samo zamenjava vrednosti, nikoli dodajanje ali brisanje spremenljivke (core/okolje_procesa.py): v procesu
+    # Safeer OS tu ze tecejo niti. Prazna namizna spremenljivka je za Qt enaka nenastavljeni.
+    tema = None
     if os.environ.get("QT_QPA_PLATFORMTHEME", "").strip().lower() in _GTK_TEME_QT:
-        os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
-    shranjeno = {k: os.environ.pop(k) for k in _NAMIZJE_SPREMENLJIVKE if k in os.environ}
+        tema = (okolje_procesa.zamenjaj("QT_QPA_PLATFORMTHEME", "xdgdesktopportal"),)
+    shranjeno = {k: okolje_procesa.zamenjaj(k, "") for k in _NAMIZJE_SPREMENLJIVKE if os.environ.get(k)}
     try:
         yield
     finally:
-        os.environ.update(shranjeno)
+        for k, v in shranjeno.items():
+            okolje_procesa.povrni(k, v)
+        # Tema velja samo za QApplication tega procesa; programi, ki jih Safeer OS zazene, dobijo uporabnikovo.
+        if tema is not None:
+            okolje_procesa.povrni("QT_QPA_PLATFORMTHEME", tema[0])
 
 
 def pripravi(argv: list, pozno: bool = False) -> bool:
@@ -91,14 +100,14 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         return True
     if not zelena():
         return False
-    nastavljen_egl = pozno and "QT_XCB_GL_INTEGRATION" not in os.environ
-    if nastavljen_egl:
-        os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
+    nastavljen_egl = pozno and not os.environ.get("QT_XCB_GL_INTEGRATION")
+    egl_prej = okolje_procesa.zamenjaj("QT_XCB_GL_INTEGRATION", "xcb_egl") if nastavljen_egl else None
     try:
         from PySide6.QtCore import QCoreApplication, Qt
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
-        os.environ.setdefault("QT_QPA_PLATFORM", platforma_qt())
+        if not os.environ.get("QT_QPA_PLATFORM"):
+            okolje_procesa.zamenjaj("QT_QPA_PLATFORM", platforma_qt())
         # HiDPI: delno merilo zaslona (125, 150, 175 %) Qt uporabi natancno, brez zaokrozanja na 1x/2x - enako kot GTK4.
         # Izmerjeno 18. 10. 2026, brezglavi sway z merilom 1,5: okno ima devicePixelRatio 1,5 (PassThrough), z Round 2,0
         # (sestavljalnik bi sliko pomanjsal - mehko besedilo). QScreen.devicePixelRatio tam kaze 2,0 (celo merilo izhoda).
@@ -111,7 +120,7 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         _qt_app.setApplicationName("Safeer OS")
         _qt_app.setDesktopFileName("io.github.memelandfaner.SafeerOS")
         if nastavljen_egl:
-            os.environ.pop("QT_XCB_GL_INTEGRATION", None)   # programi, ki jih Safeer OS zazene, naj izberejo sami
+            okolje_procesa.povrni("QT_XCB_GL_INTEGRATION", egl_prej)   # programi, ki jih Safeer OS zazene, izberejo sami
         return True
     except Exception as e:  # noqa: BLE001 - brez Qt: prejsnja delovna povrsina
         print("[SafeerOS lupina] Qt ni na voljo:", e, flush=True)

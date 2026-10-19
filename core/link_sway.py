@@ -23,7 +23,6 @@ import json
 import os
 import re
 import secrets
-import shlex
 import shutil
 import signal
 import socket
@@ -33,7 +32,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
-from core import zasebni_webkit
+from core import root_ukaz, zasebni_webkit
 from core.link_vnos import NAJVEC_BESEDILA, NAJVEC_DRZANJA_S, NAJVEC_PREMIK, TIPKE
 
 #: Ime navideznega zvocnega izhoda, na katerega igrajo programi drugega zaslona.
@@ -740,7 +739,14 @@ def stanje_namestitve() -> dict:
         posodobitev = bool(kandidat) and kandidat != namescena
     return {"manjka": manjka, "prestar": prestar, "posodobitev": posodobitev,
             "graficna": bool(DrugiZaslon.graficna()),
-            "orodja": bool(shutil.which("pkexec") and shutil.which("apt-get"))}
+            "orodja": bool(root_ukaz.na_voljo() and shutil.which("apt-get"))}
+
+
+def _za_sway(argv: List[str]) -> str:
+    """Ukazna vrstica za `swaymsg exec`: vsak argument v enojnih narekovajih. shlex.join vejice ne da v narekovaje,
+    sway pa ob vejici (in podpicju) ukaz razdeli - ime datoteke »film.mkv,exit« bi izvedlo sway ukaz exit (neodvisni
+    pregled, 19. 10. 2026). Znotraj narekovajev sway ne deli."""
+    return " ".join("'" + str(a).replace("'", "'\"'\"'") + "'" for a in argv)
 
 
 def paketi_za_namestitev(stanje: dict) -> List[str]:
@@ -767,7 +773,7 @@ def ukaz_namestitve(stanje: dict) -> Optional[List[str]]:
     paketi = paketi_za_namestitev(stanje)
     if not paketi or not stanje.get("orodja"):
         return None
-    return ["pkexec", "sh", "-c", "apt-get update -q; DEBIAN_FRONTEND=noninteractive apt-get install -y "
+    return [root_ukaz.pkexec(), root_ukaz.SH, "-c", "apt-get update -q; DEBIAN_FRONTEND=noninteractive apt-get install -y "
             + " ".join(paketi)]
 
 
@@ -1041,7 +1047,7 @@ class DrugiZaslon:
         zeton = secrets.token_hex(6)
         okna_pred = _okna_namizja()
         # Oznaka zagona je v ukazni vrstici lupine (sway pozene `sh -c`) in v okolju programa in njegovih otrok.
-        izid = self._msg(["exec", "%s=%s %s" % (ZAGON_SPREMENLJIVKA, zeton, shlex.join(argv))])
+        izid = self._msg(["exec", "%s=%s %s" % (ZAGON_SPREMENLJIVKA, zeton, _za_sway(argv))])
         uspeh = '"success": true' in izid
         self._zagon = dict(opis or {}, zeton=zeton, cas=time.monotonic(),
                            okna_pred=None if okna_pred is None else {o["id"] for o in okna_pred}) if uspeh else None

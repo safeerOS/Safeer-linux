@@ -22,6 +22,8 @@ import urllib.request
 import wave
 from typing import Callable, Optional
 
+from core import https_prenos
+
 MAPA = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "safeer-os", "govor")
 
 #: Model: vecjezicni whisper »small«, kvantiziran q5_1. Naslov je pripet na zapis repozitorija (ne spreminja se).
@@ -286,7 +288,7 @@ class Govor:
         h = hashlib.sha256()
         zadnji = -1
         try:
-            with urllib.request.urlopen(url, timeout=30) as odziv, open(zacasna, "wb") as f:
+            with https_prenos.odpri(url, timeout=30) as odziv, open(zacasna, "wb") as f:
                 while True:
                     if preklic.is_set():
                         raise RuntimeError("preklicano")
@@ -296,6 +298,8 @@ class Govor:
                     f.write(blok)
                     h.update(blok)
                     preneseno += len(blok)
+                    if preneseno > skupaj + (1 << 20):      # vecje od znane velikosti: ni nasa datoteka (poln disk)
+                        raise RuntimeError("datoteka je vecja od pricakovane: " + os.path.basename(cilj))
                     odstotek = min(99, int(100 * preneseno / skupaj))
                     if odstotek != zadnji:
                         zadnji = odstotek

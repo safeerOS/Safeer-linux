@@ -53,7 +53,8 @@ def pripravi_obvestila() -> bool:
     if _obvestila["prebrano"]:
         return _obvestila["vtic"] is not None
     _obvestila["prebrano"] = True
-    pot = os.environ.pop("NOTIFY_SOCKET", "")
+    from core import okolje_procesa      # prevzeto pred nitmi (core/okolje_procesa.py)
+    pot = okolje_procesa.prevzemi("NOTIFY_SOCKET")
     if not (pot.startswith("/") or pot.startswith("@")):
         return False
     try:

@@ -575,8 +575,14 @@ def kljuc_bliznjice(naslov: str) -> str:
 
 
 def je_domaca_stran(naslov: str, koren: str) -> bool:
+    """Ali je naslov nasa zacetna stran (file://<koren>/ui/splet.html). Preveri tudi shemo in gostitelja: prej je
+    stela samo pot, zato je bila https://<katerikoli streznik>/usr/lib/safeer-os/ui/splet.html tudi »domaca« - taka
+    stran je prek mostu »safeer« dobila bliznjice in zaznamke in jih lahko brisala (neodvisni pregled, 19. 10. 2026)."""
     try:
-        return os.path.realpath(urllib.parse.unquote(urllib.parse.urlparse(naslov).path)) == \
+        deli = urllib.parse.urlsplit(naslov)
+        if deli.scheme.lower() != "file" or deli.netloc.lower() not in ("", "localhost"):
+            return False
+        return os.path.realpath(urllib.parse.unquote(deli.path)) == \
             os.path.realpath(os.path.join(koren, "ui", "splet.html"))
     except Exception:
         return False

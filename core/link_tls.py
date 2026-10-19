@@ -136,6 +136,11 @@ def _isti(a: str, b: str) -> bool:
     return hmac.compare_digest(a.lower().encode(), b.lower().encode())
 
 
+def isti(a, b) -> bool:
+    """Odtis ali javni kljuc: oba neprazna in enaka, primerjava v stalnem casu (AGENTS.md)."""
+    return bool(a) and bool(b) and _isti(str(a), str(b))
+
+
 class RokovanjeVNiti:
     """Za http.server.ThreadingHTTPServer z ovitim TLS vticnikom (do_handshake_on_connect=False).
 

@@ -223,9 +223,11 @@ PONOVI_PO_NI_POTI_S = 4.0
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
 #: Zeton mostu safeerLink (drugi neodvisni pregled, 19. 10. 2026). WebKit da window.webkit.messageHandlers VSEM okvirjem
-#: strani, sporocilu pa ne doda okvirja - iframe ali XSS na strani Linka bi lahko seznanil napravo, odobril kodo, delil
-#: mapo ali zaslon. Zeton je samo v zaprtju MOST_JS, ki ga dobi le glavni okvir (TOP_FRAME); _na_sporocilo zavrne vsako
-#: sporocilo brez njega. Nov ob vsakem zagonu procesa, nikoli na disku ali v dnevniku (enako kot safeer_os.ZETON_MOSTU).
+#: strani, sporocilu pa ne doda okvirja - okvir drugega izvora na strani Linka bi lahko seznanil napravo, odobril kodo,
+#: delil mapo ali zaslon. Zeton je samo v zaprtju MOST_JS, ki ga dobi le glavni okvir (TOP_FRAME); _na_sporocilo zavrne
+#: vsako sporocilo brez njega. Okvir ISTEGA izvora (in XSS v glavnem okvirju) bi lahko klical window.SafeerLink
+#: neposredno - stran Linka je lokalna (assets/link, politika navigacije) in okvirjev nima. Preizkus v pravem WebKitu:
+#: tests/test_link_most_zivo.py. Zeton je nov ob vsakem zagonu procesa, nikoli na disku ali v dnevniku.
 ZETON_MOSTU = secrets.token_urlsafe(32)
 
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki

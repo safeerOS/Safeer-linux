@@ -807,7 +807,7 @@ def najdi_hub_prek_releja(krog_json: dict, nas_id: str, prednost: Optional[List[
             continue
         rele = LokalniRele(cilj, kljuc=kljuc, podpisi=podpisi)
         odtis, javni = link_tls.potrdilo_huba("wss://127.0.0.1:%d/" % rele.vrata, timeout=rok_s)
-        if odtis and javni and javni == kljuci.get(cilj):
+        if odtis and link_tls.isti(javni, kljuci.get(cilj)):
             _ODSOTNI.pop(cilj, None)
             return cilj, rele, odtis
         rele.zapri()

@@ -586,7 +586,7 @@ class MeshPovezovalec:
             return False
         # Zaupanje: kljuc v potrdilu mora biti kljuc tega clana v krogu (oglas mDNS ne velja nic).
         odtis, kljuc = link_tls.potrdilo_huba(naslov)
-        if not odtis or not kljuc or kljuc != clan.get("kljuc"):
+        if not odtis or not link_tls.isti(kljuc, clan.get("kljuc")):
             return False
         vstopnica, _ = link_hub.vzemi_vstopnico_s_podpisom(naslov, self.nas_id, odtis, self.ime)
         if not vstopnica:
@@ -695,7 +695,7 @@ def sredisce_naprave(hub, mesh, id_naprave: str, potrdilo: Optional[Callable] = 
             kandidati = [rele]
     for n in kandidati:
         odtis, kljuc = (potrdilo or link_tls.potrdilo_huba)(n)
-        if odtis and kljuc and kljuc == clan.get("kljuc"):
+        if odtis and link_tls.isti(kljuc, clan.get("kljuc")):
             return (n, odtis), ""
     return None, "sredisce_naprave_ni_dosegljivo"
 

@@ -30,5 +30,7 @@ def programsko(okolje: Optional[MutableMapping[str, str]] = None) -> bool:
     obstojece = [d.strip() for d in str(env.get("GST_PLUGIN_FEATURE_RANK") or "").split(",") if d.strip()]
     imena = {d.split(":", 1)[0] for d in obstojece}
     dodaj = ["%s:NONE" % ime for ime in STROJNI if ime not in imena]
-    env["GST_PLUGIN_FEATURE_RANK"] = ",".join(obstojece + dodaj)
+    nova = ",".join(obstojece + dodaj)
+    if env.get("GST_PLUGIN_FEATURE_RANK") != nova:     # ponovni klic (Control v procesu Safeer OS): brez setenv med nitmi
+        env["GST_PLUGIN_FEATURE_RANK"] = nova
     return True

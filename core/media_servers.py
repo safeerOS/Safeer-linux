@@ -30,11 +30,39 @@ from typing import Optional
 PONUDNIKI = ("jellyfin", "emby", "navidrome", "plex", "kodi", "tvheadend", "azuracast", "funkwhale", "dlna", "stremio")
 
 
+#: Glave s poverilnico (Jellyfin/Emby, Plex, Basic za Kodi/TVHeadend, Bearer, piskotki).
+_POVERILNICE = frozenset({"authorization", "proxy-authorization", "cookie", "x-emby-token", "x-mediabrowser-token",
+                          "x-emby-authorization", "x-plex-token"})
+
+
+def _streznik(deli: urllib.parse.SplitResult) -> tuple:
+    privzeta = {"http": 80, "https": 443}.get(deli.scheme, 0)
+    try:
+        vrata = deli.port or privzeta
+    except ValueError:
+        vrata = -1
+    return (deli.hostname or "").lower(), vrata
+
+
 class _HTTPSOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Preusmeritev samo na dovoljen naslov, nikoli s https na http. Poverilnice gredo samo na isti streznik (ali isti
+    gostitelj ob prehodu s http na https): urllib bi jih sicer poslal tudi novemu gostitelju - npr. prijavni strani
+    pred Jellyfinom ali odprti preusmeritvi (neodvisni pregled, 19. 10. 2026)."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not dovoljen_naslov(newurl):
             raise ValueError("Strežnik je ponudil nezavarovano preusmeritev.")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        star, nov = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if star.scheme == "https" and nov.scheme != "https":
+            raise ValueError("Strežnik je preusmeril s HTTPS na nezavarovan HTTP.")
+        nova = super().redirect_request(req, fp, code, msg, headers, newurl)
+        isti = _streznik(star) == _streznik(nov) or (star.scheme == "http" and nov.scheme == "https"
+                                                     and _streznik(star)[0] == _streznik(nov)[0])
+        if nova is not None and not isti:
+            for glave in (nova.headers, nova.unredirected_hdrs):
+                for ime in [k for k in glave if k.lower() in _POVERILNICE]:
+                    del glave[ime]
+        return nova
 
 
 def _url(base: str, path: str, params: dict | None = None) -> str:
@@ -59,6 +87,8 @@ def je_domace_omrezje(host: str) -> bool:
             naslovi = [ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, None)[:4]]
         except OSError:
             return False
+    # ::ffff:8.8.8.8 je javni IPv4; Python pred 3.12.4 ga steje za zasebnega (CVE-2024-4032).
+    naslovi = [getattr(a, "ipv4_mapped", None) or a for a in naslovi]
     return bool(naslovi) and all(a.is_private or a.is_loopback or a.is_link_local for a in naslovi)
 
 

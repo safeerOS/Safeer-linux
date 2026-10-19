@@ -46,6 +46,9 @@ if KOREN not in sys.path:
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
 zasebni_webkit.nastavi(KOREN)
+# Se ena nit: mesta za spremenljivke, ki jih bo lupina Qt v tem procesu zacasno zamenjala (core/okolje_procesa.py).
+from core import okolje_procesa  # noqa: E402
+okolje_procesa.pred_nitmi()
 from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
@@ -7762,11 +7765,11 @@ def main() -> int:
     if lupina_streznik.locena():
         sys.modules["PySide6"] = None
     # Varuh je Safeer OS znova zagnal po sesutju, zamrznitvi ali preveliki porabi pomnilnika: stanje se obnovi.
-    obnova_po_napaki = os.environ.pop("SAFEER_OBNOVA", "")
-    if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os.environ.get(os_okna.IZKLOP):
+    obnova_po_napaki = okolje_procesa.prevzemi("SAFEER_OBNOVA")     # prevzeto pred nitmi (core/okolje_procesa.py)
+    if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os_okna.izklopljen():
         # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck) in brez skrivanja Mintovega
         # pulta, da je Safeer OS vsaj uporaben in da ima uporabnik pot nazaj v Mint.
-        os.environ[os_okna.IZKLOP] = "1"
+        os_okna.izklopi()          # zastavica v procesu: tu ze tecejo niti, setenv ne (core/okolje_procesa.py)
         VARNI_NACIN = True
         os_stabilnost.zapisi("safeer-os", "varni nacin: seznam oken izklopljen, Mintov pult ostane viden")
         print("[SafeerOS] varni način: seznam odprtih oken je izklopljen (glej ~/.cache/safeer-os/dnevnik.log)")

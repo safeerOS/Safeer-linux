@@ -31,6 +31,23 @@ class TestPremorNaprej(unittest.TestCase):
             r._posreduj(b"\x12\x34" + b"\x00" * 30, False)
             self.assertEqual(len(klici), 2)
 
+    def test_pocasen_naprej_ne_preseze_roka_resolved(self):
+        """CI 8ac36e9: DoH je odgovarjal 2,5 s, systemd-resolved (rok ~750 ms) je presel na usmerjevalnik mimo Scita.
+        Odgovor mora priti v ROK_NAPREJ (+ usmerjevalnik); pocasen, a delujoc DoH ne sprozi premora."""
+        def naprej(paket):
+            time.sleep(1.0)
+            return paket[:2] + b"\x81\x80" + b"\x00" * 8
+
+        r = os_scit.Razresevalnik(lambda ime: None, lambda: [])
+        r.naprej = naprej
+        with mock.patch.object(r, "_vprasaj_usmerjevalnik", return_value=b"\x12\x34usmerjevalnik"):
+            z = time.monotonic()
+            odgovor = r._posreduj(b"\x12\x34" + b"\x00" * 30, False)
+            self.assertLess(time.monotonic() - z, 0.7)
+        self.assertEqual(odgovor, b"\x12\x34usmerjevalnik")
+        time.sleep(1.2)                                          # DoH je odgovoril v ozadju
+        self.assertEqual(getattr(r, "_brez_naprej_do", 0.0), 0.0, "delujoc DoH ne gre v premor")
+
     def test_delujoc_naprej_odgovori(self):
         r = os_scit.Razresevalnik(lambda ime: None, lambda: [])
         r.naprej = lambda paket: paket[:2] + b"\x81\x80" + b"\x00" * 8

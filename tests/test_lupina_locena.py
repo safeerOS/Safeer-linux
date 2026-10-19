@@ -375,7 +375,8 @@ class Povezano(unittest.TestCase):
     def test_stanje_obnove(self):
         s = _beri("safeer_os.py")
         self.assertIn("nova_razlicica.OBNOVA", s)
-        self.assertIn('os.environ.pop("SAFEER_OBNOVA", "")', s)
+        # Prevzeta pred nitmi in ne gre naprej programom (core/okolje_procesa.PREVZETE).
+        self.assertIn('okolje_procesa.prevzemi("SAFEER_OBNOVA")', s)
         self.assertIn('stanje.get("pid") != prejsnji', s)
         self.assertIn('"okna": [ime for ime, par in self.okna_razdelkov.items() if par[0].get_visible()]', s)
 

@@ -189,7 +189,7 @@ class LokalniPretok:
         # Neposredno samo, ce na tem naslovu res odgovori ta naprava (pripet odtis): zunaj doma je na
         # istem zasebnem naslovu lahko cisto druga naprava.
         if (gostitelj and not brez_omrezja(gostitelj)
-                and self._potrdilo("wss://%s:%d/" % (gostitelj, vrata), NEPOSREDNO_CAKAJ_S)[0] == vir.odtis):
+                and link_tls.isti(self._potrdilo("wss://%s:%d/" % (gostitelj, vrata), NEPOSREDNO_CAKAJ_S)[0], vir.odtis)):
             p = _Pot(gostitelj, vrata, "/d/", vir.odtis, False, zdaj + POT_VELJA_S)
         else:
             p = self._pot_prek_releja(vir, zdaj)
@@ -223,7 +223,7 @@ class LokalniPretok:
             # Zaupanje: kljuc v potrdilu Huba = kljuc naprave iz kroga (odtis prek releja je lahko drug
             # kot odtis streznika datotek v LAN, kljuc pa je isti). Nato velja pripet odtis.
             odtis, kljuc = self._potrdilo("wss://127.0.0.1:%d/" % vrata, 15.0)
-            if not odtis or not kljuc or kljuc != vir.kljuc:
+            if not odtis or not link_tls.isti(kljuc, vir.kljuc):
                 return None
             with self._zaklep:
                 self._odtisi_releja[cilj] = odtis

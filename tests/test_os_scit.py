@@ -523,11 +523,15 @@ class Flatpak(unittest.TestCase):
                     znak = os.path.join(m, "config", "safeer-os", "scit-pravilo")
                     if os.path.exists(znak):
                         os.remove(znak)
+                    from core import root_ukaz
                     with Zamenjave(_zazeni_z_vhodom=z_vhodom, v_flatpaku=lambda f=flatpak: f,
-                                   PRAVILO_POT="/ni/te/poti.rules"):
+                                   PRAVILO_POT="/ni/te/poti.rules"), \
+                            mock.patch.object(root_ukaz, "v_flatpaku", lambda f=flatpak: f):
                         self.assertTrue(os_scit.namesti_pravilo())
-                    self.assertEqual(klici, [(["pkexec", "install", "-m", "644", "-o", "root", "-g", "root", "/dev/stdin",
-                                               "/ni/te/poti.rules"], os_scit.PRAVILO)])
+                    # pkexec in program z absolutno potjo (core/root_ukaz.py); v Flatpaku ovoj gostitelja.
+                    pkexec = "/app/host-bin/pkexec" if flatpak else "/usr/bin/pkexec"
+                    self.assertEqual(klici, [([pkexec, "/usr/bin/install", "-m", "644", "-o", "root", "-g", "root",
+                                               "/dev/stdin", "/ni/te/poti.rules"], os_scit.PRAVILO)])
                     self.assertTrue(os.path.isfile(znak))
             finally:
                 os_scit.shutil.which = izvirni_which

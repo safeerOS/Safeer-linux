@@ -52,12 +52,26 @@ def _glavna_nit() -> bool:
     return False
 
 
+_izklopljeno = False
+
+
+def izklopi() -> None:
+    """Varni nacin Safeer OS: brez seznama oken v tem procesu (prej okoljska spremenljivka IZKLOP, nastavljena v main(),
+    ko so niti ze tekle)."""
+    global _izklopljeno
+    _izklopljeno = True
+
+
+def izklopljen() -> bool:
+    return _izklopljeno or bool(os.environ.get(IZKLOP))
+
+
 def _pridobi():
     """Povezava z X (core/x11.py) ali None (varni nacin, druga nit, ni X11, seja Wayland).
 
     Wayland: tudi z GDK prek XWaylanda bi seznam pokazal samo programe XWayland - vrstica bi bila lazno nepopolna.
     Wayland seznama oken odjemalcu ne da (GNOME ga nima niti v razsiritvi), zato ga ni."""
-    if os.environ.get(IZKLOP):
+    if izklopljen():
         return None
     from core import seja_prikaza
     if seja_prikaza.je_wayland():

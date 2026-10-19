@@ -3260,7 +3260,7 @@
     c.innerHTML = "";
     var j = jblStanje;
     if (!j || !(j.vklop || j.najdena)) return;
-    var pod = jblZaposleno ? t("jblPrenasam") : t("jblOpis");
+    var pod = jblZaposleno ? t("jblPrenasam") : (j.napaka ? t("jblNapaka_" + j.napaka) : t("jblOpis"));
     var st = stikalo("jblStikalo", "zvok", !!j.vklop, function (v) {
       if (jblZaposleno) return;
       jblZaposleno = true;
@@ -3777,8 +3777,10 @@
     AG.stanje = st;
     var vnos = $("agentNaslovVnos"), stikalo = $("stikaloAgent"), izbira = $("agentTrajanje");
     stikalo.setAttribute("aria-checked", st.vklopljen ? "true" : "false");
-    if (document.activeElement !== vnos) vnos.value = st.okolje || st.naslov || "";
+    if (document.activeElement !== vnos) vnos.value = st.okolje || st.naslov || st.neveljaven_naslov || "";
     vnos.disabled = !!st.okolje;
+    // Shranjen naslov, ki ga ta razlicica ne sprejme vec (npr. http:// zunaj domacega omrezja): pokazi razlog.
+    if (!st.okolje && st.napaka_naslova) agentNapaka(st.napaka_naslova);
     $("agentNaslovNamig").textContent = st.okolje ? t("agentOkolje") : t("agentNaslovNamig");
     izbira.innerHTML = "";                // vedno v jeziku vmesnika (jezik se lahko spremeni med delom)
     (st.trajanja || []).forEach(function (m) { var o = el("option", "", ubezi(minuteAgenta(m))); o.value = String(m); izbira.appendChild(o); });

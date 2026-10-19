@@ -77,7 +77,7 @@ class Zajem(unittest.TestCase):
         s = {"manjka": ["wtype", "rm -rf /"], "posodobitev": True, "orodja": True}
         self.assertEqual(link_sway.paketi_za_namestitev(s), ["wtype", "wf-recorder"])
         u = link_sway.ukaz_namestitve(s)
-        self.assertEqual(u[0], "pkexec")
+        self.assertEqual(u[:2], ["/usr/bin/pkexec", "/bin/sh"], "absolutne poti (core/root_ukaz.py)")
         self.assertTrue(u[-1].endswith("apt-get install -y wtype wf-recorder"))
         self.assertIsNone(link_sway.ukaz_namestitve({"manjka": [], "posodobitev": False, "orodja": True}))
         self.assertIsNone(link_sway.ukaz_namestitve({"manjka": ["sway"], "orodja": False}))

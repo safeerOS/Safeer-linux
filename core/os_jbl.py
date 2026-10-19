@@ -33,6 +33,8 @@ import ssl
 import subprocess
 import urllib.parse
 import urllib.request
+
+from core import https_prenos
 from typing import List, Optional
 
 VIR = ("https://raw.githubusercontent.com/MrBearPresident/JBL_Soundbar/"
@@ -86,7 +88,7 @@ def ima_potrdilo() -> bool:
     return True
 
 
-def prenesi_potrdilo(odpri=urllib.request.urlopen) -> bool:
+def prenesi_potrdilo(odpri=https_prenos.odpri) -> bool:
     """Potrdilo JBL One z dolocenega commita; brez ujemanja odtisa ne shranimo nicesar."""
     vsebina = {}
     for ime, odtis in ODTISI.items():
@@ -194,6 +196,7 @@ def vklopi(vklop: bool) -> dict:
     if not bt:
         return dict(stanje(), napaka="ne_odgovori")
     n.update({"vklop": True, "ime": v["ime"], "naslov": v["naslov"], "bt": bt, "odtis": odtis})
+    n.pop("napaka", None)
     _shrani(n)
     return stanje()
 
@@ -201,6 +204,8 @@ def vklopi(vklop: bool) -> dict:
 def stanje(isci: bool = False) -> dict:
     n = nastavitve()
     izid = {"vklop": bool(n.get("vklop")) and ima_potrdilo(), "ime": n.get("ime", ""), "bt": n.get("bt", "")}
+    if izid["vklop"] and n.get("napaka") == "odtis":
+        izid["napaka"] = "odtis"        # vrstica ima novo potrdilo: uporabnik jo poveze znova (izklop in vklop)
     if isci and not izid["vklop"]:
         vrstice = najdi(3.0)
         if vrstice:
@@ -231,10 +236,17 @@ def preklopi(vhod: str) -> bool:
     # Vklop pred 1.0.128 si odtisa ni zapomnil: zapomni si ga prvi ukaz po posodobitvi (enako kot vklop).
     odtis = str(n.get("odtis") or "") or None
 
+    tuje_potrdilo = []
+
     def poslji(na: str) -> bool:
-        _besedilo, dejanski = _zahteva(na, "sendAppController", {"key_pressed": TIPKE[vhod]}, odtis=odtis)
-        if odtis is None:
+        try:
+            _besedilo, dejanski = _zahteva(na, "sendAppController", {"key_pressed": TIPKE[vhod]}, odtis=odtis)
+        except NapakaOdtisa:
+            tuje_potrdilo.append(na)
+            raise
+        if odtis is None or n.get("napaka"):
             n["odtis"] = dejanski
+            n.pop("napaka", None)
             _shrani(n)
         return True
 
@@ -249,8 +261,13 @@ def preklopi(vhod: str) -> bool:
             try:
                 poslji(v["naslov"])
             except Exception:
-                return False
+                break
             n["naslov"] = v["naslov"]
             _shrani(n)
             return True
+    if tuje_potrdilo and n.get("napaka") != "odtis":
+        # Vrstica (ali naprava na njenem naslovu) ima drugo potrdilo: ukaza nismo poslali. Nastavitve to pokazejo,
+        # sicer bi preklop tiho nehal delovati (neodvisni pregled, 19. 10. 2026).
+        n["napaka"] = "odtis"
+        _shrani(n)
     return False

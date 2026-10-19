@@ -89,6 +89,8 @@ def domace_omrezje(gostitelj: str) -> bool:
         return False
     try:
         ip = ipaddress.ip_address(g)
+        # ::ffff:8.8.8.8 je javni IPv4; Python pred 3.12.4 (Mint 22: 3.12.3) ga steje za zasebnega (CVE-2024-4032).
+        ip = getattr(ip, "ipv4_mapped", None) or ip
         return ip.is_private or ip.is_loopback or ip.is_link_local
     except ValueError:
         pass
@@ -142,11 +144,25 @@ def trajanje() -> int:
     return m if m in TRAJANJA else PRIVZETO_TRAJANJE
 
 
+def _shranjen_neveljaven() -> tuple:
+    """(naslov, koda napake) za shranjen naslov, ki ga preveri_naslov zavrne - npr. http:// zunaj domacega omrezja,
+    shranjen pred 1.0.128. Nastavitve ga pokazejo z razlogom; sicer bi agent po posodobitvi tiho nehal delati."""
+    surov = _beri("naslov")
+    if not surov:
+        return "", ""
+    try:
+        preveri_naslov(surov)
+    except ValueError as e:
+        return surov[:NAJDALJSI_NASLOV], str(e)
+    return "", ""
+
+
 def stanje() -> dict:
     okolje = os.environ.get("SAFEER_AGENT", "").strip()
+    neveljaven, napaka = _shranjen_neveljaven()
     return {"naslov": naslov_shranjen(), "vklopljen": vklopljen(), "trajanje": trajanje(), "trajanja": list(TRAJANJA),
             "kljuc": bool(_beri("kljuc")), "okolje": okolje if okolje.startswith(("http://", "https://")) else "",
-            "na_voljo": _na_voljo()}
+            "na_voljo": _na_voljo(), "neveljaven_naslov": neveljaven, "napaka_naslova": napaka}
 
 
 def _na_voljo() -> bool:

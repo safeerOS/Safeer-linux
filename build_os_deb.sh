@@ -197,12 +197,13 @@ if [ "${1:-}" = "remove" ] && [ -x /usr/bin/safeer-cinnamon ]; then
                 z="$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^DISPLAY=//p' | head -n1)" || true
                 [ -n "$z" ] && zaslon="$z"
             fi
-            timeout 60 runuser -u "$ime" -- env HOME="$dom" XDG_RUNTIME_DIR="/run/user/$uid" \
+            # setsid in </dev/null: uporabnikova koda ne dobi rootovega terminala (TIOCSTI bi vrinil vnos v apt).
+            timeout 60 setsid runuser -u "$ime" -- env HOME="$dom" XDG_RUNTIME_DIR="/run/user/$uid" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" DISPLAY="$zaslon" \
-                SAFEER_CINNAMON_BREZ_SISTEMA=1 /usr/bin/safeer-cinnamon --izklopi >/dev/null 2>&1 || true
+                SAFEER_CINNAMON_BREZ_SISTEMA=1 /usr/bin/safeer-cinnamon --izklopi </dev/null >/dev/null 2>&1 || true
         elif command -v dbus-run-session >/dev/null 2>&1; then
-            timeout 60 runuser -u "$ime" -- env HOME="$dom" SAFEER_CINNAMON_BREZ_SISTEMA=1 \
-                dbus-run-session -- /usr/bin/safeer-cinnamon --izklopi >/dev/null 2>&1 || true
+            timeout 60 setsid runuser -u "$ime" -- env HOME="$dom" SAFEER_CINNAMON_BREZ_SISTEMA=1 \
+                dbus-run-session -- /usr/bin/safeer-cinnamon --izklopi </dev/null >/dev/null 2>&1 || true
         fi
         if [ -f "$dom/.config/safeer-cinnamon/vklopljeno" ]; then
             echo "Safeer Cinnamon: uporabniku $ime prejsnjega videza ni bilo mogoce vrniti samodejno."

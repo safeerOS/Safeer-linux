@@ -176,6 +176,16 @@ class JblOdtis(unittest.TestCase):
         self.assertFalse(os_jbl.preklopi("tv"))
         self.assertEqual(self.zahteve, [], "ukaz je sel napravi z drugim potrdilom")
 
+    def test_novo_potrdilo_vrstice_pove_nastavitvam(self):
+        """Ponastavitev ali nova programska oprema JBL: preklop ne dela, Nastavitve pa povedo zakaj (ne tiho)."""
+        self._nastavi(odtis="0" * 64)
+        self.assertFalse(os_jbl.preklopi("tv"))
+        self.assertEqual(os_jbl.stanje().get("napaka"), "odtis")
+        with mock.patch.object(os_jbl, "najdi", return_value=[{"ime": "JBL BAR 300", "naslov": "127.0.0.1", "mac": ""}]):
+            self.assertTrue(os_jbl.vklopi(True)["vklop"])          # izklop in vklop: Safeer si zapomni novo potrdilo
+        self.assertNotIn("napaka", os_jbl.stanje())
+        self.assertTrue(os_jbl.preklopi("tv"))
+
     def test_prava_vrstica_dobi_ukaz(self):
         self._nastavi(odtis=self.odtis_vrstice)
         self.assertTrue(os_jbl.preklopi("tv"))

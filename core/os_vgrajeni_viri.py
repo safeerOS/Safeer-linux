@@ -80,6 +80,8 @@ def je_zasebni_gostitelj(gostitelj: str) -> bool:
         return False
     try:
         ip = ipaddress.ip_address(g)
+        # ::ffff:8.8.8.8 je javni IPv4; Python pred 3.12.4 ga steje za zasebnega (CVE-2024-4032).
+        ip = getattr(ip, "ipv4_mapped", None) or ip
         return ip.is_private or ip.is_loopback or ip.is_link_local
     except ValueError:
         pass

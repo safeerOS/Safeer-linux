@@ -5,6 +5,7 @@ import hashlib
 import http.server
 import json
 import os
+import shutil
 import socketserver
 import sys
 import tempfile
@@ -528,7 +529,7 @@ class Namestitev(unittest.TestCase):
         with mock.patch.object(op.subprocess, "run", return_value=op.subprocess.CompletedProcess([], 0, "", "")) as run:
             op.namesti_linux("deb", ["/tmp/a.deb", "/tmp/b.deb"], [self.A, self.B])
         argv = run.call_args[0][0]
-        self.assertEqual(argv, ["pkexec", "/bin/sh", "-c", op.NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev",
+        self.assertEqual(argv, ["/usr/bin/pkexec", "/bin/sh", "-c", op.NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev",
                                 self.A, "/tmp/a.deb", self.B, "/tmp/b.deb"])
         self.assertNotIn("--allow-downgrades", " ".join(argv))
 
@@ -577,6 +578,33 @@ class Namestitev(unittest.TestCase):
         self.assertEqual(r.returncode, 3)
         self.assertIn("SHA-256 se ne ujema", r.stderr)
         self.assertEqual(klic, [], "apt-get se ne zazene")
+
+    def test_root_ne_bere_povezave_ali_fifo(self):
+        """Pregled 19. 10. 2026: podtaknjena povezava (npr. na /dev/zero - poln disk) ali FIFO (root caka do roka)
+        mora takoj pasti, apt-get se ne zazene."""
+        import time
+        for vrsta in ("povezava", "fifo"):
+            d = tempfile.mkdtemp(prefix="safeer-root-podtaknjeno-")
+            try:
+                paket = os.path.join(d, "safeer-os_9.9.9_amd64.deb")
+                if vrsta == "povezava":
+                    os.symlink("/dev/zero", paket)
+                else:
+                    os.mkfifo(paket)
+                bin_ = os.path.join(d, "bin")
+                os.mkdir(bin_)
+                with open(os.path.join(bin_, "apt-get"), "w") as f:
+                    f.write('#!/bin/sh\ntouch "%s"\n' % os.path.join(d, "apt-klican"))
+                os.chmod(os.path.join(bin_, "apt-get"), 0o755)
+                okolje = dict(os.environ, PATH=bin_ + os.pathsep + os.environ.get("PATH", ""))
+                zacetek = time.monotonic()
+                r = op.subprocess.run(["/bin/sh", "-c", op.NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev", "a" * 64, paket],
+                                      capture_output=True, text=True, timeout=60, env=okolje)
+                self.assertEqual(r.returncode, 2, (vrsta, r.stderr))
+                self.assertLess(time.monotonic() - zacetek, 10, vrsta)
+                self.assertFalse(os.path.exists(os.path.join(d, "apt-klican")), vrsta)
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
 
     def test_v_izdaji_ni_lokalnega_http(self):
         self.assertFalse(op._LOKALNI_HTTP)

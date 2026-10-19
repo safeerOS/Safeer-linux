@@ -61,15 +61,16 @@ class Pravila(unittest.TestCase):
         self.assertEqual(tek.ukazi[1], ["flatpak", "install", "--user", "--noninteractive", "-y", "flathub", "io.github.kolunmi.Bazaar"])
 
     def test_apt_prek_pkexec_in_preklic(self):
-        tek = Zapis({"pkexec apt-get install": (0, "")})
+        tek = Zapis({"/usr/bin/pkexec /usr/bin/apt-get install": (0, "")})
         self.assertTrue(p.namesti("gnome-software", tek, vse_je)["ok"])
-        self.assertEqual(tek.ukazi[0], ["pkexec", "apt-get", "install", "-y", "gnome-software", "gnome-software-plugin-flatpak"])
-        self.assertEqual(p.namesti("gnome-software", Zapis({"pkexec": (126, "")}), vse_je)["napaka"], "preklicano")
+        self.assertEqual(tek.ukazi[0], ["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", "gnome-software",
+                                        "gnome-software-plugin-flatpak"])
+        self.assertEqual(p.namesti("gnome-software", Zapis({"/usr/bin/pkexec": (126, "")}), vse_je)["napaka"], "preklicano")
 
     def test_snap_omogoci_z_enim_geslom_in_neznan_ne(self):
-        tek = Zapis({"pkexec sh -c": (0, "")})
+        tek = Zapis({"/usr/bin/pkexec /bin/sh -c": (0, "")})
         self.assertTrue(p.namesti("snap-store", tek, vse_je)["ok"])
-        self.assertEqual(tek.ukazi, [["pkexec", "sh", "-c", p.SNAP_SKRIPTA]])
+        self.assertEqual(tek.ukazi, [["/usr/bin/pkexec", "/bin/sh", "-c", p.SNAP_SKRIPTA]])
         self.assertIn("nosnap.pref", p.SNAP_SKRIPTA)
         d = p.podrobnosti("snap-store", Zapis(), nic, obstaja=lambda pot: True)
         self.assertEqual(d["koraki"], ["nosnap", "snapd", "snap-store"])
@@ -85,9 +86,9 @@ class Pravila(unittest.TestCase):
         tek = Zapis({"flatpak remote-add": (0, "")})
         self.assertTrue(p.dodaj_vir("https://dl.flathub.org/repo/flathub.flatpakrepo", tek, vse_je)["ok"])
         self.assertEqual(tek.ukazi[0], ["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"])
-        tek = Zapis({"pkexec add-apt-repository": (126, "")})
+        tek = Zapis({"/usr/bin/pkexec /usr/bin/add-apt-repository": (126, "")})
         self.assertEqual(p.dodaj_vir("ppa:mozillateam/ppa", tek, vse_je)["napaka"], "preklicano")
-        self.assertEqual(tek.ukazi[0], ["pkexec", "add-apt-repository", "-y", "ppa:mozillateam/ppa"])
+        self.assertEqual(tek.ukazi[0], ["/usr/bin/pkexec", "/usr/bin/add-apt-repository", "-y", "ppa:mozillateam/ppa"])
 
     def test_viri_seznam(self):
         import tempfile, os as _os

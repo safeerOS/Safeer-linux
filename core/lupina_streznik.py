@@ -14,7 +14,7 @@ import socket
 import threading
 from typing import Any, Optional
 
-from core import lupina_most, os_lupina, varuh_procesov
+from core import lupina_most, okolje_procesa, os_lupina, varuh_procesov
 
 #: Ce lupina toliko bajtov ne prebere (zamrznjena), povezavo prekinemo - Safeer OS ne sme rasti zaradi nje.
 NAJVEC_IZHOD = 32 * 1024 * 1024
@@ -28,7 +28,7 @@ def locena() -> bool:
     Spremenljivko prebere enkrat in jo odstrani iz okolja: programi, ki jih Safeer OS zazene, je ne podedujejo."""
     global _vtic
     if _vtic is None:
-        _vtic = os.environ.pop("SAFEER_LUPINA_VTIC", "")
+        _vtic = okolje_procesa.prevzemi("SAFEER_LUPINA_VTIC")     # prevzeto pred nitmi
     return bool(_vtic)
 
 
@@ -103,11 +103,10 @@ class OddaljenaLupina(os_lupina.Namizje):
         except FileNotFoundError:
             pass
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM | socket.SOCK_CLOEXEC | socket.SOCK_NONBLOCK)
-        stara = os.umask(0o177)        # vticnica 0600 ze ob nastanku (ne sele po chmod)
-        try:
-            s.bind(self.pot)
-        finally:
-            os.umask(stara)
+        # Brez os.umask: velja za ves proces, kjer ze tecejo niti (mapa, ki jo druga nit ustvari v tem oknu, bi dobila
+        # 0600). Vticnica je v $XDG_RUNTIME_DIR/safeer-os (0700) in sogovornika preverimo (lupina_most.sogovornik).
+        s.bind(self.pot)
+        os.chmod(self.pot, 0o600)
         s.listen(4)
         GLib = self._GLib
         self._viri.append(GLib.io_add_watch(s.fileno(), GLib.PRIORITY_DEFAULT, GLib.IO_IN, self._sprejmi))

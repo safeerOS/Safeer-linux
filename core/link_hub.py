@@ -142,15 +142,21 @@ class Nastavitve:
     naloži = nalozi  # staro ime s sumnikom; jedro uporablja ASCII
 
     def shrani(self) -> None:
+        # Zeton Huba in zetoni seznanitev: datoteka 0600 ze ob nastanku (prej po umask 0644, chmod sele po zapisu) in
+        # mapa 0700; ob napaki zacasna datoteka ne ostane (neodvisni pregled, 19. 10. 2026).
+        zacasna = self.pot + ".tmp"
         try:
-            os.makedirs(os.path.dirname(self.pot), exist_ok=True)
-            zacasna = self.pot + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as d:
+            os.makedirs(os.path.dirname(self.pot), mode=0o700, exist_ok=True)
+            fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with open(fd, "w", encoding="utf-8") as d:
+                os.fchmod(d.fileno(), 0o600)       # zacasna, ki je ostala od prej, je imela lahko druge pravice
                 json.dump(self.podatki, d, ensure_ascii=False, indent=2)
-            os.chmod(zacasna, 0o600)
             os.replace(zacasna, self.pot)
         except Exception:
-            pass
+            try:
+                os.unlink(zacasna)
+            except OSError:
+                pass
 
     def get(self, kljuc: str, privzeto=None):
         return self.podatki.get(kljuc, privzeto)
@@ -355,7 +361,7 @@ def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None, seznanjen
     hubi = [h for h in poisci_hube_mdns() if h["tls"]]
     if odtis:
         for h in hubi:
-            if h["fp"] == odtis.lower() and je_hub(_osnova(h["naslov"]), odtis=odtis):
+            if link_tls.isti(h["fp"], odtis) and je_hub(_osnova(h["naslov"]), odtis=odtis):
                 return {"naslov": h["naslov"], "fp": h["fp"], "isti": True}
     znani_odtisi = {str(o).lower() for o in seznanjeni if o}
     for h in hubi:
@@ -372,7 +378,7 @@ def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None, seznanjen
         if clan is None:
             continue
         videni, kljuc = link_tls.potrdilo_huba(h["naslov"])
-        if videni and kljuc and kljuc == clan["kljuc"] and je_hub(_osnova(h["naslov"]), odtis=videni):
+        if videni and link_tls.isti(kljuc, clan["kljuc"]) and je_hub(_osnova(h["naslov"]), odtis=videni):
             return {"naslov": h["naslov"], "fp": videni, "isti": False, "krog": True, "id": h["id"]}
     for h in hubi:
         if je_hub(_osnova(h["naslov"])):
@@ -638,6 +644,11 @@ def vzemi_vstopnico(ws_naslov: str, zeton: str, odtis: Optional[str] = None) -> 
 # Krog zaupanja: prijava s podpisom kljuca naprave namesto zetona
 # ----------------------------------------------------------------------
 
+def _odtis_za_podpis(osnova: str, odtis: str) -> str:
+    """Odtis, ki ga naprava podpise ob prijavi s kljucem: samo https s pripetim odtisom, sicer prazen niz."""
+    return str(odtis or "").lower() if osnova.startswith("https://") and odtis else ""
+
+
 def vzemi_vstopnico_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: str = "") -> Tuple[Optional[str], int]:
     """(vstopnica, koda HTTP) s podpisom kljuca naprave (core/link_krog.py).
 
@@ -646,12 +657,16 @@ def vzemi_vstopnico_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: 
     Koda 401 pomeni, da hub te naprave (s tem kljucem) v krogu nima.
     """
     osnova = _osnova(ws_naslov)
+    # Samo prek TLS s pripetim odtisom in podpis samo tega odtisa: po http (star ws:// v nastavitvah) bi napadalec v LAN
+    # posredoval izziv pravega sredisca in z nasim podpisom dobil sejo (neodvisni pregled, 19. 10. 2026).
+    odtis_huba = _odtis_za_podpis(osnova, odtis)
+    if not odtis_huba:
+        return None, 0
     koda, izziv = _zahteva(osnova + "/cast/auth/challenge", {"device_id": device_id}, odtis=odtis)
     if koda != 200:
         return None, koda
     nonce = str(izziv.get("nonce", "") or "")
-    odtis_huba = str(izziv.get("fp", "") or "") or odtis
-    if not nonce:
+    if not nonce or (izziv.get("fp") and not link_tls.isti(izziv.get("fp"), odtis_huba)):
         return None, koda
     try:
         podpis = link_krog.podpisi(link_krog.podatki_za_podpis(odtis_huba, nonce, device_id))
@@ -673,12 +688,15 @@ def vzemi_vstopnico_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: 
 def seja_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: str = "") -> Optional[str]:
     """Sejni zeton za HTTP (vabilo, odhod) za napravo v krogu zaupanja, ki nima zetona seznanitve."""
     osnova = _osnova(ws_naslov)
+    odtis_huba = _odtis_za_podpis(osnova, odtis)
+    if not odtis_huba:
+        return None
     koda, izziv = _zahteva(osnova + "/cast/auth/challenge", {"device_id": device_id}, odtis=odtis)
     nonce = str(izziv.get("nonce", "") or "") if koda == 200 else ""
-    if not nonce:
+    if not nonce or (izziv.get("fp") and not link_tls.isti(izziv.get("fp"), odtis_huba)):
         return None
     try:
-        podpis = link_krog.podpisi(link_krog.podatki_za_podpis(str(izziv.get("fp", "") or "") or odtis, nonce, device_id))
+        podpis = link_krog.podpisi(link_krog.podatki_za_podpis(odtis_huba, nonce, device_id))
     except Exception:
         return None
     koda, odgovor = _zahteva(osnova + "/cast/auth/ticket", {"device_id": device_id, "nonce": nonce, "signature": podpis,

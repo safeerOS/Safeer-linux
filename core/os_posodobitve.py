@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from core import root_ukaz
+
 from .signed_feed import _signature_ok
 
 MANIFEST = os.environ.get("SAFEER_MANIFEST_URL") or "https://safeer.si/os/razlicice.json"   # okoljska spremenljivka za preizkuse
@@ -475,7 +477,11 @@ datoteke=""
 while [ "$#" -ge 2 ]; do
     i=$((i + 1))
     k="$d/$i.deb"
-    cp -- "$2" "$k"
+    # Samo navadna datoteka, brez sledenja povezavi in brez cakanja na FIFO (nonblock), najvec 2 GiB in 10 min:
+    # program uporabnika bi sicer lahko podtaknil /dev/zero (poln disk) ali FIFO (root caka). Vsebino preveri SHA-256.
+    [ -f "$2" ] && [ ! -L "$2" ] || { echo "ni navadna datoteka: $2" >&2; exit 2; }
+    timeout 600 dd if="$2" of="$k" bs=1M count=2048 iflag=nofollow,nonblock status=none || {
+        echo "kopiranje ni uspelo: $2" >&2; exit 2; }
     printf '%s  %s\n' "$1" "$k" | sha256sum -c --quiet - || { echo "SHA-256 se ne ujema: $2" >&2; exit 3; }
     datoteke="$datoteke $k"
     shift 2
@@ -495,7 +501,8 @@ def _ukaz_deb(poti: List[str], vsote: Optional[List[str]]) -> List[str]:
         if _SHA256.fullmatch(vsota) is None:
             raise ValueError("SHA-256 paketa ni veljaven")
         pari += [vsota, os.path.abspath(pot)]
-    return ["pkexec", "/bin/sh", "-c", NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev", *pari]
+    # /usr/bin/pkexec tudi v Flatpaku: ta ukaz tece na gostitelju (flatpak-spawn --host) - glej core/root_ukaz.py.
+    return [root_ukaz.PKEXEC, root_ukaz.SH, "-c", NAMESTI_DEB_KOT_ROOT, "safeer-posodobitev", *pari]
 
 
 def namesti_linux(nacin: str, poti: List[str], vsote: Optional[List[str]] = None) -> subprocess.CompletedProcess:

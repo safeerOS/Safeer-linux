@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from typing import Iterable, Callable, Dict, List, Optional, Tuple
 
-from core import os_deskriptorji, storitve_na_zahtevo
+from core import https_prenos, os_deskriptorji, storitve_na_zahtevo
 
 RQBIT_RAZLICICA = "9.0.1"
 #: Uradne izdaje (github.com/ikatson/rqbit/releases/tag/v9.0.1) in njihov SHA-256 iz GitHubovega "digest".
@@ -380,7 +380,7 @@ def program_na_voljo() -> bool:
 
 
 def prenesi_program(napredek: Optional[Callable[[int, int], None]] = None,
-                    odpri: Callable = urllib.request.urlopen, preklic=None) -> str:
+                    odpri: Callable = https_prenos.odpri, preklic=None) -> str:
     """Prenese rqbit za to platformo z uradne izdaje in preveri SHA-256. Vrne pot ali dvigne napako.
     Paket z vgrajenim programom ne prenasa nicesar (vrne vgrajenega).
 

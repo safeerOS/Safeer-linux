@@ -15,6 +15,8 @@ import shutil
 import subprocess
 from typing import Callable, List, Optional
 
+from core import root_ukaz
+
 FLATHUB = ("flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo")
 
 #: vrsta: "flatpak" (oznaka na Flathubu), "apt" (paketi in ukaz za zagon), "snap" (samo razlaga, ne namescamo).
@@ -180,7 +182,7 @@ def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> d
     if p["vrsta"] == "snap":
         if not najdi("pkexec"):
             return {"ok": False, "napaka": "ni_pkexec"}
-        koda, izpis = tek(["pkexec", "sh", "-c", SNAP_SKRIPTA], 3600)
+        koda, izpis = tek(root_ukaz.ukaz(root_ukaz.SH, "-c", SNAP_SKRIPTA), 3600)
         if koda in (126, 127):
             return {"ok": False, "napaka": "preklicano"}
         return {"ok": True, "id": p["id"]} if koda == 0 else {"ok": False, "napaka": "namestitev", "podrobnosti": izpis.strip()[-300:]}
@@ -196,7 +198,7 @@ def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> d
         return {"ok": True, "id": p["id"]}
     if not najdi("pkexec"):
         return {"ok": False, "napaka": "ni_pkexec"}
-    koda, izpis = tek(["pkexec", "apt-get", "install", "-y", *p["paketi"]], 1800)
+    koda, izpis = tek(root_ukaz.ukaz(root_ukaz.APT_GET, "install", "-y", *p["paketi"]), 1800)
     if koda in (126, 127):          # pkexec: uporabnik je okno za geslo zaprl ali ni pooblascen
         return {"ok": False, "napaka": "preklicano"}
     if koda != 0:
@@ -292,7 +294,7 @@ def dodaj_vir(niz: str, tek: Callable = _tek, najdi: Callable = shutil.which) ->
     if d["vrsta"] == "ppa":
         if not najdi("pkexec") or not najdi("add-apt-repository"):
             return {"ok": False, "napaka": "ni_orodja"}
-        koda, izpis = tek(["pkexec", "add-apt-repository", "-y", d["vir"]], 600)
+        koda, izpis = tek(root_ukaz.ukaz(root_ukaz.ADD_APT_REPOSITORY, "-y", d["vir"]), 600)
     else:
         if not najdi("flatpak"):
             return {"ok": False, "napaka": "ni_flatpak"}

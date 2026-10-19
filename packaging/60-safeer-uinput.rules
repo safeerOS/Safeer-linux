@@ -1,0 +1,20 @@
+# Safeer Control: navidezni igralni plošček za igre, ki jih uporabnik igra s televizorja.
+#
+# Brez tega pravila je /dev/uinput dostopen samo uporabniku root, zato Safeer Control
+# navideznega ploščka ne more narediti in igra ploščka s televizorja ne vidi (gumbi ostanejo
+# tipke in miška). Pravilo da dostop samo uporabniku, ki je prijavljen v aktivni krajevni seji
+# (TAG "uaccess", systemd-logind), enako kot Steamovo pravilo za krmilnike. Nekoč je pravilo
+# napravo odprlo skupini "input": ta pa bere tudi vse tipkovnice in miške (/dev/input/event*),
+# tudi na prijavnem zaslonu in v drugih sejah - zato skupina "input" ni več potrebna
+# (neodvisni pregled, 19. 10. 2026). Številka pod 73: oznako uaccess upošteva 73-seat-late.rules.
+#
+# Namesti (enkrat, z uporabnikovim dovoljenjem):
+#   sudo install -m644 60-safeer-uinput.rules /etc/udev/rules.d/60-safeer-uinput.rules
+#   sudo rm -f /etc/udev/rules.d/99-safeer-uinput.rules     # starejše pravilo s skupino "input"
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
+#
+# Odstrani:
+#   sudo rm /etc/udev/rules.d/60-safeer-uinput.rules && sudo udevadm control --reload-rules
+
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

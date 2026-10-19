@@ -2407,6 +2407,8 @@ class SafeerControl(_OSNOVA):
     #: svetu je bil dosegljiv vsem okvirjem strani gledalca (WebKit sporocilu ne doda okvirja): iframe ali XSS na strani
     #: s sredisca bi lahko napravi, katere zaslon gledamo, poslal dotike in besedilo. Rokovalnik in GLEDALEC_VNOS_JS sta
     #: zdaj samo v tem svetu in samo v glavnem okvirju; skripta poslusa isti DOM, skripte strani pa do mostu ne sezejo.
+    #: Ker je DOM skupen, lahko skripta strani sprozi lazen dogodek (dispatchEvent, gumb.click()) - zato skripta uposteva
+    #: samo dogodke uporabnika (e.isTrusted), tretji neodvisni pregled 19. 10. 2026.
     SVET_VNOSA = "safeer-vnos"
 
     GLEDALEC_VNOS_JS = r"""
@@ -2427,14 +2429,14 @@ class SafeerControl(_OSNOVA):
   var zacetek = null, cas = 0, tipkano = "", casovnik = null;
   document.addEventListener("mousedown", function (e) {
     var img = document.getElementById("zaslon");
-    if (!img || e.button !== 0) return;
+    if (!e.isTrusted || !img || e.button !== 0) return;
     zacetek = delez(img, e.clientX, e.clientY); cas = Date.now();
     e.preventDefault();
     e.stopPropagation();
   }, true);
   document.addEventListener("mouseup", function (e) {
     var img = document.getElementById("zaslon");
-    if (!img || e.button !== 0) return;
+    if (!e.isTrusted || !img || e.button !== 0) return;
     e.stopPropagation();
     if (!zacetek) return;
     var konec = delez(img, e.clientX, e.clientY) || zacetek;
@@ -2448,14 +2450,17 @@ class SafeerControl(_OSNOVA):
   }, true);
   document.addEventListener("wheel", function (e) {
     var img = document.getElementById("zaslon");
-    if (!img) return;
+    if (!e.isTrusted || !img) return;
     var t = delez(img, e.clientX, e.clientY);
     if (!t) return;
     var dy = e.deltaY > 0 ? -0.25 : 0.25;
     poslji("input.swipe", {x1: t.x, y1: t.y, x2: t.x, y2: Math.max(0, Math.min(1, t.y + dy)), ms: 250});
     e.preventDefault();
   }, {capture: true, passive: false});
-  document.addEventListener("contextmenu", function (e) { e.preventDefault(); poslji("input.key", {key: "back"}); }, true);
+  document.addEventListener("contextmenu", function (e) {
+    if (!e.isTrusted) return;
+    e.preventDefault(); poslji("input.key", {key: "back"});
+  }, true);
   // Velikost slike naprave: okno Controla se prilagodi njeni obliki (pokoncen telefon ni majhen med crnimi robovi).
   var zadnja = "";
   setInterval(function () {
@@ -2477,7 +2482,7 @@ class SafeerControl(_OSNOVA):
       "background:rgba(16,26,43,.9);color:#eaf2ff;cursor:pointer;font:inherit;padding:0 10px";
     b.addEventListener("mousedown", function (e) { e.stopPropagation(); }, true);
     b.addEventListener("mouseup", function (e) { e.stopPropagation(); }, true);
-    b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); fn(b); });
+    b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); if (e.isTrusted) fn(b); });
     vrstica.appendChild(b);
     return b;
   }
@@ -2492,6 +2497,7 @@ class SafeerControl(_OSNOVA):
   });
   (document.body || document.documentElement).appendChild(vrstica);
   document.addEventListener("keydown", function (e) {
+    if (!e.isTrusted) return;
     if (e.key === "Escape" || e.key === "BrowserBack") { poslji("input.key", {key: "back"}); e.preventDefault(); return; }
     if (e.key === "Home") { poslji("input.key", {key: "home"}); e.preventDefault(); return; }
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {

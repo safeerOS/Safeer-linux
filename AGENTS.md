@@ -77,3 +77,14 @@ Vsaka od teh napak je ze bila narejena; neodvisni pregled ali lastna raziskava j
   (`core/agent/nastavitve.odpri`), prenosi preverijo VSAK skok preusmeritve. TLS brez CA (samopodpisano) samo s
   pripetim odtisom, preverjenim PRED posiljanjem (`core/os_jbl._zahteva`); odtise in kljuce primerjaj s
   `hmac.compare_digest`. Javni kljuc (npr. JBL One) ni skrivnost in ne dokazuje, kdo poslja.
+- **Root prek pkexec:** pkexec in program vedno z absolutno potjo (`core/root_ukaz.py`): pkexec program poisce po
+  PATH klicatelja, kjer je ~/.local/bin pred /usr/bin. Root ne bere ne kopira uporabnikove datoteke brez preverbe
+  vrste in omejitve velikosti (`dd iflag=nofollow,nonblock`, glej `NAMESTI_DEB_KOT_ROOT`).
+- **Podatki z drugih naprav:** ime ali pot, ki jo poslje druga naprava, je samo ime (`link_deljenje.varno_ime`) in
+  `realpath` cilja mora ostati v nameravani mapi; nikoli absolutna pot ali `..`. Umik naprave iz kroga takoj preklice
+  njene zetone in seje (ne sele ob izteku).
+- **Okolje procesa (os.environ):** ko proces tece z nitmi (ze `import gi` z GTK zazene 8 niti), spremenljivk ne
+  dodajaj in ne brisi - samo zamenjaj vrednost obstojece (`core/okolje_procesa.py`: rezervacije in prevzem pred nitmi).
+  Podprocesu daj okolje z `env=`/`execve`, zastavice v procesu namesto okoljskih spremenljivk.
+- **Scit (DNS):** razresevalnik odgovori v ~0,4 s (`ROK_NAPREJ`), sicer systemd-resolved preide na usmerjevalnik
+  MIMO Scita in tam ostane. Pocasen DoH ne sme zadrzati odgovora.
