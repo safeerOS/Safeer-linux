@@ -17,7 +17,7 @@ import time
 import unittest
 from unittest import mock
 
-from core import link_deljenje, link_hub, link_hub_deljenje, link_hub_streznik, link_krog
+from core import link_deljenje, link_hub, link_hub_deljenje, link_hub_streznik, link_krog, link_viri
 
 POSILJATELJ = "n-aaaaaaaaaaaaaaaa-control"
 CILJ = "n-bbbbbbbbbbbbbbbb"
@@ -85,6 +85,9 @@ class PrevzemPriSrediscih(unittest.TestCase):
             mock.patch.dict(os.environ, {"SAFEER_HUB_DRUGI": "1"}),
             mock.patch.object(link_hub_streznik, "_obvestilo", lambda *a, **k: None),
             mock.patch.object(link_hub_streznik, "_obvestilo_kode", lambda *a, **k: None),
+            # Rezerva diska (2 % diska) je v testnem vsebniku lahko vecja od prostega prostora: preizkusi tega razreda
+            # merijo prevzem, ne disk (test_brez_prostora_ne_pise rezervo nastavi sam).
+            mock.patch.object(link_viri, "rezerva_diska", lambda mapa: 0),
         ]
         os.makedirs(os.path.join(cls.tmp.name, "nastavitve"))
         for p in cls.popravki:
@@ -215,6 +218,26 @@ class PrevzemPriSrediscih(unittest.TestCase):
         self.assertNotEqual(razlog, "")
         self.assertEqual(len(os.listdir(self.posiljateljevo.zaloga)), 1)
         self._je_cela(self._prevzemi([self.posiljateljevo.par], tovor)[0])
+
+    def test_brez_prostora_ne_pise(self):
+        """Koncni pregled 19. 10. 2026: prejem je pisal do polnega diska in sele ob ENOSPC delno datoteko zbrisal.
+        Zdaj ob premalo prostora (rezerva diska, link_viri.rezerva_diska) ne zapise niti bajta."""
+        import shutil
+        tovor = self.nase.oddaj(self.pot)["payload"]
+        prostor = mock.Mock(free=len(self.vsebina) + 1024, total=10 ** 12)
+        try:
+            with mock.patch.object(shutil, "disk_usage", return_value=prostor), \
+                    mock.patch.object(link_viri, "rezerva_diska", lambda mapa: 1024 ** 3):
+                cilj, razlog = self._prevzemi([self.nase.par], tovor)
+            self.assertEqual((cilj, razlog), (None, "ni prostora"))
+            self.assertEqual(os.listdir(self.mapa), [], "tudi delne datoteke ni")
+        finally:
+            # Varovalka in pospravljanje: z dovolj prostora isti prenos uspe (datoteka je se pri sredisci, zaloga
+            # sredisca ostane prazna za naslednji preizkus).
+            for ime in os.listdir(self.mapa):
+                os.remove(os.path.join(self.mapa, ime))
+            koncni = self._prevzemi([self.nase.par], tovor)[0]
+        self._je_cela(koncni)
 
     def test_prevzemi_datoteko_ostane_enak(self):
         tovor = self.nase.oddaj(self.pot)["payload"]

@@ -22,6 +22,7 @@ import json
 import os
 import re
 import select
+import shutil
 import socket
 import ssl
 import threading
@@ -348,6 +349,17 @@ def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_od
         return None, str(e), 0
 
 
+def _dovolj_prostora(mapa: str, bajtov: int) -> bool:
+    """Ali po prejemu `bajtov` na disku ostane rezerva (link_viri.rezerva_diska, kot pri srediscu in drugod v Linku).
+    Prej je prejem pisal do polnega diska (ENOSPC) in sele nato delno datoteko zbrisal - za trenutek je bil disk
+    sistema poln (koncni pregled 19. 10. 2026)."""
+    try:
+        from core import link_viri
+        return shutil.disk_usage(mapa).free - max(0, bajtov) >= link_viri.rezerva_diska(mapa)
+    except (OSError, ImportError):
+        return True                      # prostora ne znamo izmeriti: kot prej (ENOSPC ostane varovalka)
+
+
 def _odstrani(pot: str) -> None:
     try:
         os.remove(pot)
@@ -365,6 +377,9 @@ def _prevzem_enkrat(gostitelj: str, vrata: int, odtis: str, pot_huba: str, delno
         odgovor = povezava.getresponse()
         if odgovor.status not in (200, 206):
             return "koncno", f"Hub je odgovoril {odgovor.status}", int(odgovor.status)
+        prihaja = odgovor.getheader("Content-Length")
+        if prihaja and prihaja.isdigit() and not _dovolj_prostora(os.path.dirname(delno) or ".", int(prihaja)):
+            return "koncno", "ni prostora", 0
         h = hashlib.sha256()
         if odgovor.status == 206 and imamo:
             with open(delno, "rb") as f:
