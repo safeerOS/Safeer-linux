@@ -217,10 +217,17 @@ def nastavi_vodilo_seje(okolje=None, obstaja: Callable[[str], bool] = os.path.ex
         okolje["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + pot
 
 
+_VODILO = {"nastavljeno": False}
+
+
 def klic_controla(metoda: str, *argumenti: str) -> dict:
     """Klic vmesnika Naprave v Safeer Controlu. Controla ne zaganja - ce ne tece, to pove."""
     try:
-        nastavi_vodilo_seje()
+        if not _VODILO["nastavljeno"]:
+            # Samo prvi klic, pred `import gi`: po njem tece nit GDBus, dodajanje v okolje ni vec varno
+            # (core/okolje_procesa.py) - en ukaz klice Control veckrat (seznam naprav, nato dejanje).
+            _VODILO["nastavljeno"] = True
+            nastavi_vodilo_seje()
         import gi
         gi.require_version("Gio", "2.0")
         from gi.repository import Gio, GLib

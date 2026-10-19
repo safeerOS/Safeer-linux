@@ -37,10 +37,16 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
-#: Ponovni zagon nove razlicice (_znova_zazeni) naroci, naj se okno odpre takoj. Spremenljivko preberemo in odstranimo
-#: na zacetku uvoza, ko v procesu se ne tece nobena nit (pozneje tecejo Link, GDBus: setenv bi bil nevaren). V procesu
-#: Safeer OS je ni, zato tam okolja ne spreminjamo.
-_ODPRI_OB_ZAGONU = "SAFEER_CONTROL_ODPRI" in os.environ and os.environ.pop("SAFEER_CONTROL_ODPRI") == "1"
+#: Ponovni zagon nove razlicice (_znova_zazeni) naroci, naj se okno odpre takoj. Spremenljivka je v
+#: okolje_procesa.PREVZETE: sam Control jo tu prevzame, ko tece ena nit; v procesu Safeer OS (vgrajen Control, niti ze
+#: tecejo) jo je prevzel ze Safeer OS pred nitmi, zato uvoz okolja ne spremeni (prej os.environ.pop ob uvozu).
+from core import okolje_procesa  # noqa: E402
+_ODPRI_OB_ZAGONU = okolje_procesa.prevzemi("SAFEER_CONTROL_ODPRI") == "1"
+if __name__ == "__main__":
+    # Peskovnik WebKita (Ubuntu 24.04+ brez profila AppArmor): IZKLOP v okolje pred prvo nitjo, ne v main(). Vgrajen
+    # Control (uvoz v procesu Safeer OS) tega ne naredi - stanje je ze pripravil Safeer OS (core/peskovnik_userns.py).
+    from core import peskovnik_userns  # noqa: E402
+    peskovnik_userns.pred_nitmi()
 
 # Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
@@ -2747,8 +2753,9 @@ def main() -> int:
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")
     GLib.set_application_name("Safeer Control")
-    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita izklopi samo, ce res ne more teci (sicer g_error).
-    peskovnik = peskovnik_userns.pripravi()
+    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita je izklopljen ze pred nitmi (vrh datoteke), samo ce
+    # res ne more teci (sicer g_error); tu le pojasnilo.
+    peskovnik = peskovnik_userns.ob_zagonu()
     app = SafeerControl(ozadje=ozadje)
     if peskovnik.get("izklopljen"):
         peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-control"),

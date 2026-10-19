@@ -23,8 +23,10 @@ CAS = 4.0
 
 
 def _zazeni(ukaz: List[str], cas: float = CAS) -> Optional[str]:
-    """Pozene ukaz in vrne izpis (None ob napaki ali ce ukaza ni)."""
-    if not ukaz or shutil.which(ukaz[0]) is None:
+    """Pozene ukaz in vrne izpis (None ob napaki ali ce ukaza ni). Program samo iz sistemskih map (nmcli ...
+    lahko vprasa za geslo prek polkita - core/root_ukaz.sistemski_program)."""
+    ukaz = root_ukaz.sistemski_ukaz(ukaz)
+    if not ukaz:
         return None
     try:
         r = subprocess.run(ukaz, capture_output=True, text=True, timeout=cas)
@@ -36,7 +38,10 @@ def _zazeni(ukaz: List[str], cas: float = CAS) -> Optional[str]:
 
 
 def _v_ozadju(ukaz: List[str]) -> bool:
-    if not ukaz or shutil.which(ukaz[0]) is None:
+    # Program z absolutno potjo iz sistemskih map, ne po PATH: orodja Minta, Nastavitve in systemctl lahko sama vprasajo
+    # za geslo - podtaknjen program v ~/.local/bin bi ga dobil (core/root_ukaz.sistemski_program).
+    ukaz = root_ukaz.sistemski_ukaz(ukaz)
+    if not ukaz:
         return False
     try:
         # Nastavitve sistema so zunanji program: brez nasih zasebnih poti (core/zasebni_webkit.py).
@@ -264,7 +269,7 @@ ORODJA: Dict[str, List[List[str]]] = {
     "jezik": [["mintlocale"]],
     "vnosna-metoda": [["mintlocale-im"]],
     "viri-programov": [["pkexec", root_ukaz.MINTSOURCES], ["software-properties-gtk"]],
-    "paketi": [["synaptic-pkexec"]],
+    "paketi": [["pkexec", root_ukaz.SYNAPTIC]],      # ovoj synaptic-pkexec bi pkexec poiskal po PATH
     "uporabniki": [["cinnamon-settings-users"]],
     "prijavno-okno": [["pkexec", root_ukaz.LIGHTDM_SETTINGS]],
     "pozarni-zid": [["gufw"]],
@@ -305,7 +310,7 @@ def _ukaz_orodja(oznaka: str) -> Optional[List[str]]:
             if shutil.which(_program(ukaz)) and root_ukaz.na_voljo():
                 return root_ukaz.ukaz(*ukaz[1:])
             continue
-        if shutil.which(_program(ukaz)):
+        if root_ukaz.sistemski_program(ukaz[0]):       # samo sistemske mape (zagon v _v_ozadju), ne PATH
             return ukaz
     return None
 
@@ -396,9 +401,9 @@ def razpolozljivo(jezik: str = "") -> dict:
     v seji GNOME ali brez Cinnamona); orodja: samostojni programi; imena: krajevno ime plosce iz sistema, kadar ga
     Safeer nima v svojih besedilih (plosca, ki pride z novo razlicico GNOME)."""
     gnome = _gnome_seja()
-    cinnamon = bool(shutil.which("cinnamon-settings")) and not gnome
+    cinnamon = bool(root_ukaz.sistemski_program("cinnamon-settings")) and not gnome
     moduli = sorted(moduli_cinnamon()) if cinnamon else []
-    plosce = plosce_gnome(jezik=jezik) if (not cinnamon and shutil.which("gnome-control-center")) else {}
+    plosce = plosce_gnome(jezik=jezik) if (not cinnamon and root_ukaz.sistemski_program("gnome-control-center")) else {}
     orodja = sorted(o for o in ORODJA if _ukaz_orodja(o))
     return {"moduli": moduli, "orodja": orodja, "plosce": sorted(plosce),
             "imena": {"p:" + k: {"ime": v["ime"], "kljucne": v["kljucne"]} for k, v in plosce.items()
@@ -429,6 +434,6 @@ DEJANJA = {
 
 def napajanje(dejanje: str) -> bool:
     for ukaz in DEJANJA.get(str(dejanje or ""), []):
-        if shutil.which(ukaz[0]) and _v_ozadju(ukaz):
+        if root_ukaz.sistemski_program(ukaz[0]) and _v_ozadju(ukaz):
             return True
     return False

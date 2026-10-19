@@ -49,6 +49,11 @@ zasebni_webkit.nastavi(KOREN)
 # Se ena nit: mesta za spremenljivke, ki jih bo lupina Qt v tem procesu zacasno zamenjala (core/okolje_procesa.py).
 from core import okolje_procesa  # noqa: E402
 okolje_procesa.pred_nitmi()
+if __name__ == "__main__":
+    # Ubuntu 24.04+ brez nasega profila AppArmor: ce bwrap ne more teci, WebKitov peskovnik izklopi (spremenljivka v
+    # okolju) - tu, pred prvo nitjo; v main() so niti ze tekle (core/okolje_procesa.py). Uvoz modula okolja ne spremeni.
+    from core import peskovnik_userns  # noqa: E402
+    peskovnik_userns.pred_nitmi()
 from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
@@ -120,7 +125,8 @@ PLOSCE_GNOME = {"themes": "background", "backgrounds": "background", "display": 
 
 def sistemske_nastavitve(modul: str = "") -> bool:
     """Odpre sistemske nastavitve namizja (Cinnamon; brez njega GNOME/Xfce/MATE). Samo znani moduli."""
-    from shutil import which
+    # Samo sistemske mape, ne PATH: Nastavitve (uporabniki, datum ...) lahko vprasajo za geslo (core/root_ukaz.py).
+    from core.root_ukaz import sistemski_program as which, sistemski_ukaz
     if modul not in MODULI_NASTAVITEV:
         return False
     # Flatpak ima ovoj za vsako orodje (/app/host-bin), tudi ce ga gostitelj nima - zato odloci namizje seje.
@@ -135,6 +141,9 @@ def sistemske_nastavitve(modul: str = "") -> bool:
                      if which(u)), None)
         if ukaz is None:
             return False
+    ukaz = sistemski_ukaz(ukaz)
+    if ukaz is None:
+        return False
     try:
         subprocess.Popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
@@ -1107,8 +1116,7 @@ OD_VKLOPA_STANJE = "/var/lib/safeer-cinnamon/od-vklopa.json"
 
 def od_vklopa_stanje() -> dict:
     """Ali je »Safeer od vklopa« na voljo (namescen paket s pomocnikom) in ali je vklopljen."""
-    from shutil import which
-    return {"na_voljo": os.access(OD_VKLOPA_POMOCNIK, os.X_OK) and bool(which("safeer-cinnamon")),
+    return {"na_voljo": os.access(OD_VKLOPA_POMOCNIK, os.X_OK) and bool(_ukaz_safeer_cinnamon()),
             "vklopljeno": os.path.exists(OD_VKLOPA_STANJE)}
 
 
@@ -1118,7 +1126,7 @@ def od_vklopa(vklop: bool) -> dict:
     ok = False
     if od_vklopa_stanje()["na_voljo"]:
         try:
-            r = subprocess.run(["safeer-cinnamon", "--od-vklopa" if vklop else "--od-vklopa-izklopi"],
+            r = subprocess.run(_ukaz_safeer_cinnamon() + ["--od-vklopa" if vklop else "--od-vklopa-izklopi"],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=900)
             ok = r.returncode == 0
         except Exception as e:  # noqa: BLE001
@@ -1365,8 +1373,11 @@ def _profil_safeer_cinnamon() -> str:
 
 
 def _ukaz_safeer_cinnamon() -> list:
-    from shutil import which
-    return ["safeer-cinnamon"] if which("safeer-cinnamon") else []
+    """safeer-cinnamon z absolutno potjo (/usr/bin), ne po PATH: --od-vklopa in --izklopi vprasata za skrbnisko geslo
+    (pkexec) - podtaknjen safeer-cinnamon v ~/.local/bin bi ga dobil (koncni neodvisni pregled, 19. 10. 2026)."""
+    from core import root_ukaz
+    pot = root_ukaz.sistemski_program("safeer-cinnamon")
+    return [pot] if pot else []
 
 
 def nazaj_na_cinnamon(shramba, pocakaj: bool = True) -> dict:
@@ -7796,8 +7807,8 @@ def main() -> int:
     if wayland_okno:
         v_oknu = True
     # Ubuntu 24.04+: brez nasega profila AppArmor bwrap ne dobi imenskega prostora in WebKit bi ob prvi strani koncal
-    # ves proces (g_error). Pred prvim WebKitWebContext: peskovnik izklopi samo, ce res ne more teci (pojasnilo enkrat).
-    peskovnik = peskovnik_userns.pripravi()
+    # ves proces (g_error). Peskovnik je izklopljen ze pred nitmi (vrh datoteke), samo ce res ne more teci; tu pojasnilo.
+    peskovnik = peskovnik_userns.ob_zagonu()
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
     if peskovnik.get("izklopljen") and not posnetek:

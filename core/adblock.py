@@ -7,6 +7,30 @@ ambient blur removal, background audio engine, and the signed threat shield.
 
 import urllib.parse
 
+#: Dogodek DOM, s katerim skripti glavnega sveta (YOUTUBE_ADBLOCK_SCRIPT, ADGUARD_PROTECTION_SCRIPT - spreminjata JS
+#: strani, zato tecejo v glavnem svetu) javita stevilo odstranjenih oglasov. Most STEVEC_MOST je samo v locenem svetu
+#: (stran ga ne doseze); njun neposredni klic mostu se je zato vedno izgubil (19. 10. 2026). Bere ga STEVEC_RELE_SCRIPT.
+STEVEC_DOGODEK = "safeer-stevec"
+#: Dogodek lahko ponaredi tudi stran - to sprejmemo (gre samo za prikaz stevca), a rele vzame samo celo stevilo
+#: 1..STEVEC_NA_DOGODEK in najvec STEVEC_NA_STRAN na nalaganje strani v enem okvirju.
+STEVEC_NA_DOGODEK = 50
+STEVEC_NA_STRAN = 500
+
+# javiStevec(n) za skripte glavnega sveta. dispatchEvent in CustomEvent zajame ob vstavitvi (START, pred skriptami
+# strani), da ju stran ne more zamenjati in nasega javljanja prestreci.
+_JAVI_STEVEC_JS = """
+    var javiStevec = (function() {
+        var oddaj = null, Dogodek = null, dok = null;
+        try { oddaj = EventTarget.prototype.dispatchEvent; Dogodek = window.CustomEvent; dok = document; } catch(_) {}
+        return function(n) {
+            n = Math.min(Math.floor(Number(n)), %d);
+            if (!(n >= 1) || !oddaj || !Dogodek) return;
+            try { oddaj.call(dok, new Dogodek('%s', { detail: n })); } catch(_) {}
+        };
+    })();
+""" % (STEVEC_NA_DOGODEK, STEVEC_DOGODEK)
+_JAVI_STEVEC_MESTO = "    /*@javiStevec@*/\n"
+
 YOUTUBE_ADBLOCK_SCRIPT = """
 /* 🛡️ Safeer Linux Mint - YouTube Zero-Ad & Performance Engine */
 (function() {
@@ -15,6 +39,7 @@ YOUTUBE_ADBLOCK_SCRIPT = """
     if (window._safeer_linux_yt_active) return;
     if (window !== window.top && location.pathname.indexOf('/embed/') === -1) return;
     window._safeer_linux_yt_active = true;
+    /*@javiStevec@*/
 
     // Keep reserved ad slots collapsed even when YouTube inserts them later.
     function installAdCss() {
@@ -336,9 +361,7 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         for (var o = 0; o < adOverlays.length; o++) {
             try { adOverlays[o].remove(); removedOverlays++; } catch(e) {}
         }
-        if (removedOverlays > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
-            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: removedOverlays }); } catch(_) {}
-        }
+        if (removedOverlays > 0) javiStevec(removedOverlays);
 
         var dismissBtns = document.querySelectorAll(
             'tp-yt-paper-dialog #dismiss-button, ytd-enforcement-message-view-model #dismiss-button, ' +
@@ -412,7 +435,7 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
     });
 })();
-"""
+""".replace(_JAVI_STEVEC_MESTO, _JAVI_STEVEC_JS)
 
 
 # Shared pacing for the periodic page scripts below. A scan runs when the page is visible, in an idle
@@ -478,6 +501,7 @@ ADGUARD_PROTECTION_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
     if (host === 'youtube.com' || host.endsWith('.youtube.com')) return;
     if (window._adguard_safeer_active) return;
     window._adguard_safeer_active = true;
+    /*@javiStevec@*/
 
     // 1. Defuse Anti-Adblock checks & variables
     try {
@@ -589,9 +613,7 @@ ADGUARD_PROTECTION_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
         var w = defuseAntiAdblockWalls() || 0;
         var c = cleanAdguardCosmetics() || 0;
         var total = w + c;
-        if (total > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
-            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: total }); } catch(_) {}
-        }
+        if (total > 0) javiStevec(total);
     }
 
     if (document.readyState === 'loading') {
@@ -602,7 +624,7 @@ ADGUARD_PROTECTION_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
     window.addEventListener('load', runAdguardProtection);
     window.__safeerSchedule(runAdguardProtection, 2500);
 })();
-"""
+""".replace(_JAVI_STEVEC_MESTO, _JAVI_STEVEC_JS)
 
 # Splosna zascita pred zaznavanjem blokatorja (enaka za vse strani; vir: Android-tv/assets/protiadblock.js)
 PROTI_ADBLOCK_SCRIPT = r"""
@@ -1868,6 +1890,26 @@ YOUTUBE_KEEP_WATCHING_SCRIPT = r"""
 # oglasov je skrila; stran v glavnem svetu tega rokovalnika ne doseze, zato stevca ne more napihniti (pregled 8. 10. 2026).
 STEVEC_MOST = "safeer_stevec"
 STEVEC_SVET = "safeer-zascita"
+
+#: Rele v svetu STEVEC_SVET (vsi okvirji, ob zacetku dokumenta): stetje skript glavnega sveta (dogodek STEVEC_DOGODEK)
+#: poslje v most. Dogodek lahko sprozi tudi stran, zato samo celo stevilo 1..STEVEC_NA_DOGODEK in skupaj najvec
+#: STEVEC_NA_STRAN na nalaganje v tem okvirju (skripta se ob vsakem nalaganju vstavi znova); ostalo zavrze.
+STEVEC_RELE_SCRIPT = """
+(function() {
+    if (window.__safeerReleStevca) return;
+    window.__safeerReleStevca = true;
+    var most = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.%(most)s;
+    if (!most) return;
+    var ostane = %(na_stran)d;
+    document.addEventListener('%(dogodek)s', function(e) {
+        var n = e ? e.detail : null;
+        if (!Number.isInteger(n) || n < 1 || n > %(na_dogodek)d || ostane <= 0) return;
+        n = Math.min(n, ostane);
+        ostane -= n;
+        try { most.postMessage({ action: 'increment_ads', count: n }); } catch(_) {}
+    }, true);
+})();
+""" % {"most": STEVEC_MOST, "na_stran": STEVEC_NA_STRAN, "dogodek": STEVEC_DOGODEK, "na_dogodek": STEVEC_NA_DOGODEK}
 
 
 def preveri_stevec(vrednost) -> "Optional[dict]":

@@ -901,14 +901,17 @@ def nosilci() -> List[dict]:
 def izvrzi(pot: str) -> dict:
     """Varno odstrani nosilec: odklopi datotecni sistem in (USB) izklopi napravo. Samo nosilci s seznama `nosilci()`."""
     cilj = next((n for n in nosilci() if n["pot"] == str(pot or "") and n.get("naprava")), None)
-    if cilj is None or not shutil.which("udisksctl"):
+    # udisksctl samo iz sistemskih map, ne po PATH: odklop sistemskega nosilca polkit zavaruje z geslom (root_ukaz).
+    from core import root_ukaz
+    udisksctl = root_ukaz.sistemski_program("udisksctl")
+    if cilj is None or not udisksctl:
         return {"ok": False, "napaka": "ni_nosilca"}
     try:
-        r = subprocess.run(["udisksctl", "unmount", "-b", cilj["naprava"]], capture_output=True, text=True, timeout=30)
+        r = subprocess.run([udisksctl, "unmount", "-b", cilj["naprava"]], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             return {"ok": False, "napaka": "zaseden" if "busy" in (r.stderr + r.stdout).lower() else "napaka"}
         if cilj.get("odstranljiv"):
-            subprocess.run(["udisksctl", "power-off", "-b", cilj["naprava"]], capture_output=True, text=True, timeout=30)
+            subprocess.run([udisksctl, "power-off", "-b", cilj["naprava"]], capture_output=True, text=True, timeout=30)
         return {"ok": True}
     except (OSError, subprocess.SubprocessError):
         return {"ok": False, "napaka": "napaka"}

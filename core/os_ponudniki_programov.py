@@ -212,6 +212,10 @@ def odpri(id_: str, popen: Callable = subprocess.Popen) -> bool:
     if p is None:
         return False
     ukaz = ["flatpak", "run", p["flatpak"]] if p["vrsta"] == "flatpak" else ["snap-store"] if p["vrsta"] == "snap" else p["ukaz"]
+    # Trgovina ob namestitvi vprasa za geslo: program samo iz sistemskih map, ne po PATH (core/root_ukaz.py).
+    ukaz = root_ukaz.sistemski_ukaz(ukaz)
+    if ukaz is None:
+        return False
     try:
         popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return True

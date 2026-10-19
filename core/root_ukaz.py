@@ -11,7 +11,8 @@ V Flatpaku pkexec tece na gostitelju prek ovoja /app/host-bin/pkexec (packaging/
 from __future__ import annotations
 
 import os
-from typing import List
+import shutil
+from typing import List, Optional, Sequence
 
 PKEXEC = "/usr/bin/pkexec"
 
@@ -22,6 +23,17 @@ APT_GET = "/usr/bin/apt-get"
 ADD_APT_REPOSITORY = "/usr/bin/add-apt-repository"
 MINTSOURCES = "/usr/bin/mintsources"
 LIGHTDM_SETTINGS = "/usr/bin/lightdm-settings"
+#: Synaptic: ovoj synaptic-pkexec bi pkexec poklical po PATH, zato pkexec in ta program neposredno (kot ovoj).
+SYNAPTIC = "/usr/sbin/synaptic"
+
+#: Mape, v katere pise samo root. Program, ki ga zazenemo po imenu in lahko sam vprasa za skrbnisko geslo (ovoj s
+#: pkexec, upravitelj posodobitev ali programov, Nastavitve, systemctl, safeer-cinnamon --od-vklopa ...), iscemo samo
+#: tu: podtaknjen program v ~/.local/bin (pred /usr/bin v PATH) bi pokazal okno za geslo, ki ga uporabnik ob kliku
+#: pricakuje, in dobil root (koncni neodvisni pregled, 19. 10. 2026).
+SISTEMSKE_MAPE = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/snap/bin")
+#: V Flatpaku: ovoji gostitelja (packaging/flatpak_host_wrappers.sh), ki program na gostitelju iscejo samo v
+#: SISTEMSKE_MAPE; drugo je slika peskovnika, ki je uporabnik ne more spremeniti.
+OVOJI_FLATPAK = "/app/host-bin"
 
 
 def v_flatpaku() -> bool:
@@ -37,6 +49,25 @@ def pkexec() -> str:
 
 def na_voljo() -> bool:
     return os.access(pkexec(), os.X_OK)
+
+
+def sistemski_program(ime: str, mape: Optional[Sequence[str]] = None) -> Optional[str]:
+    """Absolutna pot programa iz SISTEMSKE_MAPE (v Flatpaku najprej ovoj gostitelja) ali None - nikoli po PATH."""
+    if not ime or os.sep in ime:
+        return None
+    if mape is None:
+        mape = ((OVOJI_FLATPAK,) + SISTEMSKE_MAPE) if v_flatpaku() else SISTEMSKE_MAPE
+    return shutil.which(ime, path=os.pathsep.join(mape))
+
+
+def sistemski_ukaz(ukaz: Sequence[str]) -> Optional[List[str]]:
+    """Ukaz s programom z absolutno potjo (sistemski_program); absolutna pot ostane. None, ce programa ni."""
+    if not ukaz:
+        return None
+    if os.path.isabs(ukaz[0]):
+        return list(ukaz) if os.access(ukaz[0], os.X_OK) else None
+    program = sistemski_program(ukaz[0])
+    return [program, *ukaz[1:]] if program else None
 
 
 def ukaz(program: str, *argumenti: str) -> List[str]:

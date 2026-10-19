@@ -183,11 +183,12 @@ class SistemskeNastavitve(unittest.TestCase):
         # Zunanji program dobi okolje brez nasih zasebnih poti (zasebni_webkit.okolje_za_zunanje, 18. 10. 2026).
         f.__globals__.update(subprocess=Sp, MODULI_NASTAVITEV=("", "themes"),
                              zasebni_webkit=mock.Mock(okolje_za_zunanje=lambda: {"PATH": "/usr/bin"}))
-        with mock.patch("shutil.which", lambda u: "/usr/bin/" + u if u == "cinnamon-settings" else None):
+        # Program samo iz sistemskih map, z absolutno potjo (core/root_ukaz.sistemski_program: which s path=).
+        with mock.patch("shutil.which", lambda u, path=None: "/usr/bin/" + u if u == "cinnamon-settings" else None):
             self.assertTrue(f("themes"))
             self.assertTrue(f(""))
             self.assertFalse(f("; rm -rf /"))
-        self.assertEqual(zagnano, [["cinnamon-settings", "themes"], ["cinnamon-settings"]])
+        self.assertEqual(zagnano, [["/usr/bin/cinnamon-settings", "themes"], ["/usr/bin/cinnamon-settings"]])
 
 
 class ZaprtiZavihkiSeSprostijo(unittest.TestCase):

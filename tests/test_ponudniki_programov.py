@@ -2,6 +2,7 @@
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from core import os_ponudniki_programov as p
 from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
@@ -101,10 +102,14 @@ class Pravila(unittest.TestCase):
 
     def test_odpri(self):
         zagnano = []
-        self.assertTrue(p.odpri("gearlever", lambda u, **k: zagnano.append(u)))
-        self.assertTrue(p.odpri("mintinstall", lambda u, **k: zagnano.append(u)))
-        self.assertTrue(p.odpri("snap-store", lambda u, **k: zagnano.append(u)))
-        self.assertEqual(zagnano, [["flatpak", "run", "it.mijorus.gearlever"], ["mintinstall"], ["snap-store"]])
+        # Program samo iz sistemskih map, z absolutno potjo (core/root_ukaz.sistemski_program).
+        sistem = {"flatpak": "/usr/bin/flatpak", "mintinstall": "/usr/bin/mintinstall", "snap-store": "/snap/bin/snap-store"}
+        with mock.patch.object(p.root_ukaz, "sistemski_program", lambda ime: sistem.get(ime)):
+            self.assertTrue(p.odpri("gearlever", lambda u, **k: zagnano.append(u)))
+            self.assertTrue(p.odpri("mintinstall", lambda u, **k: zagnano.append(u)))
+            self.assertTrue(p.odpri("snap-store", lambda u, **k: zagnano.append(u)))
+        self.assertEqual(zagnano, [["/usr/bin/flatpak", "run", "it.mijorus.gearlever"], ["/usr/bin/mintinstall"],
+                                   ["/snap/bin/snap-store"]])
 
     def test_podrobnosti_flatpak_z_okoljem(self):
         info = (0, "Bazaar\n\n        ID: io.github.kolunmi.Bazaar\n   Version: 0.9.7\n   License: GPL-3.0-or-later\n"

@@ -564,7 +564,7 @@ def razcleni_sporocilo(vrednost) -> dict | None:
     if dejanje == "reset_portals":
         return {"action": dejanje}
     # increment_ads/increment_threats ne gresta vec skozi glavni rokovalnik (stran bi napihnila stevec):
-    # steje jih samo kozmeticna skripta v locenem svetu prek adblock.preveri_stevec (glej _stevec).
+    # steje jih samo most v locenem svetu prek adblock.preveri_stevec (glej _stevec, namesti_stevec).
     return None
 
 
@@ -682,6 +682,16 @@ def registriraj_most(upravitelj, ime: str, svet=None) -> None:
         upravitelj.register_script_message_handler_in_world(ime, svet)
     else:
         upravitelj.register_script_message_handler(ime)
+
+
+def namesti_stevec(W, upravitelj, ob_stevcu, izloceni=None) -> None:
+    """Stevec Scita: most samo v locenem svetu (stran v glavnem svetu ga ne doseze) in rele, ki stetje skript
+    glavnega sveta (YouTube, AdGuard) prebere iz dogodka DOM - njun neposredni klic mostu se je izgubil (19. 10. 2026)."""
+    registriraj_most(upravitelj, adblock.STEVEC_MOST, adblock.STEVEC_SVET)
+    upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, ob_stevcu)
+    upravitelj.add_script(W.UserScript.new_for_world(
+        adblock.STEVEC_RELE_SCRIPT, W.UserContentInjectedFrames.ALL_FRAMES, W.UserScriptInjectionTime.START,
+        adblock.STEVEC_SVET, None, izloceni))
 
 
 def _unici_pogled(pogled) -> None:
@@ -1545,9 +1555,6 @@ class VdelaniSplet:
         ref = weakref.ref(pogled)
         upravitelj.connect("script-message-received::safeer",
                            lambda _u, r: ref() is not None and self._sporocilo(ref(), r))
-        # Stevec scita v locenem svetu: stran v glavnem svetu tega rokovalnika ne doseze.
-        registriraj_most(upravitelj, adblock.STEVEC_MOST, adblock.STEVEC_SVET)
-        upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, lambda _u, r: self._stevec(r))
         odlozisce_varuh.dodaj(W, upravitelj)   # tudi na prijavnih straneh: nicesar ne spreminja, le varuje odlozisce
         # Widevine (Netflix, Disney+ ...): stran se odpre v namescenem brskalniku z Widevine (core/drm.py).
         if getattr(self, "_drm", None) is None:
@@ -1559,6 +1566,8 @@ class VdelaniSplet:
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         # Strani, kjer je uporabnik izklopil zascito: brez skript za oglase (ostanejo varnostne in GPC).
         izvzemi_oglase = izvzemi + zascita.vzorci_izjem(self.config)
+        # Stevec Scita v locenem svetu, z relejem za skripte glavnega sveta (iste izjeme kot skripte za oglase).
+        namesti_stevec(W, upravitelj, lambda _u, r: self._stevec(r), izvzemi_oglase)
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
         if self.config.get("adblock_enabled", True):
             self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi_oglase)
@@ -2765,10 +2774,9 @@ class VdelaniSplet:
         except Exception: sporocilo = None
         if not sporocilo:
             return
-        if sporocilo["action"] == "increment_ads":
-            self.config.increment_ads_blocked(sporocilo["count"]); self._osvezi_scit(); return
-        if sporocilo["action"] == "increment_threats":
-            self.config.increment_threats_blocked(sporocilo["count"]); self._osvezi_scit(); return
+        # Stevca Scita ta most (glavni svet, vsi okvirji, brez zetona) nikoli ne spreminja - samo _stevec iz locenega
+        # sveta z mejami releja (namesti_stevec). Prej je tu ostala veja za increment_ads/increment_threats, ki jo je
+        # zapiral le razcleni_sporocilo (koncni neodvisni pregled, 19. 10. 2026).
         # Navigacija in odpiranje dialoga sta zaupni dejanji in veljata le za naso zacetno stran.
         if not je_domaca_stran(pogled.get_uri() or "", self.koren):
             return
@@ -2786,7 +2794,8 @@ class VdelaniSplet:
             self._poslji_stanje(pogled, prenesi=False)
 
     def _stevec(self, rezultat):
-        """Stevec scita iz kozmeticne skripte (loceni svet). Samo increment; stevilo omejeno."""
+        """Stevec scita iz locenega sveta (kozmeticna skripta, rele za skripte glavnega sveta). Samo increment; stevilo
+        omejeno."""
         try:
             s = adblock.preveri_stevec(json.loads(_js_vrednost(rezultat).to_json(0)))
         except Exception:

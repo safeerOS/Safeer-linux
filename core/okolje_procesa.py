@@ -20,8 +20,9 @@ from typing import Optional
 QT = ("QT_QPA_PLATFORMTHEME", "QT_QPA_PLATFORM", "QT_XCB_GL_INTEGRATION")
 
 #: Proces jih prebere enkrat in jih programom, ki jih zazene, ne da naprej (varuh: vticnica obvestil, vticnica lupine,
-#: obnova po sesutju). Prej so se odstranile iz okolja v main(), ko so niti ze tekle.
-PREVZETE = ("NOTIFY_SOCKET", "SAFEER_LUPINA_VTIC", "SAFEER_OBNOVA")
+#: obnova po sesutju; ponovni zagon Controla z oknom). Prej so se odstranile iz okolja v main() ali ob uvozu
+#: safeer_control v procesu Safeer OS, ko so niti ze tekle.
+PREVZETE = ("NOTIFY_SOCKET", "SAFEER_LUPINA_VTIC", "SAFEER_OBNOVA", "SAFEER_CONTROL_ODPRI")
 
 _pripravljeno = False
 _prevzeto: dict = {}

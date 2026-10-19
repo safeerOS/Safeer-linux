@@ -207,7 +207,7 @@ class Sistem(unittest.TestCase):
     def test_samo_znani_ukazi(self):
         pognani = []
         with mock.patch.object(os_sistem, "_v_ozadju", lambda u: pognani.append(u) or True), \
-                mock.patch.object(os_sistem.shutil, "which", lambda x: "/usr/bin/" + x):
+                mock.patch.object(os_sistem.shutil, "which", lambda x, path=None: "/usr/bin/" + x):
             self.assertTrue(os_sistem.odpri_nastavitve("themes"))
             self.assertTrue(os_sistem.odpri_nastavitve("posodobitve"))
             self.assertFalse(os_sistem.odpri_nastavitve("themes; rm -rf ~"))

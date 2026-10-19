@@ -32,6 +32,11 @@ from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
+if __name__ == "__main__":
+    # Ubuntu 24.04+ brez nasega profila AppArmor: ce bwrap ne more teci, WebKitov peskovnik izklopi (spremenljivka v
+    # okolju) - tu, pred prvo nitjo; v main() so niti ze tekle (core/okolje_procesa.py). Uvoz modula okolja ne spremeni.
+    from core import peskovnik_userns  # noqa: E402
+    peskovnik_userns.pred_nitmi()
 
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
@@ -323,9 +328,10 @@ def main() -> int:
     # Razred okna na X11 = prgname: brez tega »safeer_brskalnik.py« in pult okna ne poveze z vnosom v meniju
     # (StartupWMClass; izmerjeno v Xvfb ob pregledu paketa 14. 10. 2026).
     GLib.set_prgname(APP_ID)
-    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita izklopi samo, ce res ne more teci (sicer g_error).
+    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita je izklopljen ze pred nitmi (vrh datoteke), samo ce
+    # res ne more teci (sicer g_error); tu le pojasnilo.
     from core import peskovnik_userns
-    peskovnik = peskovnik_userns.pripravi()
+    peskovnik = peskovnik_userns.ob_zagonu()
     app = SafeerBrskalnik()
     if peskovnik.get("izklopljen"):
         peskovnik_userns.pojasni_kasneje(GLib, CONFIG_DIR, jezik(), "Safeer Browser", "safeer-browser", app)

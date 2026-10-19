@@ -121,19 +121,50 @@ def preveri(okolje: Optional[MutableMapping[str, str]] = None, pot_omejitve: str
     return stanje
 
 
-def pripravi(okolje: Optional[MutableMapping[str, str]] = None, **k) -> dict:
-    """Klici pred prvim WebKitWebContext. Ce peskovnik ne more teci, ga izklopi (namesto sesutja) in vrne stanje z
-    »izklopljen«: True - klicatelj takrat enkrat pokaze pojasnilo (besedilo())."""
+def _izpisi(stanje: dict) -> None:
+    print("[Safeer] peskovnik WebKit: jedro omejuje uporabniske imenske prostore (oznaka %r), bwrap ne deluje - "
+          "strani tecejo brez peskovnika. Popravek: sudo apparmor_parser -r /etc/apparmor.d/<profil>"
+          % (stanje["oznaka"] or "-"), flush=True)
+
+
+def pripravi(okolje: Optional[MutableMapping[str, str]] = None, izpis: bool = True, **k) -> dict:
+    """Ce peskovnik ne more teci, ga izklopi (namesto sesutja) in vrne stanje z »izklopljen«: True - klicatelj takrat
+    enkrat pokaze pojasnilo (besedilo()). Z okoljem procesa samo prek pred_nitmi(): IZKLOP se DODA v okolje."""
     okolje = os.environ if okolje is None else okolje
     stanje = preveri(okolje, **k)
     stanje["izklopljen"] = False
     if not stanje["deluje"]:
         okolje[IZKLOP] = "1"
         stanje["izklopljen"] = True
-        print("[Safeer] peskovnik WebKit: jedro omejuje uporabniske imenske prostore (oznaka %r), bwrap ne deluje - "
-              "strani tecejo brez peskovnika. Popravek: sudo apparmor_parser -r /etc/apparmor.d/<profil>"
-              % (stanje["oznaka"] or "-"), flush=True)
+        if izpis:
+            _izpisi(stanje)
     return stanje
+
+
+#: Stanje iz pred_nitmi() (None: v tem procesu se ni bilo klica).
+_ob_zagonu: Optional[dict] = None
+
+
+def pred_nitmi(okolje: Optional[MutableMapping[str, str]] = None, **k) -> dict:
+    """Klici na zacetku programa, pred `import gi` (tece ena nit). IZKLOP se v okolje doda, ko bwrap ne dela; ko tecejo
+    niti (uvoz GTK jih zazene), dodajanje spremenljivke ni varno (core/okolje_procesa.py) - prej se je to zgodilo v
+    main(). Drug klic v istem procesu ne preverja znova in okolja ne spremeni."""
+    global _ob_zagonu
+    if _ob_zagonu is None:
+        _ob_zagonu = pripravi(okolje, izpis=False, **k)
+    return dict(_ob_zagonu)
+
+
+def ob_zagonu() -> dict:
+    """Stanje iz pred_nitmi() za main() - okolja ne spremeni. Zapis je tu, ker main() izpis ze preusmeri v sled.log
+    (os_stabilnost.preusmeri_izpis). Ce pred_nitmi() ni bil klican (nov ali drugacen vstop v program), preverimo zdaj:
+    zapis v okolje med tekom niti je redka nevarnost, WebKit brez peskovnika na Ubuntu 24.04+ pa bi zanesljivo koncal
+    ves proces ob prvi strani (g_error)."""
+    if _ob_zagonu is None:
+        pred_nitmi()
+    if _ob_zagonu["izklopljen"]:
+        _izpisi(_ob_zagonu)
+    return dict(_ob_zagonu)
 
 
 def besedilo(jezik: str, program: str, profil: str, mapa_profilov: str = "/etc/apparmor.d") -> tuple:

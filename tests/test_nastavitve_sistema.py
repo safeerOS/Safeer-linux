@@ -70,9 +70,10 @@ def test_razpolozljivo_po_seji(tmp_path, monkeypatch):
     monkeypatch.setattr(os_sistem, "MAPE_PROGRAMOV", (str(prog),))
     monkeypatch.setattr(os_sistem, "MAPE_MODULOV", (str(tmp_path / "ni"),))
     programi = {"cinnamon-settings", "gnome-control-center", "mintupdate", "mintsources", "gufw"}
-    # Programi kot root imajo absolutno pot (core/root_ukaz.py): ime je zadnji del poti.
+    # Programi kot root imajo absolutno pot (core/root_ukaz.py): ime je zadnji del poti. Iskanje samo v sistemskih
+    # mapah (root_ukaz.sistemski_program) poda path=.
     monkeypatch.setattr(os_sistem.shutil, "which",
-                        lambda x: "/usr/bin/" + os.path.basename(x) if os.path.basename(x) in programi else None)
+                        lambda x, path=None: "/usr/bin/" + os.path.basename(x) if os.path.basename(x) in programi else None)
     monkeypatch.setattr(root_ukaz, "na_voljo", lambda: "pkexec" in programi)
     # Seja Cinnamon: moduli Cinnamona, brez plosc GNOME.
     monkeypatch.setattr(os_sistem, "_gnome_seja", lambda: False)
@@ -96,7 +97,7 @@ def test_odpri_samo_znano(tmp_path, monkeypatch):
     monkeypatch.setattr(os_sistem, "MAPE_PROGRAMOV", (str(prog),))
     pognani = []
     monkeypatch.setattr(os_sistem, "_v_ozadju", lambda u: pognani.append(u) or True)
-    monkeypatch.setattr(os_sistem.shutil, "which", lambda x: "/usr/bin/" + os.path.basename(x))
+    monkeypatch.setattr(os_sistem.shutil, "which", lambda x, path=None: "/usr/bin/" + os.path.basename(x))
     monkeypatch.setattr(root_ukaz, "na_voljo", lambda: True)
     assert os_sistem.odpri_nastavitve("p:about")
     assert not os_sistem.odpri_nastavitve("p:wifi"), "plosce ni na racunalniku"

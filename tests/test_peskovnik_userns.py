@@ -101,11 +101,13 @@ class Zaznava(unittest.TestCase):
         self.assertEqual(poslano, [1])
 
     def test_vstopne_tocke_pred_aplikacijo(self):
+        # Izklop (spremenljivka v okolju) pred `import gi` (tests/test_okolje_pred_nitmi.py), main() le prebere stanje.
         for ime, razred in (("safeer_os.py", "SafeerOS("), ("safeer_control.py", "SafeerControl(ozadje"),
                             ("safeer_brskalnik.py", "SafeerBrskalnik()")):
             vir = (KOREN / ime).read_text(encoding="utf-8")
+            self.assertLess(vir.index("peskovnik_userns.pred_nitmi()"), vir.index("\nimport gi"), ime)
             telo = vir[vir.index("\ndef main("):]
-            self.assertLess(telo.index("peskovnik_userns.pripravi()"), telo.index(razred), ime)
+            self.assertLess(telo.index("peskovnik_userns.ob_zagonu()"), telo.index(razred), ime)
             self.assertIn("peskovnik_userns.pojasni_kasneje(", telo, ime)
 
 
