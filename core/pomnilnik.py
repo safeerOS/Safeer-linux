@@ -98,10 +98,43 @@ def obrezuj() -> bool:
         return False
 
 
+#: Periodicno obrezovanje samo, ce je anonimni RSS od zadnjega obrezovanja zrasel vsaj za toliko (KiB).
+PRAG_OBREZOVANJA_KIB = 4096
+#: anon: RSS po zadnjem obrezovanju; po_rasti: zadnje obrezovanje je bilo zaradi rasti (delo morda se tece).
+_po_obrezovanju = {"anon": -1, "po_rasti": False}
+
+
+def _anon_kib() -> int:
+    """Anonimni (zasebni) rezidencni pomnilnik tega procesa v KiB iz /proc/self/statm (resident - shared); -1 drugje."""
+    try:
+        with open("/proc/self/statm", encoding="ascii") as d:
+            v = d.read().split()
+        return (int(v[1]) - int(v[2])) * (os.sysconf("SC_PAGE_SIZE") // 1024)
+    except (OSError, ValueError, IndexError):
+        return -1
+
+
+def obrezuj_ce_treba(prag_kib: int = PRAG_OBREZOVANJA_KIB) -> bool:
+    """Periodicno obrezovanje: gc + malloc_trim samo, ce je proces od zadnjega obrezovanja zrasel za prag_kib. Do
+    19. 10. 2026 je periodicno obrezovanje teklo vsakih 90 s tudi v mirovanju (meritev v vsebniku: do 21 ms glavne niti
+    Safeer OS na klic - polno zbiranje in malloc_trim -, ko ni bilo nic vrniti). Po obrezovanju zaradi rasti obrezuje se
+    enkrat: kar je delo sprostilo po tem (zaprt zavihek, konec nalaganja), RSS ne poveca, a malloc to drzi do obrezovanja.
+    Vrne, ali je obrezoval."""
+    anon = _anon_kib()
+    prej = _po_obrezovanju["anon"]
+    zrasel = anon < 0 or prej < 0 or anon - prej >= prag_kib
+    if not zrasel and not _po_obrezovanju["po_rasti"]:
+        return False
+    obrezuj()
+    _po_obrezovanju["anon"] = _anon_kib()
+    _po_obrezovanju["po_rasti"] = zrasel
+    return True
+
+
 def obrezuj_periodicno(GLib, sekunde: int = 90) -> None:
-    """Na glavni niti, vsakih `sekunde`: obrezovanje traja nekaj milisekund."""
+    """Na glavni niti, vsakih `sekunde`: obrezovanje (nekaj ms), ce je bilo od zadnjega kaj dela (obrezuj_ce_treba)."""
     def korak():
-        obrezuj()
+        obrezuj_ce_treba()
         return True
     GLib.timeout_add_seconds(int(sekunde), korak)
 

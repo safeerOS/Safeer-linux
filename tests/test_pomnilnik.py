@@ -12,6 +12,26 @@ class Pomnilnik(unittest.TestCase):
         self.assertTrue(pomnilnik.omeji_arene(2))
         self.assertTrue(pomnilnik.obrezuj() in (True, False))
 
+    def test_periodicno_samo_po_delu(self):
+        """Periodicno obrezovanje (90 s) samo, ce je proces od zadnjega zrasel za prag (19. 10. 2026: v mirovanju je
+        stalo do 21 ms glavne niti na klic, ko ni bilo nic vrniti)."""
+        from unittest import mock
+        anon = [100000]
+        with mock.patch.object(pomnilnik, "_anon_kib", side_effect=lambda: anon[0]), \
+                mock.patch.object(pomnilnik, "obrezuj", return_value=True) as obrezuj, \
+                mock.patch.dict(pomnilnik._po_obrezovanju, {"anon": -1, "po_rasti": False}):
+            self.assertTrue(pomnilnik.obrezuj_ce_treba())          # prvic vedno
+            self.assertTrue(pomnilnik.obrezuj_ce_treba())          # se enkrat po prvem (kot po rasti)
+            anon[0] += 1000
+            self.assertFalse(pomnilnik.obrezuj_ce_treba())         # mirovanje: pod pragom
+            anon[0] += pomnilnik.PRAG_OBREZOVANJA_KIB
+            self.assertTrue(pomnilnik.obrezuj_ce_treba())          # po delu
+            self.assertTrue(pomnilnik.obrezuj_ce_treba())          # se enkrat: kar je delo sprostilo pozneje
+            self.assertFalse(pomnilnik.obrezuj_ce_treba())
+            self.assertFalse(pomnilnik.obrezuj_ce_treba())
+            self.assertEqual(obrezuj.call_count, 4)
+        self.assertGreater(pomnilnik._anon_kib(), 0)
+
     def test_kontekst_brez_podpore(self):
         class W:
             class WebContext:
