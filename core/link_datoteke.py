@@ -185,6 +185,8 @@ class DeljeneMape:
             return None
         try:
             i = int(deli[1])
+            if i < 0 or deli[1] != str(i):      # samo 0, 1, 2 …: »-1« ali »01« bi izbrala drugo mapo kot oznaka_poti
+                return None
             koren = self.poti[i]
         except (ValueError, IndexError):
             return None

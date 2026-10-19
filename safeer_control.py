@@ -1812,12 +1812,15 @@ class SafeerControl(_OSNOVA):
 
         def tece() -> None:
             try:
-                koda = subprocess.run(ukaz, capture_output=True, timeout=1800).returncode
-            except Exception:
-                koda = 1
-            GLib.idle_add(konec, koda)
+                r = subprocess.run(ukaz, capture_output=True, text=True, timeout=1800)
+                koda, opis = r.returncode, (link_sway.opis_napake(r) if r.returncode else "")
+            except Exception as e:  # noqa: BLE001
+                koda, opis = 1, str(e)
+            if koda:
+                print("[SafeerControl] namestitev locenega zaslona (%s): %s" % (koda, opis), flush=True)
+            GLib.idle_add(konec, koda, opis)
 
-        def konec(koda: int) -> bool:
+        def konec(koda: int, opis: str = "") -> bool:
             link_sway.wf_zmoznosti(osvezi=True)
             if koda == 0 and link_sway.DrugiZaslon.mozno():
                 self.drugi_zaslon = link_sway.DrugiZaslon()
@@ -1825,7 +1828,7 @@ class SafeerControl(_OSNOVA):
                 self.zaslon.drugi = self.drugi_zaslon
                 sporocilo = besedilo(jezik, "locen_uspeh")
             else:
-                sporocilo = besedilo(jezik, "locen_napaka")
+                sporocilo = besedilo(jezik, "locen_napaka") + ("\n\n" + opis if opis else "")
             _vprasaj(None, "Safeer Control", sporocilo, ["OK"])
             if self.pladenj is not None:
                 self.pladenj.osvezi_locen()

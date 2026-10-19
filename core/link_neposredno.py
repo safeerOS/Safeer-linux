@@ -154,24 +154,36 @@ def _pot_poti() -> str:
 
 
 def _beri_json(pot: str) -> dict:
+    """Ni datoteke ali je pokvarjena: prazno (prvi zagon, prekinjeno pisanje). Druga napaka (pravice, disk) gre v
+    dnevnik, da se ne skrije (neodvisni pregled 19. 10. 2026); nastavitve so tudi takrat privzete."""
     try:
         with open(pot, encoding="utf-8") as d:
             v = json.load(d)
         return v if isinstance(v, dict) else {}
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    except OSError as e:
+        print("[SafeerLink] neposredno: branje %s: %s" % (os.path.basename(pot), e), flush=True)
         return {}
 
 
-def _pisi_json(pot: str, vsebina: dict) -> None:
+def _pisi_json(pot: str, vsebina: dict) -> bool:
+    """Atomsko (zacasna datoteka + os.replace). False in zapis v dnevnik, ce ne uspe."""
+    zacasna = pot + ".tmp"
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
-        zacasna = pot + ".tmp"
         with open(zacasna, "w", encoding="utf-8") as d:
             json.dump(vsebina, d)
         os.chmod(zacasna, 0o600)
         os.replace(zacasna, pot)
-    except Exception:
-        pass
+        return True
+    except (OSError, TypeError, ValueError) as e:
+        print("[SafeerLink] neposredno: pisanje %s: %s" % (os.path.basename(pot), e), flush=True)
+        try:
+            os.remove(zacasna)
+        except OSError:
+            pass
+        return False
 
 
 def nastavitve(pot: Optional[str] = None) -> dict:

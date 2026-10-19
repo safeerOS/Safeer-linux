@@ -16,6 +16,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
 
+#: Tabele, katerih ime se vstavi v SQL (DELETE po kanalu/pogovoru). Vrednosti gredo vedno prek »?«; ime tabele SQLite
+#: ne zna parametrizirati, zato je dovoljeno samo ime s tega seznama (neodvisni pregled 19. 10. 2026: danes so vsa imena
+#: konstante v kodi, seznam varuje prihodnje spremembe).
+TABELE_KANALA = frozenset({"kanali", "kanal_stanje", "odhodni", "sporocila_polno", "kanal_neprebrano", "oznake",
+                           "zvezdice"})
+
+
+def _tabela(ime: str) -> str:
+    if ime not in TABELE_KANALA:
+        raise ValueError("tabela ni dovoljena: %r" % (ime,))
+    return ime
+
 from .adapter import Adapter
 from .identiteta import IdentitetniGraf, PRIVZETA_POT, zasebna_baza
 from .model import Kanal, Pogovor, Sporocilo
@@ -455,11 +467,11 @@ class StoritevSporocil:
                     pass
         with self._zaklep, self.db:
             for tabela in ("kanali", "kanal_stanje"):
-                self.db.execute("DELETE FROM %s WHERE id=?" % tabela, (kanal_id,))
+                self.db.execute("DELETE FROM %s WHERE id=?" % _tabela(tabela), (kanal_id,))
             self.db.execute("DELETE FROM pogovori WHERE kanal_id=?", (kanal_id,))
             self.db.execute("DELETE FROM sporocila WHERE kanal_id=?", (kanal_id,))   # sprozilec pocisti tudi iskalni indeks
             for tabela in ("odhodni", "sporocila_polno", "kanal_neprebrano", "oznake", "zvezdice"):
-                self.db.execute("DELETE FROM %s WHERE kanal_id=?" % tabela, (kanal_id,))
+                self.db.execute("DELETE FROM %s WHERE kanal_id=?" % _tabela(tabela), (kanal_id,))
         self._izklopljeni.discard(kanal_id)
         # Osebe, ki so ostale brez vsakega pogovora, izginejo skupaj s kanalom.
         with self.graf._zaklep, self.graf._db:
@@ -583,7 +595,7 @@ class StoritevSporocil:
             self.db.execute("DELETE FROM sporocila WHERE kanal_id=? AND pogovor_id=?", (kanal_id, pogovor_id))
             self.db.execute("DELETE FROM pogovori WHERE kanal_id=? AND id=?", (kanal_id, pogovor_id))
             for tabela in ("oznake", "zvezdice"):
-                self.db.execute("DELETE FROM %s WHERE kanal_id=? AND pogovor_id=?" % tabela, (kanal_id, pogovor_id))
+                self.db.execute("DELETE FROM %s WHERE kanal_id=? AND pogovor_id=?" % _tabela(tabela), (kanal_id, pogovor_id))
 
     def zdruzi_osebi(self, cilj_id: str, drugi_id: str):
         """Drugo osebo zdruzi v cilj; njeni pogovori se preselijo k cilju."""

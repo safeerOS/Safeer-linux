@@ -750,6 +750,16 @@ def paketi_za_namestitev(stanje: dict) -> List[str]:
     return [p for p in paketi if p in set(PAKETI.values())]
 
 
+def opis_napake(izid, najvec: int = 400) -> str:
+    """Konec izpisa neuspele namestitve (stderr, sicer stdout) za sporocilo uporabniku - prej se je zavrgel in ni bilo
+    vidno, zakaj namestitev ni uspela (neodvisni pregled 19. 10. 2026)."""
+    besedilo = (getattr(izid, "stderr", "") or getattr(izid, "stdout", "") or "")
+    if isinstance(besedilo, bytes):
+        besedilo = besedilo.decode("utf-8", "replace")
+    besedilo = besedilo.strip()
+    return besedilo[-najvec:] if besedilo else ""
+
+
 def ukaz_namestitve(stanje: dict) -> Optional[List[str]]:
     """Namestitev ali posodobitev s sistemskim vprasanjem za geslo (pkexec). Zazene se samo, kadar
     uporabnik v Controlu to izrecno potrdi; geslo vpise sam v sistemsko okno."""

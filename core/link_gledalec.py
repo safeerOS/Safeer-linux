@@ -239,7 +239,11 @@ class Gledalec:
             kontekst.check_hostname = False
             kontekst.verify_mode = ssl.CERT_NONE
             varna = kontekst.wrap_socket(surova, server_hostname=naslov)
-            dejanski = hashlib.sha256(varna.getpeercert(binary_form=True)).hexdigest()
+            # Brez potrdila (getpeercert vrne None) je to napaka gledalca, ne TypeError (neodvisni pregled 19. 10. 2026).
+            der = varna.getpeercert(binary_form=True) or b""
+            if not der:
+                raise NapakaGledalca("Strežnik ni poslal potrdila.")
+            dejanski = hashlib.sha256(der).hexdigest()
             if dejanski != self.seja["fp"]:
                 raise NapakaGledalca("Odtis potrdila se ne ujema.")
             # Rokovanje je mimo: od tu velja cas cele seje, ne krajsi cas enega poskusa.

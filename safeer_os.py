@@ -4001,6 +4001,8 @@ class SafeerOS(Gtk.Application):
             stanje.sporocilo = "Flatpak"
             # Znova zazenemo prek zaganjalnika .deb (preda Flatpaku); najprej koncamo ta proces (en primerek).
             argumenti = ["--delovna"] if self.delovna else []
+            # Lupina je tu namerna: nov proces mora zaceti sele, ko se ta konca (en primerek), casovnik GLib pa bi
+            # umrl s tem procesom. Besedilo ukaza je stalno, argumenti gredo kot "$@" (neodvisni pregled 19. 10. 2026).
             subprocess.Popen(["sh", "-c", 'sleep 3; exec /usr/bin/safeer-os "$@"', "safeer-os"] + argumenti,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             GLib.timeout_add_seconds(1, lambda: (self._koncaj(), False)[1])

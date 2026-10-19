@@ -65,6 +65,9 @@ class Knjiznica:
             # predvajanj: stevec za polico »Najveckrat predvajano«; ogledano: kdaj je bil video ogledan (0 = ne).
             for ime in ("pozicija", "trajanje", "predvajanj", "ogledano"):
                 if ime not in stolpci:
+                    # Ime stolpca ni parametrizabilno: samo konstanta iz te zanke v obliki identifikatorja.
+                    if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", ime):
+                        raise ValueError("ime stolpca ni dovoljeno: %r" % (ime,))
                     baza.execute(f"ALTER TABLE mediji ADD COLUMN {ime} INTEGER NOT NULL DEFAULT 0")
             baza.execute("CREATE INDEX IF NOT EXISTS mediji_vrsta ON mediji(vrsta, dodano DESC)")
             baza.execute("""CREATE TABLE IF NOT EXISTS tokovi (
