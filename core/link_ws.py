@@ -248,7 +248,8 @@ class Povezava:
         """Bere, dokler povezava zivi. Konca s klicem ob_koncu."""
         self._pisec = threading.Thread(target=self._zanka_pisanja, daemon=True)
         self._pisec.start()
-        zbrano = b""
+        # bytearray: dodajanje kosa ne prepise vsega zbranega (bytes += bi bil pri mnogo majhnih okvirjih kvadraten).
+        zbrano = bytearray()
         zbrana_opkoda = -1
         tihih = 0
         try:
@@ -275,6 +276,10 @@ class Povezava:
                     dolzina = struct.unpack(">Q", self._preberi(8))[0]
                 if dolzina > NAJVECJE_SPOROCILO:
                     break
+                if opkoda == OPKODA_NADALJEVANJE and len(zbrano) + dolzina > NAJVECJE_SPOROCILO:
+                    # Meja velja za celo sporocilo, ne za okvir: 151 nezakljucenih okvirjev po 1 MiB je prej povecalo
+                    # pomnilnik procesa za 310 MiB (pregled 19. 10. 2026). Kot pri prevelikem okvirju: povezavo zapremo.
+                    break
                 maska = self._preberi(4)
                 telo = odmaskiraj(self._preberi(dolzina), maska)
                 if opkoda == OPKODA_ZAPRI:
@@ -292,7 +297,7 @@ class Povezava:
                     continue
                 if opkoda != OPKODA_NADALJEVANJE:
                     zbrana_opkoda = opkoda
-                    zbrano = b""
+                    zbrano = bytearray()
                 zbrano += telo
                 if not zakljucen:
                     continue
@@ -300,13 +305,13 @@ class Povezava:
                     try:
                         sporocilo = zbrano.decode("utf-8")
                     except UnicodeDecodeError:
-                        zbrano = b""
+                        zbrano = bytearray()
                         continue
                     try:
                         self.ob_sporocilu(self, sporocilo)
                     except Exception:
                         pass
-                zbrano = b""
+                zbrano = bytearray()
         except Exception as e:  # noqa: BLE001
             if not self._zaprta:
                 self._zabelezi_konec("branje", e)

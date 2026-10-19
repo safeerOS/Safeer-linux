@@ -310,6 +310,25 @@ class Krog:
             ujemanja = [c for c in self.clani.values() if id_iz_kljuca(c["kljuc"]) == jedro]
             return bool(ujemanja) and not any(self._veljaven(c) for c in ujemanja)
 
+    def umaknjen_ob(self, device_id: str) -> Optional[float]:
+        """Cas umika, ki za napravo velja zdaj (isto ujemanje kot je_umaknjen), ali None. Sredisce po njem loci zeton,
+        izdan pred umikom (ne velja vec), od zetona nove seznanitve po umiku (velja, naprava se lahko vrne)."""
+        if not device_id:
+            return None
+        with self._zaklep:
+            u = self.umiki.get(device_id)
+            c = self.clani.get(device_id)
+            if u and (not c or u["umaknjeno"] > c["dodano"]):
+                return float(u["umaknjeno"])
+            if c or not je_id_iz_kljuca(device_id):
+                return None
+            jedro = device_id[:DOLZINA_ID_IZ_KLJUCA]
+            ujemanja = [c for c in self.clani.values() if id_iz_kljuca(c["kljuc"]) == jedro]
+            if not ujemanja or any(self._veljaven(c) for c in ujemanja):
+                return None
+            casi = [float(self.umiki[c["id"]]["umaknjeno"]) for c in ujemanja if c["id"] in self.umiki]
+            return max(casi) if casi else None
+
     def stevilo(self) -> int:
         with self._zaklep:
             return sum(1 for c in self.clani.values() if self._veljaven(c))

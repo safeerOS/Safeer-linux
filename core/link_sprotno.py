@@ -10,14 +10,21 @@ krajevni posrednik za predvajanje datotek z drugih naprav v lokalnem predvajalni
 
 ffmpeg izvirnika ne bere sam (pripetega potrdila ne zna preveriti): bere ga prek krajevnega posrednika
 (127.0.0.1, skrivna pot, `Range` gre naprej), ki edini govori s pripetim virom.
+
+Varnost (pregled 19. 10. 2026, ukaz zmore vsaka naprava z zmoznostjo "v"): zeton naprave gre samo pripetemu https;
+zanka in povezavno-lokalni naslovi nikoli, domace omrezje samo brez glav toka; posrednik ime razresi ob vsaki
+povezavi in se poveze na preverjeni naslov. ffmpeg sme samo HTTP prek posrednika, tudi za kose seznama predvajanja.
 """
 from __future__ import annotations
 
 import http.client
 import http.server
+import ipaddress
 import os
 import secrets
 import shutil
+import socket
+import ssl
 import subprocess
 import threading
 import time
@@ -35,7 +42,8 @@ VELIKOST_KOSA = 256 * 1024
 
 
 class NapakaPretoka(Exception):
-    """Kratka koda za napravo (napacna_zahteva, ni_ffmpeg, preobremenjen, ni_prostora, napaka)."""
+    """Kratka koda za napravo (napacna_zahteva, nedovoljen_cilj, ni_vira, ni_ffmpeg, preobremenjen, ni_prostora,
+    napaka)."""
 
 
 WINDOWS = os.name == "nt"
@@ -154,27 +162,170 @@ def glave_zahteve(o) -> dict:
     return glave
 
 
+# ----------------------------------------------------------------------------- cilji (pregled 19. 10. 2026)
+
+#: Protokoli, ki jih smeta ffmpeg in ffprobe: samo navaden HTTP do nasega posrednika (tcp pod njim, crypto za sifrirane
+#: kose HLS). Brez file, data, https/tls in httpproxy: preizkus s ffmpeg 6.1.1 (19. 10. 2026) - kos seznama HLS
+#: `httpproxy://127.0.0.2:...` gre sicer naravnost na zanko, mimo posrednika in njegovih preverjanj.
+PROTOKOLI_FFMPEG = "http,tcp,crypto"
+
+#: 0.0.0.0/8 (Linux 0.0.0.0 poveze na zanko) in IPv6 s ponudnikovim NAT64, ki nosi naslov IPv4.
+_TA_MREZA = ipaddress.ip_network("0.0.0.0/8")
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def vrsta_naslova(naslov: str) -> str:
+    """Vrsta naslova IP: "javni", "zasebni" (domace omrezje, CGNAT, ULA ...) ali "prepovedan": zanka,
+    povezavno-lokalni (tudi metapodatki oblaka 169.254.169.254), vecvrstni, rezervirani, nedoloceni - tudi zaviti
+    v IPv6 (::ffff:127.0.0.1, 6to4, NAT64)."""
+    try:
+        ip = ipaddress.ip_address(str(naslov or "").split("%", 1)[0].strip("[]"))
+    except ValueError:
+        return "prepovedan"
+    if ip.version == 6:
+        v4 = ip.ipv4_mapped or ip.sixtofour
+        if v4 is None and ip in _NAT64:
+            v4 = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if v4 is None and int(ip) >> 32 == 0:          # ::a.b.c.d (zastarelo), tudi :: in ::1
+            v4 = ipaddress.IPv4Address(int(ip))
+        if v4 is not None:
+            ip = v4
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved \
+            or (ip.version == 4 and ip in _TA_MREZA):
+        return "prepovedan"
+    return "javni" if ip.is_global else "zasebni"
+
+
+def _razresi(gostitelj: str, vrata: int) -> List[str]:
+    """Vsi naslovi imena (getaddrinfo), po vrsti in brez ponovitev."""
+    izid: List[str] = []
+    for *_x, naslov in socket.getaddrinfo(gostitelj, vrata, type=socket.SOCK_STREAM):
+        if naslov[0] not in izid:
+            izid.append(naslov[0])
+    return izid
+
+
+def dovoljeni_naslovi(gostitelj: str, vrata: int, zasebni: bool) -> List[str]:
+    """Naslovi, na katere se smemo povezati, sicer NapakaPretoka. Zanka in povezavno-lokalni nikoli (posrednik tece na
+    tem racunalniku: sicer bi naprava prek njega dosegla storitve, ki poslusajo samo na 127.0.0.1), domace omrezje
+    samo z `zasebni` (brez glav toka, ki jih je izbrala naprava). Ce kateri naslov imena ni dovoljen, ni nobeden."""
+    if not gostitelj or not 0 < int(vrata) < 65536:
+        raise NapakaPretoka("napacna_zahteva")
+    try:
+        naslovi = _razresi(gostitelj, vrata)
+    except (OSError, UnicodeError):
+        raise NapakaPretoka("ni_vira") from None
+    if not naslovi:
+        raise NapakaPretoka("ni_vira")
+    for n in naslovi:
+        vrsta = vrsta_naslova(n)
+        if vrsta == "prepovedan" or (vrsta == "zasebni" and not zasebni):
+            raise NapakaPretoka("nedovoljen_cilj")
+    return naslovi
+
+
+def _odpiralec(naslovi: List[str]) -> Callable[..., socket.socket]:
+    """Kot socket.create_connection, a vedno na enega od ze preverjenih naslovov (ime se ne razresi znova)."""
+    def odpri(naslov, timeout=None, *_a) -> socket.socket:
+        napaka: Optional[OSError] = None
+        for n in naslovi:
+            try:
+                return socket.create_connection((n, naslov[1]), timeout)
+            except OSError as e:
+                napaka = e
+        raise napaka or OSError("ni naslova")
+    return odpri
+
+
+class _HttpNaNaslov(http.client.HTTPConnection):
+    """HTTP, ki se poveze na preverjeni naslov; glava Host ostane ime."""
+
+    def __init__(self, gostitelj: str, vrata: int, odpri: Callable[..., socket.socket], timeout: float) -> None:
+        super().__init__(gostitelj, vrata, timeout=timeout)
+        self._odpri = odpri
+
+    def connect(self) -> None:  # noqa: D401 - http.client API
+        self.sock = self._odpri((self.host, self.port), self.timeout)
+
+
+class _HttpsNaNaslov(http.client.HTTPSConnection):
+    """HTTPS (potrdilo overitelja, ime gostitelja) na preverjeni naslov."""
+
+    def __init__(self, gostitelj: str, vrata: int, odpri: Callable[..., socket.socket], timeout: float) -> None:
+        self._kontekst = ssl.create_default_context()
+        super().__init__(gostitelj, vrata, timeout=timeout, context=self._kontekst)
+        self._odpri = odpri
+
+    def connect(self) -> None:  # noqa: D401 - http.client API
+        surov = self._odpri((self.host, self.port), self.timeout)
+        try:
+            self.sock = self._kontekst.wrap_socket(surov, server_hostname=self.host)
+        except Exception:
+            surov.close()
+            raise
+
+
+def okolje_ffmpeg(vhod: str, okolje: Optional[dict] = None) -> dict:
+    """Okolje za ffmpeg/ffprobe: http_proxy je nas posrednik, no_proxy in drugi posredniki sistema odpadejo - ffmpeg
+    bi sicer z no_proxy (npr. "*") kose seznama predvajanja bral mimo posrednika."""
+    izid = {k: v for k, v in (os.environ if okolje is None else okolje).items()
+            if k.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy")}
+    posrednik = _posrednik_vhoda(vhod)
+    if posrednik:
+        izid["http_proxy"] = posrednik
+    return izid
+
+
+def _posrednik_vhoda(vhod: str) -> str:
+    """http://127.0.0.1:<vrata> nasega posrednika iz vhoda ffmpeg; prazno, ce vhod ni posrednik."""
+    try:
+        u = urllib.parse.urlsplit(str(vhod or ""))
+        if u.scheme == "http" and u.hostname == "127.0.0.1" and u.port:
+            return f"http://127.0.0.1:{u.port}"
+    except ValueError:
+        pass
+    return ""
+
+
+def zascita_vhoda(vhod: str) -> List[str]:
+    """Moznosti pred vhodom ffmpeg/ffprobe: samo PROTOKOLI_FFMPEG in vsaka zahteva (tudi kosi HLS/DASH, ki jih ffmpeg
+    sestavi sam) prek posrednika, ki cilj preveri."""
+    posrednik = _posrednik_vhoda(vhod)
+    return ["-protocol_whitelist", PROTOKOLI_FFMPEG] + (["-http_proxy", posrednik] if posrednik else [])
+
+
 class _Vir:
     """Izvirnik: pripeto HTTPS (odtis + zeton) ali navaden HTTP; vsaka zahteva nova povezava (Range gre naprej)."""
 
-    def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None) -> None:
+    def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None, zasebni: bool = False) -> None:
         self.url = url
         self.odtis = odtis
         self.zeton = zeton
         #: Glave zahteve za izvirnik (Stremio behaviorHints.proxyHeaders): brez njih streznik toka vrne 403.
         self.glave = dict(glave or {})
+        #: Ali je cilj lahko v domacem omrezju (dovoljeni_naslovi).
+        self.zasebni = zasebni
+
+    def pripeto(self) -> bool:
+        """Samo tak vir dobi zeton naprave: odtis potrdila se preveri, preden gre ven kak bajt zahteve."""
+        return self.url.startswith("https://") and bool(self.odtis)
 
     def povezava(self) -> http.client.HTTPConnection:
-        u = urllib.parse.urlparse(self.url)
-        if u.scheme == "https":
+        u = urllib.parse.urlsplit(self.url)
+        https = u.scheme == "https"
+        gostitelj, vrata = u.hostname or "", u.port or (443 if https else 80)
+        # Ime razresimo ob vsaki povezavi in se povezemo na preverjeni naslov (DNS rebinding: ime, ki je ob
+        # video.stream kazalo na javni naslov, lahko zdaj kaze na 127.0.0.1).
+        odpri = _odpiralec(dovoljeni_naslovi(gostitelj, vrata, self.zasebni))
+        if https and self.odtis:
             from core import link_tls
-            if self.odtis:
-                return link_tls._PripetaHttps(u.hostname or "", u.port or 443, self.odtis, 30.0)
-            return http.client.HTTPSConnection(u.hostname or "", u.port or 443, timeout=30.0)
-        return http.client.HTTPConnection(u.hostname or "127.0.0.1", u.port or 80, timeout=30.0)
+            return link_tls._PripetaHttps(gostitelj, vrata, self.odtis, 30.0, odpri=odpri)
+        if https:
+            return _HttpsNaNaslov(gostitelj, vrata, odpri, 30.0)
+        return _HttpNaNaslov(gostitelj, vrata, odpri, 30.0)
 
     def pot(self) -> str:
-        u = urllib.parse.urlparse(self.url)
+        u = urllib.parse.urlsplit(self.url)
         return (u.path or "/") + ("?" + u.query if u.query else "")
 
 
@@ -190,23 +341,51 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
     def do_GET(self):  # noqa: N802
         self._naprej(False)
 
+    def _prazen(self, koda: int) -> None:
+        self.send_response(koda)
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+    def _vir(self, sprotno: "Sprotno") -> Optional[_Vir]:
+        pot = self.path
+        if not pot.startswith("http://"):
+            return sprotno.vir_za(pot.split("?")[0].strip("/"))
+        # ffmpeg ima nas posrednik za HTTP proxy (zascita_vhoda): vsaka zahteva pride s polnim naslovom.
+        try:
+            u = urllib.parse.urlsplit(pot)
+            lastni = (u.hostname, u.port) == ("127.0.0.1", self.server.server_address[1])
+        except ValueError:
+            return None
+        if lastni:
+            return sprotno.vir_za(u.path.strip("/"))
+        return sprotno.vir_vgnezdene(pot)
+
     def _naprej(self, samo_glava: bool) -> None:
         sprotno: Sprotno = self.server.sprotno  # type: ignore[attr-defined]
-        vir = sprotno.vir_za(self.path.split("?")[0].strip("/"))
+        vir = self._vir(sprotno)
         if vir is None:
-            self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
+            self._prazen(404)
             return
         glave = {"User-Agent": "Safeer Control"}
         glave.update(vir.glave)                      # glave toka (tudi svoj User-Agent) imajo prednost
-        if vir.zeton:
+        if vir.zeton and vir.pripeto():
             glave["X-Safeer-Token"] = vir.zeton
         if self.headers.get("Range"):
             glave["Range"] = self.headers["Range"]
         p = None
         try:
-            p = vir.povezava()
-            p.request("HEAD" if samo_glava else "GET", vir.pot(), headers=glave)
-            r = p.getresponse()
+            try:
+                p = vir.povezava()
+                p.request("HEAD" if samo_glava else "GET", vir.pot(), headers=glave)
+                r = p.getresponse()
+            except NapakaPretoka as e:
+                _zapisi(f"sprotno: posrednik zavrnil cilj ({e})")
+                self._prazen(403 if str(e) == "nedovoljen_cilj" else 502)
+                return
+            except Exception:  # noqa: BLE001 - vir ni dosegljiv ali ima drugo potrdilo (link_tls.NeujemanjeOdtisa)
+                self._prazen(502)
+                return
             self.send_response(r.status)
             for ime in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
                 if r.getheader(ime):
@@ -220,7 +399,8 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
                 if not kos:
                     break
                 self.wfile.write(kos)
-        except (BrokenPipeError, ConnectionResetError, OSError):
+        except (OSError, ValueError, http.client.HTTPException):
+            # Pokvarjen naslov ali odgovor (kos seznama predvajanja doloci tuj streznik) samo konca to zahtevo.
             pass
         finally:
             if p is not None:
@@ -356,6 +536,14 @@ class Sprotno:
                     return v
         return None
 
+    def vir_vgnezdene(self, url: str) -> Optional[_Vir]:
+        """Zahteva, ki jo je ffmpeg sestavil sam iz seznama predvajanja (kos HLS/DASH, kljuc): samo javni naslov, brez
+        glav toka in zetona, in samo, dokler kak tok tece (posrednik ni odprt posrednik za ves racunalnik)."""
+        with self._kljucavnica:
+            if not self._viri:
+                return None
+        return _Vir(url, "", "", {}, zasebni=False)
+
     # ---- ukazi
 
     def zacni(self, p: dict, posiljatelj: str, streznik) -> dict:
@@ -368,6 +556,17 @@ class Sprotno:
         if not (url.startswith("https://") or url.startswith("http://")):
             raise NapakaPretoka("napacna_zahteva")
         if odtis and len(odtis) != 64:
+            raise NapakaPretoka("napacna_zahteva")
+        try:
+            u = urllib.parse.urlsplit(url)
+            gostitelj, vrata_vira = u.hostname or "", u.port or (443 if u.scheme == "https" else 80)
+        except ValueError:
+            raise NapakaPretoka("napacna_zahteva") from None
+        if not gostitelj:
+            raise NapakaPretoka("napacna_zahteva")
+        # Zeton naprave samo pripetemu https (odtis se preveri pred posiljanjem): po http ga vidi vsak na poti,
+        # nepripetemu https pa ga da vsak streznik s potrdilom overitelja (pregled 19. 10. 2026).
+        if zeton and not (u.scheme == "https" and odtis):
             raise NapakaPretoka("napacna_zahteva")
         if not self.ffmpeg():
             raise NapakaPretoka("ni_ffmpeg")
@@ -390,6 +589,9 @@ class Sprotno:
         pr = prosto(self.mapa)
         if 0 <= pr < ocena + rezerva(self.mapa):
             raise NapakaPretoka("ni_prostora")
+        # Cilj preverimo ze zdaj, da naprava takoj izve zakaj ne (posrednik ga preveri se ob vsaki povezavi).
+        # Glav, ki jih je izbrala naprava (Cookie, Authorization ...), ne posiljamo v domace omrezje.
+        dovoljeni_naslovi(gostitelj, vrata_vira, zasebni=not glave)
         with self._kljucavnica:      # tokovi se spreminjajo iz drugih niti (ustavi_ukaz, straza)
             v_rabi = {t.datoteka for t in self.tokovi.values()}
         for f in os.listdir(self.mapa):
@@ -402,7 +604,7 @@ class Sprotno:
         t = Tok(ime, os.path.join(self.mapa, uuid.uuid4().hex + ".mp4"))
         vrata = self._zazeni_posrednik()
         with self._kljucavnica:
-            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave)
+            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave, zasebni=not glave)
             self.tokovi[t.id] = t
             while len(self.tokovi) > NAJVEC_TOKOV:
                 star = next(iter(self.tokovi))
@@ -457,7 +659,7 @@ class Sprotno:
         """Ukaz ffmpeg: strojno (VAAPI dekodiranje + kodiranje, CQP - edini nacin na Intelovem LP vhodu; na Windows
         h264_nvenc/h264_amf) ali programsko (x264; na Windows Media Foundation h264_mf, ki je v sistemu).
         Najvec 1080p, manjsega ne povecujemo; fragmentiran MP4 (2 s), da ga naprava bere sproti."""
-        u = [self.ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
+        u = [self.ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y"] + zascita_vhoda(vhod)
         if seek_ms > 0:
             u += ["-ss", f"{seek_ms / 1000:.3f}"]
         lestvica = visina_vira <= 0 or visina_vira > VISINA
@@ -514,9 +716,11 @@ class Sprotno:
         if not jeziki:
             return 0
         try:
-            izpis = subprocess.run([self.ffprobe(), "-v", "error", "-select_streams", "a", "-show_entries",
+            izpis = subprocess.run([self.ffprobe()] + zascita_vhoda(vhod) + [
+                                    "-v", "error", "-select_streams", "a", "-show_entries",
                                     "stream_tags=language", "-of", "csv=p=0", vhod],
-                                   capture_output=True, text=True, timeout=20, creationflags=_BREZ_OKNA).stdout
+                                   capture_output=True, text=True, timeout=20, creationflags=_BREZ_OKNA,
+                                   env=okolje_ffmpeg(vhod)).stdout
         except (OSError, subprocess.TimeoutExpired):
             return 0
         oznake = [v.strip().lower() for v in izpis.splitlines()]
@@ -539,7 +743,8 @@ class Sprotno:
             try:
                 t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik,
                                                       zvocna_sled=sled),
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA)
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA,
+                                            env=okolje_ffmpeg(vhod))
             except OSError as e:
                 t.napaka = "napaka"; t.koncano = True
                 _zapisi(f"pretok {t.ime}: ffmpeg se ni zagnal ({e})")

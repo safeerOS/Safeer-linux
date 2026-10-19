@@ -26,6 +26,7 @@ povezavo in izmet naprave, ki ne bere (glej core/link_ws.py).
 from __future__ import annotations
 
 import http.server
+import io
 import json
 import os
 import logging
@@ -99,6 +100,18 @@ ZETON_VELJA_S = 86400.0
 NACIN_SPAKE2 = "spake2"
 #: Naprava iz kroga dobi po prijavi s podpisom kratkoziv HTTP zeton (enako kot TV Hub).
 SEJA_VELJA_S = 12 * 60 * 60.0
+
+#: Seznanitev (koda, QR) ne izda zetona za id, ki ze pripada napravi v krogu (glej Hub._id_ze_v_krogu).
+BESEDILO_ID_ZASEDEN = "Ta naprava je že v krogu zaupanja. Poveže se s svojim ključem; za novo seznanitev jo najprej odstranite iz Linka."
+
+#: Vrstica zahteve in glave morajo priti v toliko sekundah od prvega bajta zahteve. Prej je rok (10 s) veljal za vsak
+#: recv posebej: odjemalec, ki je poslal bajt vsakih 9 s, je nit in deskriptor drzal za vedno (slowloris, 19. 10. 2026).
+ROK_GLAV_S = 15.0
+#: Hkratne povezave z naslova, ki se se ni izkazal kot clan kroga (link_obramba.zaupa), in vseh takih skupaj. Fiksna
+#: meja velja samo za nepreverjene (core/link_viri.py); clani in ta racunalnik (zanka) je nimajo. Seznanitev odpre
+#: eno ali dve povezavi, WebKit najvec 6 na streznik - 16 je dovolj; 256 niti ne ogrozi procesa.
+NAJVEC_NEPREVERJENIH_NA_VIR = 16
+NAJVEC_NEPREVERJENIH = 256
 
 
 #: Link Mesh (docs/LINK-MESH.md): vsaka naprava gosti svoj Hub, Hubi so sosedje vsak z vsakim.
@@ -359,6 +372,8 @@ class Hub:
         self.nas_id = nas_id
         self.ura = ura
         self._zaklep = threading.RLock()
+        #: Preverba in vpis kljuca v krog (vpisi_v_krog) kot eno dejanje: dva hkratna vpisa istega id-ja ne prehitita preverbe.
+        self._zaklep_vpisa = threading.Lock()
         self._naprave: Dict[str, Naprava] = {}
         #: Seznam naprav (core/link_spremembe.py): kar je bilo objavljeno vsaki skupini prejemnikov (odjemalci po naslovu
         #: na poti do njih, sosedje po istem), objave ena za drugo (spremembe morajo priti v vrstnem redu verzij) in
@@ -483,19 +498,28 @@ class Hub:
 
     def porabi_vstopnico_s_podpisom(self, vstopnica: str) -> tuple:
         """(id naprave ali None, ali je bila vstopnica izdana s podpisom kljuca iz kroga)."""
+        zapis = self.porabi_vstopnico_zapis(vstopnica)
+        return (zapis[0], zapis[1]) if zapis else (None, False)
+
+    def porabi_vstopnico_zapis(self, vstopnica: str) -> Optional[tuple]:
+        """(id naprave, s podpisom, izdano, stars) ali None. `izdano` je cas dokaza (podpis, zeton), `stars` naprava, ki je
+        izdala zeton sorodnika: po njiju sredisce povezavo zapre, ko je naprava pozneje umaknjena iz kroga."""
         with self._zaklep:
             self._pocisti_vstopnice()
             vnos = self._vstopnice.pop((vstopnica or "").strip(), None)
         if not vnos:
-            return None, False
-        return vnos[0], bool(vnos[2]) if len(vnos) > 2 else False
+            return None
+        return (vnos[0], bool(vnos[2]) if len(vnos) > 2 else False,
+                float(vnos[3]) if len(vnos) > 3 else float(vnos[1]), str(vnos[4]) if len(vnos) > 4 else "")
 
-    def _nova_vstopnica(self, device_id: str, podpis: bool = False) -> str:
+    def _nova_vstopnica(self, device_id: str, podpis: bool = False, izdano: Optional[float] = None,
+                        stars: str = "") -> str:
         vstopnica = link_ws.nakljucni(24)
         with self._zaklep:
             self._pocisti_vstopnice()
             _omeji_na_napravo(self._vstopnice, device_id)
-            self._vstopnice[vstopnica] = (device_id, self.ura(), podpis)
+            zdaj = self.ura()
+            self._vstopnice[vstopnica] = (device_id, zdaj, podpis, zdaj if izdano is None else float(izdano), stars)
         return vstopnica
 
     # ------------------------------------------------------------------ seznanitev s kodo
@@ -506,8 +530,10 @@ class Hub:
         try:
             with open(self._pot_zetonov, encoding="utf-8") as d:
                 for z, v in (json.load(d) or {}).items():
-                    if isinstance(v, list) and len(v) == 3:
-                        self._zetoni[str(z)] = (str(v[0]), str(v[1]), float(v[2]))
+                    # (id, ime, izdano) ali s cetrtim poljem: naprava, ki je izdala zeton sorodnika (sorodni_zeton).
+                    if isinstance(v, list) and len(v) in (3, 4):
+                        self._zetoni[str(z)] = (str(v[0]), str(v[1]), float(v[2])) + \
+                            ((str(v[3]),) if len(v) == 4 and v[3] else ())
         except Exception:
             pass
 
@@ -568,18 +594,20 @@ class Hub:
         for k in [k for k, p in self._prijave.items() if p["nastala"] < meja]:
             self._prijave.pop(k, None)
         meja = self.ura() - ZETON_VELJA_S
-        potekli = [z for z, (_, _i, ko) in self._zetoni.items() if ko < meja]
+        potekli = [z for z, v in self._zetoni.items() if float(v[2]) < meja]
         for z in potekli:
             self._zetoni.pop(z, None)
         if potekli:
             self._shrani_zetone()
 
-    def _nov_zeton(self, device_id: str, ime: str) -> str:
-        """Doda trajni zeton seznanitve z enotno omejitvijo in varnim zapisom."""
+    def _nov_zeton(self, device_id: str, ime: str, izdano: Optional[float] = None, stars: str = "") -> str:
+        """Doda trajni zeton seznanitve z enotno omejitvijo in varnim zapisom. Zeton sorodnika (`stars`) dobi cas
+        izdaje zetona, iz katerega je nastal - velja do takrat kot on, ne novih 24 ur."""
         self._pocisti_prijave()
         _omeji_na_napravo(self._zetoni, device_id)
         zeton = "saf_pc_" + link_ws.nakljucni(24)
-        self._zetoni[zeton] = (device_id, ime, self.ura())
+        self._zetoni[zeton] = (device_id, ime, self.ura() if izdano is None else float(izdano)) + \
+            ((stars,) if stars else ())
         self._shrani_zetone()
         return zeton
 
@@ -603,6 +631,18 @@ class Hub:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _id_ze_v_krogu(device_id: str) -> bool:
+        """Ali id ze pripada napravi v krogu: clan s tem id-jem ali - za id iz kljuca (n-<16 hex>-...) - clan s kljucem
+        tega jedra. Seznanitev s kodo ali QR takemu id-ju zetona ne da: id si naprava izbere sama, krog in
+        link_dostop.jedro pa bi jo obravnavala kot to napravo (tudi kot ta racunalnik, npr. n-<racunalnik>-x), ne da bi
+        dokazala njen kljuc (pregled 19. 10. 2026). Clan se prijavi s podpisom svojega kljuca (/cast/auth/challenge),
+        umaknjena naprava pa se sme seznaniti znova. Kroga, ki ga ni mogoce prebrati, stejemo kot zasedenega."""
+        try:
+            return link_krog.krog().clan_za_id(device_id) is not None
+        except Exception:  # noqa: BLE001
+            return True
+
     def zacni_seznanitev(self, device_id: str, ime: str, naslov: str = "") -> Optional[dict]:
         """Nova naprava se zeli pridruziti. Kode ne vrnemo njej - pokazejo jo naprave v Linku.
 
@@ -611,6 +651,8 @@ class Hub:
         ime = (ime or "").strip()[:NAJVEC_IMENA] or device_id
         if not device_id:
             return None
+        if self._id_ze_v_krogu(device_id):
+            return {"napaka": "id_zaseden"}
         import secrets
         with self._zaklep:
             self._pocisti_prijave()
@@ -705,6 +747,9 @@ class Hub:
                     self._koncaj_prijavo(pair_id)
                     return None, "prevec_poskusov"
                 return None, "napacna_koda"
+            if self._id_ze_v_krogu(device_id):      # med zacetkom in koncem seznanitve je id lahko dobil clan
+                self._koncaj_prijavo(pair_id)
+                return None, "id_zaseden"
             zeton = self._nov_zeton(device_id, p["ime"])
             self.varovalka.uspeh(str(p.get("naslov") or ""))
             # Koda z vabila je enkratna: po uspesni seznanitvi ne velja vec.
@@ -767,6 +812,8 @@ class Hub:
                     self._pridruzitve.pop(qr_id, None)
                     return None, "prevec_poskusov"
                 return None, "qr_ne_obstaja"
+            if self._id_ze_v_krogu(device_id):
+                return None, "id_zaseden"
             self._pridruzitve.pop(qr_id, None)
             pravo_ime = (ime or device_id).strip()[:NAJVEC_IMENA]
             zeton = self._nov_zeton(device_id, pravo_ime)
@@ -781,6 +828,8 @@ class Hub:
         import re
         if not re.match(r"^[0-9a-f]{64}$", (secret_sha256 or "").lower()) or len(poll_secret or "") < 16:
             return None, "neveljavno"
+        if self._id_ze_v_krogu(device_id):
+            return None, "id_zaseden"
         # Neobvezno: SHA-256 6-mestne kode, ki jo naprava pokaze poleg QR (glej _qr_po_kodi).
         code_sha256 = (code_sha256 or "").lower() if re.match(r"^[0-9a-f]{64}$", (code_sha256 or "").lower()) else ""
         with self._zaklep:
@@ -865,6 +914,9 @@ class Hub:
                 return None, "qr_ne_obstaja"
             if p["device_id"] == odobril_device_id:
                 return None, "ista_naprava"
+            if not p["token"] and self._id_ze_v_krogu(p["device_id"]):
+                self._qr_prijave.pop(qr_id, None)
+                return None, "id_zaseden"
             if not p["token"]:
                 zeton = self._nov_zeton(p["device_id"], p["name"])
                 p["token"] = zeton
@@ -873,11 +925,11 @@ class Hub:
             return {"device_id": p["device_id"], "name": p["name"], "platform": p["platform"]}, None
 
     def prevzemi_qr(self, qr_id: str, device_id: str, poll_secret: str) -> tuple:
-        import hmac
         with self._zaklep:
             self._pocisti_qr()
             p = self._qr_prijave.get((qr_id or "").strip())
-            if not p or p["device_id"] != device_id or not hmac.compare_digest(p["poll_secret"], poll_secret):
+            # Bajti, ne nizi: compare_digest(str, str) z ne-ASCII skrivnostjo vrze TypeError (pregled 19. 10. 2026).
+            if not p or p["device_id"] != device_id or not link_hub_deljenje.varno_enako(p["poll_secret"], poll_secret):
                 return "qr_ne_obstaja", None
             if not p["token"]:
                 return "caka", None
@@ -886,10 +938,9 @@ class Hub:
             return "odobreno", zeton
 
     def preklici_qr(self, qr_id: str, device_id: str, poll_secret: str) -> bool:
-        import hmac
         with self._zaklep:
             p = self._qr_prijave.get((qr_id or "").strip())
-            if not p or p["device_id"] != device_id or not hmac.compare_digest(p["poll_secret"], poll_secret):
+            if not p or p["device_id"] != device_id or not link_hub_deljenje.varno_enako(p["poll_secret"], poll_secret):
                 return False
             self._qr_prijave.pop(qr_id, None)
             return True
@@ -915,42 +966,95 @@ class Hub:
                 self._zetoni.pop(z, None)
             return self._nov_zeton(device_id, (ime or device_id).strip()[:NAJVEC_IMENA])
 
-    def naprava_zetona(self, zeton: str) -> Optional[tuple]:
-        """(device_id, ime) za zeton iz seznanitve, ali None."""
-        import hmac
+    @staticmethod
+    def _umik(device_id: str, stars: str, izdano) -> Optional[bool]:
+        """Ali je bila naprava (ali naprava `stars`, ki je izdala njen zeton sorodnika) umaknjena iz kroga ob izdaji
+        dokaza (zetona, podpisa) ali pozneje. Zeton nove seznanitve PO umiku velja: naprava se sme vrniti v krog.
+        None: kroga ni bilo mogoce prebrati - zahteva se zavrne, zetoni in povezave pa ostanejo (napaka branja ne sme
+        izbrisati seznanitve vseh naprav)."""
+        try:
+            izdano = float(izdano or 0.0)
+        except (TypeError, ValueError):
+            izdano = 0.0
+        try:
+            k = link_krog.krog()
+            for i in (device_id, stars):
+                if not i:
+                    continue
+                ob = k.umaknjen_ob(i)
+                if isinstance(ob, (int, float)) and not isinstance(ob, bool) and ob >= izdano:
+                    return True
+        except Exception:  # noqa: BLE001
+            return None
+        return False
+
+    @classmethod
+    def _preklican(cls, device_id: str, stars: str, izdano) -> bool:
+        """Za odlocitev o zahtevi: umik ali neznano stanje kroga (varna stran)."""
+        return cls._umik(device_id, stars, izdano) is not False
+
+    def _zapis_zetona(self, zeton: str) -> Optional[tuple]:
+        """(device_id, ime, izdano, stars, potece) za veljaven zeton seznanitve, sorodnika ali sejo; sicer None.
+
+        Zeton naprave, ki je bila po njegovi izdaji umaknjena iz kroga, ne velja vec in gre iz shrambe. Prej je veljal se
+        do ZETON_VELJA_S (24 h): vstopnica, ponoven vpis kljuca (umik razveljavljen), novi sorodniki, vabila in
+        odobritve novih naprav (pregled 19. 10. 2026)."""
         zeton = (zeton or "").strip()
         if not zeton:
             return None
         with self._zaklep:
             self._pocisti_prijave()
-            for z, (device_id, ime, _) in self._zetoni.items():
-                if hmac.compare_digest(z, zeton):
-                    return device_id, ime
+            for z, vnos in self._zetoni.items():
+                if not link_hub_deljenje.varno_enako(z, zeton):
+                    continue
+                izdano, stars = float(vnos[2]), (vnos[3] if len(vnos) > 3 else "")
+                umik = self._umik(vnos[0], stars, izdano)
+                if umik is not False:
+                    if umik:                    # samo res umaknjen gre iz shrambe, ne ob napaki branja kroga
+                        self._zetoni.pop(z, None)
+                        self._shrani_zetone()
+                    return None
+                return vnos[0], vnos[1], izdano, stars, izdano + ZETON_VELJA_S
             zdaj = self.ura()
             for z in [z for z, (_i, potece) in self._seje.items() if potece < zdaj]:
                 self._seje.pop(z, None)
-            for z, (device_id, _potece) in self._seje.items():
-                if hmac.compare_digest(z, zeton):
+            for z, (device_id, potece) in self._seje.items():
+                if link_hub_deljenje.varno_enako(z, zeton):
                     try:
                         clan = link_krog.krog().clan_za_id(device_id)
                     except Exception:
                         clan = None
                     if clan:
-                        return device_id, str(clan.get("ime") or device_id)
+                        return device_id, str(clan.get("ime") or device_id), potece - SEJA_VELJA_S, "", potece
         return None
 
+    def naprava_zetona(self, zeton: str) -> Optional[tuple]:
+        """(device_id, ime) za zeton iz seznanitve ali sejo, ali None (glej _zapis_zetona)."""
+        zapis = self._zapis_zetona(zeton)
+        return (zapis[0], zapis[1]) if zapis else None
+
     def sorodni_zeton(self, zeton: str, device_id: str, ime: str) -> tuple:
-        """Zeton za drugi Safeerjev program iste fizicne naprave (npr. Browser -> Control)."""
-        lastnik = self.naprava_zetona(zeton)
+        """Zeton za drugi Safeerjev program iste fizicne naprave (npr. Browser -> Control).
+
+        Ena raven in brez podaljsanja: zeton sorodnika potece z zetonom ali sejo, iz katere je nastal, in sam ne izda
+        novega sorodnika. Prej je veriga tablica-1, tablica-1-2 ... dajala nove 24-urne zetone brez konca, tudi
+        umaknjeni napravi (pregled 19. 10. 2026)."""
+        zapis = self._zapis_zetona(zeton)
         device_id = (device_id or "").strip()[:NAJVEC_IMENA]
-        if lastnik is None:
+        if zapis is None:
             return None, "naprava_ni_seznanjena"
         if not device_id:
             return None, "manjka_device_id"
-        if device_id == lastnik[0] or not device_id.startswith(lastnik[0] + "-"):
+        lastnik, _ime, _izdano, stars, potece = zapis
+        if stars or device_id == lastnik or not device_id.startswith(lastnik + "-"):
             return None, "ni_sorodnik"
         with self._zaklep:
-            return self._nov_zeton(device_id, (ime or device_id).strip()[:NAJVEC_IMENA]), None
+            # Najvec NAJVEC_NA_NAPRAVO sorodnikov ene naprave (najstarejsi izpade): poplava id-jev ne napolni shrambe.
+            njegovi = [z for z, v in self._zetoni.items() if len(v) > 3 and v[3] == lastnik]
+            for z in njegovi[:max(0, len(njegovi) - NAJVEC_NA_NAPRAVO + 1)]:
+                self._zetoni.pop(z, None)
+            return self._nov_zeton(device_id, (ime or device_id).strip()[:NAJVEC_IMENA],
+                                   izdano=potece - ZETON_VELJA_S, stars=lastnik), None
 
     def stanje_pridruzitve(self, qr_id: str) -> dict:
         with self._zaklep:
@@ -975,7 +1079,8 @@ class Hub:
                     idji.add(i)
         povezave = []
         with self._zaklep:
-            for z in [z for z, (i, _ime, _ko) in self._zetoni.items() if i in idji]:
+            # Tudi zetoni sorodnikov, ki jih je izdala ta naprava (stars v idji).
+            for z in [z for z, v in self._zetoni.items() if v[0] in idji or (len(v) > 3 and v[3] in idji)]:
                 self._zetoni.pop(z, None)
             for z in [z for z, (i, _potece) in self._seje.items() if i in idji]:
                 self._seje.pop(z, None)
@@ -1008,22 +1113,41 @@ class Hub:
         return sorted(idji)
 
     def vstopnica_z_zetonom(self, zeton: str) -> Optional[dict]:
-        n = self.naprava_zetona(zeton)
+        n = self._zapis_zetona(zeton)
         if n is None:
             return None
-        return {"ticket": self._nova_vstopnica(n[0]), "hub_id": IDENTITETA_HUBA, "fp": self.odtis}
+        return {"ticket": self._nova_vstopnica(n[0], izdano=n[2], stars=n[3]), "hub_id": IDENTITETA_HUBA, "fp": self.odtis}
 
     def vpisi_v_krog(self, zeton: str, kljuc: str, ime: str, platforma: str) -> tuple:
-        """(odgovor, napaka). Naprava z zetonom vpise svoj javni kljuc; krog dobijo vse naprave."""
+        """(odgovor, napaka). Naprava z zetonom vpise svoj javni kljuc; krog dobijo vse naprave.
+
+        Id izbere naprava sama ob seznanitvi, zato vpis ne sme zamenjati kljuca clana, ki pod tem id-jem ze je (prej je
+        nova naprava pod id-jem televizorja prevzela njegovo mesto v krogu), id iz kljuca (n-<16 hex>) pa sme dobiti samo
+        kljuc, iz katerega je izpeljan - po njem ga prepoznajo clan_za_id in link_dostop.jedro (pregled 19. 10. 2026)."""
         n = self.naprava_zetona(zeton)
         if n is None:
             return None, "naprava_ni_seznanjena"
         device_id, ime_prijave = n
         ime = ((ime or "").strip() or ime_prijave)[:NAJVEC_IMENA]
-        k = link_krog.krog()
-        if not k.dodaj(device_id, (kljuc or "").strip(), ime, (platforma or "")[:16], self.nas_id or IDENTITETA_HUBA) \
-                and not (k.clan(device_id) or {}).get("kljuc") == (kljuc or "").strip():
+        kljuc = (kljuc or "").strip()
+        if not kljuc:
             return None, "neveljaven_kljuc"
+        if link_krog.je_id_iz_kljuca(device_id):
+            try:
+                ujema = link_krog.id_iz_kljuca(kljuc) == device_id[:link_krog.DOLZINA_ID_IZ_KLJUCA]
+            except Exception:  # noqa: BLE001 - kljuc, ki ni base64
+                ujema = False
+            if not ujema:
+                return None, "neveljaven_kljuc"
+        k = link_krog.krog()
+        with self._zaklep_vpisa:
+            obstojeci = str((k.clan(device_id) or {}).get("kljuc") or "")
+            if obstojeci and not link_hub_deljenje.varno_enako(obstojeci, kljuc):
+                return None, "id_zaseden"
+            if not k.dodaj(device_id, kljuc, ime, (platforma or "")[:16], self.nas_id or IDENTITETA_HUBA):
+                vpisan = str((k.clan(device_id) or {}).get("kljuc") or "")
+                if not vpisan or not link_hub_deljenje.varno_enako(vpisan, kljuc):
+                    return None, "neveljaven_kljuc"
         krog = k.json()
         besedilo = json.dumps({"type": "trust.update", "payload": krog}, ensure_ascii=False)
         for c in self.povezane():
@@ -1248,7 +1372,8 @@ class Hub:
         """POST /cast/devices/rename: ime, ki ga je napravi dal uporabnik. Zivi v krogu zaupanja in ga vidijo vse
         naprave (kot HubUsmerjevalnik.preimenuj na Androidu); prazno ime vrne tisto, ki ga naprava pove o sebi.
         Preimenujemo vse clane z istim kljucem (brskalnik in Safeer Control na isti napravi). Vrne (koda, odgovor)."""
-        if not self.naprava_zetona(zeton):
+        lastnik = self.naprava_zetona(zeton)
+        if not lastnik:
             return 401, link_hub_deljenje.napaka("Naprava ni seznanjena.", "naprava_ni_seznanjena")
         device_id = str(device_id or "").strip()[:NAJVEC_IMENA]
         if not device_id:
@@ -1256,6 +1381,9 @@ class Hub:
         fizicna = self.naprava_iz_kljuca(device_id)
         if not fizicna:
             return 404, link_hub_deljenje.napaka("Naprava ni v krogu zaupanja.", "naprava_ni_v_krogu")
+        if not self._sme_imenovati(self.naprava_iz_kljuca(lastnik[0]), fizicna):
+            return 403, link_hub_deljenje.napaka("Ime lahko spremeni samo naprava sama ali Safeer Control tega računalnika.",
+                                                 "tuja_naprava")
         cisto = re.sub(r"[\x00-\x1f<>]", "", str(ime or "")).strip()[:NAJVEC_IMENA]
         krog = link_krog.krog()
         spremenjeno = False
@@ -1273,6 +1401,14 @@ class Hub:
         if spremenjeno:
             self._po_spremembi_kroga()
         return 200, {"id": device_id, "name": self.ime_v_krogu(device_id) or self._ime_naprave(device_id)}
+
+    def _sme_imenovati(self, kdo: Optional[str], fizicna: Optional[str]) -> bool:
+        """Ali sme fizicna naprava `kdo` (id iz kljuca, Hub.naprava_iz_kljuca) dati ime fizicni napravi `fizicna`:
+        samo sebi - razen TA racunalnik (isti kljuc kot sredisce: njegov Safeer Control, brskalnik, Safeer OS), ki ga
+        da kateri koli. Prej je vsaka seznanjena naprava preimenovala vsako drugo (pregled 19. 10. 2026)."""
+        if not kdo or not fizicna:
+            return False
+        return kdo == fizicna or (bool(self.nas_id) and kdo == self.nas_id)
 
     def deli_besedilo(self, zeton: str, cilj: str, besedilo: str) -> tuple:
         """POST /cast/share/text. Vrne (koda HTTP, odgovor)."""
@@ -1398,6 +1534,11 @@ class Hub:
             return "rejected", "manjka_device_id"
         if dovoljeni_id and device_id != dovoljeni_id:
             return "rejected", "vstopnica_ni_za_to_napravo"
+        podatki = getattr(povezava, "podatki", None)
+        if isinstance(podatki, dict) and "izdano" in podatki and \
+                self._preklican(device_id, str(podatki.get("stars") or ""), podatki.get("izdano")):
+            # Umik med izdajo vstopnice in prijavo: povezava ne nastane (preklici_umaknjene je ta hip ni videl).
+            return "rejected", "umaknjen"
         ime = str(tovor.get("name") or device_id).strip()[:NAJVEC_IMENA]
         vloga = str(tovor.get("role") or "receiver")[:16]
         zmoznosti = [str(z)[:24] for z in (tovor.get("capabilities") or [])][:24]
@@ -1847,9 +1988,46 @@ class Hub:
         self._uporabi_posredne()
         self.objavi_naprave()
 
+    def _povezava_umaknjena(self, device_id: str, povezava, strogo: bool = False) -> bool:
+        """Ali je bila naprava te povezave umaknjena iz kroga po dokazu, s katerim je povezava nastala (podpis, zeton).
+        `strogo`: samo izmerjen umik (za zapiranje povezav), ne neznano stanje kroga."""
+        podatki = getattr(povezava, "podatki", None)
+        podatki = podatki if isinstance(podatki, dict) else {}
+        umik = self._umik(device_id, str(podatki.get("stars") or ""), podatki.get("izdano") or 0.0)
+        return umik is True if strogo else umik is not False
+
+    def preklici_umaknjene(self) -> List[str]:
+        """Umik iz kroga velja takoj: zetoni (tudi sorodnikov) in seje umaknjenih naprav gredo iz shrambe, njihove
+        povezave WebSocket se zaprejo. Prej je zeton veljal do ZETON_VELJA_S, povezava pa, dokler je naprava sama ni
+        zaprla (pregled 19. 10. 2026). Vrne id-je naprav, katerih povezave so se zaprle."""
+        povezave = []
+        with self._zaklep:
+            # Samo izmerjen umik (True): napaka branja kroga (None) ne sme izbrisati seznanitve vseh naprav.
+            odvec = [z for z, v in self._zetoni.items() if self._umik(v[0], v[3] if len(v) > 3 else "", v[2]) is True]
+            for z in odvec:
+                self._zetoni.pop(z, None)
+            if odvec:
+                self._shrani_zetone()
+            for z in [z for z, (i, _p) in self._seje.items() if not self._je_clan(i)]:
+                self._seje.pop(z, None)
+            for i, n in self._naprave.items():
+                if n.sosed or n.povezava is None or not self._povezava_umaknjena(i, n.povezava, strogo=True):
+                    continue
+                povezave.append((i, n.povezava))
+                n.povezava = None
+        for _i, p in povezave:
+            try:
+                p.zapri(1008, "umaknjen iz kroga")
+            except Exception:
+                pass
+        if povezave:
+            self.objavi_naprave()       # odklopi() teh povezav ne najde vec (zgoraj smo jih ze vzeli iz registra)
+        return [i for i, _p in povezave]
+
     def _po_spremembi_kroga(self, razen: Optional[object] = None) -> None:
         """Krog se je spremenil: lokalnim napravam trust.update, sosedom mesh.trust; umaknjeni
-        clani izgubijo sosednjo povezavo in oddaljene zapise."""
+        clani izgubijo sosednjo povezavo in oddaljene zapise, lokalni pa zetone, seje in povezavo."""
+        self.preklici_umaknjene()
         try:
             krog = link_krog.krog().json()
         except Exception:
@@ -2123,10 +2301,15 @@ class Hub:
             return self._potrditev(id_sporocila, prostor, "accepted")
 
         if tip == "trust.names":
-            # Naprava ponudi imena iz svojega kroga; hub vzame samo imena znanih clanov z istim kljucem.
+            # Naprava ponudi imena iz svojega kroga; hub vzame samo imena znanih clanov z istim kljucem - in samo tista,
+            # ki jih ta naprava sme dati (svoje; ta racunalnik vsa, glej _sme_imenovati).
             tovor = sporocilo.get("payload")
+            clani = tovor.get("clani") if isinstance(tovor, dict) else None
+            kdo = self.naprava_iz_kljuca(moj_id)
+            dovoljeni = {i: z for i, z in clani.items()
+                         if self._sme_imenovati(kdo, self.naprava_iz_kljuca(str(i)))} if isinstance(clani, dict) else {}
             try:
-                spremenjeno = link_krog.krog().zdruzi_imena(tovor if isinstance(tovor, dict) else {})
+                spremenjeno = bool(dovoljeni) and link_krog.krog().zdruzi_imena({"clani": dovoljeni})
             except Exception:
                 spremenjeno = False
             if spremenjeno:
@@ -2136,6 +2319,20 @@ class Hub:
         if tip == "pair.invite":
             # Naprava v Linku (televizor, tablica) pokaze QR kodo za novo napravo: sredisce ustvari
             # skrivnost, naprava jo samo narise. Tako se lahko nova naprava pridruzi na katerikoli napravi.
+            if self._povezava_umaknjena(moj_id, povezava):
+                # Umik, ki ga sredisce se ni videlo (krog je spremenil drug del programa): umaknjena naprava ne vabi.
+                # Povezava gre iz registra zdaj, zaprta pa po zavrnitvi (_na_sporocilo), da jo naprava se dobi.
+                with self._zaklep:
+                    n = self._naprave.get(moj_id)
+                    if n is not None and n.povezava is povezava:
+                        n.povezava = None
+                try:
+                    povezava.podatki["zapri_po_odgovoru"] = True
+                except Exception:
+                    pass
+                self.preklici_umaknjene()
+                self.objavi_naprave()
+                return self._potrditev(id_sporocila, "pair", "rejected", "Naprava ni več v krogu zaupanja.", "umaknjen")
             tovor = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
             self.preklici_pridruzitev(str(tovor.get("preklici") or ""))
             qr_id, skrivnost = self.ustvari_pridruzitev()
@@ -2212,12 +2409,55 @@ class Hub:
 
 # ---------------------------------------------------------------------- omrezje
 
+class _BralnikGlav(socket.SocketIO):
+    """Surovi bralnik povezave zahteve: med vrstico zahteve in glavami (obravnava._v_glavah) velja en skupni rok od
+    prvega bajta (ROK_GLAV_S). Rok vticnika velja samo za vsak recv posebej - do prvega bajta ostane rok cakanja."""
+
+    def __init__(self, vticnik, obravnava) -> None:
+        super().__init__(vticnik, "rb")
+        self._obravnava = obravnava
+
+    def readinto(self, b):
+        h = self._obravnava
+        if not h._v_glavah:
+            return super().readinto(b)
+        do = h._glave_do
+        if do is None:
+            n = super().readinto(b)
+            if n:
+                h._glave_do = time.monotonic() + h.ROK_GLAV_S
+            return n
+        ostane = do - time.monotonic()
+        if ostane <= 0:
+            h._glave_prepozno = True
+            raise TimeoutError("vrstica zahteve in glave niso prisle v roku")
+        vticnik = self._sock
+        prej = vticnik.gettimeout()
+        vticnik.settimeout(ostane if prej is None else min(prej, ostane))
+        try:
+            return super().readinto(b)
+        except TimeoutError:
+            if time.monotonic() >= do:
+                h._glave_prepozno = True
+            raise
+        finally:
+            try:
+                vticnik.settimeout(prej)
+            except OSError:
+                pass
+
+
 class _Obravnava(http.server.BaseHTTPRequestHandler):
     """Koncne tocke Huba. Namenoma jih je malo - vse drugo tece po WebSocketu."""
 
     protocol_version = "HTTP/1.1"
     server_version = "SafeerHub"
     sys_version = ""
+    #: Skupni rok za vrstico zahteve in glave (glej _BralnikGlav); stanje velja za trenutno zahtevo.
+    ROK_GLAV_S = ROK_GLAV_S
+    _v_glavah = False
+    _glave_do: Optional[float] = None
+    _glave_prepozno = False
 
     # Dnevnik vticnika bi ob vsaki zahtevi pisal v terminal; Safeer pise sam, kadar je kaj vredno.
     def log_message(self, *_a) -> None:
@@ -2234,6 +2474,20 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     #: oddaje izgubila omrezje, je za vedno drzala nit in deskriptor. Velja za tisino, ne za trajanje oddaje.
     ROK_BRANJA_S = 60.0
 
+    def setup(self) -> None:
+        super().setup()
+        # Isti bralnik kot connection.makefile("rb"), le surovi del pozna skupni rok glav (_BralnikGlav).
+        try:
+            surovi = _BralnikGlav(self.connection, self)
+            # Kot socket.makefile: vticnica se zares zapre sele z zadnjim bralnikom (zaprtje iz druge niti med branjem
+            # ne sprosti stevilke deskriptorja) - stari bralnik spodaj steje enega manj.
+            self.connection._io_refs += 1
+        except Exception:  # noqa: BLE001 - nenavadna vticnica: bralnik brez roka glav, kot prej
+            return
+        stari = self.rfile
+        self.rfile = io.BufferedReader(surovi, io.DEFAULT_BUFFER_SIZE)
+        stari.close()
+
     def handle_one_request(self) -> None:
         try:
             self.connection.settimeout(self.ROK_CAKANJA_ZAHTEVE_S)
@@ -2243,21 +2497,27 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         proste = getattr(self.server, "proste", None)
         if proste is not None:
             proste.caka(self.client_address[0] if self.client_address else "", self.connection)
+        self._v_glavah, self._glave_do, self._glave_prepozno = True, None, False
         try:
             super().handle_one_request()
         finally:
+            self._v_glavah = False
             if proste is not None:
                 proste.dela(self.connection)
+            if self._glave_prepozno:
+                # Zahteva po kapljicah (slowloris): steje kot tipanje; ponavljanje vir zapre (core/link_obramba).
+                self._sovrazno("tipanje")
 
     def parse_request(self) -> bool:
         proste = getattr(self.server, "proste", None)
         if proste is not None:
             proste.dela(self.connection)        # zahteva je prisla: povezava dela (WebSocket, tok) in ni odvecna
-        # Glave beremo se z rokom cakanja (telefon, ki sredi zahteve izgubi Wi-Fi, bi sicer za vedno drzal nit in
-        # deskriptor); po glavah velja rok streznika po rokovanju (link_tls.RokovanjeVNiti), kot doslej.
+        # Glave beremo se z rokom cakanja in skupnim rokom glav (_BralnikGlav); po glavah velja rok streznika po
+        # rokovanju (link_tls.RokovanjeVNiti), kot doslej.
         try:
             return super().parse_request()
         finally:
+            self._v_glavah = False
             try:
                 self.connection.settimeout(getattr(self.server, "rok_po_rokovanju", None))
             except OSError:
@@ -2833,6 +3093,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             if odgovor is None:
                 if napaka == "naprava_ni_seznanjena":
                     self._napaka(401, "Naprava ni seznanjena.", napaka)
+                elif napaka == "id_zaseden":
+                    self._napaka(409, "Pod tem imenom naprave je v krogu že drug ključ.", napaka)
                 else:
                     self._napaka(400, "Manjka ali neveljaven javni ključ.", napaka)
                 return
@@ -2848,6 +3110,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             zeton, napaka = self._hub.pridruzi(str(telo.get("qr_id") or ""), str(telo.get("secret") or ""),
                                                str(telo.get("device_id") or ""), str(telo.get("name") or ""))
             if zeton is None:
+                if napaka == "id_zaseden":
+                    self._napaka(409, BESEDILO_ID_ZASEDEN, napaka)
+                    return
                 koda = 429 if napaka == "prevec_poskusov" else 400 if napaka == "manjka_device_id" else 404
                 self._napaka(koda, "Koda ni veljavna." if koda != 400 else "Manjka device_id.", napaka or "qr_ne_obstaja")
                 return
@@ -2888,6 +3153,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                                               str(telo.get("poll_secret") or ""),
                                               str(telo.get("code_sha256") or ""))
             if not qr_id:
+                if napaka == "id_zaseden":
+                    self._napaka(409, BESEDILO_ID_ZASEDEN, napaka)
+                    return
                 koda = 429 if napaka == "prevec_prijav" else 400
                 self._napaka(koda, "Prijava ni mogoča.", napaka or "napaka")
                 return
@@ -2919,6 +3187,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             else:
                 podatki, napaka = self._hub.odobri_qr(qr_id, skrivnost, odobril[0])
             if not podatki:
+                if napaka == "id_zaseden":
+                    self._napaka(409, BESEDILO_ID_ZASEDEN, napaka)
+                    return
                 koda = 429 if napaka == "prevec_poskusov" else 404
                 self._napaka(koda, "Koda ne velja več.", napaka or "qr_ne_obstaja")
                 return
@@ -2969,6 +3240,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             if odgovor.get("napaka") == "seznanitev_zaprta":
                 self._napaka(429, BESEDILO_KODA_ZAPRTA, "seznanitev_zaprta")
                 return
+            if odgovor.get("napaka") == "id_zaseden":
+                self._napaka(409, BESEDILO_ID_ZASEDEN, "id_zaseden")
+                return
             # Vsak zacetek uporabniku pokaze obvestilo s kodo: cetrti v minuti vir zapre.
             self._sovrazno("zacetek_seznanitve")
             self._odgovori(200, odgovor)
@@ -2992,6 +3266,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                      "neveljavna_tocka": (400, "Neveljavno sporočilo."),
                      "napacna_koda": (401, "Koda ni pravilna."),
                      "seznanitev_zaprta": (429, BESEDILO_KODA_ZAPRTA),
+                     "id_zaseden": (409, BESEDILO_ID_ZASEDEN),
                      "manjka_korak": (409, "Najprej pošljite pb.")}
         if pot == "/cast/pair/spake":
             pa, ca, napaka = self._hub.spake_korak1(pair_id, device_id, podatki)
@@ -3017,10 +3292,11 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._napaka(400, "Manjka nadgradnja na WebSocket.", "ni_nadgradnje")
             return
         vstopnica = (parse_qs(urlparse(self.path).query).get("ticket") or [""])[0]
-        device_id, s_podpisom = self._hub.porabi_vstopnico_s_podpisom(vstopnica)
-        if not device_id:
+        zapis = self._hub.porabi_vstopnico_zapis(vstopnica)
+        if not zapis:
             self._napaka(401, "Neveljavna ali potekla vstopnica.", "ni_vstopnice")
             return
+        device_id, s_podpisom, izdano, stars = zapis
         self._zaupaj()
         try:
             self.wfile.write(link_ws.odgovor_rokovanja(link_ws.kljuc_iz_glav(glave)))
@@ -3041,6 +3317,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         # Vstopnica je vezana na en id: prijava z drugim id-jem se zavrne (glej registriraj).
         povezava.podatki["id"] = device_id
         povezava.podatki["podpis"] = s_podpisom
+        # Cas dokaza in naprava, ki je izdala zeton sorodnika: po njiju se povezava zapre ob poznejsem umiku iz kroga.
+        povezava.podatki["izdano"] = izdano
+        povezava.podatki["stars"] = stars
         povezava.zanka_branja()
 
 
@@ -3263,6 +3542,52 @@ def nastavitve_vticnika(sistem: str = os.name) -> tuple:
     return (not windows), windows
 
 
+class _MejePovezav:
+    """Hkratne povezave virov, ki se (se) niso izkazali kot clan kroga: najvec `na_vir` z enega naslova in `skupaj` vseh.
+
+    Prej meje ni bilo (os_deskriptorji.NAJVEC_PROSTIH_NA_VIR = None): vsaka povezava je dobila nit, in kdor je glave
+    posiljal po kapljicah, jih je odprl, kolikor je hotel (pregled 19. 10. 2026). Clani (zaupani viri) in ta racunalnik
+    meje nimajo - zanje odlocajo viri racunalnika (core/link_viri.py)."""
+
+    def __init__(self, na_vir: int = NAJVEC_NEPREVERJENIH_NA_VIR, skupaj: int = NAJVEC_NEPREVERJENIH) -> None:
+        self.na_vir = na_vir
+        self.skupaj = skupaj
+        self._zaklep = threading.Lock()
+        self._po_viru: Dict[str, int] = {}
+        self._povezave: Dict[int, str] = {}
+        #: Koliko povezav smo zavrnili (za dnevnik in preizkuse).
+        self.zavrnjenih = 0
+
+    def sprejmi(self, kljuc: int, vir: str) -> str:
+        """"" = povezava sprejeta (steje, dokler je ne sprostimo); sicer razlog: "vir" ali "skupaj"."""
+        self.sprosti(kljuc)          # isti kljuc (id predmeta) ne sme steti dvakrat
+        with self._zaklep:
+            if self._po_viru.get(vir, 0) >= self.na_vir:
+                self.zavrnjenih += 1
+                return "vir"
+            if len(self._povezave) >= self.skupaj:
+                self.zavrnjenih += 1
+                return "skupaj"
+            self._povezave[kljuc] = vir
+            self._po_viru[vir] = self._po_viru.get(vir, 0) + 1
+            return ""
+
+    def sprosti(self, kljuc: int) -> None:
+        with self._zaklep:
+            vir = self._povezave.pop(kljuc, None)
+            if vir is None:
+                return
+            ostane = self._po_viru.get(vir, 0) - 1
+            if ostane > 0:
+                self._po_viru[vir] = ostane
+            else:
+                self._po_viru.pop(vir, None)
+
+    def stevilo(self, vir: Optional[str] = None) -> int:
+        with self._zaklep:
+            return self._po_viru.get(vir, 0) if vir is not None else len(self._povezave)
+
+
 class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = nastavitve_vticnika()[0]
@@ -3276,6 +3601,8 @@ class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.serve
         super().__init__(*a, **k)
         #: Povezave, ki cakajo na naslednjo zahtevo - po napravah, z zgornjo mejo (core/os_deskriptorji).
         self.proste = os_deskriptorji.ProsteZveze()
+        #: Hkratne povezave nepreverjenih virov (glej _MejePovezav).
+        self.meje = _MejePovezav()
 
     def server_bind(self) -> None:
         izkljucno = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
@@ -3287,11 +3614,25 @@ class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.serve
     obramba = None
 
     def verify_request(self, request, client_address) -> bool:
-        """Zaprt vir ne pride niti do rokovanja TLS: povezava se zapre brez potrdila in brez odgovora."""
+        """Zaprt vir ne pride niti do rokovanja TLS: povezava se zapre brez potrdila in brez odgovora. Enako vir, ki se
+        ni izkazal kot clan, ce ima ze NAJVEC_NEPREVERJENIH_NA_VIR povezav (ali vsi taki skupaj NAJVEC_NEPREVERJENIH)."""
+        vir = client_address[0] if client_address else ""
         obramba = self.obramba
-        if obramba is None:
+        if obramba is not None and not obramba.dovoli(vir):
+            return False
+        if not vir or link_obramba.je_ta_naprava(vir) or (obramba is not None and obramba.zaupa(vir)):
             return True
-        return obramba.dovoli(client_address[0] if client_address else "")
+        razlog = self.meje.sprejmi(id(request), vir)
+        if not razlog:
+            return True
+        if razlog == "vir" and obramba is not None:
+            # Samo prekoracitev na viru je njegova: polna skupna meja ni krivda naprave, ki je prisla zadnja.
+            obramba.dogodek(vir, "tipanje")
+        return False
+
+    def shutdown_request(self, request) -> None:
+        self.meje.sprosti(id(request))
+        super().shutdown_request(request)
 
     def ob_neuspelem_rokovanju(self, client_address) -> None:
         if self.obramba is not None:
@@ -3525,6 +3866,12 @@ class HubStreznik:
             try:
                 if hub is not None:
                     hub.deljenje.pocisti()
+            except Exception:
+                pass
+            try:
+                # Umik, ki ga je v krog prinesel drug del programa (odjemalec Linka) mimo sredisca: najpozneje tu.
+                if hub is not None:
+                    hub.preklici_umaknjene()
             except Exception:
                 pass
             if do_kroga > 0:

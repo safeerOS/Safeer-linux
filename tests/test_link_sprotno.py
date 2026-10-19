@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
@@ -73,6 +74,13 @@ class Sprotno(unittest.TestCase):
         cls.mapa = tempfile.mkdtemp(prefix="safeer-sprotno-")
         cls.vir = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Vir)
         threading.Thread(target=cls.vir.serve_forever, daemon=True).start()
+        # Isti izvirnik se na pripetem https (kot streznik datotek druge naprave): samo tak dobi zeton naprave.
+        kljuc, potrdilo, cls.odtis_vira = link_datoteke.zagotovi_potrdilo(os.path.join(cls.mapa, "tls-vira"))
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(potrdilo, kljuc)
+        cls.vir_tls = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Vir)
+        cls.vir_tls.socket = tls.wrap_socket(cls.vir_tls.socket, server_side=True)
+        threading.Thread(target=cls.vir_tls.serve_forever, daemon=True).start()
         cls.d = link_datoteke.Datoteke([], tls_mapa=os.path.join(cls.mapa, "tls"))
         cls.ffmpeg = os.path.join(cls.mapa, "ffmpeg")
         with open(cls.ffmpeg, "w", encoding="utf-8") as f:
@@ -84,6 +92,9 @@ class Sprotno(unittest.TestCase):
     def tearDownClass(cls):
         cls.d.ustavi()
         cls.vir.shutdown()
+        cls.vir_tls.shutdown()
+        cls.vir.server_close()
+        cls.vir_tls.server_close()
         shutil.rmtree(cls.mapa, ignore_errors=True)
 
     def _zahteva(self, pot, glave=None, metoda="GET"):
@@ -98,9 +109,16 @@ class Sprotno(unittest.TestCase):
         return o.status, dict((k.lower(), v) for k, v in o.getheaders()), telo
 
     def test_tok_za_napravo(self):
-        url = "http://127.0.0.1:%d/d/share:0:film.mkv" % self.vir.server_address[1]
-        o = self.s.zacni({"url": url, "token": "zeton-vira", "name": "Film.mkv", "duration_ms": 60000, "size": 32768,
-                          "mime": "video/hevc", "width": 3840, "height": 2160}, "tv-1", self.d.streznik)
+        # Streznik datotek druge naprave: pripet https v domacem omrezju (zanka v preizkusu velja kot domace omrezje).
+        _Vir.zahteve.clear()
+        url = "https://127.0.0.1:%d/d/share:0:film.mkv" % self.vir_tls.server_address[1]
+        with mock.patch.object(link_sprotno, "vrsta_naslova", return_value="zasebni"):
+            self._tok_za_napravo(url)
+
+    def _tok_za_napravo(self, url):
+        o = self.s.zacni({"url": url, "fp": self.odtis_vira, "token": "zeton-vira", "name": "Film.mkv",
+                          "duration_ms": 60000, "size": 32768, "mime": "video/hevc", "width": 3840, "height": 2160},
+                         "tv-1", self.d.streznik)
         self.assertTrue(o["url"].startswith("https://") and "/live/" in o["url"])
         self.assertEqual(len(o["fp"]), 64)
         pot = "/live/" + o["url"].rsplit("/", 1)[1]
@@ -124,6 +142,10 @@ class Sprotno(unittest.TestCase):
         """Stremio proxyHeaders: pomocnik poslje glave toka izvirniku (UA toka namesto 'Safeer Control')."""
         _Vir.zahteve.clear()
         url = "http://127.0.0.1:%d/d/share:0:film.mkv" % self.vir.server_address[1]
+        # Glave toka gredo samo javnemu izvirniku (zanka v preizkusu velja kot javni naslov).
+        p = mock.patch.object(link_sprotno, "vrsta_naslova", return_value="javni")
+        p.start()
+        self.addCleanup(p.stop)
         o = self.s.zacni({"url": url, "name": "Film.mkv", "duration_ms": 1000, "size": 32768,
                           "headers": {"User-Agent": "SafeerTest/1.0", "X-Safeer-Test": "da", "Range": "bytes=5-9",
                                       "Zlo": "a\r\nb", "": "x"}}, "tv-1", self.d.streznik)

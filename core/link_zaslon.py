@@ -961,15 +961,20 @@ class Zaslon:
             except socket.timeout:
                 continue
             odjemalec = None
+            # En rok za rokovanje TLS in pozdrav skupaj (pregled 19. 10. 2026): prej je vsak bajt pozdrava dobil
+            # svojih 10 s, zato je odjemalec, ki je bajt poslal vsakih nekaj sekund, drzal sprejem do 256 x 10 s
+            # (42 min) - dlje od CAKANJE_S, televizor se medtem ni mogel povezati.
+            rok = time.monotonic() + ROKOVANJE_S
             try:
-                surov.settimeout(ROKOVANJE_S)
+                surov.settimeout(ROKOVANJE_S)          # rokovanje: CPython ga omeji v celoti, ne po branjih
                 # Slika in zvok sta drobni, pogosti okvirji: vsak naj gre takoj, ne sele po potrditvi prejsnjega.
                 link_vticnik.brez_zamika(surov)
                 odjemalec = ctx.wrap_socket(surov, server_side=True)
-                pozdrav = self._preberi_vrstico(odjemalec)
+                pozdrav = self._preberi_vrstico(odjemalec, rok=rok)
                 zeton = self._zeton
                 if zeton and pozdrav.startswith("SAFEER-ZASLON ") and secrets.compare_digest(
                         pozdrav.split(" ", 1)[1].strip().encode("utf-8"), zeton.encode("utf-8")):
+                    odjemalec.settimeout(ROKOVANJE_S)      # glava seje gre ven s celim rokom, ne z ostankom
                     return odjemalec, None
             except (OSError, ssl.SSLError, ValueError):
                 pass
@@ -1513,9 +1518,15 @@ class Zaslon:
             self._plosek.zapri()
 
     @staticmethod
-    def _preberi_vrstico(s: socket.socket, najvec: int = 256) -> str:
+    def _preberi_vrstico(s: socket.socket, najvec: int = 256, rok: Optional[float] = None) -> str:
+        """Vrstica pozdrava; z `rok` (time.monotonic) mora priti cela do tedaj, sicer socket.timeout."""
         zbrano = b""
         while len(zbrano) < najvec:
+            if rok is not None:
+                ostane = rok - time.monotonic()
+                if ostane <= 0:
+                    raise socket.timeout("pozdrav ni prisel pravocasno")
+                s.settimeout(ostane)
             b = s.recv(1)
             if not b or b == b"\n":
                 break

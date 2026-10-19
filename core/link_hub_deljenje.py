@@ -92,6 +92,15 @@ def napaka(sporocilo: str, koda: str = "") -> dict:
     return {"napaka": sporocilo, "koda": koda, "error": sporocilo, "error_code": koda}
 
 
+def varno_enako(a, b) -> bool:
+    """Primerjava skrivnosti (zeton, kljuc, odtis) v stalnem casu. compare_digest(str, str) za niz z ne-ASCII znakom
+    vrze TypeError - kljuc iz poizvedbe ali glave je tako podrl obravnavo zahteve (pregled 19. 10. 2026). Bajti ne."""
+    try:
+        return secrets.compare_digest(str(a).encode("utf-8", "surrogatepass"), str(b).encode("utf-8", "surrogatepass"))
+    except Exception:  # noqa: BLE001 - kar ni mogoce primerjati, ni enako
+        return False
+
+
 class Datoteka:
     def __init__(self, ime: str, velikost: int, pot: str, cilj: str, posiljatelj: str, sha256: str, nastala: float,
                  mapa: str = "") -> None:
@@ -144,6 +153,8 @@ class Deljenje:
         self._datoteke: Dict[str, Datoteka] = {}
         self._delne: Dict[tuple, Delna] = {}
         self._prenosov = 0
+        #: Bajti, ki jih oddaje v teku se bodo zapisale (zasedeno pod zaklepom, sproscamo sproti z vsakim kosom).
+        self._rezervirano = 0
         self._pospravljeno = False
 
     # ------------------------------------------------------------------ pomozno
@@ -207,9 +218,34 @@ class Deljenje:
             prosto = int(self._prosto(mapa))
         except OSError:
             return 507, napaka("Datoteke ni mogoče shraniti.", "ni_prostora")
-        if prosto < dolzina + REZERVA_PROSTORA:
+        with self._zaklep:
+            zasedeno = self._rezervirano
+        if prosto - zasedeno < dolzina + REZERVA_PROSTORA:
             return 507, napaka("Ni dovolj prostora.", "ni_prostora")
         return None
+
+    def _rezerviraj(self, koliko: int) -> bool:
+        """Prostor za `koliko` bajtov: preverjen in zaseden pod istim zaklepom. Prej je vsaka vzporedna oddaja zase
+        videla isti prosti prostor in skupaj so disk napolnile do nic; nadaljevanje ga sploh ni preverilo (pregled
+        19. 10. 2026). REZERVA_PROSTORA ostane prosta vedno."""
+        try:
+            mapa = self._pripravi_mapo()
+        except OSError:
+            return False
+        with self._zaklep:
+            try:
+                prosto = int(self._prosto(mapa))
+            except OSError:
+                return False
+            if prosto - self._rezervirano < max(0, koliko) + REZERVA_PROSTORA:
+                return False
+            self._rezervirano += max(0, koliko)
+            return True
+
+    def _vrni_rezervacijo(self, koliko: int) -> None:
+        if koliko > 0:
+            with self._zaklep:
+                self._rezervirano = max(0, self._rezervirano - koliko)
 
     def sprejmi(self, vhod, dolzina: int, ime: str, cilj: str, posiljatelj: str,
                 napovedan_sha: str = "", skupaj: Optional[int] = None, odmik: int = 0,
@@ -230,7 +266,8 @@ class Deljenje:
             return 400, napaka("Dolžina se ne ujema z velikostjo datoteke.", "napacna_dolzina"), None
         if odmik and not napovedan:
             return 400, napaka("Nadaljevanje brez odtisa ni mogoče.", "manjka_odtis"), None
-        zavrnjeno = self.preveri(ime, cilj, dolzina) if not odmik else None
+        # Tudi nadaljevanje: prej je preverjanje preskocilo in zapisalo preostanek ne glede na prostor.
+        zavrnjeno = self.preveri(ime, cilj, dolzina)
         if zavrnjeno is None and skupaj > NAJVECJA_DATOTEKA:
             zavrnjeno = 413, napaka("Datoteka je prevelika.", "prevelika")
         if zavrnjeno is not None:
@@ -255,12 +292,19 @@ class Deljenje:
             if delna is not None:
                 delna.v_teku = False
             return 503, napaka(BESEDILO_BREZ_VIROV, link_viri.KODA), None
+        if not self._rezerviraj(dolzina):
+            self._sprosti()
+            if delna is not None:
+                delna.v_teku = False
+            return 507, napaka("Ni dovolj prostora.", "ni_prostora"), None
+        rezervirano = dolzina
         if delna is None:
             pot = os.path.join(self._pripravi_mapo(), secrets.token_hex(6) + "-" + ime)
             try:
                 os.close(os.open(pot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
             except OSError:
                 self._sprosti()
+                self._vrni_rezervacijo(rezervirano)
                 return 507, napaka("Datoteke ni mogoče shraniti.", "ni_prostora"), None
             delna = Delna(kljuc or ("", "", secrets.token_hex(4), skupaj), ime, pot, mapa, self.ura())
             delna.v_teku = True
@@ -281,10 +325,14 @@ class Deljenje:
                     delna.odtis.update(kos)
                     delna.prejeto += len(kos)
                     delna.cas = self.ura()
+                    # Zapisano je ze na disku (prosti prostor ga ze steje): rezervacija se zmanjsa sproti.
+                    rezervirano -= len(kos)
+                    self._vrni_rezervacijo(len(kos))
         except Exception:  # noqa: BLE001 - prekinjena povezava ali poln disk
             prekinjeno = True
         finally:
             self._sprosti()
+            self._vrni_rezervacijo(rezervirano)
         if prekinjeno or delna.prejeto != skupaj:
             if kljuc and delna.prejeto < skupaj:
                 # Kar je prislo, obdrzimo: odtis je do tod pravilen (izhod je zapisan pred posodobitvijo odtisa).
@@ -317,7 +365,7 @@ class Deljenje:
     def najdi(self, id_: str, kljuc: str) -> Optional[Datoteka]:
         with self._zaklep:
             d = self._datoteke.get(str(id_ or ""))
-        if d is None or not kljuc or not secrets.compare_digest(d.kljuc, str(kljuc)) or not os.path.isfile(d.pot):
+        if d is None or not kljuc or not varno_enako(d.kljuc, kljuc) or not os.path.isfile(d.pot):
             return None
         return d
 
@@ -540,7 +588,7 @@ class Zasloni:
     def najdi(self, id_: str, kljuc: str) -> Optional[Zaslon]:
         with self._zaklep:
             z = self._zasloni.get(str(id_ or ""))
-        if z is None or not kljuc or not secrets.compare_digest(z.kljuc, str(kljuc)):
+        if z is None or not kljuc or not varno_enako(z.kljuc, kljuc):
             return None
         return z
 

@@ -41,6 +41,8 @@ OKVIR_ZVOK, OKVIR_OBVESTILO = 2, 3
 KOS = ZVOK_HZ * ZVOK_KANALI * 2 // 100
 #: Toliko casa naprava dobi, da se poveze, preden sejo opustimo in vrnemo zvok racunalniku.
 CAKANJE_S = 20
+#: Toliko casa ima, kdor se poveze, za rokovanje TLS in pozdrav SKUPAJ; kdor obstane, ne sme zadrzati naprave.
+ROKOVANJE_S = 10
 #: Najdlje sme pisanje enega okvirja cakati na napravo. Zvok tece ves cas in naprava ga bere sproti; kdor toliko
 #: casa ne vzame nobenega bajta, ga ni vec (ugasnjen, brez omrezja). Brez te omejitve je seja visela, dokler ni
 #: obupalo jedro (cetrt ure ali nikoli) - racunalnik je bil ves ta cas brez zvoka.
@@ -349,16 +351,20 @@ class ZvokNaNapravo:
             posluh.settimeout(max(0.1, konec - time.monotonic()))
             surov, _ = posluh.accept()
             odjemalec = None
+            # En rok za rokovanje in pozdrav (pregled 19. 10. 2026): prej je vsak bajt pozdrava dobil svojih 10 s,
+            # pocasen odjemalec je tako drzal sprejem do 256 x 10 s, dlje od CAKANJE_S.
+            rok = time.monotonic() + ROKOVANJE_S
             try:
-                surov.settimeout(10)
+                surov.settimeout(ROKOVANJE_S)          # rokovanje: CPython ga omeji v celoti, ne po branjih
                 # Okvir zvoka (10 ms) naj gre takoj, ne sele po potrditvi prejsnjega (Naglov algoritem).
                 link_vticnik.brez_zamika(surov)
                 odjemalec = ctx.wrap_socket(surov, server_side=True)
-                pozdrav = self._preberi_vrstico(odjemalec)
+                pozdrav = self._preberi_vrstico(odjemalec, rok=rok)
                 # Primerjamo bajte: compare_digest z nizom, ki ni cisti ASCII, vrze TypeError - tuj pozdrav bi
                 # tako koncal sejo, namesto da bi bil le zavrnjen.
                 if pozdrav.startswith("SAFEER-ZVOK ") and self._zeton and secrets.compare_digest(
                         pozdrav.split(" ", 1)[1].strip().encode("utf-8"), self._zeton.encode("utf-8")):
+                    odjemalec.settimeout(ROKOVANJE_S)      # glava seje gre ven s celim rokom, ne z ostankom
                     return odjemalec
             except (OSError, ssl.SSLError, ValueError):
                 pass
@@ -381,9 +387,15 @@ class ZvokNaNapravo:
                     pass
 
     @staticmethod
-    def _preberi_vrstico(s, najvec: int = 256) -> str:
+    def _preberi_vrstico(s, najvec: int = 256, rok: Optional[float] = None) -> str:
+        """Vrstica pozdrava; z `rok` (time.monotonic) mora priti cela do tedaj, sicer socket.timeout."""
         b = b""
         while len(b) < najvec:
+            if rok is not None:
+                ostane = rok - time.monotonic()
+                if ostane <= 0:
+                    raise socket.timeout("pozdrav ni prisel pravocasno")
+                s.settimeout(ostane)
             c = s.recv(1)
             if not c or c == b"\n":
                 break
