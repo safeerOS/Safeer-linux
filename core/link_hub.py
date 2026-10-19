@@ -147,9 +147,12 @@ class Nastavitve:
         zacasna = self.pot + ".tmp"
         try:
             os.makedirs(os.path.dirname(self.pot), mode=0o700, exist_ok=True)
-            fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            # Modul je skupen z Windows: tam O_NOFOLLOW ni, os.fchmod pa pred Pythonom 3.13 tudi ne. AttributeError je
+            # prej tiho koncal shranjevanje in link.json se ni nikoli zapisal - seznanitev se je izgubila.
+            fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
             with open(fd, "w", encoding="utf-8") as d:
-                os.fchmod(d.fileno(), 0o600)       # zacasna, ki je ostala od prej, je imela lahko druge pravice
+                if hasattr(os, "fchmod"):
+                    os.fchmod(d.fileno(), 0o600)   # zacasna, ki je ostala od prej, je imela lahko druge pravice
                 json.dump(self.podatki, d, ensure_ascii=False, indent=2)
             os.replace(zacasna, self.pot)
         except Exception:
@@ -412,6 +415,13 @@ def naslov_je_isti(a: str, b: str) -> bool:
 
 NACIN_SPAKE2 = "spake2"
 IDENTITETA_HUBA = "safeer-link-hub"
+#: Sredisce seznanitve (koda, QR) ne izda zetona za id, ki je ze v krogu (link_hub_streznik.Hub._id_ze_v_krogu, 409).
+ID_ZASEDEN = "id_zaseden"
+
+
+def _id_zaseden(koda: int, odgovor) -> bool:
+    return koda == 409 and isinstance(odgovor, dict) and \
+        ID_ZASEDEN in (str(odgovor.get("code") or ""), str(odgovor.get("error_code") or ""))
 
 
 def zacni_seznanitev(ws_naslov: str, device_id: str, ime: str) -> Optional[dict]:
@@ -429,6 +439,8 @@ def zacni_seznanitev(ws_naslov: str, device_id: str, ime: str) -> Optional[dict]
     if koda == 429 and str(odgovor.get("code") or "") == "seznanitev_zaprta":
         # Sredisce je povezovanje s kodo zaprlo (nekdo je ugibal kodo): uporabniku povemo, kaj naj naredi.
         return {"napaka": "seznanitev_zaprta"}
+    if _id_zaseden(koda, odgovor):
+        return {"napaka": ID_ZASEDEN}
     if koda != 200 or not videni:
         return None
     pair_id = str(odgovor.get("pair_id", "") or "")
@@ -449,7 +461,7 @@ def zacni_seznanitev(ws_naslov: str, device_id: str, ime: str) -> Optional[dict]
 def potrdi_kodo(ws_naslov: str, prijava: dict, device_id: str, koda: str) -> Tuple[Optional[str], str]:
     """Dokaze Hubu, da poznamo kodo z njegovega zaslona (SPAKE2, RFC 9382), ne da bi
     jo poslali. Vrne (zeton, "") ob uspehu, sicer (None, razlog): napacna_koda,
-    prevec_poskusov, prijava_ne_obstaja, povezava_ni_uspela.
+    prevec_poskusov, prijava_ne_obstaja, povezava_ni_uspela, id_zaseden (naprava je ze v krogu).
     """
     osnova = _osnova(ws_naslov)
     odtis = str(prijava.get("odtis", "") or "")
@@ -525,6 +537,9 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORM
         "code_sha256": hashlib.sha256(koda_naprave.encode("utf-8")).hexdigest()})
     if koda == 404 or koda == 405:
         return {"napaka": "hub_star"}
+    if _id_zaseden(koda, odgovor):
+        # Prej None (kot da sredisca ni): prijavno okno je kodo QR iskalo znova vsakih 8 s in pisalo »ni Safeer Linka«.
+        return {"napaka": ID_ZASEDEN}
     if koda != 200 or not videni:
         if koda == 429:
             return {"napaka": "prevec_prijav"}

@@ -30,6 +30,8 @@ GOSTITELJ = "link.safeer.si"
 OBJAVA_VSAKIH_S = 60
 PING_VSAKIH_S = 30
 KOS = 16 * 1024
+#: Najvecje sporocilo releja (okvir in vsi nadaljevalni okvirji skupaj); prej 4 MiB samo na okvir.
+NAJVECJE_SPOROCILO = 4 * 1024 * 1024
 #: Cloudflare (Browser Integrity Check) zavrne privzeti "Python-urllib" z 403; Safeer se predstavi z imenom.
 UA = "SafeerLink/1.0"
 #: Topla povezava (vnaprej odprt TLS do releja) se drzi, dokler je bila v tem casu zeljena ali uporabljena.
@@ -165,8 +167,11 @@ class WsOdjemalec:
         self.poslji(niz.encode(), 0x1)
 
     def prejmi(self):
-        """Vrne (opkoda, podatki); na ping odgovori sam, zaprtje dvigne ConnectionError."""
-        podatki, prva = b"", None
+        """Vrne (opkoda, podatki); na ping odgovori sam, zaprtje dvigne ConnectionError.
+
+        Meja NAJVECJE_SPOROCILO velja za celo sporocilo, ne le za okvir: prej so se nadaljevalni okvirji lepili brez
+        meje in rele (ali kdor se zanj izdaja) je lahko porabil ves pomnilnik (pregled 19. 10. 2026, kot link_ws)."""
+        podatki, prva = bytearray(), None
         while True:
             b0, b1 = self._beri(2)
             op, dolzina = b0 & 0x0F, b1 & 0x7F
@@ -174,8 +179,10 @@ class WsOdjemalec:
                 dolzina = struct.unpack(">H", self._beri(2))[0]
             elif dolzina == 127:
                 dolzina = struct.unpack(">Q", self._beri(8))[0]
-            if dolzina > 4 * 1024 * 1024:
+            if dolzina > NAJVECJE_SPOROCILO:
                 raise ConnectionError("prevelik okvir")
+            if op == 0x0 and len(podatki) + dolzina > NAJVECJE_SPOROCILO:
+                raise ConnectionError("preveliko sporocilo")       # pred branjem telesa: nic se ne kopici
             maska = self._beri(4) if b1 & 0x80 else None
             telo = self._beri(dolzina)
             if maska:
@@ -189,9 +196,10 @@ class WsOdjemalec:
                 continue
             if op != 0x0:
                 prva = op
+                podatki = bytearray()          # novo sporocilo (podatkovni okvir brez nadaljevanja) zacne znova
             podatki += telo
             if b0 & 0x80:
-                return prva, podatki
+                return prva, bytes(podatki)
 
     def zapri(self) -> None:
         """Konca povezavo (okvir zaprtja + shutdown), ne sprosti pa vticnice.

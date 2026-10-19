@@ -66,6 +66,7 @@
       napIskanje: "Iskanja ni bilo mogoče zagnati.",
       napSeznanitev: "Seznanitve ni bilo mogoče začeti.",
       napSeznanitevZaprta: "Povezovanje s kodo je na tisti napravi začasno zaprto, ker je nekdo ugibal kodo. Na njej odpri »Poveži naprave« ali uporabi kodo QR.",
+      napIdZaseden: "Naprava je že v Safeer Linku. Povezala se bo sama s svojim ključem; če jo želiš seznaniti znova, jo najprej odstrani iz Linka na drugi napravi.",
       napPovezava: "Povezava ni uspela. Preveri, ali je Safeer Link na drugi napravi vklopljen.",
       napStranNiPrimerna: "Te strani ni mogoče poslati.",
       napSamoHttp: "Poslati je mogoče samo naslove http in https.",
@@ -195,6 +196,7 @@
       napIskanje: "The search could not be started.",
       napSeznanitev: "Pairing could not be started.",
       napSeznanitevZaprta: "Pairing by code is temporarily closed on that device because someone was guessing the code. Open “Connect devices” on it or use the QR code.",
+      napIdZaseden: "The device is already in Safeer Link. It will connect on its own with its key; to pair it again, first remove it from Link on another device.",
       napPovezava: "The connection failed. Check that Safeer Link is switched on on the other device.",
       napStranNiPrimerna: "This page cannot be sent.",
       napSamoHttp: "Only http and https addresses can be sent.",
@@ -324,6 +326,7 @@
       napIskanje: "Die Suche konnte nicht gestartet werden.",
       napSeznanitev: "Die Kopplung konnte nicht gestartet werden.",
       napSeznanitevZaprta: "Die Kopplung per Code ist auf diesem Gerät vorübergehend gesperrt, weil jemand den Code erraten wollte. Öffne dort „Geräte verbinden“ oder nutze den QR-Code.",
+      napIdZaseden: "Das Gerät ist bereits in Safeer Link. Es verbindet sich selbst mit seinem Schlüssel; um es neu zu koppeln, entferne es zuerst auf einem anderen Gerät aus Link.",
       napPovezava: "Die Verbindung ist fehlgeschlagen. Prüfe, ob Safeer Link auf dem anderen Gerät eingeschaltet ist.",
       napStranNiPrimerna: "Diese Seite kann nicht gesendet werden.",
       napSamoHttp: "Es können nur http- und https-Adressen gesendet werden.",
@@ -453,6 +456,7 @@
       napIskanje: "No se pudo iniciar la búsqueda.",
       napSeznanitev: "No se pudo iniciar el emparejamiento.",
       napSeznanitevZaprta: "El emparejamiento con código está cerrado temporalmente en ese dispositivo porque alguien intentaba adivinar el código. Abre allí «Conectar dispositivos» o usa el código QR.",
+      napIdZaseden: "El dispositivo ya está en Safeer Link. Se conectará solo con su clave; para emparejarlo de nuevo, quítalo primero de Link en otro dispositivo.",
       napPovezava: "La conexión ha fallado. Comprueba que Safeer Link esté activado en el otro dispositivo.",
       napStranNiPrimerna: "Esta página no se puede enviar.",
       napSamoHttp: "Solo se pueden enviar direcciones http y https.",
@@ -582,6 +586,7 @@
       napIskanje: "La recherche n\'a pas pu démarrer.",
       napSeznanitev: "L\'association n\'a pas pu démarrer.",
       napSeznanitevZaprta: "L\'association par code est temporairement fermée sur cet appareil, car quelqu\'un essayait de deviner le code. Ouvre « Connecter des appareils » sur celui-ci ou utilise le code QR.",
+      napIdZaseden: "L'appareil est déjà dans Safeer Link. Il se connectera seul avec sa clé ; pour l'associer à nouveau, retire-le d'abord de Link sur un autre appareil.",
       napPovezava: "La connexion a échoué. Vérifie que Safeer Link est activé sur l’autre appareil.",
       napStranNiPrimerna: "Cette page ne peut pas être envoyée.",
       napSamoHttp: "Seules les adresses http et https peuvent être envoyées.",
@@ -711,6 +716,7 @@
       napIskanje: "Non è stato possibile avviare la ricerca.",
       napSeznanitev: "Non è stato possibile avviare l\'associazione.",
       napSeznanitevZaprta: "L\'associazione con codice è temporaneamente chiusa su quel dispositivo perché qualcuno cercava di indovinare il codice. Apri lì «Collega dispositivi» o usa il codice QR.",
+      napIdZaseden: "Il dispositivo è già in Safeer Link. Si collegherà da solo con la sua chiave; per associarlo di nuovo, rimuovilo prima da Link su un altro dispositivo.",
       napPovezava: "La connessione non è riuscita. Controlla che Safeer Link sia acceso sull’altro dispositivo.",
       napStranNiPrimerna: "Questa pagina non può essere inviata.",
       napSamoHttp: "Si possono inviare solo indirizzi http e https.",
@@ -835,6 +841,7 @@
     iskanje_ni_steklo: "napIskanje",
     seznanitev_ni_stekla: "napSeznanitev",
     seznanitev_zaprta: "napSeznanitevZaprta",
+    id_zaseden: "napIdZaseden",
     povezava_ni_uspela: "napPovezava",
     stran_ni_primerna: "napStranNiPrimerna",
     samo_http: "napSamoHttp",
@@ -3022,7 +3029,8 @@
       besedilo("opombaQr", t("prijavaBrezQr"));
       return;
     }
-    besedilo("opombaQr", t(n === "hub_star" ? "prijavaHubStar" : n === "prevec_prijav" ? "prijavaPrevec" : "prijavaNiHuba"));
+    besedilo("opombaQr", t(n === "hub_star" ? "prijavaHubStar" : n === "prevec_prijav" ? "prijavaPrevec"
+      : n === "id_zaseden" ? "napIdZaseden" : "prijavaNiHuba"));
     pokazi("gumbQrZnova", true);
     // Safeer Linka (se) ni: iscemo naprej sami, vsakih 8 s - ko ga uporabnik vklopi na televizorju ali
     // telefonu, se koda pokaze brez klika. Gumb »Poišči znova« ostane za nestrpne.
@@ -3060,7 +3068,8 @@
       besedilo("opombaDodajKoda", izid.ime ? t("kodaDovoljena", { ime: izid.ime }) : t("kodaDovoljenaBrezImena"));
     } else {
       besedilo("opombaDodajKoda", t(r === "prevec_poskusov" ? "kodaPrevec" : r === "ista_naprava" ? "kodaIstaNaprava"
-        : r === "ni_seznanjena" ? "kodaNiSeznanjena" : r === "ni_huba" ? "kodaNiHuba" : "kodaNeVelja"));
+        : r === "ni_seznanjena" ? "kodaNiSeznanjena" : r === "ni_huba" ? "kodaNiHuba"
+        : r === "id_zaseden" ? "napIdZaseden" : "kodaNeVelja"));
     }
     var vnos = el("dodajVnosKode");
     if (vnos) { vnos.value = ""; try { vnos.focus(); } catch (e) {} }
@@ -3162,9 +3171,10 @@
       } else if (vrsta === "kodaNiSprejeta" && jePrijavnoOkno()) {
         koncajPreverjanje();
         var rp = (podatki && podatki.razlog) || "napacna_koda";
+        // id_zaseden: naprava je ze v Linku - nova koda ne pomaga, zato je ne zahtevamo znova (brez zanke).
         besedilo("opombaPrijavaKoda", t(rp === "prevec_poskusov" ? "napPrevecPoskusov"
-          : (rp === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda")));
-        if (rp === "prevec_poskusov" || rp === "prijava_ne_obstaja") prijava.koda = false;
+          : rp === "prijava_ne_obstaja" ? "napPrijavaPotekla" : rp === "id_zaseden" ? "napIdZaseden" : "napNapacnaKoda"));
+        if (rp === "prevec_poskusov" || rp === "prijava_ne_obstaja" || rp === "id_zaseden") prijava.koda = false;
         var vk = el("prijavaVnosKode");
         if (vk) { vk.value = ""; try { vk.focus(); } catch (e) {} }
       } else if (vrsta === "nacin") {
@@ -3190,9 +3200,9 @@
         koncajPreverjanje();
         var razlog = (podatki && podatki.razlog) || "napacna_koda";
         var kljucNapake = razlog === "prevec_poskusov" ? "napPrevecPoskusov"
-          : (razlog === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda");
+          : razlog === "prijava_ne_obstaja" ? "napPrijavaPotekla" : razlog === "id_zaseden" ? "napIdZaseden" : "napNapacnaKoda";
         besedilo("opombaSeznanitev", t(kljucNapake));
-        if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja") {
+        if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja" || razlog === "id_zaseden") {
           pokazi("vnosKodeBlok", false);
           pokazi("gumbSeznani", true);
           var gz = el("gumbSeznani");
@@ -3313,6 +3323,8 @@
         var kodaNapake = podatki && typeof podatki === "object" ? podatki.koda : "";
         // Ime je uporabnik shranjeval na plosci »Deli z« (tam pise »Posiljam …«): razlog pride tudi tja.
         if (kodaNapake === "preimenovanje_ni_uspelo") besedilo("opombaDeljenje", sporocilo);
+        // Naprava je ze v Linku: seznanitev se ne zacne sama znova; klik na polje za kodo jo lahko zacne na novo.
+        if (kodaNapake === "id_zaseden") prijava.koda = false;
         if (stanje.clanKroga && !prijava.krogNeuspel && kodaNapake === "naprava_ni_znana") {
           prijava.krogNeuspel = true;
           narisiZaslon();
@@ -3328,7 +3340,7 @@
   /** Napaka pride kot besedilo ali kot {koda, sporocilo}; koda ima prednost. */
   var MEHKE_NAPAKE = { stran_ni_primerna: 1, samo_http: 1, ukaz_ni_uspel: 1, zaznamki_niso_poslani: 1,
                        sync_ni_nastavljena: 1, zdruzevanje_ni_koncano: 1, naprava_ni_znana: 1,
-                       preimenovanje_ni_uspelo: 1 };
+                       preimenovanje_ni_uspelo: 1, id_zaseden: 1 };
 
   function jeMehkaNapaka(podatki) {
     return !!(podatki && typeof podatki === "object" && MEHKE_NAPAKE[String(podatki.koda || "")]);

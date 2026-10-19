@@ -210,7 +210,10 @@ class DeljenjeVZivo(unittest.TestCase):
         if not cls.streznik.zazeni():
             raise unittest.SkipTest("huba ni bilo mogoce zagnati")
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.streznik.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: os.path.join(cls.tmp.name, "zaloga"))
+        # Prostor diska je lazen: rezerva pravega diska (link_viri.rezerva_diska, 2 %) je odvisna od okolja preizkusa.
+        cls.streznik.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: os.path.join(cls.tmp.name, "zaloga"),
+                                                               prosto=lambda _m: 50 * 1024 ** 3,
+                                                               rezerva=lambda _m: 1024 ** 3)
         cls.naslov = "wss://127.0.0.1:%d%s" % (cls.streznik.vrata, link_hub_streznik.POT_WS)
         cls.odtis = cls.streznik.odtis
         cls.clan = {"kljuc": link_krog.javni_kljuc_b64(), "ime": "Preizkus", "platforma": "linux"}

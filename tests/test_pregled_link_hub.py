@@ -2,7 +2,7 @@
 
 1. umik iz kroga velja takoj (zeton, vstopnica, ponoven vpis, sorodniki, vabila, povezava WebSocket);
 2. vpis kljuca ne prevzame tujega id-ja, id iz kljuca dobi samo svoj kljuc;
-3. ime spremeni samo naprava sama ali ta racunalnik (POST /cast/devices/rename in trust.names);
+3. ime spremeni samo clan kroga s kljucem, naprava brez kljuca nicesar (POST /cast/devices/rename in trust.names);
 4. sestavljeno sporocilo WebSocket ima mejo za celoto, ne le za okvir;
 5. vrstica zahteve in glave imajo skupni rok, nepreverjeni viri omejeno stevilo hkratnih povezav;
 6. primerjava skrivnosti z ne-ASCII nizom ne podre obravnave;
@@ -362,11 +362,19 @@ class Preimenovanje(_SKrogom):
         self.hub = link_hub_streznik.Hub(odtis="ab" * 32, nas_id=self.pc)
         self.z_tab = self.hub.zeton_lastne_naprave(self.tab, "Tablica")
         self.z_control = self.hub.zeton_lastne_naprave(self.pc + "-control", "Safeer Control")
+        # Naprava samo z zetonom seznanitve (kljuca se ni vpisala v krog).
+        self.z_brez = self.hub.zeton_lastne_naprave("fon-1", "Telefon")
 
-    def test_naprava_ne_preimenuje_druge(self):
-        koda, odgovor = self.hub.preimenuj_napravo(self.z_tab, self.tv, "Vdrto")
+    def test_naprava_brez_kljuca_ne_preimenuje(self):
+        """Lastnik 19. 10. 2026: preimenuje lahko vsak clan kroga s kljucem, naprava brez kljuca v krogu nicesar."""
+        koda, odgovor = self.hub.preimenuj_napravo(self.z_brez, self.tv, "Vdrto")
         self.assertEqual((koda, odgovor.get("koda")), (403, "tuja_naprava"))
         self.assertEqual(self.krog.clan(self.tv)["ime"], "Android TV")
+
+    def test_clan_preimenuje_drugo_napravo(self):
+        """Safeer OS na televizorju poimenuje naprave za vse v hisi (LinkMost.preimenujNapravo)."""
+        self.assertEqual(self.hub.preimenuj_napravo(self.z_tab, self.tv, "Dnevna soba")[0], 200)
+        self.assertEqual(self.krog.clan(self.tv)["ime"], "Dnevna soba")
 
     def test_naprava_preimenuje_sebe(self):
         self.assertEqual(self.hub.preimenuj_napravo(self.z_tab, self.tab, "Moja tablica")[0], 200)
@@ -385,10 +393,16 @@ class Preimenovanje(_SKrogom):
         ponujeno["clani"][self.tab].update(ime="Moja tablica", imenovano=zdaj)
         self.hub.obdelaj(p, json.dumps({"id": "n1", "type": "trust.names", "payload": ponujeno}))
 
-    def test_trust_names_samo_svoje_ime(self):
+    def test_trust_names_clana_s_kljucem(self):
+        """Televizor ob povezavi poslje imena vseh clanov iz svojega kroga: clan s kljucem jih sme dati."""
         self._ponudi_imena(self.tab)
-        self.assertEqual(self.krog.clan(self.tv)["ime"], "Android TV", "tuje ime ne pride v krog")
+        self.assertEqual(self.krog.clan(self.tv)["ime"], "Vdrto")
         self.assertEqual(self.krog.clan(self.tab)["ime"], "Moja tablica")
+
+    def test_trust_names_naprave_brez_kljuca(self):
+        self._ponudi_imena("fon-1")
+        self.assertEqual(self.krog.clan(self.tv)["ime"], "Android TV", "naprava brez kljuca imen ne daje")
+        self.assertEqual(self.krog.clan(self.tab)["ime"], "Tablica")
 
     def test_trust_names_tega_racunalnika(self):
         self._ponudi_imena(self.pc + "-control")
@@ -580,13 +594,15 @@ class _ZadrzanVhod:
 
 class ProstorNaDisku(unittest.TestCase):
     S = 256 * 1024
+    #: Rezerva diska v preizkusu (sicer link_viri.rezerva_diska pravega diska - preizkus ne sme odvisen od okolja).
+    REZERVA = 1024 ** 3
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.prosto = link_hub_deljenje.REZERVA_PROSTORA + self.S + self.S // 2      # prostor za eno oddajo, ne za dve
+        self.prosto = self.REZERVA + self.S + self.S // 2      # prostor za eno oddajo, ne za dve
         self.z = link_hub_deljenje.Deljenje(mapa=lambda: os.path.join(self.tmp.name, "zaloga"),
-                                            prosto=lambda _m: self.prosto)
+                                            prosto=lambda _m: self.prosto, rezerva=lambda _m: self.REZERVA)
 
     def test_vzporedni_oddaji_ne_napolnita_diska(self):
         vsebina = os.urandom(self.S)
@@ -613,7 +629,7 @@ class ProstorNaDisku(unittest.TestCase):
         koda, odgovor, _d = self.z.sprejmi(io.BytesIO(vsebina[:self.S]), 2 * self.S, "v.bin", "tv1", "fon1", sha,
                                            skupaj=2 * self.S, odmik=0)
         self.assertEqual((koda, odgovor.get("odmik")), (400, self.S), "prekinjena oddaja pocaka na nadaljevanje")
-        self.prosto = link_hub_deljenje.REZERVA_PROSTORA + self.S // 2
+        self.prosto = self.REZERVA + self.S // 2
         koda, odgovor, d = self.z.sprejmi(io.BytesIO(vsebina[self.S:]), self.S, "v.bin", "tv1", "fon1", sha,
                                           skupaj=2 * self.S, odmik=self.S)
         self.assertEqual((koda, odgovor.get("koda"), d), (507, "ni_prostora", None))

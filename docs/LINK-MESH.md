@@ -275,7 +275,7 @@ je bila zavrnjena in je odjemalca za 5 min vrnila na rele.
 | Tiha sosednja povezava (`TIHI_SOSED_S`) | 40 s brez prejetega bajta | rok | Pong prek počasnega releja z oddajo na isti poti: 2,4–8,8 s; 30 s je pongu po pingu (25 s) pustilo 5 s. Vsak prejeti bajt šteje kot življenje. |
 | Pošiljanje (Control) | čakanje na napravo 24 h, tudi čez ponovni zagon | rok | `posiljanje-vrsta.json` ob nastavitvah Controla (0600, samo poti, id, rok). |
 | Znane naprave (Nemo, zadnja naprava) | 90 dni brez videnja / rabe | rok | Zapisujejo se samo člani kroga tega računalnika. |
-| Disk (zgodovina Teamworka) | rezerva 2 % diska, najmanj 1 GiB, največ 10 GiB | disk | Prej 1 GiB za vse diske (64 GB: 1,6 %, 2 TB: 0,05 %). |
+| Disk (zgodovina Teamworka, sprejem datotek na središču) | rezerva 2 % diska, najmanj 1 GiB, največ 10 GiB (`link_viri.rezerva_diska`) | disk | Prej 1 GiB za vse diske (64 GB: 1,6 %, 2 TB: 0,05 %); središče je imelo 200 MiB. |
 
 ### Odstranjene meje (prej → zdaj)
 

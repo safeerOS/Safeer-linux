@@ -156,6 +156,40 @@ def _veljaven_kljuc(b64: str) -> bool:
 DNI_BREZ_STIKA = 90
 STIKI_ZAPIS_S = 600.0
 
+#: Stevec sprememb clanov in umikov v tem procesu. Krog spreminja tudi odjemalec Linka mimo sredisca (trust.update
+#: drugega sredisca, odjava); sredisce na stevec caka (pocakaj_spremembo) in umik uveljavi v delcku sekunde - prej
+#: sele ob pospravljanju na 10 minut (pregled 19. 10. 2026). Pogoj ima svoj zaklep: krog ga vzame znotraj svojega,
+#: cakajoci nikoli obratno (vrstni red zaklepov krog -> stevec).
+_sprememba = threading.Condition(threading.Lock())
+_stevec = 0
+
+
+def _ob_spremembi() -> None:
+    global _stevec
+    with _sprememba:
+        _stevec += 1
+        _sprememba.notify_all()
+
+
+def razlicica() -> int:
+    """Stevec sprememb kroga v tem procesu (vsaka sprememba clanov ali umikov ga poveca)."""
+    with _sprememba:
+        return _stevec
+
+
+def pocakaj_spremembo(videna: int, rok_s: float) -> int:
+    """Caka, da stevec ni vec `videna` (ali do roka ali do zbudi()); vrne trenutni stevec."""
+    with _sprememba:
+        if _stevec == videna and rok_s > 0:
+            _sprememba.wait(rok_s)
+        return _stevec
+
+
+def zbudi() -> None:
+    """Zbudi cakajoce brez spremembe (sredisce se ustavlja)."""
+    with _sprememba:
+        _sprememba.notify_all()
+
 
 class Krog:
     """Krog zaupanja te naprave; ob vsaki spremembi se zapise na disk (0600)."""
@@ -174,6 +208,10 @@ class Krog:
                     self.zdruzi(json.load(d), shrani=False)
             except Exception:
                 pass
+            # Umiki z diska: kdaj jih je ta proces prvic videl, ne vemo - umik iz prihodnosti velja od zdaj.
+            zdaj = time.time()
+            for u in self.umiki.values():
+                u["videno"] = min(float(u["umaknjeno"]), zdaj)
             try:
                 with open(self._pot_stikov(), "r", encoding="utf-8") as d:
                     self.stiki = {str(k): float(v) for k, v in (json.load(d) or {}).items()}
@@ -329,6 +367,22 @@ class Krog:
             casi = [float(self.umiki[c["id"]]["umaknjeno"]) for c in ujemanja if c["id"] in self.umiki]
             return max(casi) if casi else None
 
+    def umaknjen_videno(self, device_id: str) -> Optional[float]:
+        """Kdaj je ta proces (po SVOJI uri) prvic videl umik, ki za napravo velja zdaj, ali None.
+
+        Cas umika (umaknjen_ob) postavi ura naprave, ki je umikala; sredisce pa z njim primerja cas izdaje zetona po
+        svoji uri. Ura, ki prehiteva, je preklicala tudi novo seznanitev takoj po umiku, ura, ki zaostaja, pa je pustila
+        veljati zetone iz razmika (pregled 19. 10. 2026). Umik z diska (ponovni zagon) velja od min(cas umika, zdaj)."""
+        ob = self.umaknjen_ob(device_id)
+        if ob is None:
+            return None
+        with self._zaklep:
+            u = self.umiki.get(device_id)
+            kandidati = [u] if u and u.get("umaknjeno") == ob else \
+                [v for v in self.umiki.values() if v.get("umaknjeno") == ob]
+            videno = [float(v["videno"]) for v in kandidati if v.get("videno") is not None]
+        return max(videno) if videno else min(ob, time.time())
+
     def stevilo(self) -> int:
         with self._zaklep:
             return sum(1 for c in self.clani.values() if self._veljaven(c))
@@ -383,9 +437,13 @@ class Krog:
     def umakni(self, device_id: str, kdo: str, ob: Optional[float] = None) -> bool:
         """Umakne clana (nadgrobnik ostane, da umik preide na vse naprave). Naprava, ki je ni v
         krogu, ne spremeni nicesar - sicer bi vsak tuj id pustil nadgrobnik."""
-        if not self.je_clan(device_id):
+        c = self.clan(device_id)
+        if c is None:
             return False
         ob = ob if ob is not None else time.time()
+        # Umik, ki ga naredimo zdaj, velja za vnos, ki ga vidimo zdaj - tudi ce ga je dodala ura, ki prehiteva
+        # (sicer bi bil umik starejsi od vnosa in ne bi veljal).
+        ob = max(float(ob), float(c.get("dodano") or 0.0) + 0.001)
         umik = {"umaknjeno": ob, "umaknil": kdo}
         if self._smo_mi(kdo):
             try:
@@ -478,7 +536,9 @@ class Krog:
                     continue
                 obstojeci = self.umiki.get(i)
                 if obstojeci is None or obstojeci["umaknjeno"] < ob:
-                    self.umiki[i] = dict({"umaknjeno": ob, "umaknil": umaknil}, **({"podpis": podpis} if podpis else {}))
+                    # `videno`: nasa ura ob prvem prejemu (ne gre v zapis kroga, glej umaknjen_videno).
+                    self.umiki[i] = dict({"umaknjeno": ob, "umaknil": umaknil, "videno": time.time()},
+                                         **({"podpis": podpis} if podpis else {}))
                     spremenjeno = True
             for i, c in (tuj.get("clani") or {}).items():
                 if not isinstance(c, dict) or not _veljaven_kljuc(str(c.get("kljuc") or "")):
@@ -527,6 +587,8 @@ class Krog:
                     spremenjeno = True
             if spremenjeno and shrani:
                 self._shrani()
+            if spremenjeno:
+                _ob_spremembi()
         return spremenjeno
 
     def _shrani(self) -> None:
@@ -566,6 +628,7 @@ def pozabi_krog() -> None:
             except FileNotFoundError:
                 pass
         _krog = None
+    _ob_spremembi()
 
 
 def sprejmi(tuj) -> bool:

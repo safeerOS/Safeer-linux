@@ -320,9 +320,28 @@ MOST_JS = """
 """.replace("__ZETON__", ZETON_MOSTU)
 
 
+#: Sredisce ne seznani naprave, ki je ze v krogu (link_hub.ID_ZASEDEN); besedilo za dnevnik - stran prevede po kodi.
+BESEDILO_ID_ZASEDEN = ("Naprava je že v Safeer Linku. Povezala se bo sama s svojim ključem; če jo želiš seznaniti "
+                       "znova, jo najprej odstrani iz Linka na drugi napravi.")
+
+
+def _kljuc_clana_kroga(kljuc: str) -> bool:
+    """Ali je javni kljuc (iz potrdila sredisca) kljuc veljavnega clana nasega kroga zaupanja."""
+    try:
+        k = link_krog.krog()
+        with k._zaklep:
+            return any(k._veljaven(c) and link_tls.isti(kljuc, c.get("kljuc") or "") for c in k.clani.values())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def zeton_velja(sporocilo) -> bool:
-    """Sporocilo mostu safeerLink je iz glavnega okvirja strani Linka (MOST_JS), ne iz vgrajenega okvirja."""
-    return isinstance(sporocilo, dict) and hmac.compare_digest(str(sporocilo.get("t") or ""), ZETON_MOSTU)
+    """Sporocilo mostu safeerLink je iz glavnega okvirja strani Linka (MOST_JS), ne iz vgrajenega okvirja.
+    Primerjamo bajte: compare_digest(str, str) za niz z ne-ASCII znakom vrze TypeError (okvir strani ga lahko poslje)."""
+    if not isinstance(sporocilo, dict):
+        return False
+    return hmac.compare_digest(str(sporocilo.get("t") or "").encode("utf-8", "surrogatepass"),
+                               ZETON_MOSTU.encode("utf-8"))
 
 
 class SafeerLink:
@@ -1197,6 +1216,10 @@ class SafeerLink:
                                                     "nekdo ugibal kodo. Na njej odpri »Poveži naprave« ali uporabi "
                                                     "kodo QR."})
                 return
+            if zacetek.get("napaka") == link_hub.ID_ZASEDEN:
+                if not self._prijava_ob_zasedenem(naslov):
+                    self._odziv("napaka", {"koda": link_hub.ID_ZASEDEN, "sporocilo": BESEDILO_ID_ZASEDEN})
+                return
             if zacetek.get("napaka"):
                 # Hub brez TLS ali s starim postopkom bi kodo prejel po omrezju.
                 self._odziv("napaka", {"koda": "hub_star",
@@ -1209,6 +1232,33 @@ class SafeerLink:
         finally:
             self._seznanjanje = False
 
+    def _prijava_ob_zasedenem(self, naslov: str) -> bool:
+        """Sredisce je seznanitev zavrnilo, ker je ta naprava ze v krogu (409 id_zaseden). Ce je nas kljuc v NASEM krogu
+        in ima sredisce v potrdilu kljuc clana kroga (kot izvoljeni hub, link_hub.poisci_hub_z_odtisom), se prijavimo s
+        podpisom - nova seznanitev ni potrebna. Sredisca, ki ga krog ne pozna, ne vprasamo: njegov krog (`ring`) bi
+        zdruzili brez preverbe. Vrne True, ce se povezujemo; sicer uporabnik dobi pojasnilo (brez ponavljanja)."""
+        try:
+            if not naslov or not self._clan_kroga():
+                return False
+            videni, kljuc = link_tls.potrdilo_huba(naslov)
+            if not videni or not kljuc or not _kljuc_clana_kroga(kljuc):
+                return False
+            vstopnica, _koda = link_hub.vzemi_vstopnico_s_podpisom(naslov, self._id(), videni, self._ime())
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] prijava s podpisom ni uspela: {e}")
+            return False
+        if not vstopnica:
+            return False
+        self._prijava = None
+        self.nastavitve.podatki["hub_url"] = naslov
+        self.nastavitve.podatki["hub_fp"] = videni
+        self.nastavitve.shrani()
+        self._odziv("seznanitev", True)
+        if self.ob_seznanitvi is not None:
+            GLib.idle_add(lambda: (self.ob_seznanitvi(), False)[1])
+        self._povezi()
+        return True
+
     def _potrdi_kodo(self, koda: str) -> None:
         """Uporabnik je vtipkal kodo z gostiteljevega zaslona. Koda ne gre po omrezju:
         Hubu jo dokazemo s SPAKE2, ob uspehu si zapomnimo zeton in odtis potrdila."""
@@ -1219,8 +1269,10 @@ class SafeerLink:
             return
         zeton, razlog = link_hub.potrdi_kodo(naslov, prijava, self._id(), koda)
         if not zeton:
-            if razlog in ("prevec_poskusov", "prijava_ne_obstaja"):
+            if razlog in ("prevec_poskusov", "prijava_ne_obstaja", link_hub.ID_ZASEDEN):
                 self._prijava = None
+            if razlog == link_hub.ID_ZASEDEN and self._prijava_ob_zasedenem(naslov):
+                return
             self._odziv("kodaNiSprejeta", {"razlog": razlog or "napacna_koda"})
             return
         self._prijava = None
@@ -1264,6 +1316,8 @@ class SafeerLink:
         if rod != self._qr_rod:
             if prijava and not prijava.get("napaka"):
                 link_hub.preklici_qr(naslov, prijava, self._id())
+            return
+        if prijava and prijava.get("napaka") == link_hub.ID_ZASEDEN and self._prijava_ob_zasedenem(naslov):
             return
         if not prijava or prijava.get("napaka"):
             self._odziv("qr", {"napaka": (prijava or {}).get("napaka") or "ni_huba"})
@@ -1400,11 +1454,14 @@ class SafeerLink:
             if link_hub.ima_odprto_kodo(n) is not True:
                 continue
             prijava = link_hub.zacni_seznanitev(n, self._id(), self._ime())
+            if prijava and prijava.get("napaka") == link_hub.ID_ZASEDEN:
+                return {"ok": False, "razlog": link_hub.ID_ZASEDEN}
             if not prijava or prijava.get("napaka"):
                 continue
             zeton, razlog = link_hub.potrdi_kodo(n, prijava, self._id(), koda)
             if not zeton:
-                return {"ok": False, "razlog": "prevec_poskusov" if razlog == "prevec_poskusov" else "qr_ne_obstaja"}
+                return {"ok": False, "razlog": razlog if razlog in ("prevec_poskusov", link_hub.ID_ZASEDEN)
+                        else "qr_ne_obstaja"}
             self.nastavitve.podatki["hub_url"] = n
             self.nastavitve.podatki["control_token"] = zeton
             self.nastavitve.podatki["hub_fp"] = str(prijava.get("odtis", ""))

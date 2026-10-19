@@ -426,6 +426,8 @@ class Hub:
         #: Deljeni zasloni, ki tecejo prek tega sredisca (start -> tok okvirjev posiljatelja -> gledalec pri cilju).
         self.zasloni = link_hub_deljenje.Zasloni(ura=ura)
         self.zasloni.ob_koncu = self._zaslon_koncan
+        #: Stevec kroga (link_krog.razlicica), ki ga je sredisce ze uveljavilo (glej uveljavi_krog).
+        self._krog_videno = link_krog.razlicica()
 
     def _ime_tega(self) -> str:
         """Ime te naprave iz kroga (za sporocilo ni_virov napravi, ki je nismo mogli sprejeti)."""
@@ -971,7 +973,10 @@ class Hub:
         """Ali je bila naprava (ali naprava `stars`, ki je izdala njen zeton sorodnika) umaknjena iz kroga ob izdaji
         dokaza (zetona, podpisa) ali pozneje. Zeton nove seznanitve PO umiku velja: naprava se sme vrniti v krog.
         None: kroga ni bilo mogoce prebrati - zahteva se zavrne, zetoni in povezave pa ostanejo (napaka branja ne sme
-        izbrisati seznanitve vseh naprav)."""
+        izbrisati seznanitve vseh naprav).
+
+        Cas izdaje je po uri sredisca, zato ga primerjamo s casom, ko je ta proces umik videl (po isti uri,
+        link_krog.Krog.umaknjen_videno), ne s casom na uri naprave, ki je umikala (pregled 19. 10. 2026)."""
         try:
             izdano = float(izdano or 0.0)
         except (TypeError, ValueError):
@@ -981,7 +986,7 @@ class Hub:
             for i in (device_id, stars):
                 if not i:
                     continue
-                ob = k.umaknjen_ob(i)
+                ob = k.umaknjen_videno(i)
                 if isinstance(ob, (int, float)) and not isinstance(ob, bool) and ob >= izdano:
                     return True
         except Exception:  # noqa: BLE001
@@ -1048,6 +1053,8 @@ class Hub:
         lastnik, _ime, _izdano, stars, potece = zapis
         if stars or device_id == lastnik or not device_id.startswith(lastnik + "-"):
             return None, "ni_sorodnik"
+        if not self._sme_sorodnika(lastnik, device_id):
+            return None, "ni_sorodnik"
         with self._zaklep:
             # Najvec NAJVEC_NA_NAPRAVO sorodnikov ene naprave (najstarejsi izpade): poplava id-jev ne napolni shrambe.
             njegovi = [z for z, v in self._zetoni.items() if len(v) > 3 and v[3] == lastnik]
@@ -1055,6 +1062,28 @@ class Hub:
                 self._zetoni.pop(z, None)
             return self._nov_zeton(device_id, (ime or device_id).strip()[:NAJVEC_IMENA],
                                    izdano=potece - ZETON_VELJA_S, stars=lastnik), None
+
+    def _sme_sorodnika(self, lastnik: str, device_id: str) -> bool:
+        """Sorodnik ne sme dobiti identitete druge naprave (pregled 19. 10. 2026): naprava `n` je zahtevala
+        `n-<jedro tega racunalnika>-os` (predpona `n-` drzi) in link_dostop.jedro jo je imel za ta racunalnik.
+
+        Id iz kljuca (n-<16 hex>...) dobi samo naprava istega jedra: lastnik je sam id iz kljuca s tem jedrom ali ima v
+        krogu kljuc tega jedra. Drug id, ki je v krogu clan z drugim kljucem kot lastnik, ni sorodnik."""
+        jedro_dolzina = link_krog.DOLZINA_ID_IZ_KLJUCA
+        if link_krog.je_id_iz_kljuca(device_id):
+            jedro = device_id[:jedro_dolzina]
+            if link_krog.je_id_iz_kljuca(lastnik) and lastnik[:jedro_dolzina] == jedro:
+                return True
+            return self.naprava_iz_kljuca(lastnik) == jedro
+        try:
+            k = link_krog.krog()
+            clan = k.clan(device_id)
+            if clan is None:
+                return True
+            kljuc_lastnika = str((k.clan_za_id(lastnik) or {}).get("kljuc") or "")
+        except Exception:  # noqa: BLE001 - ob neznanem stanju kroga ne
+            return False
+        return bool(kljuc_lastnika) and link_hub_deljenje.varno_enako(str(clan.get("kljuc") or ""), kljuc_lastnika)
 
     def stanje_pridruzitve(self, qr_id: str) -> dict:
         with self._zaklep:
@@ -1144,7 +1173,11 @@ class Hub:
             obstojeci = str((k.clan(device_id) or {}).get("kljuc") or "")
             if obstojeci and not link_hub_deljenje.varno_enako(obstojeci, kljuc):
                 return None, "id_zaseden"
-            if not k.dodaj(device_id, kljuc, ime, (platforma or "")[:16], self.nas_id or IDENTITETA_HUBA):
+            # Zeton je iz seznanitve PO umiku (sicer ga _zapis_zetona ne bi sprejel): vnos mora biti novejsi od umika,
+            # tudi ce ga je postavila ura, ki prehiteva - sicer bi umik veljal naprej in naprava ne bi bila v krogu.
+            umaknjen = k.umaknjen_ob(device_id)
+            dodano = max(time.time(), float(umaknjen) + 0.001) if umaknjen is not None else None
+            if not k.dodaj(device_id, kljuc, ime, (platforma or "")[:16], self.nas_id or IDENTITETA_HUBA, dodano=dodano):
                 vpisan = str((k.clan(device_id) or {}).get("kljuc") or "")
                 if not vpisan or not link_hub_deljenje.varno_enako(vpisan, kljuc):
                     return None, "neveljaven_kljuc"
@@ -1382,8 +1415,7 @@ class Hub:
         if not fizicna:
             return 404, link_hub_deljenje.napaka("Naprava ni v krogu zaupanja.", "naprava_ni_v_krogu")
         if not self._sme_imenovati(self.naprava_iz_kljuca(lastnik[0]), fizicna):
-            return 403, link_hub_deljenje.napaka("Ime lahko spremeni samo naprava sama ali Safeer Control tega računalnika.",
-                                                 "tuja_naprava")
+            return 403, link_hub_deljenje.napaka("Ime lahko spremeni samo naprava v krogu zaupanja.", "tuja_naprava")
         cisto = re.sub(r"[\x00-\x1f<>]", "", str(ime or "")).strip()[:NAJVEC_IMENA]
         krog = link_krog.krog()
         spremenjeno = False
@@ -1404,11 +1436,10 @@ class Hub:
 
     def _sme_imenovati(self, kdo: Optional[str], fizicna: Optional[str]) -> bool:
         """Ali sme fizicna naprava `kdo` (id iz kljuca, Hub.naprava_iz_kljuca) dati ime fizicni napravi `fizicna`:
-        samo sebi - razen TA racunalnik (isti kljuc kot sredisce: njegov Safeer Control, brskalnik, Safeer OS), ki ga
-        da kateri koli. Prej je vsaka seznanjena naprava preimenovala vsako drugo (pregled 19. 10. 2026)."""
-        if not kdo or not fizicna:
-            return False
-        return kdo == fizicna or (bool(self.nas_id) and kdo == self.nas_id)
+        vsak veljaven clan kroga s kljucem - Safeer OS na televizorju poimenuje naprave za vse v hisi in ob povezavi
+        poslje imena iz svojega kroga (trust.names). Naprava brez kljuca v krogu (samo zeton seznanitve ali umaknjena)
+        ne preimenuje nicesar (pregled 19. 10. 2026; lastnik: preimenovanje drugih naprav je zakonita raba)."""
+        return bool(kdo) and bool(fizicna)
 
     def deli_besedilo(self, zeton: str, cilj: str, besedilo: str) -> tuple:
         """POST /cast/share/text. Vrne (koda HTTP, odgovor)."""
@@ -2024,9 +2055,50 @@ class Hub:
             self.objavi_naprave()       # odklopi() teh povezav ne najde vec (zgoraj smo jih ze vzeli iz registra)
         return [i for i, _p in povezave]
 
+    def _odstrani_zunaj_kroga(self) -> bool:
+        """Sosednji hubi, ki niso vec v krogu, izgubijo povezavo; naprave, vidne prek sosedov, ki niso vec v krogu,
+        gredo iz registra. Vrne, ali se je kaj spremenilo. Samo izmerjeno: krog, ki ga ta hip ni mogoce prebrati, ne
+        zapre nobene povezave (kot preklici_umaknjene)."""
+        def zunaj(i: str) -> bool:
+            try:
+                return link_krog.krog().clan_za_id(i) is None
+            except Exception:  # noqa: BLE001
+                return False
+        with self._zaklep:
+            sosedje = [(sid, p) for sid, p in self._sosedje.items() if zunaj(sid)]
+        for sid, p in sosedje:
+            self._odstrani_soseda(sid, p)
+            try:
+                p.zapri(1008, "umaknjen iz kroga")
+            except Exception:
+                pass
+        with self._zaklep:
+            tujci = [i for i, n in self._naprave.items() if n.sosed and zunaj(i)]
+            for i in tujci:
+                sosed = self._naprave[i].sosed
+                self._sosed_naprave.get(sosed, set()).discard(i)
+                del self._naprave[i]
+        return bool(sosedje or tujci)
+
+    def uveljavi_krog(self) -> bool:
+        """Krog je spremenil drug del programa mimo sredisca (odjemalec Linka zdruzi trust.update drugega sredisca,
+        odjava): umik velja takoj - zetoni, seje in povezave umaknjenih naprav ter umaknjeni sosedje. Prej je povezava
+        WebSocket umaknjene naprave ostala odprta do pospravljanja na 10 minut in je smela posiljati (pregled
+        19. 10. 2026). Klice HubStreznik ob spremembi stevca kroga; brez spremembe ne naredi nicesar."""
+        stevec = link_krog.razlicica()
+        if stevec == self._krog_videno:
+            return False
+        self._krog_videno = stevec
+        self.preklici_umaknjene()
+        if self._odstrani_zunaj_kroga():
+            self.objavi_naprave()
+        return True
+
     def _po_spremembi_kroga(self, razen: Optional[object] = None) -> None:
         """Krog se je spremenil: lokalnim napravam trust.update, sosedom mesh.trust; umaknjeni
         clani izgubijo sosednjo povezavo in oddaljene zapise, lokalni pa zetone, seje in povezavo."""
+        # Spremembo je uveljavilo sredisce samo: uveljavi_krog je ne ponovi.
+        self._krog_videno = link_krog.razlicica()
         self.preklici_umaknjene()
         try:
             krog = link_krog.krog().json()
@@ -2040,27 +2112,15 @@ class Hub:
                 except Exception:
                     pass
         mesh = json.dumps({"type": "mesh.trust", "id": link_ws.nakljucni(8), "payload": krog}, ensure_ascii=False)
+        self._odstrani_zunaj_kroga()
         with self._zaklep:
             sosedje = list(self._sosedje.items())
         for sid, p in sosedje:
-            if not self._je_clan(sid):
-                self._odstrani_soseda(sid, p)
-                try:
-                    p.zapri(1008, "umaknjen iz kroga")
-                except Exception:
-                    pass
-                continue
-            if p is not razen:
+            if p is not razen and self._je_clan(sid):
                 try:
                     p.poslji(mesh)
                 except Exception:
                     pass
-        with self._zaklep:
-            tujci = [i for i, n in self._naprave.items() if n.sosed and not self._je_clan(i)]
-            for i in tujci:
-                sosed = self._naprave[i].sosed
-                self._sosed_naprave.get(sosed, set()).discard(i)
-                del self._naprave[i]
         self.objavi_naprave()
 
     @staticmethod
@@ -2301,8 +2361,8 @@ class Hub:
             return self._potrditev(id_sporocila, prostor, "accepted")
 
         if tip == "trust.names":
-            # Naprava ponudi imena iz svojega kroga; hub vzame samo imena znanih clanov z istim kljucem - in samo tista,
-            # ki jih ta naprava sme dati (svoje; ta racunalnik vsa, glej _sme_imenovati).
+            # Naprava ponudi imena iz svojega kroga; hub vzame samo imena znanih clanov z istim kljucem - in samo od
+            # naprave, ki je clan kroga s kljucem (glej _sme_imenovati).
             tovor = sporocilo.get("payload")
             clani = tovor.get("clani") if isinstance(tovor, dict) else None
             kdo = self.naprava_iz_kljuca(moj_id)
@@ -2411,7 +2471,8 @@ class Hub:
 
 class _BralnikGlav(socket.SocketIO):
     """Surovi bralnik povezave zahteve: med vrstico zahteve in glavami (obravnava._v_glavah) velja en skupni rok od
-    prvega bajta (ROK_GLAV_S). Rok vticnika velja samo za vsak recv posebej - do prvega bajta ostane rok cakanja."""
+    prvega bajta (ROK_GLAV_S). Rok vticnika velja samo za vsak recv posebej - do prvega bajta ostane rok cakanja.
+    Med branjem telesa JSON (obravnava._telo_do, glej _Obravnava._telo) velja skupni rok telesa."""
 
     def __init__(self, vticnik, obravnava) -> None:
         super().__init__(vticnik, "rb")
@@ -2419,18 +2480,21 @@ class _BralnikGlav(socket.SocketIO):
 
     def readinto(self, b):
         h = self._obravnava
-        if not h._v_glavah:
-            return super().readinto(b)
-        do = h._glave_do
-        if do is None:
-            n = super().readinto(b)
-            if n:
-                h._glave_do = time.monotonic() + h.ROK_GLAV_S
-            return n
+        if h._v_glavah:
+            do = h._glave_do
+            if do is None:
+                n = super().readinto(b)
+                if n:
+                    h._glave_do = time.monotonic() + h.ROK_GLAV_S
+                return n
+        else:
+            do = h._telo_do
+            if do is None:
+                return super().readinto(b)
         ostane = do - time.monotonic()
         if ostane <= 0:
-            h._glave_prepozno = True
-            raise TimeoutError("vrstica zahteve in glave niso prisle v roku")
+            h._prepozno()
+            raise TimeoutError("zahteva ni prisla v roku")
         vticnik = self._sock
         prej = vticnik.gettimeout()
         vticnik.settimeout(ostane if prej is None else min(prej, ostane))
@@ -2438,7 +2502,7 @@ class _BralnikGlav(socket.SocketIO):
             return super().readinto(b)
         except TimeoutError:
             if time.monotonic() >= do:
-                h._glave_prepozno = True
+                h._prepozno()
             raise
         finally:
             try:
@@ -2458,6 +2522,15 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     _v_glavah = False
     _glave_do: Optional[float] = None
     _glave_prepozno = False
+    #: Telo JSON (do 64 KiB) mora priti v toliko sekundah od zacetka branja. Prej je veljal samo rok tisine
+    #: ROK_BRANJA_S za vsak recv: bajt na 59 s je nit drzal ~45 dni (pregled 19. 10. 2026). Oddaje datotek imajo
+    #: samo rok tisine - trajajo lahko ure.
+    ROK_TELESA_S = 30.0
+    _telo_do: Optional[float] = None
+
+    def _prepozno(self) -> None:
+        """Zahteva po kapljicah (glave ali telo JSON) je presegla skupni rok."""
+        self._glave_prepozno = True
 
     # Dnevnik vticnika bi ob vsaki zahtevi pisal v terminal; Safeer pise sam, kadar je kaj vredno.
     def log_message(self, *_a) -> None:
@@ -2584,12 +2657,15 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self.connection.settimeout(self.ROK_BRANJA_S)     # telo, ki ne pride, ne drzi niti za vedno
         except OSError:
             prej = None
+        self._telo_do = time.monotonic() + self.ROK_TELESA_S    # in telo po kapljicah tudi ne (_BralnikGlav)
         try:
-            return json.loads(self.rfile.read(dolzina).decode("utf-8")) or {}
+            telo = json.loads(self.rfile.read(dolzina).decode("utf-8"))
+            return telo if isinstance(telo, dict) else {}
         except Exception:
             self.close_connection = True
             return {}
         finally:
+            self._telo_do = None
             try:
                 self.connection.settimeout(prej)
             except OSError:
@@ -3111,6 +3187,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                                                str(telo.get("device_id") or ""), str(telo.get("name") or ""))
             if zeton is None:
                 if napaka == "id_zaseden":
+                    self._sovrazno("seznanitev")      # zavrnjena pridruzitev steje kot poskus (kot napacna skrivnost)
                     self._napaka(409, BESEDILO_ID_ZASEDEN, napaka)
                     return
                 koda = 429 if napaka == "prevec_poskusov" else 400 if napaka == "manjka_device_id" else 404
@@ -3154,6 +3231,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                                               str(telo.get("code_sha256") or ""))
             if not qr_id:
                 if napaka == "id_zaseden":
+                    self._sovrazno("seznanitev")      # kot uspesen zacetek: preverjanje clanstva ni brezplacno
                     self._napaka(409, BESEDILO_ID_ZASEDEN, napaka)
                     return
                 koda = 429 if napaka == "prevec_prijav" else 400
@@ -3241,6 +3319,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 self._napaka(429, BESEDILO_KODA_ZAPRTA, "seznanitev_zaprta")
                 return
             if odgovor.get("napaka") == "id_zaseden":
+                # Steje kot vsak zacetek: sicer bi kdorkoli v omrezju brez meje preverjal, kateri id-ji so v krogu.
+                self._sovrazno("zacetek_seznanitve")
                 self._napaka(409, BESEDILO_ID_ZASEDEN, "id_zaseden")
                 return
             # Vsak zacetek uporabniku pokaze obvestilo s kodo: cetrti v minuti vir zapre.
@@ -3852,24 +3932,47 @@ class HubStreznik:
             threading.Thread(target=self._pospravljanje, name="safeer-hub-pospravljanje", daemon=True).start()
             return True
 
+    #: Pospravljanje (datoteke, umaknjeni) vsakih toliko sekund; krog enkrat na dan, prvic uro po zagonu.
+    POSPRAVLJANJE_S = 600.0
+    #: Po spremembi kroga pocakamo toliko, da se zberejo spremembe istega dejanja (pospravi umakne vec clanov) in da
+    #: sredisce spremembo, ki jo je naredilo samo, uveljavi prej (_po_spremembi_kroga) - potem je tu ne ponovimo.
+    ZBIRANJE_SPREMEMB_S = 0.2
+
     def _pospravljanje(self) -> None:
-        """Enkrat na dan (prvic uro po zagonu) pospravi krog (Hub.pospravi_krog); tece, dokler tece streznik."""
+        """Umik iz kroga, ki ga je prinesel drug del programa mimo sredisca (odjemalec Linka: trust.update drugega
+        sredisca, odjava), velja takoj (Hub.uveljavi_krog) - nit caka na spremembo kroga, ne bdi. Vsakih 10 min
+        neprevzete datoteke in umaknjeni, enkrat na dan krog (Hub.pospravi_krog). Tece, dokler tece ta streznik."""
+        with self._zaklep:
+            moj = self._streznik
         do_kroga = 3600.0
+        naslednje = time.monotonic() + self.POSPRAVLJANJE_S
+        videna = link_krog.razlicica()
         while True:
-            # Vsakih deset minut: neprevzete deljene datoteke (veljajo eno uro) ne ostajajo na disku.
-            time.sleep(600.0)
-            do_kroga -= 600.0
+            prej = videna
+            videna = link_krog.pocakaj_spremembo(videna, naslednje - time.monotonic())
             with self._zaklep:
-                if self._streznik is None:
-                    return
+                if self._streznik is None or self._streznik is not moj:
+                    return              # ustavljen (ali zagnan znova - tam tece nova nit)
                 hub = self.hub
+            if videna != prej and hub is not None:
+                time.sleep(self.ZBIRANJE_SPREMEMB_S)
+                videna = link_krog.razlicica()
+                try:
+                    hub.uveljavi_krog()
+                except Exception:  # noqa: BLE001
+                    pass
+            if time.monotonic() < naslednje:
+                continue
+            naslednje = time.monotonic() + self.POSPRAVLJANJE_S
+            do_kroga -= self.POSPRAVLJANJE_S
             try:
                 if hub is not None:
+                    # Neprevzete deljene datoteke (veljajo eno uro) ne ostajajo na disku.
                     hub.deljenje.pocisti()
             except Exception:
                 pass
             try:
-                # Umik, ki ga je v krog prinesel drug del programa (odjemalec Linka) mimo sredisca: najpozneje tu.
+                # Varovalka: umik, ki ga stevec kroga ni prinesel (npr. krog se je prebral znova z diska).
                 if hub is not None:
                     hub.preklici_umaknjene()
             except Exception:
@@ -3877,7 +3980,8 @@ class HubStreznik:
             if do_kroga > 0:
                 continue
             try:
-                self.hub.pospravi_krog()
+                if hub is not None:
+                    hub.pospravi_krog()
             except Exception:
                 pass
             do_kroga = 86400.0
@@ -3886,6 +3990,7 @@ class HubStreznik:
         with self._zaklep:
             streznik = self._streznik
             self._streznik = None
+        link_krog.zbudi()              # nit pospravljanja caka na krog: konca se takoj, ne sele po roku
         if streznik is not None:
             try:
                 if self.hub is not None:

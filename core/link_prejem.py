@@ -95,6 +95,18 @@ def velikost(bajtov: int, jezik: str = "sl") -> str:
     return "%d B" % b
 
 
+def nevarna(pot: str) -> bool:
+    """Prejete datoteke ne odpremo s privzetim programom (en vir: link_datoteke.nevarna_za_odpiranje - ime programa,
+    skripte ali zaganjalnika, vsebina ELF/MZ/#!/[Desktop Entry]). Mapa ni nevarna; ob napaki raje ne odpremo."""
+    try:
+        from core import link_datoteke
+        if not os.path.lexists(pot):
+            return link_datoteke.je_nevarno_ime(pot)      # ni je (vec): odpreti je ni mogoce, odloca ime
+        return bool(link_datoteke.nevarna_za_odpiranje(pot))
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _ident(posiljatelj: str, vrsta: str) -> str:
     """Stalen id obvestila na posiljatelja (novo obvestilo istega posiljatelja zamenja starega); brez oznake v besedilu."""
     return "safeer-%s-%s" % (vrsta, hashlib.sha256(str(posiljatelj or "").encode("utf-8")).hexdigest()[:12])
@@ -296,6 +308,13 @@ class Prejem:
         self._zabelezi_prejeto(posiljatelj, od, pot, str(tovor.get("dir") or ""))
         return pot
 
+    def _odpri_prejeto(self, pot: str) -> None:
+        """Odpre prejeto - razen ce je med obvestilom in klikom postalo nevarno (npr. zamenjana vsebina): pokaze ga."""
+        if nevarna(pot):
+            self._pokazi(pot)
+        else:
+            self._odpri(pot)
+
     @staticmethod
     def _korenina(pot: str, podmapa: str) -> str:
         """Vrhnja prejeta mapa pri poslani mapi: pot do prve ravni `dir` (Prejemi/Pocitnice), sicer ""."""
@@ -322,9 +341,15 @@ class Prejem:
         mape = sorted({k for k in korenine if k})
         if len(poti) == 1:
             telo = self._t("prejeto_ena", ime=os.path.basename(pot), mapa=os.path.dirname(pot))
-            gumbi = [("odpri", self._t("odpri"), lambda: self._odpri(pot)),
-                     ("pokazi", self._t("pokazi"), lambda: self._pokazi(pot))]
-            privzeto = lambda: self._odpri(pot)  # noqa: E731
+            if nevarna(pot):
+                # Program, skripta ali zaganjalnik z druge naprave: klik na obvestilo ga ne zazene (privzeti program
+                # bi .exe dal Wine, .jar Javi ...) - samo pokazemo, kje je; ime ostane, kot ga je poslala naprava.
+                gumbi = [("pokazi", self._t("pokazi"), lambda: self._pokazi(pot))]
+                privzeto = lambda: self._pokazi(pot)  # noqa: E731
+            else:
+                gumbi = [("odpri", self._t("odpri"), lambda: self._odpri_prejeto(pot)),
+                         ("pokazi", self._t("pokazi"), lambda: self._pokazi(pot))]
+                privzeto = lambda: self._odpri_prejeto(pot)  # noqa: E731
         else:
             try:
                 skupna = os.path.commonpath([os.path.dirname(p) for p in poti])
@@ -334,9 +359,9 @@ class Prejem:
                 # Ena poslana mapa: Odpri jo odpre, Pokazi v mapi jo pokaze v mapi, kjer je.
                 vrh = mape[0]
                 telo = self._t("prejeto_vec", n=len(poti), mapa=vrh)
-                gumbi = [("odpri", self._t("odpri_mapo"), lambda: self._odpri(vrh)),
+                gumbi = [("odpri", self._t("odpri_mapo"), lambda: self._odpri_prejeto(vrh)),
                          ("pokazi", self._t("pokazi"), lambda: self._pokazi(vrh))]
-                privzeto = lambda: self._odpri(vrh)  # noqa: E731
+                privzeto = lambda: self._odpri_prejeto(vrh)  # noqa: E731
             else:
                 prva = poti[0]
                 telo = self._t("prejeto_vec", n=len(poti), mapa=skupna)

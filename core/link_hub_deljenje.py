@@ -56,7 +56,8 @@ NAJVECJA_DATOTEKA = 1024 ** 4
 DELNA_VELJA_S = 3600.0
 CAKANJE_DELNE_S = 10.0
 NAJVEC_GLOBINA_MAPE = 16
-REZERVA_PROSTORA = 200 * 1024 * 1024
+#: Rezerva diska je ista kot drugod v Linku (link_viri.rezerva_diska: 2 % diska, najmanj 1 GiB, najvec 10 GiB; tudi
+#: zgodovina Teamworka). Prej fiksnih 200 MiB: na disku 500 GB je oddaja pustila 0,04 % prostega (pregled 19. 10. 2026).
 DATOTEKA_VELJA_S = 3600.0
 NAJVEC_BESEDILA = 20_000
 NAJVEC_IMENA_DATOTEKE = 180
@@ -145,10 +146,13 @@ class Deljenje:
     """Datoteke na poti od posiljatelja do cilja."""
 
     def __init__(self, mapa: Callable[[], str] = privzeta_mapa, ura: Callable[[], float] = time.time,
-                 prosto: Optional[Callable[[str], int]] = None) -> None:
+                 prosto: Optional[Callable[[str], int]] = None,
+                 rezerva: Optional[Callable[[str], int]] = None) -> None:
         self._mapa = mapa
         self.ura = ura
         self._prosto = prosto or (lambda m: shutil.disk_usage(m).free)
+        #: Koliko mora ostati prostega po vseh oddajah v teku (link_viri.rezerva_diska).
+        self._rezerva = rezerva or link_viri.rezerva_diska
         self._zaklep = threading.Lock()
         self._datoteke: Dict[str, Datoteka] = {}
         self._delne: Dict[tuple, Delna] = {}
@@ -216,20 +220,22 @@ class Deljenje:
         try:
             mapa = self._pripravi_mapo()
             prosto = int(self._prosto(mapa))
+            rezerva = int(self._rezerva(mapa))
         except OSError:
             return 507, napaka("Datoteke ni mogoče shraniti.", "ni_prostora")
         with self._zaklep:
             zasedeno = self._rezervirano
-        if prosto - zasedeno < dolzina + REZERVA_PROSTORA:
+        if prosto - zasedeno < dolzina + rezerva:
             return 507, napaka("Ni dovolj prostora.", "ni_prostora")
         return None
 
     def _rezerviraj(self, koliko: int) -> bool:
         """Prostor za `koliko` bajtov: preverjen in zaseden pod istim zaklepom. Prej je vsaka vzporedna oddaja zase
         videla isti prosti prostor in skupaj so disk napolnile do nic; nadaljevanje ga sploh ni preverilo (pregled
-        19. 10. 2026). REZERVA_PROSTORA ostane prosta vedno."""
+        19. 10. 2026). Rezerva diska (link_viri.rezerva_diska) ostane prosta vedno."""
         try:
             mapa = self._pripravi_mapo()
+            rezerva = int(self._rezerva(mapa))
         except OSError:
             return False
         with self._zaklep:
@@ -237,7 +243,7 @@ class Deljenje:
                 prosto = int(self._prosto(mapa))
             except OSError:
                 return False
-            if prosto - self._rezervirano < max(0, koliko) + REZERVA_PROSTORA:
+            if prosto - self._rezervirano < max(0, koliko) + rezerva:
                 return False
             self._rezervirano += max(0, koliko)
             return True

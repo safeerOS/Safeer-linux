@@ -32,7 +32,9 @@ class _Sredisce:
             raise unittest.SkipTest("sredisca ni bilo mogoce zagnati")
         self.hub = self.streznik.hub
         self.zaloga = os.path.join(mapa, ime, "zaloga")
-        self.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: self.zaloga)
+        # Prostor diska je lazen: rezerva pravega diska (link_viri.rezerva_diska, 2 %) je odvisna od okolja preizkusa.
+        self.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: self.zaloga, prosto=lambda _m: 50 * 1024 ** 3,
+                                                       rezerva=lambda _m: 1024 ** 3)
         self.naslov = "wss://127.0.0.1:%d%s" % (self.streznik.vrata, link_hub_streznik.POT_WS)
         self.odtis = self.streznik.odtis
         self.par = (self.naslov, self.odtis)
