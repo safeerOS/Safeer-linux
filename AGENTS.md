@@ -45,3 +45,24 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 
 ## Kaj ni delovalo (preveri, preden poskusis)
 - Zapisnik poskusov, ki niso bili ucinkoviti, vodi lastnik izven repozitorija (SAFEER-ZNANJE.md, razdelek ZAPISNIK). Novo napako dopisi tja.
+
+## Pravila iz napak izdaje 1.0.127 (19. 10. 2026) - obvezno za vsakega pomocnika
+Vsaka od teh napak je ze bila narejena; neodvisni pregled ali lastna raziskava jo je ujela sele tik pred objavo.
+- **Gradnja (BOLT, prevajalnik, povezovalnik):** nikoli `llvm-bolt --use-gnu-stack` - zbrise PT_GNU_STACK, sklad
+  vseh procesov z WebKitom postane izvrsljiv (glibc 2.41+ knjiznice sploh ne nalozi). Po vsaki spremembi gradnje
+  preveri vsako knjiznico in program v paketu: `readelf -lW` -> `GNU_STACK ... RW` (brez E) in v delujocem procesu
+  `[stack]` brez `x` (`packaging/webkit-deb/bolt.sh`, `packaging/smoke_webkit_deb.py`). Hitrost ni razlog za manj zascite.
+- **Root in datoteke uporabnika:** `pkexec`/`sudo` nikoli ne bere datoteke, ki jo lahko uporabnik spremeni (npr. v
+  `~/.cache`), po tem, ko smo jo preverili: program z uporabnikovimi pravicami jo zamenja po vpisu gesla in dobi root.
+  Root naj vsebino dobi po standardnem vhodu ali jo sam prekopira v svojo mapo in preveri SHA-256 KOPIJE proti vsoti
+  iz podpisanega vira (`core/os_posodobitve.NAMESTI_DEB_KOT_ROOT`, `core/os_scit.namesti_pravilo`).
+- **Potisk na GitHub:** pred potiskom nove veje preveri, kaj vse gre ven (`git rev-list <veja> --not <vrhovi iz
+  git ls-remote>`): stevilo commitov, avtorje, vsebino. Nikoli ne potiskaj iz starega klona z zgodovino pred ciscenjem
+  (veja `obnova-zavihka` je tako v safeerOS odnesla 328 starih commitov z imenom lastnika). Nov repozitorij je najprej zaseben.
+- **Meritve in javne trditve:** primerjaj samo izmenicne meritve istega dne z enakim stevilom procesov in vsaj tremi
+  ponovitvami; enkratna meritev proti izhodiscu drugega dne ni rezultat. Stevilka gre v opombe ali gorvodno (GitHub,
+  Bugzilla) sele, ko je tako izmerjena - sicer jo je treba javno popravljati.
+- **Izdaja:** objava sele po neodvisnem pregledu (drug agent ali clovek, ki dela ni naredil) in po pregledu varnostno
+  obcutljive kode (posodobitve, dostop naprav, root, DNS). Oznaka `v*` v CI nima predpomnilnika veje - paketi izdaje so
+  artefakti zelenega teka veje za isti commit, ne nova gradnja iz oznake.
+- **Preizkusi:** vsak varnostni popravek ima preizkus, ki brez popravka pade (preveri tako, da popravek zacasno umaknes).
