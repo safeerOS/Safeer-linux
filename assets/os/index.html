@@ -17,7 +17,7 @@
     <div class="znamka">
       <img src="znak.svg" alt="">
       <div><b>Safeer OS</b><span data-t="podnaslov"></span></div>
-      <button class="gumb-ikona skrci-vrstico" id="gumbVrstica" aria-expanded="true"><svg data-ikona="vrstica"></svg></button>
+      <button class="gumb-ikona skrci-vrstico" id="gumbVrstica" type="button" aria-controls="stranska" aria-expanded="true"><svg data-ikona="vrstica"></svg></button>
     </div>
     <nav id="meni">
       <button data-razdelek="domov" class="izbran"><svg data-ikona="domov"></svg><span data-t="domov"></span></button>
@@ -31,7 +31,6 @@
       <button data-razdelek="nastavitve"><svg data-ikona="drsniki"></svg><span data-t="nastavitve"></span></button>
     </nav>
     <div class="stranska-dno">
-      <button class="skrij-vrstico" id="gumbSkrijVrstico"><svg data-ikona="vrstica"></svg><span data-t="vrsticaSkrij"></span></button>
       <div class="uporabnik">
         <div class="zacetnica" id="zacetnica">S</div>
         <div class="ime"><b id="imeUporabnika"></b><span id="imeRacunalnika"></span></div>
@@ -41,13 +40,12 @@
     </div>
   </aside>
 
-  <button class="rocaj-vrstice" id="rocajVrstice"></button>
   <main id="glavno">
     <header id="vrh">
-      <label class="iskanje">
+      <label class="iskanje" id="iskanjeLupa">
         <svg data-ikona="isci"></svg>
-        <input id="iskanje" type="text" autocomplete="off" spellcheck="false" data-ph="isci">
-        <kbd data-t="tipkaj"></kbd>
+        <input id="iskanje" type="text" autocomplete="off" spellcheck="false" data-ph="isci" aria-keyshortcuts="Control+K">
+        <kbd class="bliznjica-lupe" aria-hidden="true">Ctrl+K</kbd>
       </label>
       <div class="presledek"></div>
       <button class="stanje" id="gumbStanje">
@@ -476,10 +474,14 @@
       <section class="razdelek" id="r-nastavitve">
         <h1 data-t="nastavitve"></h1>
         <p data-t="nastavitveOpis"></p>
+        <!-- Iskanje po Nastavitvah (lastnik, 19. 10. 2026): vsaka nastavitev Safeer OS in sistema po imenu (os.js filtrirajNastavitve). -->
+        <label class="razdelek-iskanje nastavitve-iskanje"><svg data-ikona="isci"></svg>
+          <input id="nastavitveIskanje" type="search" autocomplete="off" spellcheck="false" data-ph="nastavitveIsci" aria-controls="r-nastavitve" aria-describedby="nastavitveNiZadetkov"></label>
+        <p class="prazno" id="nastavitveNiZadetkov" role="status" aria-live="polite" hidden></p>
         <h2 data-t="hitreNastavitve"></h2>
         <div class="hitre" id="hitreNastavitve"></div>
         <h2 data-t="scit"></h2>
-        <div id="scitMestoNastavitve"><div class="hitre" id="blokScit"></div></div>
+        <div id="scitMestoNastavitve" data-iskanje-blok><div class="hitre" id="blokScit"></div></div>
         <div class="hitre"><button class="stikalo" id="gumbOdpriScit"><svg data-ikona="scit"></svg><div><span data-t="scitOdpri"></span><small data-t="scitOdpriPod"></small></div></button></div>
         <h2>Safeer OS</h2>
         <div class="hitre">
@@ -497,9 +499,32 @@
           <!-- Beta kanal (privzeto izklopljen): zgodnejse razlicice s podpisanega beta seznama; nicesar ne namesti samo. -->
           <button class="stikalo" id="stikaloBeta" role="switch" aria-checked="false"><svg data-ikona="zvezda"></svg><div><span data-t="betaKanal"></span><small id="betaKanalPod" data-t="betaKanalPod"></small></div><i></i></button>
         </div>
+        <!-- Safeer Agent (lastnik, 19. 10. 2026): naslov lokalnega jezikovnega modela, stanje, izklop in trajanje seje -
+             prej samo rocno v ~/.config/safeer-agent/naslov (core/agent/nastavitve.py). -->
+        <h2 data-t="agentNaslov"></h2>
+        <div class="agent-blok" id="blokAgent" data-iskanje-blok>
+          <p class="drobno" data-t="agentOpis"></p>
+          <div class="hitre">
+            <button class="stikalo" id="stikaloAgent" type="button" role="switch" aria-checked="false" aria-describedby="agentStanje"><svg data-ikona="iskra"></svg><div><span data-t="agentVklop"></span><small id="agentStanje" role="status" aria-live="polite"></small></div><i></i></button>
+            <div class="stikalo agent-trajanje"><svg data-ikona="ura"></svg><div><label for="agentTrajanje" data-t="agentTrajanje"></label><small data-t="agentTrajanjePod"></small></div><select id="agentTrajanje"></select></div>
+          </div>
+          <form class="agent-obrazec" id="agentObrazec" novalidate>
+            <label for="agentNaslovVnos" data-t="agentNaslovModela"></label>
+            <div class="agent-vrstica">
+              <input id="agentNaslovVnos" type="text" inputmode="url" autocomplete="off" spellcheck="false" maxlength="200" data-ph="agentNaslovPrimer" aria-describedby="agentNaslovNamig agentNapaka">
+              <button type="submit" class="gumb glavni" id="agentShrani" data-t="agentShrani"></button>
+              <button type="button" class="gumb" id="agentPreveri" data-t="agentPreveri"></button>
+            </div>
+            <p class="drobno" id="agentNaslovNamig" data-t="agentNaslovNamig"></p>
+            <p class="agent-napaka" id="agentNapaka" role="alert" hidden></p>
+          </form>
+        </div>
         <!-- Nastavitve delov Safeerja (Control, Splet, namizje) na enem mestu; skupino pokazemo samo, ce del tece. -->
         <div id="nastavitveDelov"></div>
         <div id="skupineNastavitev"></div>
+        <!-- Bliznjice na tipkovnici (os.js narisiBliznjice): samo tiste, ki v Safeer OS res delujejo. -->
+        <h2 data-t="bliznjiceNaslov"></h2>
+        <dl class="bliznjice" id="bliznjice"></dl>
         <p class="o-sistemu" id="oSistemu"></p>
       </section>
     </div>

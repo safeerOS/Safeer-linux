@@ -5475,12 +5475,15 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _pokazi_spletni_nacin(self) -> bool:
-        """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino."""
+        """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino. V nacinu Splet je vrstica vedno
+        razsirjena (trak bi bil ozji od gumbov za razdelke): meri se razsirjena, ne trak - prej je skrcena vrstica dala
+        rezervnih 375 px, siroka pa 250-300 px (19. 10. 2026)."""
         if not self._ustvari_spletni():
             return False
         self._spletni_nacin = True
         koda = (
             "(function(){var s=document.getElementById('stranska'),b=document.body;"
+            "if(!b.classList.contains('nacin-splet'))b.classList.remove('vrstica-skrcena','vrstica-plava');"
             "var w=b.classList.contains('nacin-splet')?Number(b.dataset.stranska||0):"
             "(s?s.getBoundingClientRect().width:0);b.dataset.stranska=String(w);"
             "b.classList.add('nacin-splet');"

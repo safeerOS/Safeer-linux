@@ -88,6 +88,8 @@
     ,filter: "M4 5h16l-6 7.5V19l-4 2v-8.5z"
     ,eposta: "M3 6h18v12H3z M3.5 6.5l8.5 6.5 8.5-6.5"
     ,matrix: "M7 4H4v16h3 M17 4h3v16h-3 M9 15v-5 M9 11c0-1.5 3-1.5 3 0v4 M12 11c0-1.5 3-1.5 3 0v4"
+    // Safeer Agent (AI asistent v iskalni lupi, 19. 10. 2026): iskra
+    ,iskra: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"
   };
   window.SafeerIkone = IK;   // kavc.js zamenja ikono gumba za cel zaslon
   function svg(ime) {
@@ -149,47 +151,115 @@
       el.innerHTML = '<path d="' + (IK[el.getAttribute("data-ikona")] || "") + '"/>';
     });
     vrsticaUredi();
+    lupaUredi();
     navNapisi();
     prevediKatalog();
+    if ($("bliznjice")) narisiBliznjice();
   }
 
-  /* Zlozljiva stranska vrstica: gumb v glavi ali Ctrl+B, kot v brskalnikih. */
+  /* Stranska vrstica (lastnik, 19. 10. 2026: »mora ostati izven poti, a preprosto dosegljiva, ko jo potrebujes«).
+   * Ena moznost, kot meni Medijskega centra (lastnik, 18. 10. 2026: brez podvajanja): vrstica je razsirjena ali skrcena
+   * na ozek trak z ikonami, ki ostane viden - izbrani razdelek je oznacen, ime v namigu. Gumb na vrhu traku ali Ctrl+B.
+   * Samodejno (privzeto): v sirokem oknu razsirjena, v ozkem (pod VRSTICA_MEJA px) trak. Razsiritev v ozkem oknu je
+   * zacasna in plava nad vsebino (vsebina se ne premakne); zapre jo izbira razdelka, Escape ali klik mimo. V sirokem oknu
+   * gumb shrani izbiro (»skrcena« ali samodejno) za naslednji zagon. Dotik: poteg z levega roba odpre, v levo zapre. */
+  var VRSTICA_KLJUC = "safeer_vrstica", VRSTICA_MEJA = 1200;
+  var vrsticaIzbira = "";                 // "" = samodejno, "skrcena" = vedno trak
+  var vrsticaPlava = false;               // zacasno razsirjena nad vsebino (ozko okno)
+  function vrsticaOzko() { return window.innerWidth < VRSTICA_MEJA; }
+  function vrsticaBeri() {
+    try {
+      var v = localStorage.getItem(VRSTICA_KLJUC);
+      if (v === null) {
+        // Prej: dve izbiri (skrcena, povsem skrita z rocajem). Skrita postane skrcena - meni ostane dosegljiv.
+        v = localStorage.getItem("safeer_vrstica_skrcena") === "1" || localStorage.getItem("safeer_vrstica_skrita") === "1" ? "skrcena" : "";
+        localStorage.setItem(VRSTICA_KLJUC, v);
+        localStorage.removeItem("safeer_vrstica_skrcena"); localStorage.removeItem("safeer_vrstica_skrita");
+      }
+      return v === "skrcena" ? "skrcena" : "";
+    } catch (e) { return ""; }
+  }
+  function vrsticaSkrcena() { return vrsticaIzbira === "skrcena" || vrsticaOzko(); }
   function vrsticaUredi() {
     var gumb = document.getElementById("gumbVrstica");
-    if (!gumb || EN_RAZDELEK) return;     // Safeer Player nima stranske vrstice (in Ctrl+B ne spremeni glavnega okna)
-    var skrcena = document.body.classList.contains("vrstica-skrcena");
-    gumb.setAttribute("aria-expanded", skrcena ? "false" : "true");
-    gumb.title = t(skrcena ? "vrsticaRazsiri" : "vrsticaSkrci");
+    if (!gumb || EN_RAZDELEK) return;     // Safeer Player in okna razdelkov nimajo stranske vrstice
+    if (vrsticaPlava && !vrsticaSkrcena()) vrsticaPlava = false;     // okno je spet siroko
+    var trak = vrsticaSkrcena() && !vrsticaPlava;
+    document.body.classList.toggle("vrstica-skrcena", vrsticaSkrcena());
+    document.body.classList.toggle("vrstica-plava", vrsticaPlava);
+    gumb.setAttribute("aria-expanded", trak ? "false" : "true");
+    gumb.title = t(trak ? "vrsticaRazsiri" : "vrsticaSkrci");
     gumb.setAttribute("aria-label", gumb.title);
+    // V traku je ime razdelka samo v namigu - bralnik zaslona ga dobi iz aria-label (span je skrit).
+    document.querySelectorAll("#meni button").forEach(function (b) {
+      var ime = (b.querySelector("span") || b).textContent.trim();
+      b.setAttribute("aria-label", ime);
+      if (trak) b.title = ime; else b.removeAttribute("title");
+    });
     if (gumb.dataset.vezan) return;
     gumb.dataset.vezan = "1";
     gumb.addEventListener("click", vrsticaPreklopi);
     document.addEventListener("keydown", function (e) {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
-        // Skrita vrstica se s Ctrl+B najprej pokaze (kot v brskalnikih), sicer se skrci/razsiri.
-        if (document.body.classList.contains("vrstica-skrita")) vrsticaSkrij(false); else vrsticaPreklopi();
+        vrsticaPreklopi();
+        if (vrsticaPlava || !vrsticaSkrcena()) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
+      } else if (e.key === "Escape" && vrsticaPlava) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        vrsticaZapriPlavajoco(true);
       }
+    }, true);
+    // Klik mimo plavajoce vrstice jo zapre in se na vsebini ne izvede (kot klik ob odprt meni).
+    var pogoltniKlik = 0;
+    document.addEventListener("pointerdown", function (e) {
+      if (!vrsticaPlava) return;
+      var stranska = document.getElementById("stranska");
+      if (stranska && !stranska.contains(e.target)) { e.preventDefault(); pogoltniKlik = Date.now(); vrsticaZapriPlavajoco(false); }
+    }, true);
+    document.addEventListener("click", function (e) {
+      if (pogoltniKlik && Date.now() - pogoltniKlik < 600) { e.preventDefault(); e.stopPropagation(); }
+      pogoltniKlik = 0;
+    }, true);
+    document.querySelectorAll("#meni button").forEach(function (b) {
+      b.addEventListener("click", function () { if (vrsticaPlava) vrsticaZapriPlavajoco(false); });
     });
-    var skrij = document.getElementById("gumbSkrijVrstico"), rocaj = document.getElementById("rocajVrstice");
-    if (skrij) skrij.addEventListener("click", function () { vrsticaSkrij(true); });
-    if (rocaj) rocaj.addEventListener("click", function () { vrsticaSkrij(false); });
+    // Poteg z levega roba (dotik ali pisalo): v desno razsiri, v levo skrci.
+    var poteg = null;
+    document.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse") return;
+      poteg = e.clientX < 32 || (vrsticaPlava && document.getElementById("stranska").contains(e.target)) ? { x: e.clientX, y: e.clientY } : null;
+    });
+    document.addEventListener("pointerup", function (e) {
+      if (!poteg) return;
+      var dx = e.clientX - poteg.x, dy = Math.abs(e.clientY - poteg.y);
+      poteg = null;
+      if (dy > 60) return;
+      if (dx > 60 && vrsticaSkrcena() && !vrsticaPlava) vrsticaPreklopi();
+      else if (dx < -60 && vrsticaPlava) vrsticaZapriPlavajoco(false);
+    });
+    window.addEventListener("resize", vrsticaUredi);
+    // Izbira v drugem oknu iste strani (npr. drugo okno Safeer OS) velja takoj.
+    window.addEventListener("storage", function (e) { if (e.key === VRSTICA_KLJUC) { vrsticaIzbira = vrsticaBeri(); vrsticaUredi(); } });
   }
-  function vrsticaSkrij(da) {
-    document.body.classList.toggle("vrstica-skrita", !!da);
-    try { localStorage.setItem("safeer_vrstica_skrita", da ? "1" : "0"); } catch (e) {}
-    var rocaj = document.getElementById("rocajVrstice");
-    if (rocaj) { rocaj.title = t("vrsticaPokazi"); rocaj.setAttribute("aria-label", rocaj.title); }
-    if (!da) { var izbran = document.querySelector("#meni button.izbran"); if (izbran) izbran.focus(); }
+  function vrsticaZapriPlavajoco(fokus) {
+    vrsticaPlava = false;
+    vrsticaUredi();
+    if (fokus) document.getElementById("gumbVrstica").focus();
   }
   function vrsticaPreklopi() {
-    var skrcena = document.body.classList.toggle("vrstica-skrcena");
-    try { localStorage.setItem("safeer_vrstica_skrcena", skrcena ? "1" : "0"); } catch (e) {}
+    if (document.body.classList.contains("nacin-splet")) return;      // v nacinu Splet je vrstica vedno razsirjena
+    if (vrsticaOzko()) {
+      vrsticaPlava = !vrsticaPlava;      // ozko okno: zacasno, nic se ne shrani
+    } else {
+      vrsticaIzbira = vrsticaIzbira === "skrcena" ? "" : "skrcena";
+      try { localStorage.setItem(VRSTICA_KLJUC, vrsticaIzbira); } catch (e) {}
+    }
     vrsticaUredi();
   }
   if (!EN_RAZDELEK) {
-    try { if (localStorage.getItem("safeer_vrstica_skrcena") === "1") document.body.classList.add("vrstica-skrcena"); } catch (e) {}
-    try { if (localStorage.getItem("safeer_vrstica_skrita") === "1") document.body.classList.add("vrstica-skrita"); } catch (e) {}
+    vrsticaIzbira = vrsticaBeri();
+    if (vrsticaSkrcena()) document.body.classList.add("vrstica-skrcena");   // prvi izris brez skoka
+    requestAnimationFrame(function () { requestAnimationFrame(function () { document.body.classList.add("vrstica-gibanje"); }); });
   }
 
   function $(id) { return document.getElementById(id); }
@@ -317,6 +387,7 @@
       return;
     }
     S.razdelek = razdelek;
+    vrsticaUredi();                 // po nacinu Splet (tam je vrstica vedno razsirjena) spet trak, ce je izbran
     zapriMeniSporocila();
     if (razdelek !== "sporocila") zapriVgrajenKanal();
     // Gostitelj pokaze ali skrije desni vdelani brskalnik. Klic je idempotenten, zato
@@ -3542,14 +3613,28 @@
   }
 
   // ------------------------------------------------------------------ nastavitve
+  // Nastavitve sistema (lastnik, 19. 10. 2026: »Nastavitve morajo odrazati celotne nastavitve operacijskega sistema«):
+  // vsak modul Cinnamona, orodje Minta (o:) in plosca Nastavitev GNOME (p:), ki jih racunalnik RES ima - kaj ima, pove
+  // core/os_sistem.razpolozljivo. Plosca GNOME, ki je Safeer se ne pozna, gre v Sistem z imenom iz sistema.
   var SKUPINE_NASTAVITEV = [
-    ["g_videz", "paleta", ["backgrounds", "themes", "fonts", "effects", "desktop", "panel", "applets", "desklets", "extensions"]],
-    ["g_zaslon", "zaslon", ["display", "nightlight", "screensaver", "sound", "power", "o:posnetek-zaslona"]],
-    ["g_naprave", "naprave", ["o:omrezje", "o:bluetooth", "mouse", "keyboard", "gestures", "o:tiskalniki", "thunderbolt"]],
-    ["g_sistem", "drsniki", ["user", "privacy", "default", "startup", "calendar", "notifications", "accessibility", "windows",
-                            "workspaces", "hotcorner", "general", "actions", "o:jezik"]],
-    ["g_vzdrzevanje", "scit", ["o:posodobitve", "o:programska-oprema", "o:gonilniki", "o:varnostne-kopije", "o:kopije-datotek",
-                               "o:opravila", "o:diski", "o:sistemsko-porocilo", "o:viri-programov", "o:terminal", "o:datoteke"]]
+    ["g_videz", "paleta", ["backgrounds", "themes", "fonts", "effects", "desktop", "panel", "applets", "desklets", "extensions",
+                          "o:urejevalnik-menija", "p:background", "p:ubuntu"]],
+    ["g_zaslon", "zaslon", ["display", "nightlight", "screensaver", "sound", "power", "o:posnetek-zaslona",
+                           "p:display", "p:sound", "p:power", "p:color"]],
+    ["g_naprave", "naprave", ["o:omrezje", "o:bluetooth", "mouse", "keyboard", "gestures", "o:tiskalniki", "thunderbolt",
+                             "p:wifi", "p:network", "p:wwan", "p:bluetooth", "p:mouse", "p:keyboard", "p:printers",
+                             "p:wacom", "p:thunderbolt", "p:removable-media", "p:sharing"]],
+    ["g_osebno", "uporabnik", ["user", "o:uporabniki", "o:prijavno-okno", "privacy", "online-accounts", "o:spletni-racuni",
+                              "o:gesla", "notifications", "p:users", "p:user-accounts", "p:online-accounts", "p:privacy",
+                              "p:lock", "p:location", "p:camera", "p:microphone", "p:usage", "p:diagnostics",
+                              "p:notifications", "p:search", "p:applications"]],
+    ["g_sistem", "drsniki", ["startup", "default", "calendar", "accessibility", "windows", "tiling", "workspaces", "hotcorner",
+                            "general", "actions", "o:jezik", "o:vnosna-metoda", "info", "p:multitasking", "p:default-apps",
+                            "p:universal-access", "p:region", "p:datetime", "p:system", "p:about", "p:info-overview"]],
+    ["g_vzdrzevanje", "scit", ["o:posodobitve", "o:programska-oprema", "o:paketi", "o:viri-programov", "o:gonilniki",
+                               "o:varnostne-kopije", "o:kopije-datotek", "o:pozarni-zid", "o:opravila", "o:diski",
+                               "o:poraba-diska", "o:usb-slika", "o:usb-formatiranje", "o:sistemsko-porocilo",
+                               "o:dobrodoslica", "o:terminal", "o:datoteke"]]
   ];
   var IKONA_NASTAVITVE = {
     backgrounds: "slika", themes: "paleta", fonts: "dokument", display: "zaslon", nightlight: "luna", screensaver: "zakleni",
@@ -3558,30 +3643,193 @@
     "gonilniki": "program", "varnostne-kopije": "ura", "kopije-datotek": "arhiv", "opravila": "drsniki", "diski": "disk",
     "omrezje": "ethernet", "bluetooth": "bluetooth", "tiskalniki": "tiskalnik", "terminal": "program", "datoteke": "mapa",
     "posnetek-zaslona": "slika", "jezik": "splet", "viri-programov": "arhiv", "sistemsko-porocilo": "dokument",
-    windows: "namizje", workspaces: "programi", desktop: "namizje", panel: "namizje", accessibility: "uporabnik"
+    windows: "namizje", workspaces: "programi", desktop: "namizje", panel: "namizje", accessibility: "uporabnik",
+    info: "info", tiling: "programi", "online-accounts": "splet", "poraba-diska": "disk", "vnosna-metoda": "tipkovnica",
+    "paketi": "arhiv", "uporabniki": "uporabnik", "prijavno-okno": "zakleni", "pozarni-zid": "scit", "spletni-racuni": "splet",
+    "gesla": "zakleni", "urejevalnik-menija": "seznam", "usb-slika": "disk", "usb-formatiranje": "disk", "dobrodoslica": "domov",
+    "p:wifi": "wifi", "p:network": "ethernet", "p:wwan": "telefon", "p:bluetooth": "bluetooth", "p:display": "zaslon",
+    "p:sound": "zvok", "p:power": "napajanje", "p:color": "paleta", "p:background": "slika", "p:ubuntu": "namizje",
+    "p:mouse": "miska", "p:keyboard": "tipkovnica", "p:printers": "tiskalnik", "p:wacom": "uredi", "p:sharing": "povezava",
+    "p:users": "uporabnik", "p:user-accounts": "uporabnik", "p:online-accounts": "splet", "p:privacy": "scit", "p:lock": "zakleni",
+    "p:location": "splet", "p:camera": "video", "p:microphone": "mikrofon", "p:usage": "ura", "p:notifications": "zvonec",
+    "p:search": "isci", "p:applications": "programi", "p:multitasking": "programi", "p:default-apps": "programi",
+    "p:universal-access": "uporabnik", "p:region": "splet", "p:datetime": "ura", "p:system": "drsniki", "p:about": "info",
+    "p:info-overview": "info", "p:removable-media": "disk", "p:thunderbolt": "povezava", "p:diagnostics": "dokument"
   };
+  // Kljuc besedila za vnos: modul »m_<id>«, orodje »o_<id>«, plosca GNOME »p_<id>«.
+  function kljucNastavitve(k) {
+    return k.indexOf("o:") === 0 ? "o_" + k.slice(2) : k.indexOf("p:") === 0 ? "p_" + k.slice(2) : "m_" + k;
+  }
+  function imaBesedilo(kljuc) { return !!((BESEDILA_OS[jezik] && BESEDILA_OS[jezik][kljuc]) || BESEDILA_OS.en[kljuc]); }
   function seznamNastavitev() {
     var r = (S.zacetek && S.zacetek.razpolozljivo) || { moduli: [], orodja: [] };
-    var izhod = [];
+    var imena = r.imena || {}, izhod = [], znani = {};
     SKUPINE_NASTAVITEV.forEach(function (g) {
       var elementi = [];
       g[2].forEach(function (k) {
-        var orodje = k.indexOf("o:") === 0, kljuc = orodje ? k.slice(2) : k;
-        if ((orodje ? r.orodja : r.moduli).indexOf(kljuc) < 0) return;
-        elementi.push({ modul: kljuc, ime: t((orodje ? "o_" : "m_") + kljuc), ikona: IKONA_NASTAVITVE[kljuc] || g[1] });
+        znani[k] = 1;
+        var vrsta = k.indexOf("o:") === 0 ? "o" : k.indexOf("p:") === 0 ? "p" : "m", kljuc = vrsta === "m" ? k : k.slice(2);
+        var seznam = vrsta === "o" ? r.orodja : vrsta === "p" ? r.plosce : r.moduli;
+        if (!seznam || seznam.indexOf(kljuc) < 0) return;
+        var b = kljucNastavitve(k);
+        elementi.push({ modul: vrsta === "p" ? k : kljuc, ime: t(b), en: BESEDILA_OS.en[b] || "",
+                        ikona: IKONA_NASTAVITVE[vrsta === "p" ? k : kljuc] || g[1] });
       });
+      if (g[0] === "g_sistem") {
+        // Plosce, ki jih Safeer se ne pozna (nova razlicica GNOME): ime iz sistema, ne mrtev gumb.
+        (r.plosce || []).forEach(function (p) {
+          var k = "p:" + p, ime = imaBesedilo("p_" + p) ? t("p_" + p) : (imena[k] && imena[k].ime);
+          if (znani[k] || !ime) return;
+          elementi.push({ modul: k, ime: ime, en: "", kljucne: (imena[k] && imena[k].kljucne) || "", ikona: "drsniki" });
+        });
+      }
       if (elementi.length) izhod.push({ naslov: t(g[0]), elementi: elementi });
     });
     return izhod;
   }
   function odpriNastavitev(n) {
-    // Omrezje ima Safeer OS svojo stran; Mintovo okno ostane pod »Napredno«.
-    if (n.modul === "omrezje") { pojdi("omrezje"); return; }
+    // Omrezje ima Safeer OS svojo stran; Mintovo okno (ali GNOME) ostane pod »Napredno«.
+    if (n.modul === "omrezje" || n.modul === "p:network" || n.modul === "p:wifi") { pojdi("omrezje"); return; }
     // Zvok ima Safeer OS svojo stran (izhodi, programi, naprave v Linku); Mintovo okno je pod »Napredno«.
-    if (n.modul === "sound") { pojdi("zvok"); return; }
+    if (n.modul === "sound" || n.modul === "p:sound") { pojdi("zvok"); return; }
     obvesti(t("odpiram", { ime: n.ime }));
     klic("nastavitve", [n.modul]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); });
   }
+
+  // ---- iskanje po Nastavitvah (lastnik, 19. 10. 2026): vsaka nastavitev - Safeer OS, Ščit, deli Safeerja in sistem - je
+  // dosegljiva po imenu. Iskanje gleda ime in opis v jeziku vmesnika, angleško ime in ključne besede sistema; skupina, ki
+  // ji ustreza naslov, ostane cela. Stikala, ki jih skrije logika strani (hidden), ostanejo skrita.
+  var NASTAVITVE_ELEMENTI = ".stikalo, .nastavitev, [data-iskanje-blok]";
+  function besediloZaIskanje(e) {
+    var deli = [e.textContent || "", e.getAttribute("data-kljucne") || "", e.getAttribute("aria-label") || ""];
+    if (e.dataset && e.dataset.nastavitev) deli.push(BESEDILA_OS.en[e.dataset.nastavitev] || "", BESEDILA_OS.en[e.dataset.nastavitev + "Pod"] || "");
+    e.querySelectorAll("[data-t]").forEach(function (x) { deli.push(BESEDILA_OS.en[x.getAttribute("data-t")] || ""); });
+    return deli.join(" ");
+  }
+  function filtrirajNastavitve() {
+    var polje = $("nastavitveIskanje"), r = $("r-nastavitve");
+    if (!polje || !r) return;
+    var niz = polje.value.trim(), zadetkov = 0, naslov = null, naslovUstreza = false, vSkupini = 0;
+    r.classList.toggle("isce", !!niz);
+    function zakljuci() { if (naslov) naslov.classList.toggle("ni-zadetek", !!niz && !vSkupini); }
+    r.querySelectorAll("h2, " + NASTAVITVE_ELEMENTI).forEach(function (e) {
+      if (e.tagName === "H2") {
+        zakljuci();
+        naslov = e; vSkupini = 0;
+        naslovUstreza = !!niz && window.SafeerIskanje.ujemaBesede(e.textContent + " " + (BESEDILA_OS.en[e.getAttribute("data-t")] || ""), niz);
+        return;
+      }
+      var vBloku = e.parentElement && e.parentElement.closest("[data-iskanje-blok]");
+      if (vBloku) return;                        // blok (npr. Scit) se iskanju kaze ali skrije v celoti
+      var ustreza = !niz || naslovUstreza || window.SafeerIskanje.ujemaBesede(besediloZaIskanje(e), niz);
+      e.classList.toggle("ni-zadetek", !ustreza);
+      if (ustreza && !e.hidden) { vSkupini++; zadetkov++; }
+    });
+    zakljuci();
+    var prazno = $("nastavitveNiZadetkov");
+    if (prazno) { prazno.hidden = !niz || zadetkov > 0; prazno.textContent = t("nastavitveNiZadetkov", { niz: niz }); }
+  }
+  function prvaNajdenaNastavitev() {
+    return Array.prototype.find.call(document.querySelectorAll("#r-nastavitve .stikalo, #r-nastavitve .nastavitev"),
+      function (e) { return !e.hidden && !e.classList.contains("ni-zadetek") && e.offsetParent !== null && !e.disabled; }) || null;
+  }
+  function poveziIskanjeNastavitev() {
+    var polje = $("nastavitveIskanje");
+    if (!polje) return;
+    polje.addEventListener("input", filtrirajNastavitve);
+    polje.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && polje.value) { e.preventDefault(); e.stopPropagation(); polje.value = ""; filtrirajNastavitve(); }
+      else if (e.key === "Enter") { var p = prvaNajdenaNastavitev(); if (p) { e.preventDefault(); p.click(); } }
+      else if (e.key === "ArrowDown") { var q = prvaNajdenaNastavitev(); if (q) { e.preventDefault(); q.focus(); } }
+    });
+  }
+  // ---- Safeer Agent v Nastavitvah (core/agent/nastavitve.py): naslov modela, stanje, izklop, trajanje seje. Stanje je
+  // vedno izmerjeno (agentDosegljivost) - »dosegljiv« samo, ce je streznik res odgovoril.
+  var AG = { stanje: null, preverjam: 0 };
+  function minuteAgenta(m) { return m === 0 ? t("agentNeomejeno") : m === 60 ? t("agentUra") : t("agentMin", { n: m }); }
+  function narisiAgenta(st, dosegljivost) {
+    if (!$("blokAgent") || !st) return;
+    AG.stanje = st;
+    var vnos = $("agentNaslovVnos"), stikalo = $("stikaloAgent"), izbira = $("agentTrajanje");
+    stikalo.setAttribute("aria-checked", st.vklopljen ? "true" : "false");
+    if (document.activeElement !== vnos) vnos.value = st.okolje || st.naslov || "";
+    vnos.disabled = !!st.okolje;
+    $("agentNaslovNamig").textContent = st.okolje ? t("agentOkolje") : t("agentNaslovNamig");
+    izbira.innerHTML = "";                // vedno v jeziku vmesnika (jezik se lahko spremeni med delom)
+    (st.trajanja || []).forEach(function (m) { var o = el("option", "", ubezi(minuteAgenta(m))); o.value = String(m); izbira.appendChild(o); });
+    izbira.value = String(st.trajanje);
+    var napis = $("agentStanje");
+    if (!st.vklopljen) napis.textContent = t("agentStIzklopljen");
+    else if (!(st.okolje || st.naslov)) napis.textContent = t("agentStNiNaslova");
+    else if (dosegljivost === "preverjam") napis.textContent = t("agentStPreverjam");
+    else if (dosegljivost && dosegljivost.dosegljiv) napis.textContent = dosegljivost.model ? t("agentStDosegljivModel", { model: dosegljivost.model }) : t("agentStDosegljiv");
+    else if (dosegljivost && dosegljivost.napaka === "kljuc") napis.textContent = t("agentStKljuc");
+    else if (dosegljivost) napis.textContent = t("agentStNedosegljiv");
+  }
+  function preveriAgenta() {
+    var st = AG.stanje;
+    if (!st || !st.vklopljen || !(st.okolje || st.naslov)) { narisiAgenta(st); return; }
+    var moj = ++AG.preverjam;
+    narisiAgenta(st, "preverjam");
+    klic("agentDosegljivost").then(function (d) { if (moj === AG.preverjam) narisiAgenta(AG.stanje, d || { dosegljiv: false }); },
+      function () { if (moj === AG.preverjam) narisiAgenta(AG.stanje, { dosegljiv: false }); });
+  }
+  function nalozAgenta() {
+    if (!$("blokAgent") || !most) return;
+    klic("agentStanje").then(function (st) { narisiAgenta(st); preveriAgenta(); }, function () {});
+  }
+  function agentNapaka(koda) {
+    var p = $("agentNapaka");
+    p.hidden = !koda;
+    p.textContent = koda ? t("agentNapaka_" + koda) : "";
+  }
+  function agentShranjeno(r) {
+    if (!r) { obvesti(t("niUspelo")); return; }
+    if (r.ok === false) { agentNapaka(r.napaka || "naslov"); return; }
+    agentNapaka("");
+    S.agent = { na_voljo: !!r.na_voljo }; lupaUredi(); narisiBliznjice();
+    narisiAgenta(r); preveriAgenta();
+  }
+  function poveziAgenta() {
+    if (!$("blokAgent")) return;
+    $("agentObrazec").addEventListener("submit", function (e) {
+      e.preventDefault();
+      klic("agentNastavi", [$("agentNaslovVnos").value]).then(function (r) {
+        agentShranjeno(r);
+        if (r && r.ok) obvesti(t(r.naslov ? "agentShranjeno" : "agentIzbrisano"));
+      }, function () { obvesti(t("niUspelo")); });
+    });
+    $("agentNaslovVnos").addEventListener("input", function () { agentNapaka(""); });
+    $("agentPreveri").addEventListener("click", preveriAgenta);
+    $("stikaloAgent").addEventListener("click", function () {
+      var b = $("stikaloAgent"), nov = b.getAttribute("aria-checked") !== "true";
+      b.setAttribute("aria-checked", nov ? "true" : "false");
+      klic("agentVklop", [nov]).then(agentShranjeno, function () { b.setAttribute("aria-checked", nov ? "false" : "true"); obvesti(t("niUspelo")); });
+    });
+    $("agentTrajanje").addEventListener("change", function () {
+      klic("agentTrajanje", [parseInt($("agentTrajanje").value, 10)]).then(agentShranjeno, function () { obvesti(t("niUspelo")); });
+    });
+  }
+
+  // ---- Bliznjice na tipkovnici (Nastavitve): samo tiste, ki v tem oknu in na namizju Safeer OS res delujejo.
+  function narisiBliznjice() {
+    var dl = $("bliznjice");
+    if (!dl) return;
+    var vrstice = [["Ctrl+K", "blzLupa"], ["Aa", "blzTipkaj"], ["↑ ↓ · Enter", "blzZadetki"], ["Shift+Enter", "blzSplet"]];
+    if (agentNaVoljo()) vrstice.push(["Ctrl+Enter", "blzAgent"]);
+    vrstice.push(["Ctrl+B", "blzVrstica"], ["Ctrl+Shift+B", "blzMediji"], ["Esc", "blzEsc"], ["F11", "blzCelZaslon"]);
+    dl.innerHTML = "";
+    vrstice.forEach(function (v) {
+      var d = el("div", "bliznjica");
+      d.setAttribute("data-iskanje-blok", "");
+      d.appendChild(el("dt", "", v[0].split(" · ").map(function (k) { return "<kbd>" + ubezi(k === "Aa" ? t("blzCrke") : k) + "</kbd>"; }).join(" ")));
+      d.appendChild(el("dd", "", ubezi(t(v[1]))));
+      d.setAttribute("data-kljucne", BESEDILA_OS.en[v[1]] || "");
+      dl.appendChild(d);
+    });
+    filtrirajNastavitve();
+  }
+
   // ------------------------------------------------------------------ posodobitve (safeer.si/os/razlicice.json)
   S.posodobitve = { stanje: null, zanka: 0 };
   function narisiKanal(kanal) {
@@ -3701,6 +3949,8 @@
     $("stikaloOdVklopa").hidden = !(odVklopa && odVklopa.na_voljo);
     $("stikaloOdVklopa").setAttribute("aria-checked", odVklopa && odVklopa.vklopljeno ? "true" : "false");
     narisiNastavitveDelov();
+    nalozAgenta();
+    narisiBliznjice();
     var cilj = $("skupineNastavitev");
     cilj.innerHTML = "";
     seznamNastavitev().forEach(function (g) {
@@ -3708,11 +3958,15 @@
       var m = el("div", "nastavitve-mreza");
       g.elementi.forEach(function (n) {
         var b = el("button", "nastavitev", svg(n.ikona) + "<span>" + ubezi(n.ime) + "</span>");
+        b.type = "button";
+        // Iskanje po Nastavitvah najde vnos tudi po angleskem imenu in kljucnih besedah sistema.
+        b.setAttribute("data-kljucne", [n.en, n.kljucne || "", n.modul.replace(/^p:/, "")].join(" "));
         b.addEventListener("click", function () { odpriNastavitev(n); });
         m.appendChild(b);
       });
       cilj.appendChild(m);
     });
+    filtrirajNastavitve();
     $("oSistemu").textContent = t("razlicica", { v: (S.zacetek && S.zacetek.razlicica) || "" }) +
       (S.zacetek ? " · " + S.zacetek.racunalnik : "");
     if (!S.stanje) klic("stanje").then(function (s) { narisiStanje(s); kontrole($("hitreNastavitve"), false); }, function () {});
@@ -3767,7 +4021,10 @@
       }
       if (d.splet) skupina(t("gSplet"), [gumb("splet", "ndSplet", null, function () { klic("nastavitevDela", ["splet"]); })]);
       if ("sporocila" in d) skupina(t("sporocila"), [stikalo("sporocila", "ndSporocila", "sporocila", d.sporocila)]);
-      if (d.namizje) skupina(t("gNamizje"), [gumb("paleta", "ndNamizje", null, function () { klic("nastavitevDela", ["namizje"]); })]);
+      if (d.namizje) skupina(t("gNamizje"), [gumb("paleta", "ndNamizje", null, function () { klic("nastavitevDela", ["namizje"]); }),
+        // Iskalna lupa na namizju (lastnik, 19. 10. 2026): zlozena, dokler je ne uporabis (core/priljubljeno »lupa«).
+        stikalo("isci", "ndLupa", "lupa", d.lupa !== "razsirjena")]);
+      filtrirajNastavitve();
     }, function () { cilj.innerHTML = ""; });
   }
 
@@ -5447,6 +5704,15 @@
     $("slojHitro").classList.remove("viden");
     $("slojNapajanje").classList.remove("viden");
     sloj.classList.add("viden");
+    // Plosca zadetkov pod lupo, kjerkoli je (razsirjena ali trak stranske vrstice, ozko okno).
+    var lupa = $("iskanjeLupa"), plosca = $("zadetki");
+    if (lupa && plosca) {
+      var r = lupa.getBoundingClientRect(), z0 = parseFloat(window.getComputedStyle(document.body).zoom) || 1;
+      plosca.style.left = Math.max(12, r.left / z0) + "px";
+      plosca.style.top = (r.bottom / z0 + 10) + "px";
+      // Sirina kot razsirjena lupa (najvec 760 px) - lupa se med tem se razsirja, zato ne njena trenutna sirina.
+      plosca.style.width = Math.max(320, Math.min(760, window.innerWidth / z0 - r.left / z0 - 16)) + "px";
+    }
     var n = niz.toLowerCase();
     var z = $("zadetki");
     z.innerHTML = "";
@@ -5523,6 +5789,13 @@
       });
     }
 
+    // Safeer Agent (ce je nastavljen): ukaz z besedami, npr. »daj to na TV« - Ctrl+Enter ali ta vrstica.
+    if (agentNaVoljo() && niz.length >= 2) {
+      skupinaZadetkov(z, t("agentNaslov")).appendChild(zadetek("iskra", t("agentVprasajNiz", { niz: niz }), t("agentZadetekPod"), function () {
+        vprasajAgenta(niz);
+        $("iskanje").value = ""; zapriSloje(); lupaUredi();
+      }));
+    }
     // Splet je vedno zadnja skupina.
     var gSplet = skupinaZadetkov(z, t("zSplet"), "spletni-zadetki");
     if (SafeerIskanje.jeNaslov(niz)) {
@@ -5598,6 +5871,7 @@
     zapriMeniSporocila();
     document.querySelectorAll(".sloj").forEach(function (s) { s.classList.remove("viden"); });
     if ($("iskanje").value && document.activeElement !== $("iskanje")) $("iskanje").value = "";
+    lupaUredi();
   }
 
   // ------------------------------------------------------------------ Safeer Media: katalog
@@ -8752,6 +9026,8 @@
   // ------------------------------------------------------------------ dogodki iz safeer_os.py
   window.safeerOsDogodek = function (vrsta, podatki) {
     katDogodek(vrsta, podatki);
+    // Safeer Agent je bil nastavljen ali izklopljen (Nastavitve, lahko v drugem oknu): lupa in bliznjice takoj vedo.
+    if (vrsta === "agent" && podatki) { S.agent = { na_voljo: !!podatki.na_voljo }; lupaUredi(); if ($("bliznjice")) narisiBliznjice(); }
     if (vrsta === "jezik" && podatki) uporabiJezik(podatki.jezik);
     // Vgrajeni kanali Sporocil: znacka neprebranih, nalozen, ime; vklop celotnih Sporocil.
     if (vrsta === "kanaliSporocil") vkPosodobi(podatki);
@@ -9343,6 +9619,8 @@
     poveziTrak();
     poveziNav();
     poveziPrilagodi();
+    poveziIskanjeNastavitev();
+    poveziAgenta();
     $("mediaBarNapredek").addEventListener("change", function () {
       var p = S.mediaPredvajalnik;
       S.mediaDragging = false;
@@ -9389,10 +9667,22 @@
       zapriSloje();
     });
     var iskanje = $("iskanje");
-    iskanje.addEventListener("input", isci);
+    iskanje.addEventListener("input", function () { lupaUredi(); isci(); });
     iskanje.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown") { e.preventDefault(); premakniIzbiro(1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); premakniIzbiro(-1); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && agentNaVoljo() && iskanje.value.trim()) {
+        // Ctrl+Enter: stavek gre Safeer Agentu (kot Shift+Enter na namizju gre v splet).
+        e.preventDefault();
+        vprasajAgenta(iskanje.value.trim());
+        iskanje.value = ""; zapriSloje(); iskanje.blur();
+      }
+      else if (e.key === "Enter" && e.shiftKey && iskanje.value.trim()) {
+        // Shift+Enter: vedno splet (kot lupa na namizju).
+        e.preventDefault();
+        izvediNamero(iskanje.value.trim(), { vrsta: "splet", razlog: "iskanje" });
+        iskanje.value = ""; zapriSloje(); iskanje.blur();
+      }
       else if (e.key === "Enter") {
         var a = document.querySelector("#zadetki .zadetek.aktiven");
         e.preventDefault();
@@ -9400,8 +9690,9 @@
         iskanje.value = ""; iskanje.blur();
       }
     });
-    iskanje.addEventListener("focus", function () { if (iskanje.value) isci(); });
-    // Kot meni Start: kar zacnes tipkati, gre v iskanje.
+    iskanje.addEventListener("focus", function () { if (iskanje.value) isci(); lupaUredi(); });
+    iskanje.addEventListener("blur", function () { setTimeout(lupaUredi, 0); });
+    // Kot meni Start (in Rofi): kar zacnes tipkati, gre v iskanje - v oknu razdelka v njegovo iskanje.
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
         var odprt = document.querySelector(".sloj.viden");
@@ -9409,21 +9700,56 @@
         else if (!EN_RAZDELEK) pojdi("domov");      // Safeer Player in okna razdelkov nimajo domacega zaslona
         return;
       }
+      var cilj = poljeIskanjaOkna();
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K")) {
+        if (!cilj) return;
+        e.preventDefault();
+        cilj.focus(); cilj.select();
+        lupaUredi();
+        return;
+      }
       var v = document.activeElement;
       if (v && (v.tagName === "INPUT" || v.tagName === "TEXTAREA" || v.tagName === "SELECT" || v.isContentEditable)) return;
       // Odprt obrazec (npr. »Dodaj postajo«) ne sme pošiljati tipk v iskanje za sabo.
       var sloj = document.querySelector(".sloj.viden");
       if (sloj && sloj.id !== "slojIskanje") return;
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (e.key && e.key.length === 1 && e.key !== " ") {
-        e.preventDefault();
-        // Safeer Player nima iskanja Safeer OS (glava je skrita): tipkanje gre v iskanje Medijskega centra.
-        var polje = PREDVAJALNIK ? $("mediaIskanje") : iskanje;
-        polje.focus();
-        polje.value += e.key;
-        if (PREDVAJALNIK) polje.dispatchEvent(new Event("input")); else isci();
-      }
+      if (!jeTipkaZaIskanje(e) || !cilj) return;
+      e.preventDefault();
+      cilj.focus();
+      cilj.value += e.key;
+      if (cilj === iskanje) { isci(); lupaUredi(); } else cilj.dispatchEvent(new Event("input"));
     });
+  }
+
+  // Tipka, ki zacne iskanje: en natisljiv znak brez Ctrl, Alt ali Meta (presledek ne - ta klikne gumb v fokusu).
+  function jeTipkaZaIskanje(e) {
+    return !!e.key && e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing;
+  }
+  // Iskalno polje tega okna: glavno okno - lupa v glavi; Safeer Player - iskanje Medijskega centra; okno razdelka -
+  // iskanje razdelka (prej je tipkanje v oknu Nastavitve slo v skrito lupo glavnega okna). Brez polja: null.
+  function poljeIskanjaOkna() {
+    if (PREDVAJALNIK) return $("mediaIskanje");
+    if (!EN_RAZDELEK) return $("iskanje");
+    return $({ nastavitve: "nastavitveIskanje", zapiski: "zapiskiIskanje", sporocila: "sporocilaIskanje" }[EN_RAZDELEK] || "") || null;
+  }
+  function agentNaVoljo() { return !!(S.agent && S.agent.na_voljo); }
+  // Iskalna lupa v glavi: zlozena (kratko polje z namigom Ctrl+K), dokler je ne uporabis; razsirjena med iskanjem.
+  function lupaUredi() {
+    var l = $("iskanjeLupa"), v = $("iskanje");
+    if (!l || !v) return;
+    var odprta = document.activeElement === v || !!v.value || $("slojIskanje").classList.contains("viden");
+    l.classList.toggle("razsirjena", odprta);
+    v.placeholder = t(odprta ? (agentNaVoljo() ? "isciAliVprasaj" : "isci") : (agentNaVoljo() ? "isciKratkoAgent" : "isciKratko"));
+    l.title = t("tipkaj") + " · Ctrl+K";
+  }
+  // Stavek iz lupe za Safeer Agenta (core/agent/storitev.vprasaj_tukaj): izid pove obvestilo, nic se ne ugiba.
+  function vprasajAgenta(niz) {
+    obvesti(t("agentDelam"));
+    klic("agentVprasaj", [niz]).then(function (r) {
+      if (r && r.koda === "ni_modela") { obvesti(t("agentNiModela")); return; }
+      if (r && r.koda === "model_ni_dosegljiv") { obvesti(t("agentStNedosegljiv")); return; }
+      obvesti((r && r.povzetek) || t("niUspelo"));
+    }, function () { obvesti(t("niUspelo")); });
   }
 
   // Safeer Player: samo razdelek Medijski center, po zelji z iskanim nizom z delovne povrsine (?iskanje=).
@@ -9969,6 +10295,9 @@
       $("sistemRacunalnik").textContent = z.racunalnik || "";
       $("zacetnica").textContent = (ime.trim().charAt(0) || "S").toUpperCase();
       S.povezava = z.povezava || S.povezava;
+      S.agent = z.agent || { na_voljo: false };
+      lupaUredi();
+      narisiBliznjice();
       uskladiVklopSporocil();
       narisiPovezavo();
       osveziUro();

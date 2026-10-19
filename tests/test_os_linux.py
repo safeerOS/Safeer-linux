@@ -655,7 +655,8 @@ class Stran(unittest.TestCase):
         js = _beri("assets", "os", "os.js")
         self.assertIn('$("sZvok").addEventListener("contextmenu"', vrstica)
         self.assertIn('klic("domov", ["zvok"])', vrstica)
-        self.assertIn('if (n.modul === "sound") { pojdi("zvok"); return; }', js)
+        # Tudi plosca Zvok Nastavitev GNOME (Ubuntu) odpre stran Zvok Safeer OS (19. 10. 2026).
+        self.assertIn('if (n.modul === "sound" || n.modul === "p:sound") { pojdi("zvok"); return; }', js)
         besedila = _beri("assets", "os", "besedila.js")
         for vrsta in ("zvocniki", "slusalke", "hdmi", "bluetooth", "usb", "mikrofon"):
             self.assertIn("tip_%s:" % vrsta, besedila)

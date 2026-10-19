@@ -441,12 +441,13 @@ class Stran(unittest.TestCase):
 
     def test_lupina_je_skrita(self):
         for izbirnik in ("body.predvajalnik #stranska", "body.predvajalnik #vrh", "body.predvajalnik #noga",
-                         "body.predvajalnik .rocaj-vrstice", "body.predvajalnik .razdelek:not(#r-media)"):
+                         "body.predvajalnik .razdelek:not(#r-media)"):
             self.assertIn(izbirnik, self.css)
         self.assertIn("body.predvajalnik #aplikacija { display: flex; }", self.css)
-        # Zapomnjena skrcena/skrita vrstica glavnega okna (localStorage) ne sme v Safeer Player in obratno.
+        # Zapomnjena skrcena vrstica glavnega okna (localStorage) ne sme v Safeer Player in obratno (rocaja ni vec,
+        # 19. 10. 2026: trak z ikonami ostane viden - tests/test_stranska_vrstica.py).
         self.assertIn("if (!gumb || EN_RAZDELEK) return;", self.js)
-        self.assertIn("  if (!EN_RAZDELEK) {\n    try { if (localStorage.getItem(\"safeer_vrstica_skrcena\")", self.js)
+        self.assertIn("  if (!EN_RAZDELEK) {\n    vrsticaIzbira = vrsticaBeri();", self.js)
 
     def test_drugi_razdelki_gredo_v_glavno_okno(self):
         self.assertIn('var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;', self.js)
@@ -472,7 +473,9 @@ class Stran(unittest.TestCase):
 
     def test_tipkovnica_in_splet(self):
         self.assertIn('else if (!EN_RAZDELEK) pojdi("domov");', self.js)
-        self.assertIn('var polje = PREDVAJALNIK ? $("mediaIskanje") : iskanje;', self.js)
+        # Tipkanje gre v iskalno polje okna: Safeer Player - iskanje Medijskega centra (od 19. 10. 2026 tudi okna
+        # razdelkov v svoje iskanje - tests/test_stranska_vrstica.py).
+        self.assertIn('if (PREDVAJALNIK) return $("mediaIskanje");', self.js)
         splet = self.js[self.js.index("function odpriVSpletu("):self.js.index("function odpriSplet(")]
         self.assertIn('return klic("odpriVBrskalniku", [naslov])', splet)
         self.assertIn('"odpriVBrskalniku": lambda: self._odpri_v_brskalniku(', beri("safeer_os.py"))

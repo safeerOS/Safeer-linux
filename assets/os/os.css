@@ -893,25 +893,85 @@ div.vrstica { cursor: default; }
 .kanal-napaka { margin:0; padding:10px 12px; border-radius:10px; background:rgba(242,184,75,.12); color:#f2b84b; }
 .pisi-naprave { display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow:auto; margin:10px 0; }
 
-/* Zlozljiva stranska vrstica (kot v brskalnikih): gumb v glavi vrstice ali Ctrl+B; izbira ostane zapomnjena. */
-.znamka { position: relative; }
+/* Stranska vrstica (os.js vrsticaUredi): razsirjena ali trak z ikonami (izbira ostane zapomnjena, v ozkem oknu
+   samodejno trak). Razsiritev v ozkem oknu plava nad vsebino - stolpec ostane sirok kot trak, vsebina se ne premakne. */
+/* Gumb je levo zgoraj (prvi v vrstici znamke, v traku nad znakom) - vedno na istem mestu; prej je bil desno od imena in
+   ga je ime »Safeer OS« prekrivalo (izmerjeno 19. 10. 2026 pri 1280 in 1920 px). */
+.znamka { position: relative; gap: 12px; }
+.znamka img { width: 48px; height: 48px; }
+.znamka b { font-size: 24px; }
 .znamka > div { flex: 1; min-width: 0; }
 .znamka b { white-space: nowrap; }
-.znamka .skrci-vrstico { margin-left: auto; width: 36px; height: 36px; flex: none; display: grid; place-items: center; color: var(--medlo); }
-.znamka .skrci-vrstico svg { width: 20px; height: 20px; }
-.znamka .skrci-vrstico:hover { color: var(--zelena); }
-body.vrstica-skrcena:not(.nacin-splet) #aplikacija { grid-template-columns: 96px 1fr; }
-body.vrstica-skrcena:not(.nacin-splet) #stranska { padding-left: 12px; padding-right: 12px; }
-body.vrstica-skrcena:not(.nacin-splet) .znamka { flex-direction: column; gap: 10px; padding: 0 0 22px; }
-body.vrstica-skrcena:not(.nacin-splet) .znamka img { width: 44px; height: 44px; }
-body.vrstica-skrcena:not(.nacin-splet) .znamka > div,
-body.vrstica-skrcena:not(.nacin-splet) nav button span,
-body.vrstica-skrcena:not(.nacin-splet) .uporabnik .ime,
-body.vrstica-skrcena:not(.nacin-splet) .poganja { display: none; }
-body.vrstica-skrcena:not(.nacin-splet) .znamka .skrci-vrstico { margin: 0; transform: scaleX(-1); }
-body.vrstica-skrcena:not(.nacin-splet) nav button { justify-content: center; padding: 14px 0; }
-body.vrstica-skrcena:not(.nacin-splet) .uporabnik { flex-direction: column; padding: 8px 4px; }
-@media (prefers-reduced-motion: no-preference) { #aplikacija { transition: grid-template-columns .18s ease; } }
+.znamka .skrci-vrstico { order: -1; width: 44px; height: 44px; flex: none; display: grid; place-items: center; color: var(--medlo); }
+@media (max-width: 1500px) {
+  .znamka { gap: 10px; }
+  .znamka img { width: 40px; height: 40px; }
+  .znamka b { font-size: 20px; }
+  .znamka span { display: none; }      /* podnaslov bi se v 250 px prelomil v tri vrstice */
+  .znamka .skrci-vrstico { width: 40px; height: 40px; }
+}
+.znamka .skrci-vrstico svg { width: 22px; height: 22px; }
+.znamka .skrci-vrstico:hover, .znamka .skrci-vrstico:focus-visible { color: var(--zelena); }
+.znamka .skrci-vrstico:focus-visible, nav button:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+body.nacin-splet .znamka .skrci-vrstico { display: none; }     /* v nacinu Splet je vrstica vedno razsirjena */
+#glavno { grid-column: 2; }
+body.vrstica-skrcena:not(.nacin-splet) #aplikacija { grid-template-columns: 76px 1fr; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) #stranska { padding-left: 10px; padding-right: 10px; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .znamka { flex-direction: column; gap: 10px; padding: 0 0 22px; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .znamka img { width: 44px; height: 44px; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .znamka > div,
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) nav button span,
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .uporabnik .ime,
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .poganja { display: none; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .znamka .skrci-vrstico { margin: 0; transform: scaleX(-1); }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) nav button { justify-content: center; padding: 14px 0; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .uporabnik { flex-direction: column; padding: 8px 4px; }
+body.vrstica-skrcena:not(.nacin-splet):not(.vrstica-plava) .stranska-dno { padding: 0; }
+body.vrstica-plava:not(.nacin-splet) #stranska {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 70; width: 280px; box-sizing: border-box; overflow-y: auto;
+  background: var(--kartica-trdna); border-right: 1px solid var(--rob); box-shadow: var(--senca);
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Samo po prvem izrisu (os.js doda vrstica-gibanje): zapomnjena skrcena vrstica se ob zagonu ne skrci vidno. */
+  body.vrstica-gibanje #aplikacija { transition: grid-template-columns .18s ease; }
+  body.vrstica-plava:not(.nacin-splet) #stranska { animation: vrstica-noter .16s ease-out; }
+}
+@keyframes vrstica-noter { from { transform: translateX(-40px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+/* Iskalna lupa v glavi (lastnik, 19. 10. 2026: »izven poti, a takoj dosegljiva«): zlozena na kratko polje, dokler je ne
+   uporabis - klik, Ctrl+K ali kar zacnes tipkati jo razsiri (os.js lupaUredi). */
+.iskanje { flex: 0 1 300px; transition: none; }
+.iskanje.razsirjena { flex: 1 1 760px; }
+.iskanje .bliznjica-lupe { flex: none; }
+.iskanje:not(.razsirjena) .bliznjica-lupe { display: inline-block; }   /* namig ostane tudi v ozjem oknu (pod 1300 px) */
+.iskanje.razsirjena .bliznjica-lupe { display: none; }
+@media (prefers-reduced-motion: no-preference) { .iskanje { transition: flex-basis .16s ease, flex-grow .16s ease; } }
+
+/* Iskanje po Nastavitvah, Safeer Agent, bliznjice */
+.nastavitve-iskanje { margin-bottom: 8px; }
+.ni-zadetek { display: none !important; }
+#r-nastavitve.isce #oSistemu { display: none; }
+.agent-blok { max-width: 1100px; }
+.agent-blok > .drobno { margin: 0 0 14px; max-width: 78ch; color: var(--medlo); }
+.agent-trajanje { cursor: default; }
+.agent-trajanje label { display: block; }
+.agent-trajanje select { flex: none; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--rob);
+  background-color: var(--kartica-polna); color: var(--besedilo); font: inherit; }
+.agent-obrazec { margin-top: 16px; max-width: 760px; }
+.agent-obrazec > label { display: block; font-weight: 600; margin-bottom: 8px; }
+.agent-vrstica { display: flex; gap: 10px; flex-wrap: wrap; }
+.agent-vrstica input { flex: 1 1 280px; min-width: 0; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--rob);
+  background: var(--koda-podlaga); color: var(--besedilo); font: inherit; }
+.agent-vrstica input:focus { outline: 2px solid var(--fokus); outline-offset: 1px; border-color: var(--zelena); }
+.agent-vrstica input:disabled { opacity: .7; }
+.agent-obrazec .drobno { color: var(--medlo); margin: 8px 0 0; }
+.agent-napaka { margin: 8px 0 0; color: var(--opozorilo); }
+.bliznjice { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; max-width: 900px; margin: 0 0 24px; align-items: baseline; }
+.bliznjica { display: contents; }
+.bliznjica dt { white-space: nowrap; }
+.bliznjica dd { margin: 0; color: var(--medlo); }
+.bliznjica kbd { display: inline-block; min-width: 1.6em; padding: 2px 7px; border: 1px solid var(--rob); border-radius: 6px;
+  font: 13px/1.4 inherit; color: var(--besedilo); text-align: center; }
 
 /* WebKitGTK privzeto riše <select> s svetlim gradnikom teme Mint: svetlo besedilo Safeer je bilo na belem nevidno.
    Brez sistemskega videza + lastna puščica; seznam možnosti ostane berljiv v temni barvi. */
@@ -980,34 +1040,19 @@ select option { background: #132631; color: #e8f1ef; }
 .galerija-zapri { width:44px; height:44px; border-radius:12px; background:rgba(20,36,44,.82); border:1px solid rgba(132, 159, 190, .35); display:grid; place-items:center; color:#e8f1ef; }
 .galerija-zapri svg { width:20px; height:20px; }
 
-/* Povsem skrita stranska vrstica (gumb »Skrij vrstico«): vsebina cez ves zaslon, na levem robu rocaj. */
-.skrij-vrstico { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-radius: 12px;
-  background: transparent; color: var(--medlo); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
-.skrij-vrstico svg { width: 20px; height: 20px; flex: none; }
-.skrij-vrstico:hover, .skrij-vrstico:focus-visible { color: var(--zelena); background: var(--media-povrsina); }
-body.vrstica-skrcena:not(.nacin-splet) .skrij-vrstico { justify-content: center; padding: 9px 0; }
-body.vrstica-skrcena:not(.nacin-splet) .skrij-vrstico span { display: none; }
-.rocaj-vrstice { display: none; position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 60;
-  width: 22px; height: 96px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.rocaj-vrstice::before { content: ""; position: absolute; left: 7px; top: 12px; width: 6px; height: 72px;
-  border-radius: 3px; background: var(--zelena); opacity: .6; transition: opacity .15s, width .15s; }
-.rocaj-vrstice:hover::before, .rocaj-vrstice:focus-visible::before { opacity: 1; width: 8px; }
-body.vrstica-skrita:not(.nacin-splet) #aplikacija { grid-template-columns: 1fr; }
-body.vrstica-skrita:not(.nacin-splet) #stranska { display: none; }
-body.vrstica-skrita:not(.nacin-splet) .rocaj-vrstice { display: block; }
 /* Safeer Player (index.html?predvajalnik=1): Medijski center v svojem oknu - brez stranske vrstice, glave in noge
    Safeer OS. Mreza z vrstico ne velja (flex), zato tudi zapomnjena skrcena vrstica glavnega okna ne vpliva. */
 body.predvajalnik #aplikacija { display: flex; }
 body.predvajalnik #glavno { flex: 1; }
 body.predvajalnik #stranska, body.predvajalnik #vrh, body.predvajalnik #noga,
-body.predvajalnik .rocaj-vrstice, body.predvajalnik .razdelek:not(#r-media) { display: none !important; }
+body.predvajalnik .razdelek:not(#r-media) { display: none !important; }
 body.predvajalnik #vsebina { padding-top: 30px; }
 /* Okno enega razdelka (index.html?razdelek=zapiski|sporocila|nastavitve) na delovni povrsini: kot Safeer Player -
    brez stranske vrstice, glave in noge, samo izbrani razdelek. */
 body.en-razdelek #aplikacija { display: flex; }
 body.en-razdelek #glavno { flex: 1; }
 body.en-razdelek #stranska, body.en-razdelek #vrh, body.en-razdelek #noga,
-body.en-razdelek .rocaj-vrstice, body.en-razdelek .razdelek:not(.viden) { display: none !important; }
+body.en-razdelek .razdelek:not(.viden) { display: none !important; }
 body.en-razdelek #vsebina { padding-top: 30px; }
 /* Nadaljuj z druge naprave: izbira "tukaj" / "tukaj in ustavi tam" pod ponudbo, ki igra */
 .media-predaja-izbira { display:flex; gap:8px; padding:4px 0 8px 32px; }
