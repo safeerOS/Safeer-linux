@@ -19,6 +19,7 @@ import hmac
 import io
 import http.client
 import http.server
+import ipaddress
 import json
 import mimetypes
 import os
@@ -27,6 +28,7 @@ import secrets
 import shutil
 import socket
 import ssl
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,7 +37,7 @@ import time
 import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
-from core import budnost, link_tls, link_urejanje, os_deskriptorji
+from core import budnost, link_obramba, link_tls, link_urejanje, os_deskriptorji
 
 NAJVEC_VNOSOV = 500
 NAJVEC_TELESA = 64 * 1024
@@ -80,6 +82,9 @@ def _jedro_naprave(id_naprave: str) -> str:
 
 #: Zmoznost, ki jo mora imeti naprava za datoteke deljenih map (prenos, slicice, urejanje).
 ZMOZNOST_DATOTEKE = "d"
+#: Zmoznost predvajalnika (core/link_dostop.PREDVAJALNIK): tok torrenta (magnet.stream) in sprotna pretvorba
+#: (video.stream) - tudi vsaka zahteva toka jo preveri, da odvzem velja takoj, ne sele ob izteku zetona (12 h).
+ZMOZNOST_PREDVAJALNIK = "v"
 #: Izrecno poslane datoteke (uporabnik tega racunalnika jih je poslal napravi) brez stevilske meje: prej 512 - mapa z
 #: vec datotekami ali vec naprav je izrinila dovoljenja prvih. Zapis nastane samo z dejanjem uporabnika tega
 #: racunalnika in izpade po NAJDLJE_S.
@@ -123,6 +128,79 @@ def _sistemska(pot: str) -> bool:
     """Ali je razresena absolutna pot v sistemskem drevesu ([SISTEMSKA_DREVESA]); koren / sam ni."""
     deli = [d for d in str(pot).replace(os.sep, "/").split("/") if d]
     return bool(deli) and deli[0] in SISTEMSKA_DREVESA
+
+
+#: Windows skrite datoteke ne oznaci s piko, ampak z atributom (AppData s piskotki in gesli brskalnikov, ProgramData,
+#: $Recycle.Bin, pagefile.sys). Na Linuxu stat teh atributov nima - tam se nic ne preverja in ni dodatnega klica.
+_IMA_ATRIBUTE = hasattr(os.stat_result, "st_file_attributes")
+_SKRITO_ALI_SISTEMSKO = getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0x2) | getattr(stat, "FILE_ATTRIBUTE_SYSTEM", 0x4)
+
+
+def _atributi(pot: str) -> int:
+    try:
+        return int(getattr(os.stat(pot, follow_symlinks=False), "st_file_attributes", 0) or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def _skrita_windows(pot: str, koren: Optional[str] = None) -> bool:
+    """Windows: ali ima pot ali katera nadrejena mapa (do deljene mape `koren`, brez nje) atribut Skrito ali
+    Sistemsko. Koren diska (C:\\ ima oba atributa) ne steje; mapo, ki jo je uporabnik izrecno delil, deli naprej."""
+    if not _IMA_ATRIBUTE:
+        return False
+    pot = os.path.abspath(pot)
+    meja = os.path.normcase(os.path.abspath(koren)) if koren else None
+    while True:
+        oce = os.path.dirname(pot)
+        if oce == pot or (meja is not None and os.path.normcase(pot) == meja):
+            return False
+        if _atributi(pot) & _SKRITO_ALI_SISTEMSKO:
+            return True
+        pot = oce
+
+
+#: Zacetek datoteke, ki je program: ELF, Windows PE (MZ), skripta (#!). Pri imenu brez znane koncnice privzeti program
+#: namizja vrsto ugane po vsebini (gio: MZ -> application/x-ms-dos-executable -> Wine) in program zazene.
+_GLAVE_PROGRAMOV = (b"\x7fELF", b"MZ", b"#!")
+#: Zaganjalnik namizja (.desktop) po vsebini, tudi z BOM ali praznimi vrsticami na zacetku.
+_GLAVA_ZAGANJALNIKA = b"[Desktop Entry]"
+
+
+def _koncnica(ime: str) -> str:
+    return os.path.splitext(str(ime or "").strip().lower().rstrip(". "))[1]
+
+
+def je_nevarno_ime(ime: str) -> bool:
+    """Program, skripta, zaganjalnik ali namestitveni paket po imenu (.desktop, .exe, .sh, .jar, .AppImage, .py ...).
+    En vir s prilogami Sporocil in prenosi Spleta (core/predogled_datotek.NEVARNE_KONCNICE)."""
+    from core import predogled_datotek
+    return predogled_datotek.je_nevarna(os.path.basename(str(ime or "")))
+
+
+def nevarna_za_odpiranje(pot: str) -> bool:
+    """Ali `files.open` te datoteke NE sme odpreti s privzetim programom: naprava z dostopom do datotek bi sicer s
+    preimenovanjem ali poslano datoteko zagnala program na tem racunalniku (pregled 19. 10. 2026).
+
+    Ne odpremo: nevarnega imena, vsebine programa (ELF, MZ, #!, [Desktop Entry]) in datoteke z izvrsljivim bitom, ki
+    nima znane vrste. Izvrsljiv bit sam ni dovolj za zavrnitev: na diskih NTFS/exFAT/FAT (udisks) ga ima VSAKA
+    datoteka, pa bi daljinec ne odprl nobenega videa z zunanjega diska - znano vrsto (video.mp4) privzeti program
+    izbere po koncnici in je ne izvede. Mapa se odpre v upravitelju datotek."""
+    try:
+        st = os.stat(pot)
+    except (OSError, ValueError):
+        return True
+    if stat.S_ISDIR(st.st_mode):
+        return False
+    if not stat.S_ISREG(st.st_mode) or je_nevarno_ime(pot):
+        return True
+    try:
+        with open(pot, "rb") as f:
+            glava = f.read(64)
+    except OSError:
+        return True
+    if glava.startswith(_GLAVE_PROGRAMOV) or glava.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(_GLAVA_ZAGANJALNIKA):
+        return True
+    return bool(st.st_mode & 0o111) and not mimetypes.guess_type(os.path.basename(pot))[0]
 
 
 def _realna(pot: str) -> Optional[str]:
@@ -177,7 +255,7 @@ class DeljeneMape:
             if not self.ves_disk:
                 return None
             pot = _realna(oznaka[len("disk:"):] or "/")
-            if pot is None or _skrita(pot) or _sistemska(pot):
+            if pot is None or _skrita(pot) or _sistemska(pot) or _skrita_windows(pot):
                 return None
             return (-1, pot) if os.path.exists(pot) else None
         deli = str(oznaka or "").split(":", 2)
@@ -196,7 +274,7 @@ class DeljeneMape:
             return None
         if pot != koren and not pot.startswith(koren + os.sep):
             return None
-        if pot != koren and _skrita(os.path.relpath(pot, koren)):
+        if pot != koren and (_skrita(os.path.relpath(pot, koren)) or _skrita_windows(pot, koren)):
             return None
         if _sistemska(pot):
             return None
@@ -258,6 +336,8 @@ class DeljeneMape:
             if ime.startswith("."):
                 continue
             cela = os.path.join(pot, ime)
+            if _skrita_windows(cela, pot):
+                continue                  # Windows: atribut Skrito/Sistemsko (razresi je tudi ne da)
             try:
                 mapa = os.path.isdir(cela)
                 if not mapa and not os.path.isfile(cela):
@@ -295,6 +375,8 @@ class DeljeneMape:
             if na_korenu and ime in self.SISTEMSKE:
                 continue
             cela = os.path.join(pot, ime)
+            if _skrita_windows(cela, pot):
+                continue
             try:
                 mapa = os.path.isdir(cela)
                 if not mapa and not os.path.isfile(cela):
@@ -346,6 +428,35 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, oblika, *argumenti):  # noqa: D401 - tiho
         return
+
+    def _vir(self) -> str:
+        return str(self.client_address[0]) if self.client_address else ""
+
+    def handle_one_request(self):  # noqa: N802
+        # Naslednja zahteva iste povezave (keep-alive): rok za glave tece znova (prva je prijavljena ob sprejemu).
+        cuvaj = getattr(self.server, "cuvaj", None)
+        if cuvaj is not None:
+            cuvaj.zacni(self.connection, self._vir())
+        try:
+            super().handle_one_request()
+        finally:
+            if cuvaj is not None:
+                cuvaj.koncaj(self.connection)
+
+    def parse_request(self):  # noqa: N802
+        try:
+            uspeh = super().parse_request()           # prebere vrstico zahteve in vse glave
+        finally:
+            cuvaj = getattr(self.server, "cuvaj", None)
+            if cuvaj is not None:
+                cuvaj.koncaj(self.connection)
+        if uspeh:
+            # Veljaven zeton: vir je naprava kroga - njene povezave obramba ne steje kot poplavo (link_obramba.zaupaj).
+            obramba = getattr(self.server, "obramba", None)
+            streznik = getattr(self.server, "streznik", None)
+            if obramba is not None and streznik is not None and streznik.naprava_zetona(self._zeton()):
+                obramba.zaupaj(self._vir())
+        return uspeh
 
     def _zeton(self) -> Optional[str]:
         # Samo glava: zeton v naslovu (?t=) bi ostal v dnevnikih, zgodovini in glavi Referer.
@@ -494,6 +605,14 @@ SLICICA_KAKOVOST = 85
 NAJVEC_SLICIC = 300
 #: Najvec hkratnih slicic iz videa (ffmpeg): mapa s sto videi ne sme zasesti vseh jeder.
 _SLICICE_VIDEA = threading.BoundedSemaphore(2)
+#: Najvec hkratnih slicic slik (Pillow): slika se pred pomanjsanjem razsiri v pomnilnik (sirina x visina x 3-4 B), zato
+#: vzporedne zahteve brez meje izcrpajo pomnilnik procesa (pregled 19. 10. 2026). Na mesto zahteva caka najvec
+#: CAKAJ_NA_SLICICO_S, nato slicice ni (404, naprava pokaze ikono).
+_SLICICE_SLIK = threading.BoundedSemaphore(2)
+CAKAJ_NA_SLICICO_S = 30.0
+#: Najvec pik, ki jih slicica dekodira (po pomanjsanju JPEG z draft): 50 MP je ~200 MB RGBA. Pillow sam zavrne sele
+#: nad ~179 MP, globalne meje Image.MAX_IMAGE_PIXELS pa ne spreminjamo - Pillow uporablja ves proces Safeer OS.
+NAJVEC_PIK_SLICICE = 50_000_000
 _slicice: "collections.OrderedDict[tuple, bytes]" = collections.OrderedDict()
 _slicice_kljuc = threading.Lock()
 
@@ -503,12 +622,17 @@ def _slicica_slike(pot: str, rob: int) -> Optional[bytes]:
         from PIL import Image, ImageOps
     except Exception:  # noqa: BLE001 - brez Pillow slicic slik ni; naprava si pomaga sama
         return None
+    if not _SLICICE_SLIK.acquire(timeout=CAKAJ_NA_SLICICO_S):
+        return None
     try:
         with Image.open(pot) as im:
             try:
                 im.draft("RGB", (rob * 2, rob * 2))      # JPEG se dekodira ze pomanjsan
             except Exception:  # noqa: BLE001
                 pass
+            sirina, visina = im.size
+            if sirina * visina > NAJVEC_PIK_SLICICE:
+                return None                              # prevelika za slicico: brez dekodiranja
             im = ImageOps.exif_transpose(im)             # pokoncna fotografija ostane pokoncna
             im.thumbnail((rob, rob))
             if im.mode not in ("RGB", "L"):
@@ -516,8 +640,10 @@ def _slicica_slike(pot: str, rob: int) -> Optional[bytes]:
             izhod = io.BytesIO()
             im.save(izhod, "JPEG", quality=SLICICA_KAKOVOST)
             return izhod.getvalue()
-    except Exception:  # noqa: BLE001 - pokvarjena ali nepodprta slika: slicice ni
+    except Exception:  # noqa: BLE001 - pokvarjena ali nepodprta slika (tudi DecompressionBombError): slicice ni
         return None
+    finally:
+        _SLICICE_SLIK.release()
 
 
 def _slicica_videa(pot: str, rob: int) -> Optional[bytes]:
@@ -719,9 +845,10 @@ def postrezi_pot(obravnava, streznik: "StreznikDatotek", pot: str, samo_glava: b
         posreduj_tok(obravnava, streznik, deli[2] if len(deli) > 2 else "", samo_glava)
         return
     if pot.startswith("/live/"):
-        # Sprotno pretvorjeni tok za napravo, ki izvirnika ne zna predvajati (link_sprotno): zeton kot pri datotekah.
+        # Sprotno pretvorjeni tok za napravo, ki izvirnika ne zna predvajati (link_sprotno): zeton kot pri datotekah in
+        # zmoznost predvajalnika, s katero je naprava tok narocila (video.stream) - odvzem velja za vsako zahtevo.
         z = obravnava.headers.get("X-Safeer-Token")
-        if not streznik.zeton_velja(z.strip() if z else None):
+        if not streznik.zeton_velja(z.strip() if z else None, zmoznost=ZMOZNOST_PREDVAJALNIK):
             _napaka_http(obravnava, 401, "manjka ali napacen zeton")
             return
         from core import link_sprotno
@@ -851,7 +978,9 @@ def _sprejmi_popravek(obravnava, tw, naprava: str, oznaka: str, dolzina: int) ->
         obravnava.close_connection = True
         return
     except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne prekinjene povezave
-        koda, odgovor = 500, {"ok": False, "koda": "napaka", "razlog": str(e)}
+        # Podrobnosti (poti, besedilo izjeme) samo v krajevni dnevnik: napravi ne povemo, kje so datoteke tega racunalnika.
+        print("[Teamwork] popravek ni uspel:", type(e).__name__, e, file=sys.stderr)
+        koda, odgovor = 500, {"ok": False, "koda": "napaka"}
     finally:
         try:
             os.remove(telo)
@@ -876,13 +1005,16 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
     sproten tok, kot pri spletnem videu. Lokalni tok (127.0.0.1) je dosegljiv samo prek tega
     posrednika in samo s skrivnostjo, ki jo je racunalnik izdal za ta tok."""
     z = obravnava.headers.get("X-Safeer-Token")
-    if not streznik.zeton_velja(z.strip() if z else None):
+    tok = streznik.tok(skrivnost)
+    # Tok, ki ga je naprava narocila z zmoznostjo (magnet.stream: predvajalnik), jo zahteva pri vsaki zahtevi. Tok, ki ga
+    # je dal ta racunalnik sam (pretvorba, shramba), samo zeton - tako kot prej.
+    if not streznik.zeton_velja(z.strip() if z else None, zmoznost=tok[1] if tok else None):
         _napaka_http(obravnava, 401, "manjka ali napacen zeton")
         return
-    cilj = streznik.lokalni_tok(skrivnost)
-    if cilj is None:
+    if tok is None:
         _napaka_http(obravnava, 404, "toka ni")
         return
+    cilj = tok[0]
     if cilj.startswith("file://"):
         # Film je na tem racunalniku ze v celoti (npr. prenesen v Safeer OS): postrezemo ga z diska.
         pot = cilj[len("file://"):]
@@ -918,11 +1050,169 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
         povezava.close()
 
 
+#: Streznik poslusa na vseh vmesnikih, a je samo za domace omrezje (kot Hub, link_hub_streznik._je_krajevni_naslov):
+#: zanka, zasebni IPv4 (RFC 1918), link-local in IPv6 ULA. Zdoma pridejo naprave do datotek prek Huba (/cast/...).
+KRAJEVNA_OMREZJA = tuple(ipaddress.ip_network(o) for o in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+    "::1/128", "fe80::/10", "fc00::/7"))
+
+
+def je_krajevni_vir(naslov: str) -> bool:
+    """Ali je naslov vira povezave iz domacega omrezja (ali ta naprava)."""
+    try:
+        ip = ipaddress.ip_address(str(naslov or "").split("%", 1)[0])
+    except ValueError:
+        return False
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in o for o in KRAJEVNA_OMREZJA if o.version == ip.version)
+
+
+#: Skupni rok za glave: od sprejema povezave (rokovanje TLS + vrstica zahteve + glave) oziroma od konca prejsnje
+#: zahteve (keep-alive). Rok na posamezen recv (120 s) tega ne omeji - kdor poslje en bajt na nekaj sekund
+#: (slowloris), bi drzal nit in deskriptor za vedno (pregled 19. 10. 2026). Telefon v slabem Wi-Fi rabi < 2 s.
+ROK_GLAV_S = 20.0
+#: Fiksni meji samo za povezave PRED glavami (kot nepreverjene v core/link_neposredno): naprave z zetonom, ki tok
+#: berejo, ne omejuje nobena stevilka. Nad mejo izpade najstarejsa cakajoca (najprej istega vira) - nova ni nikoli
+#: zavrnjena, zato tihe povezave ne zasedejo mest pravim napravam. Android (OkHttp) odpre najvec 5 povezav na streznik.
+NAJVEC_PRED_GLAVAMI = 128
+NAJVEC_PRED_GLAVAMI_NA_VIR = 32
+
+
+class _CuvajGlav:
+    """Ena nit za vse povezave streznika: povezavo, ki do roka ne poslje celih glav, zapre (shutdown zbudi nit, ki na
+    njej bere, in ta jo pospravi). Nit brez povezav spi brez bujenja (kot BrezBujenja)."""
+
+    def __init__(self, rok_s: Optional[float] = None, najvec: Optional[int] = None,
+                 najvec_na_vir: Optional[int] = None) -> None:
+        self.rok_s = ROK_GLAV_S if rok_s is None else rok_s
+        self.najvec = NAJVEC_PRED_GLAVAMI if najvec is None else najvec
+        self.najvec_na_vir = NAJVEC_PRED_GLAVAMI_NA_VIR if najvec_na_vir is None else najvec_na_vir
+        self._pogoj = threading.Condition()
+        self._cakajo: "collections.OrderedDict[int, tuple]" = collections.OrderedDict()   # id -> (vticnik, vir, rok)
+        self._na_vir: Dict[str, int] = {}
+        self._nit: Optional[threading.Thread] = None
+        self._konec = False
+        #: Koliko povezav smo zaprli (za dnevnik in preizkuse).
+        self.zaprtih = 0
+
+    def zacni(self, vticnik, vir: str) -> None:
+        """Povezava caka na glave. Ce ze caka (prva zahteva, prijavljena ob sprejemu), rok ostane od sprejema."""
+        odvec = []
+        with self._pogoj:
+            if self._konec or id(vticnik) in self._cakajo:
+                return
+            self._cakajo[id(vticnik)] = (vticnik, vir, time.monotonic() + self.rok_s)
+            self._na_vir[vir] = self._na_vir.get(vir, 0) + 1
+            if self._na_vir[vir] > self.najvec_na_vir:
+                odvec.append(self._odstrani(next(k for k, z in self._cakajo.items() if z[1] == vir)))
+            while len(self._cakajo) > self.najvec:
+                najvec_vir = max(self._na_vir, key=lambda v: self._na_vir[v])
+                odvec.append(self._odstrani(next(k for k, z in self._cakajo.items() if z[1] == najvec_vir)))
+            self._zazeni_nit()
+            self._pogoj.notify()
+        self._zapri(odvec)
+
+    def zazeni(self) -> None:
+        """Nit cuvaja tece od zagona streznika do ustavi() (ena nit, brez bujenja, dokler ni povezav)."""
+        with self._pogoj:
+            self._zazeni_nit()
+
+    def _zazeni_nit(self) -> None:
+        if self._nit is None and not self._konec:
+            self._nit = threading.Thread(target=self._zanka, name="safeer-datoteke-rok", daemon=True)
+            self._nit.start()
+
+    def koncaj(self, vticnik) -> None:
+        """Glave so prisle (ali je povezave konec)."""
+        with self._pogoj:
+            if id(vticnik) in self._cakajo:
+                self._odstrani(id(vticnik))
+
+    def cakajocih(self, vir: Optional[str] = None) -> int:
+        with self._pogoj:
+            return len(self._cakajo) if vir is None else self._na_vir.get(vir, 0)
+
+    def ustavi(self) -> None:
+        with self._pogoj:
+            self._konec = True
+            self._cakajo.clear()
+            self._na_vir.clear()
+            self._pogoj.notify()
+
+    def _odstrani(self, k: int) -> tuple:
+        z = self._cakajo.pop(k)
+        ostane = self._na_vir.get(z[1], 1) - 1
+        if ostane > 0:
+            self._na_vir[z[1]] = ostane
+        else:
+            self._na_vir.pop(z[1], None)
+        return z
+
+    def _zapri(self, povezave: list) -> None:
+        # Obrambi tega ne javljamo posebej: povezava, zaprta med rokovanjem TLS, steje kot neuspelo rokovanje
+        # (ob_neuspelem_rokovanju) - dvojno stetje bi zaprlo tudi pravo napravo v slabem Wi-Fi.
+        for z in povezave:
+            self.zaprtih += 1
+            os_deskriptorji.zapri_vticnik(z[0])
+
+    def _zanka(self) -> None:
+        while True:
+            with self._pogoj:
+                while True:
+                    if self._konec:
+                        self._nit = None
+                        return
+                    if not self._cakajo:
+                        self._pogoj.wait()
+                        continue
+                    zdaj = time.monotonic()
+                    najblizji = min(z[2] for z in self._cakajo.values())
+                    if najblizji <= zdaj:
+                        break
+                    self._pogoj.wait(najblizji - zdaj)
+                izteklo = [self._odstrani(k) for k, z in list(self._cakajo.items()) if z[2] <= zdaj]
+            self._zapri(izteklo)
+
+
 class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
-    #: Predvajalnik, ki obstane (pavza), ne drzi niti v nedogled.
+    #: Predvajalnik, ki obstane (pavza), ne drzi niti v nedogled (rok na recv/send PO glavah; glave ima _CuvajGlav).
     rok_po_rokovanju = 120.0
     allow_reuse_address = True
+    #: Obramba (core/link_obramba.Obramba, zivi v StreznikDatotek) in cuvaj glav; None v preizkusih brez njiju.
+    obramba = None
+    cuvaj: Optional[_CuvajGlav] = None
+
+    def verify_request(self, request, client_address) -> bool:
+        """Tuj vir (ne domace omrezje) in vir, ki ga je obramba zaprla, ne prideta niti do rokovanja TLS."""
+        vir = str(client_address[0]) if client_address else ""
+        if not je_krajevni_vir(vir):
+            return False
+        if self.obramba is not None and not self.obramba.dovoli(vir):
+            return False
+        if self.cuvaj is not None:
+            self.cuvaj.zacni(request, vir)
+        return True
+
+    def ob_neuspelem_rokovanju(self, client_address) -> None:
+        if self.obramba is not None:
+            self.obramba.dogodek(str(client_address[0]) if client_address else "", "rokovanje")
+
+    def shutdown_request(self, request) -> None:
+        if self.cuvaj is not None:
+            self.cuvaj.koncaj(request)
+        super().shutdown_request(request)
+
+    def handle_error(self, request, client_address) -> None:
+        # Prekinjena povezava (naprava je odsla, cuvaj glav jo je zaprl) ni napaka streznika in ne sodi v dnevnik.
+        if isinstance(sys.exc_info()[1], OSError):
+            return
+        super().handle_error(request, client_address)
+
+
+def _ob_zapori_datotek(vir: str, trajanje_s: float, razlog: str) -> None:
+    print("[Datoteke] obramba: %s zaprt za %d min (%s)" % (vir, int(trajanje_s // 60), razlog), file=sys.stderr, flush=True)
 
 
 #: Najvec toliko objavljenih tokov hkrati (film in njegovi podnapisi so vsak svoj tok); najstarejsi izpadejo.
@@ -950,10 +1240,16 @@ class StreznikDatotek:
         #: (jedro naprave, oznaka datoteke) -> do kdaj. Ta ena datoteka je napravi dosegljiva tudi brez odprtih datotek.
         self._izrecno: Dict[Tuple[str, str], float] = {}
         self._streznik: Optional[_Streznik] = None
-        #: Torrenti, ki jih racunalnik pretaka napravam: skrivnost -> lokalni naslov toka (127.0.0.1).
-        self._tokovi: Dict[str, str] = {}
+        #: Torrenti, ki jih racunalnik pretaka napravam: skrivnost -> (lokalni naslov toka (127.0.0.1) ali file://,
+        #: zmoznost, ki jo tok zahteva pri vsaki zahtevi, ali None).
+        self._tokovi: Dict[str, Tuple[str, Optional[str]]] = {}
         self._nit: Optional[threading.Thread] = None
         self._kljucavnica = threading.Lock()
+        #: Kje streznik poslusa: vsi vmesniki (naprave v domacem omrezju), preizkusi samo zanka.
+        self.naslov_poslusanja = "0.0.0.0"
+        #: Obramba (core/link_obramba, ista pravila kot Hub): vir, ki tipa ali ne zna TLS, se za nekaj casa zapre.
+        #: Zivi dlje kot streznik - zapora velja tudi po ponovnem zagonu streznika v istem procesu.
+        self.obramba = link_obramba.Obramba(ob_zapori=_ob_zapori_datotek)
 
     def tece(self) -> bool:
         return self._streznik is not None
@@ -966,9 +1262,12 @@ class StreznikDatotek:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.load_cert_chain(potrdilo, kljuc)
-            s = _Streznik(("0.0.0.0", 0), _Obravnava)
+            s = _Streznik((self.naslov_poslusanja, 0), _Obravnava)
             s.socket = ctx.wrap_socket(s.socket, server_side=True, do_handshake_on_connect=False)
             s.streznik = self  # type: ignore[attr-defined]
+            s.obramba = self.obramba
+            s.cuvaj = _CuvajGlav()
+            s.cuvaj.zazeni()
             self.vrata = s.server_address[1]
             self._streznik = s
             self._nit = threading.Thread(target=s.serve_forever, name="safeer-datoteke", daemon=True)
@@ -984,6 +1283,8 @@ class StreznikDatotek:
                 s.server_close()
             except Exception:
                 pass
+            if s.cuvaj is not None:
+                s.cuvaj.ustavi()              # nit cuvaja ne ostane po ustavitvi streznika
         self._zetoni.clear()
         self._tokovi.clear()
         self.vrata = 0
@@ -1078,14 +1379,15 @@ class StreznikDatotek:
                 self._zetoni.pop(z, None)
         return len(stari)
 
-    def dodaj_tok(self, lokalni_url: str) -> str:
-        """Lokalni tok (samo 127.0.0.1) objavi za naprave z zetonom; vrne pot `/m/<skrivnost>/<ime>`."""
+    def dodaj_tok(self, lokalni_url: str, zmoznost: Optional[str] = None) -> str:
+        """Lokalni tok (samo 127.0.0.1) objavi za naprave z zetonom; vrne pot `/m/<skrivnost>/<ime>`. `zmoznost`: tok je
+        naprava narocila s to zmoznostjo in jo mora imeti odprto tudi ob vsaki zahtevi toka."""
         u = urllib.parse.urlparse(lokalni_url)
         if u.scheme != "http" or u.hostname not in ("127.0.0.1", "localhost"):
             raise ValueError("samo lokalni tok")
         skrivnost = secrets.token_urlsafe(18)
         with self._kljucavnica:
-            self._tokovi[skrivnost] = lokalni_url
+            self._tokovi[skrivnost] = (lokalni_url, zmoznost)
             while len(self._tokovi) > NAJVEC_TOKOV:
                 self._tokovi.pop(next(iter(self._tokovi)))
         return "/m/%s/%s" % (skrivnost, u.path.rsplit("/", 1)[-1])
@@ -1094,24 +1396,30 @@ class StreznikDatotek:
         with self._kljucavnica:
             self._tokovi.clear()
 
-    def dodaj_datoteko_toka(self, pot: str) -> str:
-        """Ze preneseno datoteko (samo pot, ki jo poda racunalnik sam) objavi kot tok `/m/<skrivnost>/<ime>`."""
+    def dodaj_datoteko_toka(self, pot: str, zmoznost: Optional[str] = None) -> str:
+        """Ze preneseno datoteko (samo pot, ki jo poda racunalnik sam) objavi kot tok `/m/<skrivnost>/<ime>`.
+        Brez `zmoznost` jo je dal ta racunalnik sam (pretvorba, shramba): dovolj je zeton."""
         pot = os.path.realpath(pot)
         if not os.path.isfile(pot):
             raise ValueError("ni datoteke")
         skrivnost = secrets.token_urlsafe(18)
         with self._kljucavnica:
-            self._tokovi[skrivnost] = "file://" + pot
+            self._tokovi[skrivnost] = ("file://" + pot, zmoznost)
             while len(self._tokovi) > NAJVEC_TOKOV:
                 self._tokovi.pop(next(iter(self._tokovi)))
         return "/m/%s/%s" % (skrivnost, urllib.parse.quote(os.path.basename(pot)))
 
-    def lokalni_tok(self, skrivnost: str) -> Optional[str]:
+    def tok(self, skrivnost: str) -> Optional[Tuple[str, Optional[str]]]:
+        """(lokalni naslov toka, zmoznost ali None) za skrivnost toka; None, ce toka ni."""
         with self._kljucavnica:
             for k, v in self._tokovi.items():
                 if hmac.compare_digest(k.encode(), str(skrivnost or "").encode()):
                     return v
         return None
+
+    def lokalni_tok(self, skrivnost: str) -> Optional[str]:
+        t = self.tok(skrivnost)
+        return t[0] if t else None
 
     def osnova(self, naslov_racunalnika: str) -> str:
         return f"https://{naslov_racunalnika}:{self.vrata}"
@@ -1134,7 +1442,13 @@ class StreznikDatotek:
                 link_urejanje.v_smeti(pot)
                 return 200, {"ok": True, "op": ukaz}
             if ukaz == "rename":
-                nova = link_urejanje.preimenuj(pot, str(zahteva.get("name") or ""))
+                novo_ime = str(zahteva.get("name") or "")
+                # Naprava datoteke ne sme narediti za program (film.mp4 -> film.exe / .desktop / .sh): dvoklik ali
+                # files.open bi ga zagnal. Program, ki je ze bil, pa sme preimenovati z isto koncnico (skripta.sh ->
+                # skripta-stara.sh). Mape niso zaganjalniki.
+                if not os.path.isdir(pot) and je_nevarno_ime(novo_ime) and _koncnica(novo_ime) != _koncnica(pot):
+                    return 403, {"ok": False, "napaka": "nevarna_vrsta"}
+                nova = link_urejanje.preimenuj(pot, novo_ime)
             elif ukaz == "move":
                 cilj = self.mape.razresi(str(zahteva.get("folder") or ""))
                 if cilj is None:
@@ -1205,8 +1519,8 @@ class Datoteke:
         if r is None:
             return False
         pot = r[1]
-        if not os.path.exists(pot):
-            return False
+        if not os.path.exists(pot) or nevarna_za_odpiranje(pot):
+            return False                      # programov in skript na daljavo ne zaganjamo (nevarna_za_odpiranje)
         from core import zasebni_webkit
         if zasebni_webkit.odpri_privzeto(pot):        # v procesu (Gio), xdg-open/gio sta rezerva
             return True
@@ -1290,9 +1604,10 @@ class Datoteke:
             naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
             return {"server": {"base_url": self.streznik.osnova(naslov), "fp": self.streznik.odtis,
                                "token": self.streznik.zeton_za(id_naprave or "naprava")},
-                    "path": self.streznik.dodaj_datoteko_toka(obstojeca), "name": os.path.basename(obstojeca),
+                    "path": self.streznik.dodaj_datoteko_toka(obstojeca, ZMOZNOST_PREDVAJALNIK),
+                    "name": os.path.basename(obstojeca),
                     "file": indeks, "size": os.path.getsize(obstojeca), "local": True,
-                    "subs": self._podnapisi_z_diska(obstojeca)}
+                    "subs": self._podnapisi_z_diska(obstojeca, ZMOZNOST_PREDVAJALNIK)}
         if torrenti is None:
             if not os_torrent.program_na_voljo():
                 os_torrent.prenesi_program()
@@ -1327,7 +1642,7 @@ class Datoteke:
         if razlog:
             raise os_torrent.NapakaTorrenta(razlog)
         tid = torrenti.dodaj(uri, [izbrana["i"]])
-        pot = self.streznik.dodaj_tok(torrenti.tok(tid, izbrana["i"]))
+        pot = self.streznik.dodaj_tok(torrenti.tok(tid, izbrana["i"]), ZMOZNOST_PREDVAJALNIK)
         self.streznik.zazeni()
         naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
         return {"server": {"base_url": self.streznik.osnova(naslov), "fp": self.streznik.odtis,
@@ -1336,13 +1651,13 @@ class Datoteke:
                 "size": int(izbrana.get("velikost") or 0),
                 "subs": self._podnapisi_torrenta(torrenti, tid, izbrana["i"]) if izbrana.get("vrsta") == "video" else []}
 
-    def _podnapisi_z_diska(self, pot_videa: str) -> List[dict]:
+    def _podnapisi_z_diska(self, pot_videa: str, zmoznost: Optional[str] = None) -> List[dict]:
         """Podnapisi ob filmu, ki je ze na disku (ista mapa ali podmapa Subs): vsak svoj tok, kot film."""
         izid: List[dict] = []
         try:
             from core import podnapisi as pn
             for p in pn.podnapisi_mape(pot_videa)[:NAJVEC_PODNAPISOV_TOKA]:
-                izid.append({"path": self.streznik.dodaj_datoteko_toka(p), "name": os.path.basename(p)})
+                izid.append({"path": self.streznik.dodaj_datoteko_toka(p, zmoznost), "name": os.path.basename(p)})
         except Exception:  # noqa: BLE001 - podnapisi niso nujni za predvajanje
             pass
         return izid
@@ -1354,7 +1669,7 @@ class Datoteke:
         try:
             for j, pot_p in list(torrenti.podnapisi_za(tid, indeks))[:NAJVEC_PODNAPISOV_TOKA]:
                 ime = os.path.basename(str(pot_p))
-                izid.append({"path": self.streznik.dodaj_tok(torrenti.tok(tid, j)), "name": ime})
+                izid.append({"path": self.streznik.dodaj_tok(torrenti.tok(tid, j), ZMOZNOST_PREDVAJALNIK), "name": ime})
         except Exception:  # noqa: BLE001 - podnapisi niso nujni za predvajanje
             pass
         return izid

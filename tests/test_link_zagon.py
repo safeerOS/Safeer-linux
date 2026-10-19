@@ -176,7 +176,7 @@ class IzidZagona(unittest.TestCase):
         with mock.patch.object(link_sway, "_okna_namizja", return_value=[{"id": "0x1", "pid": 5, "razred": "a.b"}]):
             self.assertTrue(d.zazeni_program(["gimp", "--novo okno"], opis={"ime": "GIMP", "razredi": ["gimp"]}))
         self.assertEqual(ukazi[0][0], "exec")
-        self.assertRegex(ukazi[0][1], r"^SAFEER_ZAGON=[0-9a-f]{12} gimp '--novo okno'$")
+        self.assertRegex(ukazi[0][1], r"^SAFEER_ZAGON=[0-9a-f]{12} 'gimp' '--novo okno'$")
         self.assertEqual(d._zagon["ime"], "GIMP")
         self.assertEqual(d._zagon["okna_pred"], {"0x1"})
         self.assertIn(d._zagon["zeton"], ukazi[0][1])

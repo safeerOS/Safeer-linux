@@ -54,6 +54,13 @@ def izid(ok: bool, sporocilo: str, podatki: Optional[dict] = None, koda: str = "
     return d
 
 
+def _izid_napake(sporocilo: str, napaka: BaseException, koda: str = "napaka") -> dict:
+    """Neuspeh za napravo, ki je poslala ukaz: kratko sporocilo in koda. Besedilo izjeme (poti, imena datotek,
+    uporabnisko ime) gre samo v krajevni dnevnik - druga naprava ga ne potrebuje (pregled 19. 10. 2026)."""
+    print("[Daljinec] %s: %s: %s" % (sporocilo, type(napaka).__name__, napaka), file=sys.stderr)
+    return izid(False, sporocilo, koda=koda)
+
+
 #: Odgovor ponovi oznako ukaza in ime dejanja. Oboje pride od posiljatelja ukaza: ponovimo samo toliko, kolikor sta
 #: dolga v nasih programih (odgovor ne sme biti nacin, da kdo z dolgim ukazom dobi dolg odgovor in poln pomnilnik).
 NAJVEC_PONOVLJENE_OZNAKE = 128
@@ -112,7 +119,16 @@ def izvedi(app, dejanje: str, parametri: dict, odpri_naslov: Callable[[str], Non
         elif d == "screenshot":
             _posnetek(app, koncaj)
     except Exception as e:  # noqa: BLE001 - izid mora vedno priti nazaj
-        koncaj(izid(False, f"Ukaz ni uspel: {e}"))
+        koncaj(_izid_napake("Ukaz ni uspel", e))
+
+
+#: files.open ne zazene programa, skripte ali zaganjalnika (core/link_datoteke.nevarna_za_odpiranje).
+NEVARNA_DATOTEKA = "Programov in skript ni mogoče zagnati z druge naprave"
+
+
+def _nevarna_za_odpiranje(pot: str) -> bool:
+    from core import link_datoteke
+    return link_datoteke.nevarna_za_odpiranje(pot)
 
 
 DEJANJA_CONTROL = ["open_url", "volume", "status"]
@@ -254,7 +270,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             try:
                 podatki = datoteke.seznam(str(parametri.get("folder", "") or ""), posiljatelj, hub_url)
             except FileNotFoundError as e:
-                koncaj(izid(False, str(e), koda="ni_mape"))
+                # Besedilo izjeme iz os.* nosi pot na tem racunalniku: napravi samo kratko sporocilo.
+                koncaj(_izid_napake("Te mape ni (več) med deljenimi", e, koda="ni_mape"))
                 return
             if not podatki.get("shared"):
                 koncaj(izid(True, "Na računalniku ni izbrane nobene mape", podatki))
@@ -303,6 +320,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 pot = datoteke.pot(str(parametri.get("id", "") or ""))
                 if not pot:
                     koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
+                elif _nevarna_za_odpiranje(pot):
+                    koncaj(izid(False, NEVARNA_DATOTEKA, koda="nevarna_datoteka"))
                 elif drugi is None:
                     koncaj(izid(False, "Računalnik nima ločenega zaslona", koda="ni_locenega_zaslona"))
                 elif drugi.zazeni_program(["xdg-open", pot], opis={"oznaka": "datoteka", "ime": os.path.basename(pot)}):
@@ -310,7 +329,13 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 else:
                     koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
                 return
-            if datoteke.odpri(str(parametri.get("id", "") or "")):
+            oznaka = str(parametri.get("id", "") or "")
+            pot = datoteke.pot(oznaka) if hasattr(datoteke, "pot") else ""
+            if pot and _nevarna_za_odpiranje(pot):
+                # Program, skripta ali zaganjalnik: naprava z dostopom do datotek ga ne sme zagnati tu (tudi
+                # Datoteke.odpri ga zavrne - tu dobi naprava jasno kodo namesto »ni_datoteke«).
+                koncaj(izid(False, NEVARNA_DATOTEKA, koda="nevarna_datoteka"))
+            elif datoteke.odpri(oznaka):
                 koncaj(izid(True, "Datoteka se odpira na računalniku"))
             else:
                 koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
@@ -475,7 +500,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                     else:
                         koncaj(izid(True, "Predvajanje", predvajanje.stanje(posiljatelj, hub_url)))
                 except Exception as e:  # noqa: BLE001
-                    koncaj(izid(False, f"Ukaz ni uspel: {e}"))
+                    koncaj(_izid_napake("Ukaz ni uspel", e))
             threading.Thread(target=delo_predaja, name="safeer-predaja", daemon=True).start()
         elif d == "host.info":
             # Kaj ima ta racunalnik (host): procesor, pomnilnik, prostor. Samo stevilke o zmogljivosti,
@@ -596,7 +621,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         else:
             koncaj(izid(False, f"Neznano dejanje: {d}" if d else "Manjka dejanje", koda="neznano_dejanje"))
     except Exception as e:  # noqa: BLE001
-        koncaj(izid(False, f"Ukaz ni uspel: {e}"))
+        koncaj(_izid_napake("Ukaz ni uspel", e))
 
 
 def podatki_hosta() -> dict:
@@ -881,7 +906,7 @@ def _glasnost(parametri: dict) -> dict:
         trenutno = _pactl("get-sink-volume", "@DEFAULT_SINK@").stdout
         utisano = "yes" in _pactl("get-sink-mute", "@DEFAULT_SINK@").stdout.lower()
     except Exception as e:  # noqa: BLE001
-        return izid(False, f"Glasnosti ni bilo mogoce nastaviti: {e}")
+        return _izid_napake("Glasnosti ni bilo mogoce nastaviti", e)
     odstotki = None
     for kos in trenutno.replace("/", " ").split():
         if kos.endswith("%") and kos[:-1].isdigit():
@@ -898,7 +923,7 @@ def _znova_zazeni(app) -> dict:
         subprocess.Popen(ukaz, start_new_session=True, close_fds=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:  # noqa: BLE001
-        return izid(False, f"Ponovnega zagona ni bilo mogoce zaceti: {e}")
+        return _izid_napake("Ponovnega zagona ni bilo mogoce zaceti", e)
     from gi.repository import GLib
 
     def koncaj():
@@ -934,7 +959,7 @@ def _pocisti(app) -> dict:
         upravitelj.clear(vrste, 0, None, None, None)
         return izid(True, "Predpomnilnik pociscen")
     except Exception as e:  # noqa: BLE001
-        return izid(False, f"Predpomnilnika ni bilo mogoce pocistiti: {e}")
+        return _izid_napake("Predpomnilnika ni bilo mogoce pocistiti", e)
 
 
 def stanje(app) -> dict:
@@ -987,12 +1012,12 @@ def _posnetek(app, koncaj: Callable[[dict], None]) -> None:
                 "width": slika.get_width(), "height": slika.get_height(),
             }))
         except Exception as e:  # noqa: BLE001
-            koncaj(izid(False, f"Posnetka ni bilo mogoce narediti: {e}"))
+            koncaj(_izid_napake("Posnetka ni bilo mogoce narediti", e))
 
     try:
         wv.get_snapshot(WebKit2.SnapshotRegion.VISIBLE, WebKit2.SnapshotOptions.NONE, None, gotovo)
     except Exception as e:  # noqa: BLE001
-        koncaj(izid(False, f"Posnetka ni bilo mogoce narediti: {e}"))
+        koncaj(_izid_napake("Posnetka ni bilo mogoce narediti", e))
 
 
 __all__ = ["ZMOZNOST", "DEJANJA", "TIPKE", "izvedi", "izid", "sporocilo_izida", "stanje"]

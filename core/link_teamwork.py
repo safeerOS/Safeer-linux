@@ -28,6 +28,7 @@ Zasnova (splosna, brez znanja o programih):
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -847,7 +848,7 @@ class Teamwork:
                 return 409, {"ok": False, "koda": "ponovi", "razlog": str(e), "sha256": s.sha}
             except OSError as e:
                 _odstrani(prihaja)
-                return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
+                return 500, {"ok": False, "koda": "disk", "razlog": _razlog_diska(e)}
             nova = str(glava["opis"]["sha256"])
             osnova = str(glava.get("osnova") or "")
             # Program na tej napravi je lahko shranil, medtem ko se je popravek sestavljal (velika datoteka): njegova
@@ -871,7 +872,7 @@ class Teamwork:
                 except OSError as e:
                     _odstrani(prihaja)
                     _odstrani(kopija_zgodovine)
-                    return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
+                    return 500, {"ok": False, "koda": "disk", "razlog": _razlog_diska(e)}
                 else:
                     s.sha, s.stat = nova, _stat(s.pot)
                     s.verzija += 1
@@ -895,7 +896,7 @@ class Teamwork:
                 _namesti(prihaja, kopija, s.pot)
             except OSError as e:
                 _odstrani(prihaja)
-                return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
+                return 500, {"ok": False, "koda": "disk", "razlog": _razlog_diska(e)}
             s.kopije[nova] = os.path.basename(kopija)
             kdo_prej = s.zadnji["ime"] or self._ime_tega()
             s.spori.append({"kopija": os.path.basename(kopija), "naprava": posiljatelj, "kdo": kdo_prej})
@@ -1312,6 +1313,13 @@ def na_glavni_niti(delo: Callable[[], object], rok_s: float = 3.0):
     if not koncano.wait(rok_s):
         return None
     return izid[0]
+
+
+def _razlog_diska(e: OSError) -> str:
+    """Razlog napake diska za udelezenca: samo ime napake (ENOSPC, EACCES ...). Besedilo izjeme nosi pot na tem
+    racunalniku (domaca mapa, uporabnisko ime) - ta gre samo v krajevni dnevnik (pregled 19. 10. 2026)."""
+    print("[Teamwork] napaka diska:", e, file=sys.stderr)
+    return errno.errorcode.get(getattr(e, "errno", None) or 0, "disk")
 
 
 def _odstrani(pot: str) -> None:

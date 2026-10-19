@@ -167,13 +167,37 @@ def ime_pretvorjenega(ime: str) -> str:
     return osnova + "-1080p.mp4"
 
 
+#: Pretvorjeni video je vedno H.264/AAC MP4 (`video.transcode`), zato na tem racunalniku dobi samo to koncnico.
+KONCNICA_IZHODA = ".mp4"
+
+
+def ime_izhoda(ime_naprave: str, izvirnik: str) -> str:
+    """Ime pretvorjenega videa na tem racunalniku iz imena, ki ga pove naprava (`video.status` -> name).
+
+    Ime pride z druge naprave: brez poti (absolutna pot ali ../ bi pisala kamorkoli, npr. ~/.bash_aliases ali
+    ~/.config/autostart/*.desktop - pregled 19. 10. 2026), brez skritega imena in vedno s koncnico .mp4, da iz njega
+    ne nastane program (.desktop, .sh ...). Brez uporabnega imena: ime iz izvirnika."""
+    from core import link_deljenje
+    ime = str(ime_naprave or "").replace("\x00", "")
+    if not ime.replace("\\", "/").rsplit("/", 1)[-1].strip():
+        return ime_pretvorjenega(izvirnik)
+    osnova = os.path.splitext(link_deljenje.varno_ime(ime))[0].strip(" .")
+    return (osnova + KONCNICA_IZHODA) if osnova else ime_pretvorjenega(izvirnik)
+
+
 def prosta_pot(mapa: str, ime: str) -> str:
+    """Prosta pot za `ime` v `mapi`. Ime mora biti samo ime (brez mape): sicer ValueError - pot zunaj mape ne nastane."""
+    if not ime or ime != os.path.basename(ime) or "\\" in ime or ime in (".", ".."):
+        raise ValueError("ime ni ime datoteke")
     pot = os.path.join(mapa, ime)
     osnova, konc = os.path.splitext(pot)
     i = 2
-    while os.path.exists(pot):
+    # lexists: tudi viseca simbolna povezava z istim imenom ni prosto mesto.
+    while os.path.lexists(pot):
         pot = f"{osnova} ({i}){konc}"
         i += 1
+    if os.path.realpath(os.path.dirname(pot)) != os.path.realpath(mapa):
+        raise ValueError("pot zunaj mape")
     return pot
 
 
@@ -457,7 +481,9 @@ class Pretvorba:
                 raise _Napaka("naprava_ne_deli")
             if not any(str(e.get("id")) == o.oznaka for e in d.get("items") or []):
                 raise _Napaka("ni_datoteke")
-            cilj = prosta_pot(os.path.dirname(o.pot), o.izhod_ime or ime_pretvorjenega(o.ime))
+            # Ime je od naprave: znova ocisceno tik pred pisanjem (tudi ce je opravilo nastalo drugje), pot ostane v
+            # mapi izvirnika - prosta_pot vrze ValueError, ce bi bila zunaj.
+            cilj = prosta_pot(os.path.dirname(o.pot), ime_izhoda(o.izhod_ime, o.ime))
             self._prenesi(streznik, o.oznaka, cilj, o)
             o.lokalno, o.odstotek, o.stanje = cilj, 100, "na_racunalniku"
         except _Napaka as e:
@@ -508,7 +534,7 @@ class Pretvorba:
                 if faza == "koncano":
                     o.kje = str(d.get("where") or "")
                     o.oznaka = str(d.get("file_id") or "")
-                    o.izhod_ime = str(d.get("name") or "")
+                    o.izhod_ime = ime_izhoda(str(d.get("name") or ""), o.ime)   # ime z naprave: brez poti, .mp4
                     o.izhod_velikost = int(d.get("size") or 0)
                     o.stanje = "koncano"
                     return
@@ -586,7 +612,11 @@ def prenesi_z_naprave(streznik: dict, oznaka: str, cilj: str, o: Opravilo) -> No
     if u.scheme != "https" or not u.hostname:
         raise _Napaka("napacen_streznik")
     povezava = link_tls._PripetaHttps(u.hostname, u.port or 443, str(streznik.get("fp") or ""), 30.0)
-    zacasna = cilj + ".part"
+    # Nakljucno ime in O_EXCL|O_NOFOLLOW: obstojeca datoteka ali simbolna povezava z istim imenom (npr. na
+    # ~/.bashrc) se ne odpre in ne prepise - vsebina prihaja z druge naprave.
+    zacasna = "%s.%s.part" % (cilj, uuid.uuid4().hex[:8])
+    zastavice = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    ustvarjena = False
     try:
         povezava.request("GET", "/d/" + quote(oznaka, safe=""), headers={"X-Safeer-Token": str(streznik.get("token") or "")})
         odgovor = povezava.getresponse()
@@ -594,7 +624,9 @@ def prenesi_z_naprave(streznik: dict, oznaka: str, cilj: str, o: Opravilo) -> No
             raise _Napaka(f"naprava je vrnila {odgovor.status}")
         skupaj = int(odgovor.getheader("content-length") or 0) or o.izhod_velikost
         dobljeno = 0
-        with open(zacasna, "wb") as f:
+        fd = os.open(zacasna, zastavice, 0o644)
+        ustvarjena = True
+        with os.fdopen(fd, "wb") as f:
             while True:
                 kos = odgovor.read(256 * 1024)
                 if not kos:
@@ -611,7 +643,7 @@ def prenesi_z_naprave(streznik: dict, oznaka: str, cilj: str, o: Opravilo) -> No
             povezava.close()
         except Exception:
             pass
-        if os.path.exists(zacasna):
+        if ustvarjena and os.path.lexists(zacasna):     # samo nasa zacasna, nikoli tuja datoteka z istim imenom
             try:
                 os.remove(zacasna)
             except OSError:
