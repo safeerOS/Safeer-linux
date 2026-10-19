@@ -1,7 +1,8 @@
 """Pregled 19. 10. 2026: tokovi Safeer Linka.
 
 1. video.stream (core/link_sprotno.py) zmore vsaka naprava z zmoznostjo "v": zeton naprave gre samo pripetemu
-   https; zanka in povezavno-lokalni naslovi nikoli, domace omrezje samo brez glav toka; posrednik se poveze na
+   https; zanka in povezavno-lokalni naslovi nikoli, domace omrezje samo brez glav toka s poverilnicami (seznami HLS,
+   preusmeritve in glave brez poverilnic: tests/test_sprotno_hls.py); posrednik se poveze na
    preverjeni naslov (DNS rebinding); ffmpeg in ffprobe smeta samo HTTP prek posrednika - tudi kose seznama HLS,
    ki jih sestavita sama, preveri posrednik.
 2. Zaslon in zvok (core/link_zaslon.py, core/link_zvok.py): rokovanje TLS in pozdrav imata en skupen rok, zato

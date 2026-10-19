@@ -12,15 +12,20 @@ ffmpeg izvirnika ne bere sam (pripetega potrdila ne zna preveriti): bere ga prek
 (127.0.0.1, skrivna pot, `Range` gre naprej), ki edini govori s pripetim virom.
 
 Varnost (pregled 19. 10. 2026, ukaz zmore vsaka naprava z zmoznostjo "v"): zeton naprave gre samo pripetemu https;
-zanka in povezavno-lokalni naslovi nikoli, domace omrezje samo brez glav toka; posrednik ime razresi ob vsaki
-povezavi in se poveze na preverjeni naslov. ffmpeg sme samo HTTP prek posrednika, tudi za kose seznama predvajanja.
+zanka in povezavno-lokalni naslovi nikoli, domace omrezje samo z glavami toka brez poverilnic (VARNE_GLAVE); posrednik
+ime razresi ob vsaki povezavi in se poveze na preverjeni naslov. ffmpeg sme samo HTTP prek posrednika, tudi za kose
+seznama predvajanja. Seznam HLS posrednik prepise (vsak naslov -> nakljucen zeton kosa na posredniku), preusmeritvam
+sledi sam; pravice glavnega vira (glave toka, zeton, domace omrezje) ima samo isti izvor, drug izvor je vgnezdena
+zahteva (javni naslov, brez glav in zetona).
 """
 from __future__ import annotations
 
+import collections
 import http.client
 import http.server
 import ipaddress
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -30,7 +35,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from core import budnost, os_deskriptorji
 
@@ -81,6 +86,13 @@ def prosto(mapa: str) -> int:
         return _disk(mapa)[1]
     except OSError:
         return -1
+
+
+def _velikost(pot: str) -> int:
+    try:
+        return os.path.getsize(pot)
+    except OSError:
+        return 0
 
 
 def ffmpeg_windows() -> str:
@@ -160,6 +172,16 @@ def glave_zahteve(o) -> dict:
         if len(glave) >= 16:
             break
     return glave
+
+
+#: Glave toka brez poverilnic (Stremio proxyHeaders imajo pogosto User-Agent in Referer): tok z njimi sme tudi v
+#: domace omrezje (Jellyfin, NAS). Vsaka druga glava (Authorization, Cookie, X-..., Proxy-...) samo javnemu naslovu.
+VARNE_GLAVE = ("user-agent", "referer", "origin", "accept", "accept-language")
+
+
+def v_domace_omrezje(glave: dict) -> bool:
+    """Ali sme tok s temi glavami do naslova v domacem omrezju (dovoljeni_naslovi `zasebni`)."""
+    return all(str(k).lower() in VARNE_GLAVE for k in glave)
 
 
 # ----------------------------------------------------------------------------- cilji (pregled 19. 10. 2026)
@@ -294,10 +316,202 @@ def zascita_vhoda(vhod: str) -> List[str]:
     return ["-protocol_whitelist", PROTOKOLI_FFMPEG] + (["-http_proxy", posrednik] if posrednik else [])
 
 
+# ----------------------------------------------------------------------------- seznami HLS in preusmeritve
+
+#: Seznam HLS posrednik prepise (ffmpeg relativne kose razresi glede na naslov posrednika -> 404, kosov https pa ne sme
+#: odpreti sam). Meje: velikost seznama, naslovov v seznamu in zetonov kosov na tok (seznam v zivo se osvezuje:
+#: najstarejsi odpadejo), dolzina naslova (MAX_URL_SIZE v ffmpeg), skoki preusmeritve.
+NAJVEC_SEZNAM = 2 * MB
+NAJVEC_KOSOV = 20000
+NAJVEC_ZNAKOV_KOSOV = 16 * MB
+NAJVEC_NASLOV = 4096
+NAJVEC_PRESKOKOV = 5
+_PREUSMERITVE = (301, 302, 303, 307, 308)
+
+#: Oznake HLS z atributom URI (RFC 8216 in LL-HLS); ffmpeg 6.1 bere KEY, MAP in MEDIA.
+_OZNAKE_Z_URI = ("#EXT-X-KEY:", "#EXT-X-SESSION-KEY:", "#EXT-X-MAP:", "#EXT-X-MEDIA:", "#EXT-X-I-FRAME-STREAM-INF:",
+                 "#EXT-X-PRELOAD-HINT:", "#EXT-X-RENDITION-REPORT:", "#EXT-X-PART:", "#EXT-X-SESSION-DATA:")
+#: ffmpeg (ff_get_line) konca vrstico pri \n, \r, \r\n in \0; delimo enako, da vidi iste vrstice kot mi.
+_KONEC_VRSTICE = re.compile("\r\n|[\r\n\x00]")
+_PRESLEDKI = " \t\n\v\f\r"          # av_isspace
+_VARNI_ZNAKI = "!$&'()*+,/:;=?@[]~%"
+_KONCNICA = re.compile(r"[A-Za-z0-9]{1,8}")
+
+
+def _cist_naslov(naslov: str) -> str:
+    """Absoluten naslov http(s) za vrstico zahteve: pot in poizvedba odstotno kodirani (brez presledkov, kontrolnih in
+    ne-ASCII znakov), brez fragmenta, najvec NAJVEC_NASLOV znakov; sicer prazno."""
+    try:
+        u = urllib.parse.urlsplit(naslov)
+        u.port                                  # ValueError ob napacnih vratih
+    except ValueError:
+        return ""
+    if u.scheme not in ("http", "https") or not u.hostname \
+            or any(c <= " " or c == "\x7f" or "\ud800" <= c <= "\udfff" for c in u.netloc):
+        return ""
+    pot = urllib.parse.quote(u.path or "/", safe=_VARNI_ZNAKI, errors="surrogateescape")
+    poizvedba = urllib.parse.quote(u.query, safe=_VARNI_ZNAKI, errors="surrogateescape")
+    izid = urllib.parse.urlunsplit((u.scheme, u.netloc, pot, poizvedba, ""))
+    return izid if len(izid) <= NAJVEC_NASLOV else ""
+
+
+def _izvor(naslov: str) -> Optional[Tuple[str, str, int]]:
+    try:
+        u = urllib.parse.urlsplit(naslov)
+        shema = u.scheme.lower()
+        return shema, (u.hostname or "").lower(), u.port or (443 if shema == "https" else 80)
+    except ValueError:
+        return None
+
+
+def _isti_izvor(a: str, b: str) -> bool:
+    """Shema, ime in vrata (privzeta vrata stejejo kot navedena)."""
+    ia = _izvor(a)
+    return ia is not None and ia[1] != "" and ia == _izvor(b)
+
+
+def _koncnica(naslov: str) -> str:
+    """Koncnica izvirnega kosa za naslov posrednika: novejsi ffmpeg (hls extension_picky) kos brez znane koncnice
+    zavrne. Kot ffmpeg: koncnica poti ali sicer celega naslova."""
+    for niz in (urllib.parse.urlsplit(naslov).path, naslov):
+        rep = niz.rsplit(".", 1)
+        if len(rep) == 2 and _KONCNICA.fullmatch(rep[1]):
+            return "." + rep[1]
+    return ""
+
+
+def _atributi(niz: str) -> List[Tuple[str, str]]:
+    """Atributi oznake, kot jih prebere ffmpeg (ff_parse_key_value): [(kljuc z '=', vrednost)], narekovaji in
+    ubezni znaki odstranjeni. Isto branje kot ffmpeg, da ne ostane URI, ki ga ffmpeg vidi, mi pa ne."""
+    izid: List[Tuple[str, str]] = []
+    i, n = 0, len(niz)
+    while True:
+        while i < n and (niz[i] in _PRESLEDKI or niz[i] == ","):
+            i += 1
+        j = niz.find("=", i) if i < n else -1
+        if j < 0:
+            return izid
+        kljuc, i, vrednost = niz[i:j + 1], j + 1, []
+        if i < n and niz[i] == '"':
+            i += 1
+            while i < n and niz[i] != '"':
+                if niz[i] == "\\":
+                    if i + 1 >= n:
+                        break
+                    vrednost.append(niz[i + 1])
+                    i += 2
+                else:
+                    vrednost.append(niz[i])
+                    i += 1
+            if i < n and niz[i] == '"':
+                i += 1
+        else:
+            while i < n and niz[i] not in _PRESLEDKI and niz[i] != ",":
+                vrednost.append(niz[i])
+                i += 1
+        izid.append((kljuc, "".join(vrednost)))
+
+
+def prepisi_seznam(telo: bytes, osnova: str, vpisi: Callable[[str], str], mrtvi: str) -> Optional[bytes]:
+    """Seznam HLS, v katerem vsak naslov (vrstica brez # in atribut URI) kaze na posrednik: naslov se razresi glede
+    na pravi naslov seznama `osnova` in `vpisi(naslov)` vrne naslov posrednika; naslov, ki ni http(s) ali je predolg,
+    dobi `mrtvi` (404). Oznaka z URI se sestavi znova (vsi URI izvirnika odpadejo, nas je zadnji - ffmpeg vzame
+    zadnjega). None, ce je naslovov vec kot NAJVEC_KOSOV."""
+    besedilo = telo.decode("utf-8", "surrogateescape")
+    if besedilo.startswith("﻿"):
+        besedilo = besedilo[1:]
+    stevec = 0
+
+    def naslov(uri: str) -> str:
+        nonlocal stevec
+        stevec += 1
+        cist = _cist_naslov(urllib.parse.urljoin(osnova, uri.strip(_PRESLEDKI)))
+        return vpisi(cist) if cist else mrtvi
+
+    vrstice = []
+    for vrstica in _KONEC_VRSTICE.split(besedilo):
+        # Prazne vrstice ffmpeg preskoci; presledke na robu odstranimo, da ffmpeg vrstico razvrsti kot mi.
+        vrstica = vrstica.strip()
+        if not vrstica:
+            continue
+        if not vrstica.startswith("#"):
+            vrstica = naslov(vrstica)
+        elif vrstica.startswith(_OZNAKE_Z_URI):
+            oznaka, _, ostanek = vrstica.partition(":")
+            atributi = _atributi(ostanek)
+            uri = [v for k, v in atributi if k == "URI="]
+            if uri:
+                drugi = ['%s"%s"' % (k, v.replace("\\", "\\\\").replace('"', '\\"')) for k, v in atributi if k != "URI="]
+                vrstica = oznaka + ":" + ",".join(drugi + ['URI="%s"' % naslov(uri[-1])])
+        if stevec > NAJVEC_KOSOV:
+            return None
+        vrstice.append(vrstica)
+    return ("\n".join(vrstice) + "\n").encode("utf-8", "surrogateescape")
+
+
+def _je_seznam(zacetek: bytes) -> bool:
+    """Telo je seznam HLS (ffmpeg ga prepozna samo po #EXTM3U na zacetku; BOM odstranimo)."""
+    return (zacetek[3:] if zacetek.startswith(b"\xef\xbb\xbf") else zacetek).startswith(b"#EXTM3U")
+
+
+def _zacetek(r: http.client.HTTPResponse, n: int = 10) -> bytes:
+    """Prvih n bajtov telesa (ali manj ob koncu), ne da bi cakali na cel kos toka."""
+    zbrano = b""
+    while len(zbrano) < n:
+        kos = r.read1(n - len(zbrano))
+        if not kos:
+            break
+        zbrano += kos
+    return zbrano
+
+
+def _cel_odgovor(r: http.client.HTTPResponse) -> bool:
+    """200 ali 206, ki obsega celo telo (ffmpeg seznam odpre z Range: bytes=0-): delnega seznama ne prepisujemo."""
+    if r.status == 200:
+        return True
+    m = re.fullmatch(r"bytes\s+0-(\d+)/(\d+|\*)", (r.getheader("Content-Range") or "").strip())
+    return bool(m) and (m.group(2) == "*" or int(m.group(2)) == int(m.group(1)) + 1)
+
+
+class _Kosi:
+    """Naslovi iz seznamov enega toka: nakljucen zeton -> (pravi naslov, zaupan). Isti naslov dobi isti zeton (seznam
+    v zivo se osvezuje); najvec NAJVEC_KOSOV in NAJVEC_ZNAKOV_KOSOV, najstarejsi odpadejo. Zivi s tokom (_viri)."""
+
+    def __init__(self) -> None:
+        self._po_zetonu: "collections.OrderedDict[str, Tuple[str, bool]]" = collections.OrderedDict()
+        self._po_naslovu: Dict[Tuple[str, bool], str] = {}
+        self._znakov = 0
+        self._kljucavnica = threading.Lock()
+
+    def vpisi(self, naslov: str, zaupan: bool) -> str:
+        with self._kljucavnica:
+            zeton = self._po_naslovu.get((naslov, zaupan))
+            if zeton is not None:
+                self._po_zetonu.move_to_end(zeton)
+                return zeton
+            zeton = secrets.token_urlsafe(12)
+            self._po_zetonu[zeton] = (naslov, zaupan)
+            self._po_naslovu[(naslov, zaupan)] = zeton
+            self._znakov += len(naslov)
+            while len(self._po_zetonu) > NAJVEC_KOSOV or self._znakov > NAJVEC_ZNAKOV_KOSOV:
+                _, star = self._po_zetonu.popitem(last=False)
+                del self._po_naslovu[star]
+                self._znakov -= len(star[0])
+            return zeton
+
+    def naslov(self, zeton: str) -> Optional[Tuple[str, bool]]:
+        with self._kljucavnica:
+            return self._po_zetonu.get(zeton)
+
+    def __len__(self) -> int:
+        return len(self._po_zetonu)
+
+
 class _Vir:
     """Izvirnik: pripeto HTTPS (odtis + zeton) ali navaden HTTP; vsaka zahteva nova povezava (Range gre naprej)."""
 
-    def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None, zasebni: bool = False) -> None:
+    def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None, zasebni: bool = False,
+                 glavni: Optional["_Vir"] = None, zaupan: bool = True, skrivnost: str = "") -> None:
         self.url = url
         self.odtis = odtis
         self.zeton = zeton
@@ -305,6 +519,45 @@ class _Vir:
         self.glave = dict(glave or {})
         #: Ali je cilj lahko v domacem omrezju (dovoljeni_naslovi).
         self.zasebni = zasebni
+        #: Vir, ki ga je izbrala naprava; kosi seznamov in skoki preusmeritev so izpeljani iz njega.
+        self.glavni = glavni or self
+        #: Ali ima pravice glavnega vira (glave, zeton, domace omrezje): samo, dokler je vsak korak ostal na njegovem izvoru.
+        self.zaupan = zaupan
+        #: Pot toka na posredniku (samo glavni vir toka); prazno pri vgnezdeni zahtevi - njenega seznama ne prepisemo.
+        self.skrivnost = skrivnost
+        self.kosi = _Kosi() if glavni is None else glavni.kosi
+
+    def izpeljan(self, url: str, zaupan: bool, zeton: bool = True) -> "_Vir":
+        """Kos seznama ali skok preusmeritve: pravice glavnega vira samo za njegov izvor in samo, ce jih je imel ze
+        tisti, ki je naslov dal (seznam ali preusmeritev drugega izvora ne vrne glav toka); sicer vgnezdena zahteva.
+        `zeton`: False za skok preusmeritve - zahteve s kljucem ne sledijo preusmeritvam (AGENTS.md), tudi na isti
+        pripeti izvor ne (streznik datotek Safeer Linka ne preusmerja)."""
+        g = self.glavni
+        if zaupan and g.zaupan and _isti_izvor(url, g.url):
+            return _Vir(url, g.odtis, g.zeton if zeton else "", g.glave, g.zasebni, glavni=g)
+        return _Vir(url, "", "", {}, False, glavni=g, zaupan=False)
+
+    def preusmeritev(self, lokacija: str) -> "_Vir":
+        """Naslednji skok (Location): samo http(s), nikoli s https na http (NapakaPretoka)."""
+        # http.client glave bere kot latin-1: izvirne bajte vrnemo, ne-ASCII znake odstotno kodira _cist_naslov.
+        surov = lokacija.encode("iso-8859-1", "replace").decode("utf-8", "surrogateescape")
+        url = _cist_naslov(urllib.parse.urljoin(self.url, surov.strip(_PRESLEDKI)))
+        if not url:
+            raise NapakaPretoka("napaka")
+        if (_izvor(self.url) or ("",))[0] == "https" and not url.startswith("https://"):
+            raise NapakaPretoka("nedovoljen_cilj")
+        return self.izpeljan(url, self.zaupan, zeton=False)
+
+    def glave_zahteve(self, obseg: Optional[str]) -> dict:
+        glave = {"User-Agent": "Safeer Control"}
+        glave.update({k: v for k, v in self.glave.items() if k.lower() != "accept-encoding"})  # glave toka imajo prednost
+        # Posrednik Content-Encoding ne posreduje, seznam pa mora prebrati: brez stiskanja.
+        glave["Accept-Encoding"] = "identity"
+        if self.zeton and self.pripeto():
+            glave["X-Safeer-Token"] = self.zeton
+        if obseg:
+            glave["Range"] = obseg
+        return glave
 
     def pripeto(self) -> bool:
         """Samo tak vir dobi zeton naprave: odtis potrdila se preveri, preden gre ven kak bajt zahteve."""
@@ -349,17 +602,65 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
 
     def _vir(self, sprotno: "Sprotno") -> Optional[_Vir]:
         pot = self.path
-        if not pot.startswith("http://"):
-            return sprotno.vir_za(pot.split("?")[0].strip("/"))
-        # ffmpeg ima nas posrednik za HTTP proxy (zascita_vhoda): vsaka zahteva pride s polnim naslovom.
-        try:
-            u = urllib.parse.urlsplit(pot)
-            lastni = (u.hostname, u.port) == ("127.0.0.1", self.server.server_address[1])
-        except ValueError:
-            return None
-        if lastni:
-            return sprotno.vir_za(u.path.strip("/"))
-        return sprotno.vir_vgnezdene(pot)
+        if pot.startswith("http://"):
+            # ffmpeg ima nas posrednik za HTTP proxy (zascita_vhoda): vsaka zahteva pride s polnim naslovom.
+            try:
+                u = urllib.parse.urlsplit(pot)
+                lastni = (u.hostname, u.port) == ("127.0.0.1", self.server.server_address[1])
+            except ValueError:
+                return None
+            if not lastni:
+                return sprotno.vir_vgnezdene(pot)
+            pot = u.path
+        pot = pot.split("?")[0].strip("/")
+        # /<skrivnost toka>/k/<zeton kosa>[.koncnica]: naslov iz prepisanega seznama (prepisi_seznam).
+        skrivnost, kos, ostanek = pot.partition("/k/")
+        if kos:
+            return sprotno.vir_kosa(skrivnost, ostanek.split(".", 1)[0])
+        return sprotno.vir_za(pot)
+
+    def _odpri(self, vir: _Vir, metoda: str):
+        """(povezava, odgovor, vir zadnjega skoka). Preusmeritvam sledi posrednik sam - ffmpeg glave Location ne dobi,
+        zato vir s 301/302 prej ni delal nikoli -, najvec NAJVEC_PRESKOKOV; vsak skok gre skozi dovoljeni_naslovi
+        (vir.povezava) in vir.preusmeritev (https -> http ne, glave in zeton samo na izvoru glavnega vira)."""
+        for skok in range(NAJVEC_PRESKOKOV + 1):
+            p = vir.povezava()
+            try:
+                p.request(metoda, vir.pot(), headers=vir.glave_zahteve(self.headers.get("Range")))
+                r = p.getresponse()
+                lokacija = r.getheader("Location") if r.status in _PREUSMERITVE else None
+                if lokacija is None:
+                    return p, r, vir
+            except BaseException:
+                p.close()
+                raise
+            p.close()
+            if skok == NAJVEC_PRESKOKOV:
+                break
+            vir = vir.preusmeritev(lokacija)
+        raise NapakaPretoka("napaka")
+
+    def _seznam(self, r: http.client.HTTPResponse, vir: _Vir, zacetek: bytes) -> None:
+        """Prepisan seznam HLS (prepisi_seznam): kosi, kljuci in seznami kakovosti prek posrednika z zetonom kosa
+        tega toka; samo cel seznam do NAJVEC_SEZNAM, sicer 502."""
+        telo = zacetek + r.read(NAJVEC_SEZNAM + 1 - len(zacetek))
+        g = vir.glavni
+        predpona = "http://127.0.0.1:%d/%s/k/" % (self.server.server_address[1], g.skrivnost)
+        novo = None
+        if len(telo) <= NAJVEC_SEZNAM and _cel_odgovor(r):
+            novo = prepisi_seznam(telo, vir.url, lambda n: predpona + g.kosi.vpisi(n, vir.zaupan) + _koncnica(n),
+                                  predpona + "-")
+        if novo is None:
+            _zapisi("sprotno: seznam predvajanja zavrnjen (prevelik, nepopoln ali prevec naslovov)")
+            self._prazen(502)
+            return
+        self.send_response(200)
+        # Standardna vrsta: naslov posrednika nima koncnice .m3u8, po kateri bi ffmpeg sicer seznam prepoznal.
+        self.send_header("Content-Type", "application/vnd.apple.mpegurl")
+        self.send_header("Content-Length", str(len(novo)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(novo)
 
     def _naprej(self, samo_glava: bool) -> None:
         sprotno: Sprotno = self.server.sprotno  # type: ignore[attr-defined]
@@ -367,18 +668,10 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
         if vir is None:
             self._prazen(404)
             return
-        glave = {"User-Agent": "Safeer Control"}
-        glave.update(vir.glave)                      # glave toka (tudi svoj User-Agent) imajo prednost
-        if vir.zeton and vir.pripeto():
-            glave["X-Safeer-Token"] = vir.zeton
-        if self.headers.get("Range"):
-            glave["Range"] = self.headers["Range"]
         p = None
         try:
             try:
-                p = vir.povezava()
-                p.request("HEAD" if samo_glava else "GET", vir.pot(), headers=glave)
-                r = p.getresponse()
+                p, r, vir = self._odpri(vir, "HEAD" if samo_glava else "GET")
             except NapakaPretoka as e:
                 _zapisi(f"sprotno: posrednik zavrnil cilj ({e})")
                 self._prazen(403 if str(e) == "nedovoljen_cilj" else 502)
@@ -386,6 +679,12 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
             except Exception:  # noqa: BLE001 - vir ni dosegljiv ali ima drugo potrdilo (link_tls.NeujemanjeOdtisa)
                 self._prazen(502)
                 return
+            zacetek = b""
+            if not samo_glava and r.status in (200, 206) and vir.glavni.skrivnost:
+                zacetek = _zacetek(r)
+                if _je_seznam(zacetek):
+                    self._seznam(r, vir, zacetek)
+                    return
             self.send_response(r.status)
             for ime in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
                 if r.getheader(ime):
@@ -394,6 +693,8 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
             self.end_headers()
             if samo_glava:
                 return
+            if zacetek:
+                self.wfile.write(zacetek)
             while True:
                 kos = r.read(VELIKOST_KOSA)
                 if not kos:
@@ -542,7 +843,13 @@ class Sprotno:
         with self._kljucavnica:
             if not self._viri:
                 return None
-        return _Vir(url, "", "", {}, zasebni=False)
+        return _Vir(url, "", "", {}, zasebni=False, zaupan=False)
+
+    def vir_kosa(self, skrivnost: str, zeton: str) -> Optional[_Vir]:
+        """Kos iz prepisanega seznama tega toka (zeton kosa velja samo s skrivnostjo toka in samo, dokler tok tece)."""
+        glavni = self.vir_za(skrivnost)
+        vnos = glavni.kosi.naslov(zeton) if glavni is not None else None
+        return glavni.izpeljan(*vnos) if vnos is not None else None
 
     # ---- ukazi
 
@@ -577,21 +884,24 @@ class Sprotno:
         seek_ms = max(0, int(p.get("seek_ms") or 0))
         jeziki = jeziki_zahteve(p.get("audio_langs"))     # zeleni jezik zvoka (TV: anglescina / slovenscina)
         os.makedirs(self.mapa, exist_ok=True)
-        # En tok naenkrat: drugi bi oba zatikala. Tok, ki ga nihce ne bere vec, umaknemo.
+        # En tok naenkrat: drugi bi oba zatikala. Tok, ki ga nihce ne bere vec, umaknemo - a sele, ko so vse preverbe
+        # mimo: zavrnjena zahteva (prostor, cilj) ne sme ustaviti toka, ki dela (pregled 19. 10. 2026).
         with self._kljucavnica:
             zivi = [t for t in self.tokovi.values() if not t.koncano and not t.napaka]
-        for t in zivi:
-            if time.time() - t.zadnji_bralec < BREZ_BRALCA_S:
-                raise NapakaPretoka("preobremenjen")
-            self.ustavi(t)
-        # Prostor: ocena izhoda (najvec 8 Mb/s) + rezerva racunalnika.
+        if any(time.time() - t.zadnji_bralec < BREZ_BRALCA_S for t in zivi):
+            raise NapakaPretoka("preobremenjen")
+        # Prostor: ocena izhoda (najvec 8 Mb/s) + rezerva racunalnika; datoteke tokov, ki jih umaknemo, stejejo kot prosto.
         ocena = (8_000_000 // 8) * max(0, trajanje_ms - seek_ms) // 1000 * 12 // 10
         pr = prosto(self.mapa)
-        if 0 <= pr < ocena + rezerva(self.mapa):
+        umaknjeno = sum(_velikost(t.datoteka) for t in zivi)
+        if 0 <= pr and pr + umaknjeno < ocena + rezerva(self.mapa):
             raise NapakaPretoka("ni_prostora")
         # Cilj preverimo ze zdaj, da naprava takoj izve zakaj ne (posrednik ga preveri se ob vsaki povezavi).
-        # Glav, ki jih je izbrala naprava (Cookie, Authorization ...), ne posiljamo v domace omrezje.
-        dovoljeni_naslovi(gostitelj, vrata_vira, zasebni=not glave)
+        # Glav s poverilnicami (Cookie, Authorization ...), ki jih je izbrala naprava, ne posiljamo v domace omrezje.
+        zasebni = v_domace_omrezje(glave)
+        dovoljeni_naslovi(gostitelj, vrata_vira, zasebni=zasebni)
+        for t in zivi:
+            self.ustavi(t)
         with self._kljucavnica:      # tokovi se spreminjajo iz drugih niti (ustavi_ukaz, straza)
             v_rabi = {t.datoteka for t in self.tokovi.values()}
         for f in os.listdir(self.mapa):
@@ -604,7 +914,7 @@ class Sprotno:
         t = Tok(ime, os.path.join(self.mapa, uuid.uuid4().hex + ".mp4"))
         vrata = self._zazeni_posrednik()
         with self._kljucavnica:
-            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave, zasebni=not glave)
+            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave, zasebni=zasebni, skrivnost=t.skrivnost)
             self.tokovi[t.id] = t
             while len(self.tokovi) > NAJVEC_TOKOV:
                 star = next(iter(self.tokovi))
@@ -748,6 +1058,12 @@ class Sprotno:
             except OSError as e:
                 t.napaka = "napaka"; t.koncano = True
                 _zapisi(f"pretok {t.ime}: ffmpeg se ni zagnal ({e})")
+                return
+            if t.koncano:
+                # ustavi() je tekel med preverbo zgoraj in zagonom, procesa se ni videl: ffmpeg ne sme ostati
+                # (preizkus 19. 10. 2026: osirotel pretvornik je tekel naprej).
+                t.proces.kill()
+                t.proces.communicate()
                 return
             _, err = t.proces.communicate()
             koda = t.proces.returncode
