@@ -2523,8 +2523,9 @@ class SafeerOS(Gtk.Application):
     def _varuh_docka(self) -> None:
         """Vsakih 30 s: ce je dock vklopljen in Plank ne tece, ga safeer-cinnamon --dock-ozivi zazene znova (najvec 3-krat
         v 10 min). Lastnik, 17. 10. 2026: dock je izginil (Plank se ni vrnil) - »uporabnik ne zeli ostati brez docka«.
-        V niti: ukaz pocaka na konec (brez zombijev), glavna nit ne caka."""
-        if getattr(self, "_varuh_docka_tece", False):
+        V niti: ukaz pocaka na konec (brez zombijev), glavna nit ne caka. Isti pogoj (dock vklopljen, Plank ne tece)
+        najprej preverimo tu, brez podprocesa: prej se je vsakih 30 s zagnala skripta bash (1300 vrstic) s pgrep."""
+        if getattr(self, "_varuh_docka_tece", False) or not os_dock.dock_vklopljen() or os_dock.plank_tece():
             return
         self._varuh_docka_tece = True
 
@@ -2839,16 +2840,19 @@ class SafeerOS(Gtk.Application):
         GLib.timeout_add_seconds(self.SCIT_PULT_OSVEZI_S, lambda: (self._osvezi_scit_pult(), True)[1])
 
     def _osvezi_scit_pult(self, stanje: Optional[dict] = None) -> None:
-        """Stanje Scita v pult. Brez podanega stanja ga prebere v ozadju (stanje() vprasa systemd za resolved)."""
+        """Stanje Scita v pult. Brez podanega stanja vzame hitro stanje pulta (Scit.stanje_pulta: brez podprocesov); v
+        ozadju le, ce je na vrsti preverba systemd-resolved (najvec vsakih 5 min). Prej nit in polno stanje vsakih 15 s."""
         if self.scit_pult is None or self._scit_pult_zaposlen:
             return
+        if stanje is None and self.scit.razlog_svez():
+            stanje = self.scit.stanje_pulta(preveri=False)
         if stanje is not None:
             self.scit_pult.osvezi(stanje)
             return
 
         def delo() -> None:
             try:
-                s = self.scit.stanje()
+                s = self.scit.stanje_pulta()
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] scit v pultu:", e)
                 return
