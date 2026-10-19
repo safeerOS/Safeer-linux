@@ -128,8 +128,16 @@ if [ -n "${SAFEER_BOLT_POSKUS:-}" ]; then
             *) POVZETEK="$POVZETEK; $(basename "$pot") brez BOLT"; continue ;;
         esac
         preskoci="$(llint_preskoci "$izvirnik")"
+        # --use-old-text zahteva, da BOLT obdela VSE funkcije: z izpuscenim zbirnikom LLInt/IPInt (JavaScriptCore) pade
+        # (CI 39223720608: »BOLT-ERROR: cannot ignore non-empty function llint_entry/1(*2) in current mode«). Zato
+        # --use-old-text samo za knjiznico brez izpuscenih funkcij (libwebkitgtk: 188 -> 144,5 MB).
+        moznosti=()
+        for m in "${MOZNOSTI[@]}"; do
+            if [ -n "$preskoci" ] && [ "$m" = --use-old-text ]; then continue; fi
+            moznosti+=("$m")
+        done
         "$LLVM/merge-fdata" "$DELO/fdata/$ime".*.fdata > "$DELO/$ime.fdata"
-        "$LLVM/llvm-bolt" "$izvirnik" -o "$pot" --data="$DELO/$ime.fdata" "${MOZNOSTI[@]}" \
+        "$LLVM/llvm-bolt" "$izvirnik" -o "$pot" --data="$DELO/$ime.fdata" "${moznosti[@]}" \
             ${preskoci:+"--skip-funcs=$preskoci"} 2>&1 | tee "$DELO/$ime.log"
         grep -E 'BOLT-INFO: [0-9]+ out of [0-9]+ functions in the binary' "$DELO/$ime.log" || true
         POVZETEK="$POVZETEK; $(basename "$pot") $(stat -c %s "$izvirnik") -> $(stat -c %s "$pot") B,"
