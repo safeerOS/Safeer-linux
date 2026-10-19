@@ -37,6 +37,9 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 
 ## Preizkusi
 - Vsi preizkusi v enem procesu: `python3 -m pytest -q -p no:cacheprovider tests/` (CI poganja pytest, ker unittest ne vidi preizkusov kot funkcij).
+- Vodilo D-Bus v preizkusu: `tests/zasebno_vodilo.ZasebnoVodilo` (lasten dbus-daemon), nikoli `Gio.TestDBus` - ta
+  spreminja okolje procesa (setenv) med branjem v drugih nitih; polni tek se je 19. 10. 2026 sesul (segfault). Podprocesu
+  daj okolje z `env=`, namesto da spreminjas `os.environ`.
 - `python3 -m pytest -q -p no:cacheprovider tests/<datoteka>`; za JS `node -e "new Function(require('fs').readFileSync(F,'utf8'))"`.
 - Zivi preizkus na testnem PC (Flatpak): `flatpak run --command=sh … -c "export PATH=/app/host-bin:$PATH; …"` – brez tega PATH orodja gostitelja (gsettings …) niso vidna.
 - Vsak preizkus za sabo pospravi (lastnik, 16. 10. 2026: vsebnik `stres-tm` je 3 dni zasedal pomnilnik prenosnika):

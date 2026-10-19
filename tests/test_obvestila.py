@@ -22,6 +22,7 @@ except Exception:  # noqa: BLE001 - brez PyGObject
     Gio = None
 
 from core import en_proces, obvestila  # noqa: E402
+from zasebno_vodilo import ZasebnoVodilo  # noqa: E402
 
 
 def _pocakaj(pogoj, cas: float = 3.0) -> bool:
@@ -126,11 +127,8 @@ class PoDBusu(unittest.TestCase):
 
     def setUp(self):
         en_proces.nastavi_os(None)
-        self.vodilo_test = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
-        self.vodilo_test.up()
-        self.streznik = Gio.DBusConnection.new_for_address_sync(
-            self.vodilo_test.get_bus_address(), Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
-            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        self.vodilo_test = ZasebnoVodilo()          # ne Gio.TestDBus: ta spreminja okolje procesa (zasebno_vodilo.py)
+        self.streznik = self.vodilo_test.povezava(Gio)
         self.klici = []
         info = Gio.DBusNodeInfo.new_for_xml(
             '<node><interface name="org.freedesktop.Notifications"><method name="Notify">'
@@ -146,9 +144,7 @@ class PoDBusu(unittest.TestCase):
         self.reg = self.streznik.register_object("/org/freedesktop/Notifications", info.interfaces[0], klic, None, None)
         Gio.bus_own_name_on_connection(self.streznik, "org.freedesktop.Notifications", Gio.BusNameOwnerFlags.NONE, None, None)
         # Modul drzi svojo povezavo z vodilom seje (Gio.bus_get_sync): v preizkusu je to zasebno vodilo.
-        self.seja = Gio.DBusConnection.new_for_address_sync(
-            self.vodilo_test.get_bus_address(), Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
-            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        self.seja = self.vodilo_test.povezava(Gio)
         p = mock.patch.object(obvestila, "_dejanja_narocena", False)
         p.start()
         self.addCleanup(p.stop)
@@ -160,7 +156,7 @@ class PoDBusu(unittest.TestCase):
         self.streznik.unregister_object(self.reg)
         for v in (self.streznik, self.seja):
             v.close_sync(None)
-        self.vodilo_test.down()
+        self.vodilo_test.ustavi()
 
     def test_notify_zamenjava_in_gumb(self):
         izvedeno = []

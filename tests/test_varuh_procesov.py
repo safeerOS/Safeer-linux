@@ -377,13 +377,11 @@ class ObvestiloUporabniku(unittest.TestCase):
             self.skipTest("potrebuje PyGObject")
         if not (shutil.which("dbus-daemon") and shutil.which("gdbus")):
             self.skipTest("potrebuje dbus-daemon in gdbus")
-        vodilo = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
-        vodilo.up()
-        self.addCleanup(vodilo.down)
-        naslov = vodilo.get_bus_address()
-        streznik = Gio.DBusConnection.new_for_address_sync(
-            naslov, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
-            None, None)
+        import subprocess
+        from zasebno_vodilo import ZasebnoVodilo
+        vodilo = ZasebnoVodilo()                    # ne Gio.TestDBus: ta spreminja okolje procesa (zasebno_vodilo.py)
+        self.addCleanup(vodilo.ustavi)
+        streznik = vodilo.povezava(Gio)
         self.addCleanup(streznik.close_sync, None)
         info = Gio.DBusNodeInfo.new_for_xml(
             '<node><interface name="org.freedesktop.Notifications"><method name="Notify">'
@@ -401,7 +399,10 @@ class ObvestiloUporabniku(unittest.TestCase):
         Gio.bus_own_name_on_connection(streznik, "org.freedesktop.Notifications", Gio.BusNameOwnerFlags.NONE,
                                        None, None)
         izid = []
-        with mock.patch.dict(os.environ, {"DBUS_SESSION_BUS_ADDRESS": naslov}):
+        # gdbus --session dobi naslov zasebnega vodila v svojem okolju; okolja tega procesa ne spreminjamo (setenv med
+        # getenv drugih niti je v glibc nedefiniran).
+        pravi_zagon = subprocess.run
+        with mock.patch("subprocess.run", lambda ukaz, **k: pravi_zagon(ukaz, env=vodilo.okolje(), **k)):
             # gdbus caka na odgovor, streznik odgovarja v glavni zanki tega procesa: klic v svoji niti.
             nit = threading.Thread(target=lambda: izid.append(vp.obvesti_uporabnika("Naslov", "Opis")), daemon=True)
             nit.start()

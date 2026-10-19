@@ -19,6 +19,8 @@ try:
 except Exception:  # noqa: BLE001 - brez PyGObject
     Gio = None
 
+from zasebno_vodilo import ZasebnoVodilo  # noqa: E402
+
 
 def _pocakaj(pogoj, cas: float = 3.0) -> bool:
     kontekst = GLib.MainContext.default()
@@ -35,12 +37,9 @@ def _pocakaj(pogoj, cas: float = 3.0) -> bool:
 @unittest.skipUnless(Gio is not None and shutil.which("dbus-daemon"), "potrebuje PyGObject in dbus-daemon")
 class PladenjSni(unittest.TestCase):
     def setUp(self):
-        self.vodilo_test = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
-        self.vodilo_test.up()
-        # Lastni povezavi (pladenj, odjemalec): skupno vodilo seje bi TestDBus.down() cakal 30 s.
-        self.vodilo, self.pladenj_vodilo = (Gio.DBusConnection.new_for_address_sync(
-            self.vodilo_test.get_bus_address(), Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
-            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None) for _ in range(2))
+        self.vodilo_test = ZasebnoVodilo()          # ne Gio.TestDBus: ta spreminja okolje procesa (zasebno_vodilo.py)
+        # Lastni povezavi (pladenj, odjemalec), ne deljena povezava vodila seje.
+        self.vodilo, self.pladenj_vodilo = (self.vodilo_test.povezava(Gio) for _ in range(2))
         # Lazni strazar: zabelezi prijavo ikone (kot xapp-sn-watcher).
         self.prijave = []
         info = Gio.DBusNodeInfo.new_for_xml(
@@ -61,7 +60,7 @@ class PladenjSni(unittest.TestCase):
         self.vodilo.unregister_object(self.strazar)
         for v in (self.vodilo, self.pladenj_vodilo):
             v.close_sync(None)
-        self.vodilo_test.down()
+        self.vodilo_test.ustavi()
 
     def _klic(self, pot, vmesnik, metoda, parametri, vrsta):
         # Pladenj odgovarja v glavni zanki tega procesa: klic je asinhron, zanko vrtimo, dokler odgovor ne pride.
@@ -148,7 +147,7 @@ class PladenjSni(unittest.TestCase):
             self.skipTest("ni assets/icon.png")
         self.pladenj = Pladenj("safeer-control", "Safeer Control", "safeer-control", [], vodilo=self.pladenj_vodilo)
         kliki = []
-        vodilo_kuverte = lastno_vodilo(self.vodilo_test.get_bus_address())
+        vodilo_kuverte = lastno_vodilo(self.vodilo_test.naslov)
         kuverta = Kuverta(lambda: kliki.append(1), "Sporočila", vodilo=vodilo_kuverte)
         try:
             self._kuverta(kuverta, ikona, kliki)
@@ -185,7 +184,7 @@ class PladenjSni(unittest.TestCase):
         nastavitve, preklopi = [], []
         mapa = tempfile.mkdtemp(prefix="safeer-scit-")
         self.addCleanup(shutil.rmtree, mapa, True)
-        vodilo_scita = lastno_vodilo(self.vodilo_test.get_bus_address())
+        vodilo_scita = lastno_vodilo(self.vodilo_test.naslov)
         scit = ScitPult(BESEDILA_SCITA["sl"], lambda: nastavitve.append(1), preklopi.append, mapa, vodilo=vodilo_scita)
         try:
             self.pladenj = scit.pladenj
