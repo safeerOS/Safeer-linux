@@ -122,6 +122,26 @@ class LupaNamizja(unittest.TestCase):
         self.assertEqual(polje_prog.property("text"), "g")
         self.assertEqual(self._el("iskalnoPolje").property("text"), "")
 
+    def test_meni_lupa_kljukica_vidna(self):
+        """Vnos »Zlozena iskalna lupa« v meniju namizja pokaze stanje: kljukica v barvi palete, ne pod besedilom (pregled
+        19. 10. 2026: privzeti indikator sloga Basic je bil temno siv (#26282a) na temnem meniju in cez prve crke)."""
+        from PySide6.QtCore import QMetaObject, Qt
+        from PySide6.QtGui import QColor
+        self._namizje()
+        QMetaObject.invokeMethod(self._el("gumbNastavitve"), "forceActiveFocus")
+        self._pocakaj(lambda: False, 0.2)
+        self._tipka(Qt.Key.Key_Return)
+        self.assertTrue(self._pocakaj(lambda: self._el("meniNamizja").property("visible")))
+        m = self._el("meniLupa")
+        ind, besedilo = m.property("indicator"), m.property("contentItem")
+        self.assertTrue(m.property("checked"))
+        self.assertTrue(ind.property("visible"))
+        paleta = self.koren.property("paleta")
+        paleta = paleta.toVariant() if hasattr(paleta, "toVariant") else paleta
+        self.assertEqual(QColor(ind.property("color")).name(), QColor(paleta["poudarek"]).name())
+        self.assertGreaterEqual(ind.property("x"), besedilo.property("x") + besedilo.property("contentWidth"), "ne cez besedilo")
+        self.assertLessEqual(ind.property("x") + ind.property("width"), m.property("width"))
+
     def test_razsirjena_po_izbiri_kot_prej(self):
         self._namizje(lupa="razsirjena")
         k = self.koren
