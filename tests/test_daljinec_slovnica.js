@@ -278,10 +278,21 @@ for (const jezik of Object.keys(PAVZA)) {
     const stanjeKlic = klici.find((k) => k.dejanje === "status");
     if (stanjeKlic) d.odziv({ ref: stanjeKlic.ref, ok: true, data: { actions: ["search.query", "volume", "key"] } });
     d.govor({ stanje: "koncno", besedilo: "poisci vreme v ljubljani" });
+    // Stavek o drugi napravi, ki ni ukaz daljinca, gre CEL v lupo racunalnika - ta zna »Prikazi na …« (Namizje.qml
+    // ciljMedija). Pregled 19. 10. 2026: hitri prevajalnik ga je zavrnil (»Ta daljinec upravlja …«).
+    d.govor({ stanje: "koncno", besedilo: "predvajaj film matrix na televizorju" });
+    d.govor({ stanje: "koncno", besedilo: "kaj je danes na tv" });
+    // Ukaz daljinca za drugo napravo (glasnost) pa ostane zavrnjen: ne utisa racunalnika in ne gre v iskanje.
+    d.govor({ stanje: "koncno", besedilo: "utisaj televizor" });
   } catch (e) {
     napaka = e;
   }
   preveri("racunalnik: izgovorjeno gre v search.query brez napake", !napaka && klici.some((k) => k.dejanje === "search.query" && /vreme/.test(k.parametri.q || "")));
+  preveri("racunalnik: »predvajaj film matrix na televizorju« cel v search.query (Prikazi na …)",
+    klici.some((k) => k.dejanje === "search.query" && k.parametri.q === "predvajaj film matrix na televizorju"));
+  preveri("racunalnik: »kaj je danes na tv« v search.query", klici.some((k) => k.dejanje === "search.query" && k.parametri.q === "kaj je danes na tv"));
+  preveri("racunalnik: »utisaj televizor« zavrnjeno - ne utisa racunalnika, ne isce",
+    !klici.some((k) => (k.dejanje === "search.query" && /utisaj/.test(k.parametri.q || "")) || k.dejanje === "volume"));
   if (napaka) console.log("   " + napaka);
 }
 
