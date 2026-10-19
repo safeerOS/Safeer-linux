@@ -106,11 +106,17 @@ if [ -n "${SAFEER_BOLT_POSKUS:-}" ]; then
         exit 1
     fi
     ls -l "$DELO/fdata"
-    # Glavni, omrezni in spletni proces nalozijo obe knjiznici: manj kot 3 profili pomeni, da spletni proces ni koncal
-    # normalno (npr. SIGKILL) in profila najpomembnejsega procesa ni.
+    # Profil zapise proces, ki konca normalno (DT_FINI): glavni in spletni proces (Speedometer). Omrezni proces ob izhodu
+    # glavnega profila ne zapise (CI 39213507046: webkit 9 MB glavni + 112 MB spletni, omrezni nic ali 0 B; prej
+    # zahtevani 3 profili so zavrnili veljaven ucni tek). Zahteva: vsaj 2 neprazna profila, najvecji (spletni proces)
+    # vsaj 32 MiB - brez njega profila najpomembnejsega procesa ni. Prazne datoteke ne gredo v merge-fdata.
+    find "$DELO/fdata" -name '*.fdata' -size 0 -delete
     for ime in $SAFEER_BOLT_POSKUS; do
         n="$(find "$DELO/fdata" -name "$ime.*.fdata" -size +0 | wc -l)"
-        [ "$n" -ge "${SAFEER_BOLT_NAJMANJ_PROFILOV:-3}" ] || { echo "bolt.sh: $ime ima samo $n profilov" >&2; exit 1; }
+        [ "$n" -ge "${SAFEER_BOLT_NAJMANJ_PROFILOV:-2}" ] || { echo "bolt.sh: $ime ima samo $n profilov" >&2; exit 1; }
+        najvecji="$(find "$DELO/fdata" -name "$ime.*.fdata" -printf '%s\n' | sort -n | tail -n 1)"
+        [ "${najvecji:-0}" -ge $(( ${SAFEER_BOLT_NAJVECJI_PROFIL_MIB:-32} * 1048576 )) ] \
+            || { echo "bolt.sh: $ime: najvecji profil ${najvecji:-0} B - profila spletnega procesa ni" >&2; exit 1; }
     done
     # --- 4. optimizacija ----------------------------------------------------------------------------------------------
     POVZETEK="bolt: da (llvm-bolt $LLVM_RAZLICICA, bolt-22 $LLVM_PAKET, ucni tek Speedometer 3.1)"

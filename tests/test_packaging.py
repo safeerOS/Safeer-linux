@@ -641,7 +641,7 @@ class DebWebkitTests(unittest.TestCase):
             pricakovano=subprocess.run([str(d/'glavni')],capture_output=True,text=True,check=True).stdout
             tek=d/'tek.sh'
             tek.write_text('#!/bin/sh\nset -e\nmkdir -p "$2"\n"%s" > "$2/izhod.txt"\n' % (d/'glavni'))
-            okolje=dict(os.environ,SAFEER_BOLT_TEK=str(tek),SAFEER_BOLT_NAJMANJ_PROFILOV='1')
+            okolje=dict(os.environ,SAFEER_BOLT_TEK=str(tek),SAFEER_BOLT_NAJMANJ_PROFILOV='1',SAFEER_BOLT_NAJVECJI_PROFIL_MIB='0')
             r=subprocess.run(['bash',str(self.WEBKIT_DEB/'bolt.sh'),str(d/'webkit'),str(d/'delo')],capture_output=True,
                              text=True,env=okolje)
             self.assertEqual(r.returncode,0,r.stdout[-3000:]+r.stderr[-3000:])
