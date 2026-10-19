@@ -66,3 +66,11 @@ Vsaka od teh napak je ze bila narejena; neodvisni pregled ali lastna raziskava j
   obcutljive kode (posodobitve, dostop naprav, root, DNS). Oznaka `v*` v CI nima predpomnilnika veje - paketi izdaje so
   artefakti zelenega teka veje za isti commit, ne nova gradnja iz oznake.
 - **Preizkusi:** vsak varnostni popravek ima preizkus, ki brez popravka pade (preveri tako, da popravek zacasno umaknes).
+- **Mostovi WebKit (`register_script_message_handler`):** WebKit da `window.webkit.messageHandlers` VSEM okvirjem strani
+  in sporocilu ne doda okvirja. Vsak most je zato v locenem svetu (`UserScript.new_for_world`, kot `SVET_SKLADBE`,
+  `SafeerControl.SVET_VNOSA`) ali sprejme samo sporocila z zetonom iz zaprtja skripta glavnega okvirja (`ZETON_MOSTU` v
+  `safeer_os.py` in `core/safeer_link.py`). Preizkus v pravem WebKitu: okvir drugega izvora mostu ne doseze.
+- **Omrezje s kljucem ali ukazom:** `http://` samo v domace omrezje, zahteve s kljucem ne sledijo preusmeritvam
+  (`core/agent/nastavitve.odpri`), prenosi preverijo VSAK skok preusmeritve. TLS brez CA (samopodpisano) samo s
+  pripetim odtisom, preverjenim PRED posiljanjem (`core/os_jbl._zahteva`); odtise in kljuce primerjaj s
+  `hmac.compare_digest`. Javni kljuc (npr. JBL One) ni skrivnost in ne dokazuje, kdo poslja.

@@ -4,7 +4,9 @@ Prej je bil naslov jezikovnega modela mogoce nastaviti samo rocno v datoteki ~/.
 19. 10. 2026: to mora biti v Nastavitvah, upravljanje agenta mora biti preprosto in prijetno). Ista datoteka ostane vir
 za razumevanje.naslov_modela in za zmoznost 'agent' v Safeer Linku, zato rocno vpisan naslov velja naprej.
 
-* naslov: samo http(s), brez uporabniskega imena ali gesla v naslovu (kljuc je v svoji datoteki »kljuc«), brez lupine;
+* naslov: https, http samo v domacem omrezju (zasebni IP, zanka, .local/.lan/.home.arpa, ime brez pike); brez
+  uporabniskega imena ali gesla v naslovu (kljuc je v svoji datoteki »kljuc«), brez lupine. Na naslov gre besedilo
+  ukaza in glava Authorization, zato zahteve ne sledijo preusmeritvam (drugi neodvisni pregled, 19. 10. 2026);
 * izklop: datoteka »izklopljen« - naslov ostane shranjen, agent pa ne dela (Link ne oglasa zmoznosti 'agent');
 * trajanje: privzeto trajanje nove seje v minutah (0 = neomejeno), kadar ga naprava ne pove sama;
 * dosegljivost: preverba, ali na naslovu res odgovarja streznik OpenAI-zdruzljivega API-ja (llama-server) - brez
@@ -66,9 +68,28 @@ def _odstrani(ime: str) -> None:
         pass
 
 
+class _BrezPreusmeritev(urllib.request.HTTPRedirectHandler):
+    """Preusmeritev je napaka: urllib bi glavo Authorization (kljuc) in besedilo ukaza poslal tudi novemu gostitelju."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "preusmeritev ni dovoljena", headers, fp)
+
+
+def odpri(zahteva, cas: float):
+    """urlopen brez sledenja preusmeritvam (za vse zahteve na naslov modela)."""
+    return urllib.request.build_opener(_BrezPreusmeritev()).open(zahteva, timeout=cas)  # nosec B310 - preveri_naslov
+
+
+def domace_omrezje(gostitelj: str) -> bool:
+    """http je dovoljen samo tja: zasebni IP, zanka, lokalna imena (os_vgrajeni_viri) ali ime brez pike (npr. telefon)."""
+    from core.os_vgrajeni_viri import je_zasebni_gostitelj
+    g = (gostitelj or "").strip().rstrip(".").lower()
+    return je_zasebni_gostitelj(g) or (bool(g) and "." not in g and ":" not in g)
+
+
 def preveri_naslov(naslov) -> str:
-    """Pocisten naslov modela ali ValueError s kodo napake (»shema«, »naslov«, »geslo«, »dolzina«). Prazen niz je
-    dovoljen (izbrise naslov). Samo http(s) - isto pravilo kot razumevanje.llama_server (bandit B310)."""
+    """Pocisten naslov modela ali ValueError s kodo napake (»shema«, »naslov«, »geslo«, »dolzina«, »http«). Prazen niz
+    je dovoljen (izbrise naslov). https, http samo v domacem omrezju - isto pravilo kot razumevanje.llama_server."""
     n = str(naslov or "").strip()
     if not n:
         return ""
@@ -87,6 +108,8 @@ def preveri_naslov(naslov) -> str:
         raise ValueError("naslov") from None
     if not deli.hostname or deli.query or deli.fragment:
         raise ValueError("naslov")
+    if deli.scheme.lower() == "http" and not domace_omrezje(deli.hostname):
+        raise ValueError("http")
     return urllib.parse.urlunsplit((deli.scheme.lower(), deli.netloc, deli.path.rstrip("/"), "", ""))
 
 
@@ -172,7 +195,7 @@ def dosegljivost(naslov: Optional[str] = None, cas: float = 3.0) -> dict:
     for pot in ("/v1/models", "/health"):
         zahteva = urllib.request.Request(n + pot, headers=glave)
         try:
-            with urllib.request.urlopen(zahteva, timeout=cas) as o:  # nosec B310 - samo http(s), preverjeno zgoraj
+            with odpri(zahteva, cas) as o:
                 telo = o.read(65536)
         except urllib.error.HTTPError as e:
             napaka = "http_%d" % e.code

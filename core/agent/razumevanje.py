@@ -107,7 +107,10 @@ def naslov_modela() -> str:
     if not nastavitve.vklopljen():
         return ""
     n = os.environ.get("SAFEER_AGENT", "").strip() or nastavitve.naslov_shranjen()
-    return n if n.startswith(("http://", "https://")) else ""
+    try:
+        return nastavitve.preveri_naslov(n)      # tudi naslov iz okolja: http samo v domace omrezje
+    except ValueError:
+        return ""
 
 
 def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callable[[list, dict], dict]:
@@ -126,7 +129,8 @@ def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callab
         if kljuc:
             glave["Authorization"] = "Bearer " + kljuc
         z = urllib.request.Request(naslov.rstrip("/") + "/v1/chat/completions", json.dumps(telo).encode(), glave)
-        with urllib.request.urlopen(z, timeout=cas) as o:  # nosec B310 - samo http(s), preverjeno zgoraj
+        from core.agent import nastavitve
+        with nastavitve.odpri(z, cas) as o:     # brez preusmeritev: kljuc in ukaz ne gresta drugam
             d = json.load(o)
         return json.loads(d["choices"][0]["message"]["content"])
     return klic

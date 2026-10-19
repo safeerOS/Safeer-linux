@@ -21,6 +21,7 @@ import array
 import glob
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -881,7 +882,9 @@ class DrugiZaslon:
             os.makedirs(self.mapa, exist_ok=True)
             konf = os.path.join(self.mapa, "config")
             # Ostanek prejsnjega Controla (ubit brez pospravljanja) bi tekel v prazno.
-            subprocess.run(["pkill", "-TERM", "-u", str(os.getuid()), "-f", "^sway -c " + konf],
+            # pkill -f vzame regularni izraz: pot (XDG_CONFIG_HOME) je lahko z znaki, ki so v izrazu posebni - brez
+            # re.escape bi signal dobil drug proces istega uporabnika (drugi neodvisni pregled, 19. 10. 2026).
+            subprocess.run(["pkill", "-TERM", "-u", str(os.getuid()), "-f", "^sway -c " + re.escape(konf) + "$"],
                            capture_output=True, timeout=5)
             with open(konf, "w", encoding="utf-8") as f:
                 f.write(_konfiguracija(sirina, visina))

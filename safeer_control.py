@@ -2397,6 +2397,12 @@ class SafeerControl(_OSNOVA):
     # preracunamo v delez prave slike, da sirina okna ali crni robovi ne zamaknejo dotika.
     # Stran gledalca s sredisca na Androidu ima na sliki SVOJE poslusalce miske (dotik poslje sama, prek
     # sredisca). Dogodek zato ustavimo v fazi zajema (stopPropagation), sicer gre en klik na napravo dvakrat.
+    #: Locen svet skript za vnos iz gledalca (drugi neodvisni pregled, 19. 10. 2026). Rokovalnik »safeerVnos« v glavnem
+    #: svetu je bil dosegljiv vsem okvirjem strani gledalca (WebKit sporocilu ne doda okvirja): iframe ali XSS na strani
+    #: s sredisca bi lahko napravi, katere zaslon gledamo, poslal dotike in besedilo. Rokovalnik in GLEDALEC_VNOS_JS sta
+    #: zdaj samo v tem svetu in samo v glavnem okvirju; skripta poslusa isti DOM, skripte strani pa do mostu ne sezejo.
+    SVET_VNOSA = "safeer-vnos"
+
     GLEDALEC_VNOS_JS = r"""
 (function () {
   function poslji(d, p) {
@@ -2491,19 +2497,25 @@ class SafeerControl(_OSNOVA):
 })();
 """
 
+    @classmethod
+    def upravitelj_gledalca(cls, webkit, ob_vnosu):
+        """Upravitelj vsebine okna gledalca: most safeerVnos in GLEDALEC_VNOS_JS samo v svetu SVET_VNOSA, glavni okvir."""
+        upravitelj = webkit.UserContentManager()
+        upravitelj.register_script_message_handler("safeerVnos", cls.SVET_VNOSA)   # WebKitGTK 6.0: (ime, svet)
+        upravitelj.connect("script-message-received::safeerVnos", ob_vnosu)
+        upravitelj.add_script(webkit.UserScript.new_for_world(
+            cls.GLEDALEC_VNOS_JS,
+            webkit.UserContentInjectedFrames.TOP_FRAME,
+            webkit.UserScriptInjectionTime.END,
+            cls.SVET_VNOSA, None, None,
+        ))
+        return upravitelj
+
     def _odpri_gledalca(self, url: str) -> None:
         """Deljen zaslon druge naprave: stran gledalca s Huba v svojem oknu Controla. Ce naprava to
         zna (Safeer Vnos na tablici), jo iz tega okna upravljas z misko in tipkovnico."""
         if self.gledalec is None:
-            upravitelj = WebKit2.UserContentManager()
-            upravitelj.register_script_message_handler("safeerVnos", None)   # WebKitGTK 6.0: (ime, svet)
-            upravitelj.connect("script-message-received::safeerVnos", self._vnos_iz_gledalca)
-            upravitelj.add_script(WebKit2.UserScript(
-                self.GLEDALEC_VNOS_JS,
-                WebKit2.UserContentInjectedFrames.TOP_FRAME,
-                WebKit2.UserScriptInjectionTime.END,
-                None, None,
-            ))
+            upravitelj = self.upravitelj_gledalca(WebKit2, self._vnos_iz_gledalca)
             odlozisce_varuh.dodaj(WebKit2, upravitelj)
             pogled = WebKit2.WebView(web_context=self.web_context, user_content_manager=upravitelj)
             os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, pogled, "safeer-control", "gledalec")

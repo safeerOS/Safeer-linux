@@ -7,6 +7,7 @@ TLS potrdila in preslikavo vhodnih dogodkov; zato ga je mogoce preveriti brez za
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import socket
 import ssl
@@ -244,7 +245,7 @@ class Gledalec:
             if not der:
                 raise NapakaGledalca("Strežnik ni poslal potrdila.")
             dejanski = hashlib.sha256(der).hexdigest()
-            if dejanski != self.seja["fp"]:
+            if not hmac.compare_digest(dejanski.encode(), str(self.seja.get("fp") or "").encode()):
                 raise NapakaGledalca("Odtis potrdila se ne ujema.")
             # Rokovanje je mimo: od tu velja cas cele seje, ne krajsi cas enega poskusa.
             varna.settimeout(self.cas_povezave)

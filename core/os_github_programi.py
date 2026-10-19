@@ -12,6 +12,7 @@ import platform
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -181,10 +182,25 @@ def ciljna_pot(mapa: str, ime: str) -> str:
     return os.path.join(mapa, f"{deblo}-{uuid.uuid4().hex[:6]}{konc}")
 
 
+class _Preusmeritve(urllib.request.HTTPRedirectHandler):
+    """Vsak skok preusmeritve mora biti na dovoljen naslov GitHuba, PREDEN mu urllib sledi - koncni naslov preverimo
+    tudi spodaj, a takrat je zahteva na vmesni (npr. notranji) naslov ze poslana (drugi neodvisni pregled, 19. 10. 2026)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not dovoljen_naslov(newurl):
+            raise urllib.error.HTTPError(req.full_url, code, "preusmeritev drugam ni dovoljena", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def odpri_varno(zahteva, timeout: float = 30):
+    """urlopen, ki sledi samo preusmeritvam na dovoljene naslove GitHuba."""
+    return urllib.request.build_opener(_Preusmeritve()).open(zahteva, timeout=timeout)  # nosec B310 - samo https GitHub
+
+
 class Prenosi:
     """Prenosi v ozadju; stran sprasuje po stanju (kot pri pretvorbi datotek)."""
 
-    def __init__(self, odpri: Callable = urllib.request.urlopen):
+    def __init__(self, odpri: Callable = odpri_varno):
         self._odpri = odpri
         self._dela: Dict[str, dict] = {}
         self._zaklep = threading.Lock()

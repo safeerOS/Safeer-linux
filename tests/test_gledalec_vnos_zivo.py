@@ -6,6 +6,9 @@ od 27. 9. 2026 na sliki svoje poslušalce miške (klik -> POST .../input -> isti
 sta poslali OBE poti. Tu naložimo stran z enakimi poslušalci, kot jih ima stran z Androida (namesto zahteve šteje),
 vbrizgamo skripto iz safeer_control.py in sprožimo dogodke miške na sliki.
 
+Most safeerVnos je od 19. 10. 2026 v locenem svetu (drugi neodvisni pregled): skripte strani gledalca in njenih okvirjev
+do njega ne sezejo (StranNeDosezeMostu). Okno zato sestavi pravi SafeerControl.upravitelj_gledalca.
+
 Preizkus potrebuje zaslon in WebKitGTK, zato se brez njiju preskoči.
 """
 
@@ -60,27 +63,23 @@ def _webkit():
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
 @unittest.skipUnless(_webkit() is not None, "potrebuje WebKitGTK")
 class KlikVOknuGledalca(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        with open(CONTROL, encoding="utf-8") as f:
-            cls.skripta = re.search(r'GLEDALEC_VNOS_JS = r"""(.*?)"""', f.read(), re.S).group(1)
-
-    def _klikni(self, tocke, s_skripto=True):
+    def _klikni(self, tocke, s_skripto=True, stran=STRAN, js=None):
         """Vrne (kaj je poslala stran, kaj je poslala vbrizgana skripta Controla)."""
         GLib, Gtk, WebKit2 = _webkit()
         ukazi = []
-        upravitelj = WebKit2.UserContentManager()
-        upravitelj.register_script_message_handler("safeerVnos", None)
         self.okna = []
 
         def sprejmi(_u, r):
             # okno.* (velikost slike za obliko okna gledalca) ostane v Controlu - na napravo gre samo input.*.
             u = json.loads(r.to_string())          # WebKitGTK 6.0: JSC.Value
             (self.okna if str(u.get("d", "")).startswith("okno.") else ukazi).append(u)
-        upravitelj.connect("script-message-received::safeerVnos", sprejmi)
         if s_skripto:
-            upravitelj.add_script(WebKit2.UserScript(self.skripta, WebKit2.UserContentInjectedFrames.TOP_FRAME,
-                                                     WebKit2.UserScriptInjectionTime.END, None, None))
+            import safeer_control                  # pravo okno gledalca: most in skripta v svetu SVET_VNOSA
+            upravitelj = safeer_control.SafeerControl.upravitelj_gledalca(WebKit2, sprejmi)
+        else:
+            upravitelj = WebKit2.UserContentManager()
+            upravitelj.register_script_message_handler("safeerVnos", None)
+            upravitelj.connect("script-message-received::safeerVnos", sprejmi)
         pogled = WebKit2.WebView(user_content_manager=upravitelj)
         okno = Gtk.Window()                         # GTK4 nima OffscreenWindow; zaslon je Xvfb ali pravi
         okno.set_default_size(800, 600)
@@ -98,7 +97,7 @@ class KlikVOknuGledalca(unittest.TestCase):
             GLib.timeout_add(300, lambda: (zanka.quit(), False)[1])      # sporocila skripte pridejo za odgovorom
 
         def sprozi():
-            pogled.evaluate_javascript(_dogodki(tocke), -1, None, None, None, po_dogodkih)
+            pogled.evaluate_javascript(js or _dogodki(tocke), -1, None, None, None, po_dogodkih)
             return False
 
         def ob_nalaganju(_p, dogodek):
@@ -106,7 +105,7 @@ class KlikVOknuGledalca(unittest.TestCase):
                 GLib.timeout_add(400, sprozi)
 
         pogled.connect("load-changed", ob_nalaganju)
-        pogled.load_html(STRAN, "https://naprava.test/cast/screen/abc/view")
+        pogled.load_html(stran, "https://naprava.test/cast/screen/abc/view")
         GLib.timeout_add(10000, lambda: (zanka.quit(), False)[1])
         zanka.run()
         okno.destroy()
@@ -146,6 +145,38 @@ class KlikVOknuGledalca(unittest.TestCase):
         _stran, ukazi = self._klikni([[0.5, 0.25]])
         self.assertEqual(len(ukazi), 1, ukazi)
         self.assertAlmostEqual(ukazi[0]["p"]["y"], 0.125, places=2)
+
+
+#: Stran gledalca z vgrajenim okvirjem: glavni okvir in okvir poskusita poslati dotik in besedilo mimo okna Controla.
+STRAN_VDOR = """<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;height:100%%;background:#000;overflow:hidden}
+img{position:absolute;inset:0;width:100%%;height:100%%;object-fit:contain}iframe{width:1px;height:1px}</style></head><body>
+<img id="zaslon" src="%s" alt=""><script>window.__stran=[];</script>
+<iframe srcdoc="<script>try{parent.__okvir=typeof window.webkit.messageHandlers.safeerVnos;
+window.webkit.messageHandlers.safeerVnos.postMessage(JSON.stringify({d:'input.text',p:{text:'okvir'}}))}catch(e){}</script>">
+</iframe></body></html>""" % SLIKA
+
+VDOR_JS = """(function(){var m=typeof (window.webkit && window.webkit.messageHandlers.safeerVnos);
+try{window.webkit.messageHandlers.safeerVnos.postMessage(JSON.stringify({d:'input.tap',p:{x:0.5,y:0.5,ms:60}}))}catch(e){}
+return JSON.stringify([m]);})()"""
+
+
+class StranNeDosezeMostu(KlikVOknuGledalca):
+    """Skripte strani gledalca (s sredisca druge naprave) in njenih okvirjev ne morejo poslati vnosa na napravo."""
+
+    # Preizkusi zgoraj tecejo ze v KlikVOknuGledalca.
+    test_stran_sama_poslje_dotik = test_en_klik_je_en_dotik = test_poteg_je_en_poteg = None
+    test_klik_na_crni_rob_ni_dotik = test_koordinate_so_delez_slike_ne_okna = None
+
+    def test_stran_in_okvir_ne_posljeta_vnosa(self):
+        stran, ukazi = self._klikni([], stran=STRAN_VDOR, js=VDOR_JS)
+        self.assertEqual(stran, ["undefined"], "most safeerVnos je viden skriptam strani")
+        self.assertEqual(ukazi, [], "stran ali njen okvir je poslal vnos na napravo")
+
+    def test_okno_se_vedno_poslje_dotik(self):
+        """Ista stran z okvirjem: klik na sliko iz okna Controla gre na napravo (svet SVET_VNOSA dela)."""
+        _stran, ukazi = self._klikni([[0.5, 0.5]], stran=STRAN_VDOR)
+        self.assertEqual([u["d"] for u in ukazi], ["input.tap"])
 
 
 if __name__ == "__main__":

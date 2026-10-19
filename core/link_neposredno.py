@@ -45,6 +45,7 @@ from __future__ import annotations
 import base64
 import errno
 import hashlib
+import hmac
 import ipaddress
 import json
 import os
@@ -864,7 +865,8 @@ def odpri_neposredno(ip: str, vrata: int, hub_id: str, kljuc_huba_b64: str, nas_
         s.sendall(sestavi_trk(hub_id, nas_id, podpisi))
         t = _kontekst_odjemalca().wrap_socket(s, server_hostname=None)
         der = t.getpeercert(binary_form=True) or b""
-        if not der or _kljuc_potrdila(der) != kljuc_huba_b64:
+        # Primerjava v stalnem casu, kot link_tls._isti (drugi neodvisni pregled, 19. 10. 2026).
+        if not der or not hmac.compare_digest(_kljuc_potrdila(der).encode(), str(kljuc_huba_b64 or "").encode()):
             raise NapakaNeposredne("kljuc sredisca se ne ujema s krogom")
         odtis = hashlib.sha256(der).hexdigest()
         izziv = _beri_tocno(t, 32, rok_rokovanja)

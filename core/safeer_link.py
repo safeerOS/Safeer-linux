@@ -14,8 +14,10 @@ pa gredo v program prek postMessage in se vrnejo kot odziv.
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -220,11 +222,18 @@ PONOVI_PO_NI_POTI_S = 4.0
 
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
+#: Zeton mostu safeerLink (drugi neodvisni pregled, 19. 10. 2026). WebKit da window.webkit.messageHandlers VSEM okvirjem
+#: strani, sporocilu pa ne doda okvirja - iframe ali XSS na strani Linka bi lahko seznanil napravo, odobril kodo, delil
+#: mapo ali zaslon. Zeton je samo v zaprtju MOST_JS, ki ga dobi le glavni okvir (TOP_FRAME); _na_sporocilo zavrne vsako
+#: sporocilo brez njega. Nov ob vsakem zagonu procesa, nikoli na disku ali v dnevniku (enako kot safeer_os.ZETON_MOSTU).
+ZETON_MOSTU = secrets.token_urlsafe(32)
+
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki
 # ga program vstavi vnaprej; dejanja gredo v program.
 MOST_JS = """
 (function () {
   if (window.SafeerLink) return;
+  var zeton = "__ZETON__";
   window.__safeerLink = window.__safeerLink || {
     stanje: {"znan": false, "seznanjen": false},
     naprave: [],
@@ -237,7 +246,7 @@ MOST_JS = """
   function poslji(metoda, argumenti) {
     try {
       window.webkit.messageHandlers.safeerLink.postMessage(
-        JSON.stringify({ m: metoda, a: argumenti || [] })
+        JSON.stringify({ m: metoda, a: argumenti || [], t: zeton })
       );
     } catch (e) {}
   }
@@ -306,7 +315,12 @@ MOST_JS = """
     zapri: function () { poslji("zapri"); }
   };
 })();
-"""
+""".replace("__ZETON__", ZETON_MOSTU)
+
+
+def zeton_velja(sporocilo) -> bool:
+    """Sporocilo mostu safeerLink je iz glavnega okvirja strani Linka (MOST_JS), ne iz vgrajenega okvirja."""
+    return isinstance(sporocilo, dict) and hmac.compare_digest(str(sporocilo.get("t") or ""), ZETON_MOSTU)
 
 
 class SafeerLink:
@@ -775,6 +789,8 @@ class SafeerLink:
             besedilo = _js_vrednost(rezultat).to_string()
             sporocilo = json.loads(besedilo)
         except Exception:
+            return
+        if not zeton_velja(sporocilo):
             return
         metoda = sporocilo.get("m")
         argumenti = sporocilo.get("a") or []

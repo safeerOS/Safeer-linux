@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import subprocess
 import tempfile
 from typing import Optional
@@ -43,12 +44,17 @@ def _nalozi_zasebni(pot_kljuca: str):
         return serialization.load_pem_private_key(d.read(), password=None)
 
 
+def _ime_za_subj(ime: str) -> str:
+    """Ime naprave za openssl -subj: znaka / in = ter nova vrstica bi v DN dodala polje (npr. /O=...) - samo varen nabor."""
+    return re.sub(r"[^A-Za-z0-9 ._-]", "_", str(ime or ""))[:64].strip() or "naprava"
+
+
 def ustvari_kljuc_in_potrdilo(pot_kljuca: str, pot_potrdila: str, ime: str) -> None:
     """Nov EC P-256 kljuc in samopodpisano potrdilo (ce se ne obstajata)."""
     c = _crypto()
     if c is None:
         subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
-                        "-nodes", "-days", "3650", "-subj", f"/CN=Safeer Control {ime}",
+                        "-nodes", "-days", "3650", "-subj", f"/CN=Safeer Control {_ime_za_subj(ime)}",
                         "-keyout", pot_kljuca, "-out", pot_potrdila], check=True, capture_output=True)
         return
     x509, hashes, serialization, ec, NameOID = c
