@@ -228,6 +228,9 @@ def odpri(pot: str) -> bool:
     pot = os.path.abspath(os.path.expanduser(str(pot or "")))
     if not os.path.exists(pot):
         return False
+    # V procesu (Gio), brez skripte xdg-open in procesa gio (meritev v commitu 19. 10. 2026); ukaza sta rezerva.
+    if zasebni_webkit.odpri_privzeto(pot):
+        return True
     for ukaz in (["xdg-open", pot], ["gio", "open", pot]):
         if shutil.which(ukaz[0]) is None:
             continue

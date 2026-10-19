@@ -806,10 +806,10 @@ def _skupina_paketa(paket: str) -> str:
     return "drugo"
 
 
-def naprave_s_programi() -> list:
+def naprave_s_programi(izid: Optional[dict] = None) -> list:
     """Naprave v Safeer Linku, ki znajo nasteti in zagnati programe (zmoznost apps ali remote); brez tega
-    racunalnika (njegovi programi so ze v meniju)."""
-    izid = _control_naprave("Seznam")
+    racunalnika (njegovi programi so ze v meniju). izid: ze prebran seznam (Control "Seznam"), sicer ga vprasa."""
+    izid = _control_naprave("Seznam") if izid is None else izid
     naprave = []
     for n in izid.get("naprave") or []:
         z = n.get("zmoznosti") or []
@@ -824,9 +824,9 @@ def naprave_s_programi() -> list:
     return naprave
 
 
-def vse_naprave() -> list:
+def vse_naprave(izid: Optional[dict] = None) -> list:
     """Vse naprave v Safeer Linku (tudi ta racunalnik) za stran Naprave: id, ime, platforma, vrsta, ta."""
-    izid = _control_naprave("Seznam")
+    izid = _control_naprave("Seznam") if izid is None else izid
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta")), "ozji": bool(n.get("ozji") or n.get("ta"))}
             for n in izid.get("naprave") or [] if n.get("id")]
@@ -871,14 +871,25 @@ def magnet_privzeto(nastavi: Optional[bool] = None) -> bool:
     if not vnos:
         return False
     try:
-        if nastavi:
-            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/magnet"], timeout=10, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/magnet"], timeout=10,
-                           capture_output=True, text=True)
-        return r.stdout.strip() == vnos
+        return _privzeti_za_shemo("magnet", vnos if nastavi else "") == vnos
     except Exception:
         return False
+
+
+def _privzeti_za_shemo(shema: str, nastavi: str = "") -> str:
+    """Privzeti program (vnos .desktop) za povezave sheme; z `nastavi` ga prej nastavi. V procesu (GIO - isto kot
+    xdg-mime na Cinnamonu, ki klice gio mime), xdg-mime ostane rezerva in pot v Flatpaku in AppImage. Meritev
+    19. 10. 2026 v commitu: xdg-mime je lupinska skripta, ki zazene se gio (vsak zagon Safeer OS za stremio)."""
+    from core import os_odpri_z
+    vrsta = "x-scheme-handler/" + shema
+    if nastavi and not os_odpri_z.nastavi_v_procesu(vrsta, nastavi):
+        subprocess.run(["xdg-mime", "default", nastavi, vrsta], timeout=10, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    v_procesu = os_odpri_z.programi_v_procesu(vrsta)
+    if v_procesu is not None:
+        return v_procesu[0]
+    r = subprocess.run(["xdg-mime", "query", "default", vrsta], timeout=10, capture_output=True, text=True)
+    return r.stdout.strip()
 
 
 def stremio_privzeto() -> str:
@@ -889,21 +900,18 @@ def stremio_privzeto() -> str:
     vnos = next((ime for ime in ("safeer-os.Stremio.desktop", APP_ID + ".Stremio.desktop")
                  for m in mape if os.path.isfile(os.path.join(m, "applications", ime))), "")
     try:
-        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/stremio"], timeout=10,
-                           capture_output=True, text=True)
-        zdaj = r.stdout.strip()
+        zdaj = _privzeti_za_shemo("stremio")
         if not zdaj and vnos:
-            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/stremio"], timeout=10, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _privzeti_za_shemo("stremio", vnos)
             return vnos
         return zdaj
     except Exception:
         return ""
 
 
-def naprave_z_datotekami() -> list:
+def naprave_z_datotekami(izid: Optional[dict] = None) -> list:
     """Druge naprave v Linku, ki delijo datoteke (zmoznost "files"): za Safeer Media -> Naprave."""
-    izid = _control_naprave("Seznam")
+    izid = _control_naprave("Seznam") if izid is None else izid
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and n.get("ozji")
@@ -2515,8 +2523,9 @@ class SafeerOS(Gtk.Application):
     def _varuh_docka(self) -> None:
         """Vsakih 30 s: ce je dock vklopljen in Plank ne tece, ga safeer-cinnamon --dock-ozivi zazene znova (najvec 3-krat
         v 10 min). Lastnik, 17. 10. 2026: dock je izginil (Plank se ni vrnil) - »uporabnik ne zeli ostati brez docka«.
-        V niti: ukaz pocaka na konec (brez zombijev), glavna nit ne caka."""
-        if getattr(self, "_varuh_docka_tece", False):
+        V niti: ukaz pocaka na konec (brez zombijev), glavna nit ne caka. Isti pogoj (dock vklopljen, Plank ne tece)
+        najprej preverimo tu, brez podprocesa: prej se je vsakih 30 s zagnala skripta bash (1300 vrstic) s pgrep."""
+        if getattr(self, "_varuh_docka_tece", False) or not os_dock.dock_vklopljen() or os_dock.plank_tece():
             return
         self._varuh_docka_tece = True
 
@@ -2831,16 +2840,19 @@ class SafeerOS(Gtk.Application):
         GLib.timeout_add_seconds(self.SCIT_PULT_OSVEZI_S, lambda: (self._osvezi_scit_pult(), True)[1])
 
     def _osvezi_scit_pult(self, stanje: Optional[dict] = None) -> None:
-        """Stanje Scita v pult. Brez podanega stanja ga prebere v ozadju (stanje() vprasa systemd za resolved)."""
+        """Stanje Scita v pult. Brez podanega stanja vzame hitro stanje pulta (Scit.stanje_pulta: brez podprocesov); v
+        ozadju le, ce je na vrsti preverba systemd-resolved (najvec vsakih 5 min). Prej nit in polno stanje vsakih 15 s."""
         if self.scit_pult is None or self._scit_pult_zaposlen:
             return
+        if stanje is None and self.scit.razlog_svez():
+            stanje = self.scit.stanje_pulta(preveri=False)
         if stanje is not None:
             self.scit_pult.osvezi(stanje)
             return
 
         def delo() -> None:
             try:
-                s = self.scit.stanje()
+                s = self.scit.stanje_pulta()
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] scit v pultu:", e)
                 return
@@ -4612,7 +4624,8 @@ class SafeerOS(Gtk.Application):
                 str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", 120,
                 int(a[2]) if len(a) > 2 else 0),
             "odstraniLokalniMedij": lambda: self._odstrani_lokalni_medij(str(a[0]) if a else ""),
-            "povezava": stanje_povezave,
+            # »brez« (namizje QML): stanje brez iskanja Hubov po mDNS - namizje jih ne kaze (stran Naprave jih).
+            "povezava": lambda: stanje_povezave("brez" if a and a[0] == "brez" else "cakaj"),
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
             "predajanje": lambda: nastavi_predajanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
@@ -6647,6 +6660,11 @@ class SafeerOS(Gtk.Application):
         self._dogodek("predvajalnik", self._medijski_podatki())
         self._mpris_osvezi()
 
+    def _sp_spremenjeno(self) -> None:
+        """Spotify (nit strazarja, core/spotify_racun.py) je zacel, ustavil ali zamenjal skladbo: isto kot _yt_spremenjeno,
+        iz glavne niti. Namizje QML zato ne bere stanja vsake 3 s (Namizje.qml osveziMedij)."""
+        GLib.idle_add(lambda: (self._yt_spremenjeno(), False)[1])
+
     def _yt_ukaz(self, ukaz: str, yt: dict) -> bool:
         """Tipke pripomockov in sistema za skladbo v vgradnem predvajalniku YouTuba (glavna nit)."""
         if ukaz == "premor":
@@ -6743,6 +6761,7 @@ class SafeerOS(Gtk.Application):
                 youtube=self._katalog_youtube, youtube_ukaz=self._katalog_youtube_ukaz,
                 jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav, knjiznica=_knjiznica())
             self._katalog.twitch_brez_oglasov = self.scit.twitch_brez_oglasov
+            self._katalog.ob_spotify = self._sp_spremenjeno
         return self._katalog
 
     def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool,

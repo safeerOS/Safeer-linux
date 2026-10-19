@@ -39,8 +39,10 @@ import struct
 import time
 
 # ---------------------------------------------------------------------------------------------- odjemalec (otroci)
-#: Utrip iz glavne zanke otroka. Zamrznitev = toliko sekund brez utripa (glej Proces.zamrznitev_s).
-UTRIP_S = 2
+#: Utrip iz glavne zanke otroka. Zamrznitev = toliko sekund brez utripa (glej Proces.zamrznitev_s): pri 20-30 s je 5 s
+#: se vedno 4-6 utripov v roku. Prej 2 s - meritev 19. 10. 2026 (vsebnik, mirovanje): varuh 2,5 bujenja/s, lupina in
+#: Safeer OS vsak 0,5/s samo zaradi utripa.
+UTRIP_S = 5
 
 _obvestila: dict = {"vtic": None, "naslov": None, "prebrano": False, "utrip": 0}
 
@@ -112,6 +114,9 @@ PROST_LUPINA_MIB = 80
 MEJA_LUPINA_MIB = 1536
 MEJA_OS_DELEZ = 0.5          # polovica pomnilnika racunalnika
 POMNILNIK_VSAKIH_S = 10
+#: Najdaljse spanje zanke varuha (s). Zanka se sicer zbudi ob obvestilu otroka, signalu (tudi SIGCHLD) ali roku
+#: (zamrznitev, SIGKILL, ponovni zagon, meritev pomnilnika) - ne vec vsakih 0,5 s (2 bujenji/s v mirovanju).
+NAJVEC_SPANJE_S = 10.0
 #: oom_score_adj (0 = privzeto): v stiski OOM izbere Safeer OS (stanje se obnovi), ne lupine ali drugih programov.
 OOM_OS = 200
 #: Stanje (zavihki, okna, predvajanje) se ob ponovnem zagonu obnovi - razen ce je pravkar obnovljeni proces padel prej
@@ -574,6 +579,24 @@ class Varuh:
         self._zapisi_stanje()
         return None
 
+    def do_roka(self) -> float:
+        """Koliko sekund zanka lahko spi: do najblizjega roka - zamrznitev (zadnji utrip + meja), SIGKILL po SIGTERM ali
+        SIGABRT, (ponovni) zagon, meritev pomnilnika. Obvestila, konec otroka (SIGCHLD) in signali zbudijo zanko prej."""
+        zdaj = self.ura()
+        roki = [self._zadnja_meritev + POMNILNIK_VSAKIH_S]
+        for p in self.procesi:
+            if p.tece():
+                if p.kill_ob:
+                    roki.append(p.kill_ob)
+                if not p.zahteva:
+                    # korak() zamrznitev zazna sele, ko je cas od utripa VECJI od meje
+                    roki.append(p.zadnji_utrip + (p.zamrznitev_s if p.pripravljen else p.zagon_s) + 0.05)
+            elif p.popen is not None:
+                roki.append(zdaj)                 # koncan, se ne pobran: takoj
+            elif not (p.obupal or p.izkljucen):
+                roki.append(p.naslednji_zagon)
+        return max(0.0, min(min(roki) - zdaj, NAJVEC_SPANJE_S))
+
     def _zapisi_stanje(self) -> None:
         """varuh.json za lupino (obvestilo na namizju) in drug zagon (SIGUSR1). Brez modula json (velikost varuha)."""
         deli = ['"%s": {"napak": %d, "pid": %d, "stanje": "%s"}' % (p.ime, len(p.napake), p.pid, p.stanje())
@@ -600,7 +623,7 @@ class Varuh:
                     self.ustavi_vse()
                     return izid
                 try:
-                    select.select([self.vtic, self._budilka_r], [], [], 0.5)
+                    select.select([self.vtic, self._budilka_r], [], [], self.do_roka())
                 except InterruptedError:
                     pass
                 try:

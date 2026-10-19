@@ -2402,6 +2402,8 @@ class MediaCenter:
         racun = getattr(self, "_spotify", None)
         if racun is None:
             racun = self._spotify = spotify_racun.Racun(str(self.config_dir))
+            # Sprememba skladbe ali predvajanja: Safeer OS jo takoj pokaze na namizju in v MPRIS (ob_spotify).
+            racun.ob_spremembi = lambda: (getattr(self, "ob_spotify", None) or (lambda: None))()
         return racun
 
     def sp_vnos(self, ime: str, s: dict, kontekst: str) -> dict:
@@ -5098,6 +5100,8 @@ def odpri(pot: str) -> bool:
         return False
     try:
         from core import zasebni_webkit      # sistemski predvajalnik brez nasih zasebnih poti v okolju
+        if zasebni_webkit.odpri_privzeto(str(path)):      # v procesu (Gio), xdg-open je rezerva
+            return True
         subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
         return True

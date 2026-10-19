@@ -320,7 +320,7 @@ def main() -> int:
     utrip.start()
     obrezovanje = QTimer()
     obrezovanje.setInterval(90 * 1000)
-    obrezovanje.timeout.connect(pomnilnik.obrezuj)
+    obrezovanje.timeout.connect(pomnilnik.obrezuj_ce_treba)
     obrezovanje.start()
     QTimer.singleShot(5000, pomnilnik.obrezuj)       # po nalaganju QML (zacasni pomnilnik prevajalnika QML)
     varuh_procesov.obvesti("READY=1", "STATUS=namizje prikazano")

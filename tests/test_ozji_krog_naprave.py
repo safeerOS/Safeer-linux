@@ -57,6 +57,25 @@ class OzjiKrog(unittest.TestCase):
             po_id = {n["id"]: n["ozji"] for n in safeer_os.vse_naprave()}
         self.assertEqual(po_id, {"n-jaz": True, "n-tablica": True, "n-tuji": False, "n-star": False})
 
+    def test_namizje_en_seznam_za_tri_izbore(self):
+        """Namizje QML (napraveNamizja, vsakih 20 s): en klic "Seznam" za vse tri izbore, isti izid kot prej s tremi."""
+        from core import os_lupina
+        klici = []
+        with mock.patch.object(safeer_os, "_control_naprave", _control(klici)):
+            prej = os_lupina.naprave_za_izbiro(safeer_os.vse_naprave(), safeer_os.naprave_s_programi(),
+                                               safeer_os.naprave_z_datotekami())
+            self.assertEqual(len(klici), 3)
+            seznam = safeer_os._control_naprave("Seznam")
+            zdaj = os_lupina.naprave_za_izbiro(safeer_os.vse_naprave(seznam), safeer_os.naprave_s_programi(seznam),
+                                               safeer_os.naprave_z_datotekami(seznam))
+        self.assertEqual(len(klici), 4)
+        self.assertEqual(zdaj, prej)
+        with open(os.path.join(KOREN, "core", "os_lupina.py"), encoding="utf-8") as f:
+            vir = f.read()
+        telo = vir[vir.index('elif metoda == "napraveNamizja":'):vir.index('elif metoda == "oddaljeniZaslon":')]
+        self.assertEqual(telo.count('_control_naprave("Seznam")'), 1)
+        self.assertIn("so.vse_naprave(seznam), so.naprave_s_programi(seznam)", telo)
+
     def test_control_seznam_nosi_ozji(self):
         with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
             vir = f.read()

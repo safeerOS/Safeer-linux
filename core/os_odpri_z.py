@@ -3,7 +3,9 @@
 Vir resnice je namizje samo: `gio info` pove vrsto vsebine, `gio mime VRSTA` privzeti program in programe, ki so se
 za to vrsto prijavili (isti seznam kot v Nemu), `gio mime VRSTA PROGRAM` nastavi privzetega (v
 ~/.config/mimeapps.list), `gio launch VNOS DATOTEKE` zazene program tako, kot ga zazene meni. Safeer OS nima svojega
-seznama: kar uporabnik nastavi tu, velja v vsem namizju, in obratno.
+seznama: kar uporabnik nastavi tu, velja v vsem namizju, in obratno. Iste klice GIO (g_app_info_*, standard::content-type)
+naredimo v tem procesu (paket .deb, izvorna koda) - brez dveh podprocesov gio ob vsakem meniju »Odpri z« (meritev
+19. 10. 2026 v commitu); ukaz gio ostane rezerva ter pot v Flatpaku in AppImage (zasebni_webkit.gio_v_procesu).
 
 Stran lahko izbere samo program iz menija (vnos .desktop, ki ga meni kaze) in samo obstojece krajevne datoteke; ukaza
 ali poti do programa ne poda nikoli.
@@ -39,6 +41,53 @@ def _gio(argumenti: List[str], cas: float = 6.0) -> Tuple[int, str]:
         return 1, ""
 
 
+def _vrsta_v_procesu(pot: str) -> Optional[str]:
+    """standard::content-type, kot ga pove `gio info` - iz tega procesa (zasebni_webkit.gio_v_procesu). None: tu ne gre
+    (Flatpak, AppImage, napaka) - klicatelj vprasa ukaz gio."""
+    Gio = zasebni_webkit.gio_v_procesu()
+    if Gio is None:
+        return None
+    try:
+        return Gio.File.new_for_path(pot).query_info("standard::content-type", Gio.FileQueryInfoFlags.NONE,
+                                                      None).get_content_type() or ""
+    except Exception:  # noqa: BLE001 - GLib.Error: ukaz gio kot rezerva
+        return None
+
+
+def programi_v_procesu(vrsta: str) -> Optional[Tuple[str, List[str]]]:
+    """Isto kot `gio mime VRSTA` (privzeti program, priporoceni, nato vsi prijavljeni - g_app_info_get_default_for_type,
+    get_recommended_for_type, get_all_for_type) brez podprocesa. Namizni mimeapps.list (XDG_CURRENT_DESKTOP, npr.
+    x-cinnamon-mimeapps.list) in programi, ki jih ni vec, so obravnavani kot pri ukazu gio - isti GIO. None: tu ne gre."""
+    Gio = zasebni_webkit.gio_v_procesu()
+    if Gio is None:
+        return None
+    try:
+        privzeti = Gio.AppInfo.get_default_for_type(vrsta, False)
+        vsi = list(Gio.AppInfo.get_recommended_for_type(vrsta)) + list(Gio.AppInfo.get_all_for_type(vrsta))
+    except Exception:  # noqa: BLE001
+        return None
+    oznaka = (privzeti.get_id() or "") if privzeti is not None else ""
+    oznaka = oznaka if _OZNAKA.match(oznaka) else ""
+    vrstni: List[str] = [oznaka] if oznaka else []
+    for app in vsi:
+        ime = app.get_id() or ""
+        if _OZNAKA.match(ime) and ime not in vrstni:
+            vrstni.append(ime)
+    return oznaka, vrstni
+
+
+def nastavi_v_procesu(vrsta: str, oznaka: str) -> Optional[bool]:
+    """Kot `gio mime VRSTA PROGRAM` (g_app_info_set_as_default_for_type, ~/.config/mimeapps.list). None: tu ne gre."""
+    Gio = zasebni_webkit.gio_v_procesu()
+    if Gio is None:
+        return None
+    try:
+        app = Gio.DesktopAppInfo.new(oznaka)
+        return bool(app is not None and app.set_as_default_for_type(vrsta))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _pot(pot) -> str:
     return os.path.abspath(os.path.expanduser(str(pot or "")))
 
@@ -47,9 +96,12 @@ def vrsta_vsebine(pot: str, gio: Callable = _gio) -> str:
     """Vrsta MIME, kot jo doloci namizje (po vsebini in imenu); '' ce je ni mogoce dolociti."""
     if os.path.isdir(pot):
         return "inode/directory"
-    koda, izpis = gio(["info", "-a", "standard::content-type", pot])
-    m = re.search(r"standard::content-type:\s*(\S+)", izpis) if koda == 0 else None
-    for vrsta in (m.group(1) if m else "", mimetypes.guess_type(pot)[0] or ""):      # brez gio: po koncnici
+    gio_vrsta = _vrsta_v_procesu(pot) if gio is _gio else None
+    if gio_vrsta is None:
+        koda, izpis = gio(["info", "-a", "standard::content-type", pot])
+        m = re.search(r"standard::content-type:\s*(\S+)", izpis) if koda == 0 else None
+        gio_vrsta = m.group(1) if m else ""
+    for vrsta in (gio_vrsta, mimetypes.guess_type(pot)[0] or ""):      # brez gio: po koncnici
         if _VRSTA.match(vrsta):
             return vrsta
     return ""
@@ -86,14 +138,22 @@ def razcleni_mime(izpis: str) -> Tuple[str, List[str]]:
     return privzeti, vrstni
 
 
+def _programi_vrste(vrsta: str, gio: Callable) -> Tuple[str, List[str]]:
+    """(privzeti, vsi) za vrsto: v procesu, sicer iz izpisa `gio mime VRSTA` (Flatpak, AppImage, preizkusi z laznim gio)."""
+    v_procesu = programi_v_procesu(vrsta) if gio is _gio else None
+    if v_procesu is not None:
+        return v_procesu
+    koda, izpis = gio(["mime", vrsta])
+    return razcleni_mime(izpis) if koda == 0 else ("", [])
+
+
 def program_za_shemo(shema: str, gio: Callable = _gio, mape: Optional[List[str]] = None,
                      namizja: Optional[List[str]] = None) -> Optional[dict]:
     """Privzeti program za povezave sheme (mailto, magnet ...): {"oznaka", "ime"} ali None, ce ga ni. V Flatpaku gio
     tece na gostitelju, zato Splet pozna program racunalnika (prej »zunanji program«; 14. 10. 2026)."""
     if not re.match(r"^[a-z][a-z0-9+.-]{0,31}$", str(shema or "")):
         return None
-    koda, izpis = gio(["mime", "x-scheme-handler/" + shema])
-    privzeti, vsi = razcleni_mime(izpis) if koda == 0 else ("", [])
+    privzeti, vsi = _programi_vrste("x-scheme-handler/" + shema, gio)
     for oznaka in ([privzeti] if privzeti else []) + vsi:
         vnos = _vnos(oznaka, mape, namizja)
         if vnos:
@@ -164,11 +224,7 @@ def programi_za(pot: str, mape: Optional[List[str]] = None, namizja: Optional[Li
     if not os.path.exists(pot):
         return {"ok": False, "koda": "ni"}
     vrsta = vrsta_vsebine(pot, gio)
-    privzeti, oznake = "", []
-    if vrsta:
-        koda, izpis = gio(["mime", vrsta])
-        if koda == 0:
-            privzeti, oznake = razcleni_mime(izpis)
+    privzeti, oznake = _programi_vrste(vrsta, gio) if vrsta else ("", [])
     programi = []
     for oznaka in oznake:
         v = _vnos(oznaka, mape, namizja)
@@ -184,6 +240,9 @@ def nastavi_privzetega(vrsta: str, oznaka: str, gio: Callable = _gio) -> bool:
     """Program postane privzeti za to vrsto datotek - v vsem namizju (mimeapps.list)."""
     if not _VRSTA.match(str(vrsta or "")) or not _OZNAKA.match(str(oznaka or "")):
         return False
+    v_procesu = nastavi_v_procesu(vrsta, oznaka) if gio is _gio else None
+    if v_procesu is not None:
+        return v_procesu
     return gio(["mime", vrsta, oznaka])[0] == 0
 
 

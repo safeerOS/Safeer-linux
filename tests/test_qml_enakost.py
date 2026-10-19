@@ -489,7 +489,8 @@ class NamizjeQml(unittest.TestCase):
 
     def test_link_in_meni_namizja(self):
         self._namizje()
-        self.assertTrue(self._klicano("povezava", []))
+        # Namizje Hubov ne kaze: stanje brez iskanja po mDNS (19. 10. 2026: prej 1,5 s iskanja vsakih 20 s).
+        self.assertTrue(self._klicano("povezava", ["brez"]))
         self.assertTrue(self._pocakaj(lambda: self._obj("linkBesedilo").property("text") == "Poveži se v Safeer Link"))
         self._js("koren.linkKlik()")
         self.assertTrue(self._klicano("prijava", []))

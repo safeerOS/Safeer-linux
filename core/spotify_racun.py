@@ -720,6 +720,20 @@ class Racun:
         self._straza: Optional[threading.Thread] = None
         self._z_strazo = straza
         self._preverjeno = False          # stran je ze povedala, ali je uporabnik prijavljen
+        #: Klic ob spremembi vidnega stanja (skladba, igra, oglas): namizje in MPRIS jo pokazeta takoj (safeer_os
+        #: _sp_spremenjeno), ne sele ob naslednjem branju. Klice ga nit strazarja.
+        self.ob_spremembi: Optional[Callable[[], None]] = None
+
+    #: Polja stanja, ki jih kazejo pripomocki (namizje, MPRIS); njihova sprememba gre takoj naprej (ob_spremembi).
+    VIDNA_POLJA = ("naslov", "izvajalec", "slika", "igra", "oglas")
+
+    def _nastavi_predvajanje(self, stanje: dict) -> None:
+        prej, self._predvajanje = self._predvajanje, stanje
+        if self.ob_spremembi is not None and any(prej.get(k) != stanje.get(k) for k in self.VIDNA_POLJA):
+            try:
+                self.ob_spremembi()
+            except Exception:  # noqa: BLE001 - pripomocek ne sme ustaviti strazarja
+                pass
 
     # -- nastavitve (samo stikala, nikoli prijava ali zetoni)
     def _nastavitve(self) -> dict:
@@ -753,7 +767,7 @@ class Racun:
 
     # -- zivljenjski krog
     def _ob_koncu(self) -> None:
-        self._predvajanje = {}
+        self._nastavi_predvajanje({})
         self._utisal = self._preverjeno = False
         self._uporabnik_igra = False
         self._pesem_stoji_od = 0.0
@@ -874,7 +888,7 @@ class Racun:
         elif self._utisal and not stanje["oglas"]:
             self._utisaj(False)
         self._popravi_zastoj(stanje)
-        self._predvajanje = stanje
+        self._nastavi_predvajanje(stanje)
         return stanje
 
     #: Po utisanem oglasu Spotify predvajalnik vcasih obstoji (oglas, premor, naslednje pesmi ni; preizkus 18. 10. 2026):
@@ -972,7 +986,8 @@ class Racun:
         napravah uporabnik ostane prijavljen."""
         self.kanal.ustavi()
         shutil.rmtree(self.kanal.profil(), ignore_errors=True)
-        self._prijavljen, self._ime, self._predvajanje = False, "", {}
+        self._prijavljen, self._ime = False, ""
+        self._nastavi_predvajanje({})
         self._shrani(prijavljen=False)
         return {"ok": True}
 
@@ -1189,7 +1204,7 @@ class Racun:
                 with self._ustavljam:
                     self._uporabnik(False)
                     self.kanal.izvedi(PREKLOP_JS % _js("ustavi"), 5)
-                    self._predvajanje = dict(self._predvajanje, igra=False)
+                    self._nastavi_predvajanje(dict(self._predvajanje, igra=False))
                 return {"ok": True}
             else:
                 return {"napaka": "neveljavno"}

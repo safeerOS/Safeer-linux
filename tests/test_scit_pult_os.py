@@ -51,7 +51,8 @@ class ScitVPultu(unittest.TestCase):
         odprto, ustvarjeni = [], []
         stanje = {"vklop": True, "tece": True, "mozno": True, "napaka": "", "blokiranih": 3}
         scit = mock.MagicMock()
-        scit.stanje.return_value = stanje
+        scit.stanje_pulta.return_value = stanje
+        scit.razlog_svez.return_value = False       # prva preverba resolved: v niti (systemctl)
         niti = []
         scit.nastavi.side_effect = lambda v: (niti.append(threading.current_thread().name), dict(stanje, vklop=v))[1]
         jaz = self._jaz(scit=scit, _odpri_razdelek=odprto.append)
@@ -92,6 +93,21 @@ class ScitVPultu(unittest.TestCase):
             # Stikalo v Nastavitvah: pult dobi isto stanje takoj.
             self.assertEqual(jaz._po_scitu({"vklop": True}), {"vklop": True})
             self.assertEqual(pult.stanja[-1], {"vklop": True})
+
+    def test_osvezitev_brez_niti_ko_je_razlog_svez(self):
+        """Redna osvezitev (vsakih 15 s): hitro stanje pulta na glavni niti, brez nove niti in brez polnega stanja
+        (systemctl, pkcheck - meritev 19. 10. 2026)."""
+        scit = mock.MagicMock()
+        scit.razlog_svez.return_value = True
+        scit.stanje_pulta.return_value = {"vklop": True, "tece": True, "mozno": True, "napaka": "", "blokiranih": 7}
+        pult = mock.MagicMock()
+        jaz = self._jaz(scit=scit)
+        jaz.scit_pult = pult
+        with mock.patch.object(safeer_os.threading, "Thread", side_effect=AssertionError("brez niti")):
+            jaz._osvezi_scit_pult()
+        pult.osvezi.assert_called_once_with(scit.stanje_pulta.return_value)
+        scit.stanje_pulta.assert_called_once_with(preveri=False)    # glavna nit: nikoli podproces
+        scit.stanje.assert_not_called()
 
     def test_brez_vodila_brez_ikone(self):
         jaz = self._jaz(scit=mock.MagicMock())

@@ -903,8 +903,11 @@ Item {
     readonly property real vrhPanelov: lupaZlozljiva ? Math.max(robZgoraj + 80, sredinaLupe + vrsticaCipov.height / 2 + 14)
                                                      : Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)
     // Medijski center: kaj se predvaja (lastnik, 14. 10. 2026: med glasbo je pripomocek kazal »Ni predvajanja«). Isto stanje
-    // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik ali skladba s seznama v vgradnem predvajalniku
-    // YouTuba), osvezevanje 1 s med predvajanjem, sicer 3 s; dogodek »predvajalnik« osvezi takoj.
+    // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik, skladba s seznama v vgradnem predvajalniku
+    // YouTuba ali Spotify). Spremembe in napredek med predvajanjem (vsako sekundo) poslje Safeer OS sam z dogodkom
+    // »predvajalnik« (Linux); branje ob zagonu, ob vrnitvi Safeer OS in na 30 s je le varovalka. Prej vsake 3 s (1 s med
+    // predvajanjem, poleg dogodkov): meritev 19. 10. 2026 v mirovanju - polovica bujenj lupine in tretjina klicev Safeer OS.
+    // Drugje (Windows) ostane branje kot prej.
     property var medij: ({})
     readonly property bool medijIgra: !!medij.naslov && medij.stanje !== "ustavljeno"
     function osveziMedij() { koren.klic("predvajalnikStanje", [], function (p) { koren.medij = p || {} }) }
@@ -928,8 +931,8 @@ Item {
     // Glasnost privzetega izhoda (isti pactl/wpctl kot vrstica Medijskega centra in hitre nastavitve): beremo ob odprtju.
     property var zvokSistema: null
     function naloziGlasnost() { koren.klic("zvokGlasnost", [], function (z) { koren.zvokSistema = z || null }) }
-    Timer { interval: koren.medij.stanje === "predvaja" ? 1000 : 3000; running: true; repeat: true; triggeredOnStart: true
-            onTriggered: koren.osveziMedij() }
+    Timer { interval: koren.platforma === "linux" ? 30000 : koren.medij.stanje === "predvaja" ? 1000 : 3000
+            running: true; repeat: true; triggeredOnStart: true; onTriggered: koren.osveziMedij() }
     function opisMedija() {
         var p = koren.medij
         if (!koren.medijIgra) return koren.t("medijOpis")
@@ -1410,7 +1413,7 @@ Item {
             // Spletne aplikacije (shranjene v Safeer OS) in mapa Prenosi (GitHub v »Namesti programe …«).
             programi.spletne = Array.isArray(z.spletne) ? z.spletne : []
             programi.mapaPrenosov = ((z.mape || []).filter(function (m) { return m.vrsta === "DOWNLOAD" })[0] || {}).pot || ""
-            if (koren.platforma === "linux") koren.klic("povezava", [], function (p) { koren.linkStanje = p || null })
+            if (koren.platforma === "linux") koren.klic("povezava", ["brez"], function (p) { koren.linkStanje = p || null })
             koren.naloziPriljubljeno()
             programi.naloziOblak()
             // Stevilo neprebranih po izrisu (kanali Sporocil se nalozijo, ko je namizje mirno - safeer_os._ob_namizju).
@@ -1433,9 +1436,11 @@ Item {
         if (linkNepovezan()) koren.klic("prijava", [], function (ok) { if (ok === false) koren.obvesti(koren.t("brezControla")); koren.pozneje(8000, koren.osveziLink) })
         else koren.klic("odpriRazdelek", ["naprave"])
     }
+    // »brez«: namizje Hubov v omrezju ne kaze - prej je vsak klic (na 20 s) nepovezanega racunalnika 1,5 s iskal Hube
+    // po mDNS (nova nit in vticnice, poizvedbe v omrezju; meritev 19. 10. 2026: odgovor do 2,3 s).
     function osveziLink() {
         koren.klic("napraveNamizja", [], function (n) { koren.naprave = n || []; koren.napravVLinku = koren.naprave.length })
-        if (platforma === "linux") koren.klic("povezava", [], function (p) { koren.linkStanje = p || null })
+        if (platforma === "linux") koren.klic("povezava", ["brez"], function (p) { koren.linkStanje = p || null })
     }
     Timer { interval: 20000; running: true; repeat: true; onTriggered: koren.osveziLink() }
     SequentialAnimation {

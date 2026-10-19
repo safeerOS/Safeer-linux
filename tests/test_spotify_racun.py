@@ -535,6 +535,28 @@ class RacunTest(unittest.TestCase):
         self.assertFalse(any("utisaj" in x for x in k.izrazi))
         self.assertFalse(r.scit())
 
+    def test_sprememba_skladbe_takoj_naprej(self):
+        """Namizje QML ne bere stanja vsake 3 s (19. 10. 2026): nova skladba, premor in konec gredo naprej takoj, enak
+        korak brez spremembe pa ne."""
+        k = LazniKanal()
+        r = self._racun(k)
+        k.zacni(False, True)
+        javljeno = []
+        r.ob_spremembi = lambda: javljeno.append(dict(r.predvajanje()))
+        pesem = {"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": True}
+        r.straza_korak(pesem)
+        r.straza_korak(pesem)
+        self.assertEqual([j["naslov"] for j in javljeno], ["Pesem"])
+        r.straza_korak(dict(pesem, igra=False))
+        r.straza_korak(dict(pesem, naslov="Druga"))
+        self.assertEqual([(j["naslov"], j["igra"]) for j in javljeno], [("Pesem", True), ("Pesem", False), ("Druga", True)])
+        r.ob_spremembi = lambda: (_ for _ in ()).throw(RuntimeError("pripomocek"))
+        r.straza_korak(dict(pesem, naslov="Tretja"))         # napaka pripomocka ne ustavi strazarja
+        self.assertEqual(r.predvajanje()["naslov"], "Tretja")
+        r.ob_spremembi = lambda: javljeno.append({})
+        r._ob_koncu()                                         # Safeer DRM se je koncal: »Ni predvajanja« takoj
+        self.assertEqual(javljeno[-1], {})
+
     def _zastoj(self, poslusal=True):
         k = LazniKanal()
         ura = [100.0]

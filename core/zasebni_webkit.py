@@ -130,6 +130,36 @@ def okolje_za_zunanje(okolje: Optional[Mapping[str, str]] = None) -> dict:
     return okolje
 
 
+def gio_v_procesu():
+    """Gio tega procesa za privzete programe namizja (vrsta vsebine, privzeti program, zagon) - isti klici, kot jih naredita
+    `gio` in `xdg-open`/`xdg-mime` na Cinnamonu in GNOME (g_app_info_*), brez lupinske skripte in podprocesa (lastnik,
+    19. 10. 2026: Omarchy je iskanje privzetega brskalnika z xdg-settings skrajsal z ~72 na ~10 ms). None v Flatpaku
+    (programi racunalnika so vidni samo prek flatpak-spawn) in v AppImage (XDG_DATA_DIRS tega procesa ima $APPDIR,
+    zunanji ukaz pa tece z okoljem racunalnika) - tam ostane zunanji ukaz."""
+    if os.environ.get("FLATPAK_ID") or os.environ.get("APPIMAGE"):
+        return None
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+        return Gio
+    except (ImportError, ValueError):
+        return None
+
+
+def odpri_privzeto(pot: str) -> bool:
+    """Datoteko ali mapo odpre privzeti program namizja v tem procesu: g_app_info_launch_default_for_uri, kot `gio open`
+    (to na Cinnamonu klice xdg-open) - z okoljem okolje_za_zunanje(). False, ce tu ne gre (Flatpak, AppImage, ni programa
+    za to vrsto, napaka): klicatelj takrat uporabi rezervo (xdg-open, gio open)."""
+    Gio = gio_v_procesu()
+    if Gio is None:
+        return False
+    try:
+        return bool(Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(pot).get_uri(), kontekst_za_zunanje(Gio)))
+    except Exception:  # noqa: BLE001 - GLib.Error (ni privzetega programa) ali drugo: rezerva
+        return False
+
+
 def kontekst_za_zunanje(Gio, kontekst=None):
     """Gio.AppLaunchContext (npr. Gdk.Display.get_app_launch_context()) z okoljem okolje_za_zunanje()."""
     if kontekst is None:

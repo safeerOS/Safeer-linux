@@ -253,6 +253,37 @@ class ScitTest(unittest.TestCase):
             # Izklop brez vklopa nic ne pokvari.
             self.assertFalse(sc.nastavi(False)["vklop"])
 
+    def test_stanje_pulta_brez_podprocesov(self):
+        """Pult bere stanje vsakih 15 s: razlog (systemctl, v Flatpaku cat na gostitelju) najvec vsakih RAZLOG_PULTA_S,
+        pkcheck (pravilo) nikoli. Meritev 19. 10. 2026: prej 2-4 podprocesi na osvezitev."""
+        class Shramba(dict):
+            def get(self, k, d=None):
+                return dict.get(self, k, d)
+
+            def set(self, k, v):
+                self[k] = v
+        ura = [1000.0]
+        with tempfile.TemporaryDirectory() as m, \
+                mock.patch.object(os_scit, "razlog_nemoznosti", return_value="ni_resolved") as razlog, \
+                mock.patch.object(os_scit, "pravilo_namesceno", side_effect=AssertionError("pult ne sme klicati pkcheck")), \
+                mock.patch.object(os_scit.time, "monotonic", side_effect=lambda: ura[0]):
+            sc = os_scit.Scit(Shramba(), mapa=m)
+            self.assertFalse(sc.razlog_svez())
+            st = sc.stanje_pulta()
+            self.assertEqual((st["vklop"], st["mozno"], st["tece"], st["blokiranih"], st["premor"]), (False, False, False, 0, 0))
+            self.assertTrue(sc.razlog_svez())
+            for _ in range(10):
+                ura[0] += 15
+                sc.stanje_pulta()
+            self.assertEqual(razlog.call_count, 1)
+            ura[0] += sc.RAZLOG_PULTA_S
+            self.assertFalse(sc.razlog_svez())
+            razlog.return_value = ""
+            self.assertFalse(sc.stanje_pulta(preveri=False)["mozno"])     # glavna nit: zadnji znani, brez podprocesa
+            self.assertEqual(razlog.call_count, 1)
+            self.assertTrue(sc.stanje_pulta()["mozno"])
+            self.assertEqual(razlog.call_count, 2)
+
 
 class IzjemeInPremor(unittest.TestCase):
     """Uporabnik dovoli domeno, ki je bila pravkar blokirana, ali da Ščit za nekaj minut na premor - namesto da ga

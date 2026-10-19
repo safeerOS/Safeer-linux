@@ -201,6 +201,33 @@ class Pravila(_Osnova):
         self.assertTrue(ok, self.dnevnik)
         self.assertTrue(any("ponoven poskus" in v for v in self.dnevnik))
 
+    def test_zanka_spi_do_roka(self):
+        """19. 10. 2026: zanka se ne zbuja vec vsakih 0,5 s - spi do najblizjega roka (utrip + meja zamrznitve, SIGKILL,
+        ponovni zagon, meritev pomnilnika); obvestila in SIGCHLD jo zbudijo prej."""
+        ura = [1000.0]
+        lup = self.proces("lupina", zamrznitev_s=20, zagon_s=60)
+        os_ = self.proces("os", zamrznitev_s=30, zagon_s=120, glavni=True)
+        v = self.zazeni(lup, os_)
+        v.ura = lambda: ura[0]
+        self.assertEqual(v.do_roka(), 0.0)                       # nihce ne tece: zagon takoj
+        v.korak()
+        self.assertTrue(lup.tece() and os_.tece())
+        self.assertAlmostEqual(v.do_roka(), vp.POMNILNIK_VSAKIH_S)  # meritev pomnilnika je najblizja
+        v._zadnja_meritev = ura[0] + 100
+        self.assertAlmostEqual(v.do_roka(), vp.NAJVEC_SPANJE_S)     # najdaljse spanje
+        with mock.patch.object(vp, "NAJVEC_SPANJE_S", 1000.0):
+            self.assertAlmostEqual(v.do_roka(), 60.05, places=2)    # zagon lupine (60 s brez READY)
+            lup.pripravljen = os_.pripravljen = True
+            lup.zadnji_utrip = ura[0] - 5
+            self.assertAlmostEqual(v.do_roka(), 15.05, places=2)    # 20 s brez utripa = zamrznitev
+        lup.zadnji_utrip = ura[0] - 19
+        self.assertAlmostEqual(v.do_roka(), 1.05, places=2)      # zamrznitev lupine cez 1 s
+        lup.zahteva, lup.kill_ob = "zamrznitev", ura[0] + 0.5
+        self.assertAlmostEqual(v.do_roka(), 0.5, places=2)       # SIGKILL po SIGABRT
+        lup.zahteva, lup.kill_ob = "", 0.0
+        lup.zadnji_utrip = ura[0] - 25
+        self.assertEqual(v.do_roka(), 0.0)                        # rok je ze potekel
+
     def test_tuj_proces_ne_more_zahtevati_ponovnega_poskusa(self):
         os_ = self.proces("os", "sesuj:0.05", glavni=True)
         self.zazeni(os_)

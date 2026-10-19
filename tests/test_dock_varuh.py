@@ -140,3 +140,40 @@ def test_safeer_os_klice_varuha():
     # v _ob_namizju (vsaka delovna povrsina, tudi QML), ne v _preveri_robove (samo WebKit)
     ob_namizju = koda.split("def _ob_namizju", 1)[1].split("\n    def ", 1)[0]
     assert "self._varuh_docka()" in ob_namizju
+
+
+def test_safeer_os_brez_podprocesa_ko_dock_ni_vklopljen_ali_plank_tece(tmp_path, monkeypatch):
+    """19. 10. 2026: varuh docka v Safeer OS je vsakih 30 s zagnal skripto bash (1300 vrstic) s pgrep, tudi ko dock ni
+    vklopljen ali Plank tece. Zdaj isti pogoj najprej preveri brez podprocesa (os_dock.dock_vklopljen, plank_tece)."""
+    import sys
+    sys.path.insert(0, KOREN)
+    from core import en_proces, os_dock
+    cfg = tmp_path / "cfg"
+    (cfg / "safeer-cinnamon").mkdir(parents=True)
+    (cfg / "autostart").mkdir(parents=True)
+    monkeypatch.delenv("FLATPAK_ID", raising=False)
+    monkeypatch.setattr(en_proces, "mapa_nastavitev_racunalnika", lambda: str(cfg))
+    assert not os_dock.dock_vklopljen()
+    _vklopi(cfg)
+    assert os_dock.dock_vklopljen()
+    # Plank: zadnji znani PID se preveri v /proc (comm), pregled /proc samo, ce ga ni vec.
+    pregledi = []
+    monkeypatch.setattr(os_dock, "_plank_pid", lambda: (pregledi.append(1), None)[1])
+    monkeypatch.setitem(os_dock._zadnji_plank, "pid", 0)
+    assert not os_dock.plank_tece()
+    assert pregledi == [1]
+    jaz = os.getpid()
+    pot = tmp_path / "comm"
+    pot.write_text("plank\n")
+    resnicni_open = open
+
+    def lazni_open(ime, *a, **k):
+        return resnicni_open(pot if ime == "/proc/%d/comm" % jaz else ime, *a, **k)
+    monkeypatch.setitem(os_dock._zadnji_plank, "pid", jaz)
+    monkeypatch.setattr("builtins.open", lazni_open)
+    assert os_dock.plank_tece()
+    assert pregledi == [1]                       # brez novega pregleda /proc
+    monkeypatch.setattr("builtins.open", resnicni_open)
+    # V Flatpaku procesov racunalnika ne vidimo: odloci safeer-cinnamon (kot prej).
+    monkeypatch.setenv("FLATPAK_ID", "io.github.memelandfaner.SafeerOS")
+    assert not os_dock.plank_tece()

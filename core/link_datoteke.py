@@ -1205,6 +1205,9 @@ class Datoteke:
         pot = r[1]
         if not os.path.exists(pot):
             return False
+        from core import zasebni_webkit
+        if zasebni_webkit.odpri_privzeto(pot):        # v procesu (Gio), xdg-open/gio sta rezerva
+            return True
         odpiralnik = shutil.which("xdg-open") or shutil.which("gio")
         if not odpiralnik:
             return False

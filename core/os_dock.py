@@ -222,6 +222,35 @@ def _plank_pid() -> Optional[int]:
     return None
 
 
+def dock_vklopljen() -> bool:
+    """Ali je dock Safeer Cinnamon vklopljen - isti pogoj kot `safeer-cinnamon --dock-ozivi` (vklopljeno in samozagon
+    docka v ~/.config racunalnika; v Flatpaku je to domaca mapa racunalnika, ne peskovnika)."""
+    from core import en_proces
+    mapa = en_proces.mapa_nastavitev_racunalnika()
+    return os.path.isfile(os.path.join(mapa, "safeer-cinnamon", "vklopljeno")) and \
+        os.path.isfile(os.path.join(mapa, "autostart", "safeer-cinnamon-dock.desktop"))
+
+
+_zadnji_plank = {"pid": 0}
+
+
+def plank_tece() -> bool:
+    """Ali Plank tece, brez podprocesa: zadnji znani PID (/proc/<pid>/comm), sicer pregled /proc. V Flatpaku procesov
+    racunalnika ne vidimo (svoj imenski prostor PID): False - varuh docka takrat vprasa safeer-cinnamon kot prej."""
+    if _v_flatpaku():
+        return False
+    pid = _zadnji_plank["pid"]
+    if pid:
+        try:
+            with open("/proc/%d/comm" % pid) as f:
+                if f.read().strip() == "plank":
+                    return True
+        except OSError:
+            pass
+    _zadnji_plank["pid"] = _plank_pid() or 0
+    return bool(_zadnji_plank["pid"])
+
+
 def osvezi() -> None:
     """Plank prebere vrstni red ob zagonu: ce tece, ga zazenemo znova (dock za trenutek izgine in se vrne)."""
     pid = _plank_pid()

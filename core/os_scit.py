@@ -1326,9 +1326,37 @@ class Scit:
     def mozno(self) -> bool:
         return not razlog_nemoznosti()
 
+    #: Pult (ikona Scita, safeer_os._osvezi_scit_pult) bere stanje vsakih 15 s. razlog_nemoznosti zazene systemctl (v
+    #: Flatpaku se cat na gostitelju prek flatpak-spawn), pravilo_namesceno pkcheck: pult prvega potrebuje redko, drugega
+    #: nikoli. Do 19. 10. 2026 je pult vsakih 15 s klical polno stanje() - 2 do 4 podprocesi na osvezitev.
+    RAZLOG_PULTA_S = 300.0
+    _razlog = None                       # (time.monotonic, razlog_nemoznosti()) zadnje preverbe
+
+    def _preveri_razlog(self) -> str:
+        razlog = razlog_nemoznosti()
+        self._razlog = (time.monotonic(), razlog)
+        return razlog
+
+    def razlog_svez(self) -> bool:
+        """Ali stanje_pulta() ne bo zagnalo podprocesa (zadnja preverba razloga je mlajsa od RAZLOG_PULTA_S)."""
+        return self._razlog is not None and time.monotonic() - self._razlog[0] < self.RAZLOG_PULTA_S
+
+    def stanje_pulta(self, preveri: bool = True) -> dict:
+        """Kar pult potrebuje za ikono in namig (pladenj_sni.vrsta_scita, opis_scita): vklop, mozno, tece, napaka, premor,
+        blokiranih. Iz pomnilnika tega procesa; razlog nemoznosti najvec vsakih RAZLOG_PULTA_S (polno stanje() ga osvezi).
+        preveri=False (glavna nit): zadnji znani razlog tudi, ce je star - podproces nikoli ne tece na glavni niti."""
+        r = self.razresevalnik
+        razlog = self._razlog[1] if self._razlog is not None and (not preveri or self.razlog_svez()) \
+            else self._preveri_razlog()
+        if not razlog and self.napaka in ("ni_resolved", "lastni_dns"):
+            self.napaka = ""
+        return {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata),
+                "napaka": self.napaka, "blokiranih": r.blokiranih if r else 0, "poizvedb": r.poizvedb if r else 0,
+                "premor": self.premor_se()}
+
     def stanje(self) -> dict:
         r = self.razresevalnik
-        razlog = razlog_nemoznosti()
+        razlog = self._preveri_razlog()
         if not razlog and self.napaka in ("ni_resolved", "lastni_dns"):
             self.napaka = ""      # razmere so se medtem spremenile (npr. /etc/resolv.conf spet kaze na resolved)
         s = {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata), "napaka": self.napaka,

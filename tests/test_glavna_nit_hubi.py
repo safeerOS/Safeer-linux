@@ -63,6 +63,24 @@ class IskanjeHubov(unittest.TestCase):
         self.izpusti.set()
         self.assertEqual(safeer_os.stanje_povezave()["hubi"][0]["ime"], "TV")
 
+    def test_namizje_qml_brez_iskanja_hubov(self):
+        """Namizje QML vsakih 20 s vprasa »povezava« z ["brez"]: brez mDNS (19. 10. 2026: nepovezan racunalnik je vsakic
+        1,5 s iskal Hube - nova nit, vticnice, poizvedbe v omrezju). Stran Naprave (brez argumenta) jih isce kot prej."""
+        app = _Aplikacija.__new__(_Aplikacija)
+        odgovori = []
+        app._odgovori = lambda pogled, id_, ok, izid: odgovori.append(izid)
+        app._katalog_most = lambda: mock.Mock(pozna=lambda m: False)
+        app._obdelaj_klic(object(), 1, "povezava", ["brez"])
+        konec = time.monotonic() + 5
+        while not odgovori and time.monotonic() < konec:
+            time.sleep(0.02)
+        self.assertEqual(odgovori[0]["hubi"], [])
+        self.assertEqual(self.klicev, 0)
+        q = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "os", "qml",
+                              "Namizje.qml"), encoding="utf-8").read()
+        self.assertEqual(q.count('koren.klic("povezava", ["brez"]'), 2)
+        self.assertNotIn('koren.klic("povezava", []', q)
+
 
 class _Aplikacija(safeer_os.SafeerOS):
     """Brez zagona: slovar metod mostu bere atribute (lupa, programi ...), ki jih tu ne potrebujemo."""
