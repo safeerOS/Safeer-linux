@@ -41,8 +41,11 @@ declare -A KNJIZNICA=([webkit]=libwebkitgtk-6.0.so.4 [jsc]=libjavascriptcoregtk-
 VSE="webkit jsc"
 # Moznosti za deljene knjiznice (llvm-bolt --help-hidden, LLVM 22.1.8). --icf=safe: ne zdruzi funkcij, katerih naslov
 # se primerja (WebKit). --use-old-text: nova koda v prostor stare, ce gre (manjsa knjiznica), sicer opozorilo.
+# NIKOLI --use-gnu-stack: BOLT je nov segment zapisal namesto PT_GNU_STACK, knjiznici 1.0.127 ga nimata in glibc je vsem
+# procesom z WebKitom (namizje, brskalnik, spletni proces) naredil izvrsljiv sklad (raziskava 19. 10. 2026; glibc 2.41+ take
+# knjiznice sploh ne nalozi). Brez te moznosti PT_GNU_STACK ostane (tudi po llvm-strip), koda in hitrost sta enaki.
 MOZNOSTI=(--reorder-blocks=ext-tsp --reorder-functions=cdsort --split-functions --split-all-cold --split-eh
-          --icf=safe --use-gnu-stack --use-old-text --dyno-stats)
+          --icf=safe --use-old-text --dyno-stats)
 LLVM_PAKET="$(sed -n 's/^LLVM_PAKET="\(.*\)"$/\1/p' "$KOREN/packaging/webkit-deb/odvisnosti.sh")"
 LLVM_RAZLICICA="$(sed -n 's/^LLVM_RAZLICICA="\(.*\)"$/\1/p' "$KOREN/packaging/webkit-deb/odvisnosti.sh")"
 [ -n "$LLVM_PAKET" ] && [ -n "$LLVM_RAZLICICA" ] || { echo "bolt.sh: LLVM_PAKET ni v odvisnosti.sh" >&2; exit 1; }
@@ -140,6 +143,12 @@ if [ -n "${SAFEER_BOLT_POSKUS:-}" ]; then
         "$LLVM/llvm-bolt" "$izvirnik" -o "$pot" --data="$DELO/$ime.fdata" "${moznosti[@]}" \
             ${preskoci:+"--skip-funcs=$preskoci"} 2>&1 | tee "$DELO/$ime.log"
         grep -E 'BOLT-INFO: [0-9]+ out of [0-9]+ functions in the binary' "$DELO/$ime.log" || true
+        # Varovalo: knjiznica mora imeti PT_GNU_STACK z RW (brez X), sicer bi bil sklad vseh procesov izvrsljiv.
+        sklad="$("$LLVM/llvm-readelf" -lW "$pot" | awk '$1 == "GNU_STACK" {print $7}')"
+        if [ "$sklad" != RW ]; then
+            echo "bolt.sh: $(basename "$pot") nima PT_GNU_STACK RW (${sklad:-ga ni}) - knjiznica ni uporabna" >&2
+            exit 1
+        fi
         POVZETEK="$POVZETEK; $(basename "$pot") $(stat -c %s "$izvirnik") -> $(stat -c %s "$pot") B,"
         POVZETEK="$POVZETEK $(find "$DELO/fdata" -name "$ime.*.fdata" | wc -l) profilov"
     done

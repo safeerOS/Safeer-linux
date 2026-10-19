@@ -612,6 +612,40 @@ class DebWebkitTests(unittest.TestCase):
         for vrstica in zgradi_zapis.splitlines()[-6:]:
             self.assertIn(vrstica.strip(),nadaljuj)
 
+    def test_bolt_brez_izvrsljivega_sklada(self):
+        """Raziskava 19. 10. 2026: --use-gnu-stack je v knjiznicah 1.0.127 zamenjal PT_GNU_STACK z novim segmentom; glibc je
+        zato vsem procesom z WebKitom (namizje, brskalnik, spletni proces) naredil izvrsljiv sklad, glibc 2.41+ pa take
+        knjiznice ne nalozi. Moznost ne sme vec v bolt.sh, bolt.sh in dimni preizkus pa napako ujameta sama."""
+        bolt=(self.WEBKIT_DEB/'bolt.sh').read_text()
+        moznosti=bolt.split('MOZNOSTI=(',1)[1].split(')',1)[0]
+        self.assertNotIn('--use-gnu-stack',moznosti)
+        self.assertIn('awk \'$1 == "GNU_STACK" {print $7}\'',bolt)
+        self.assertIn('nima PT_GNU_STACK RW',bolt)
+        smoke=(ROOT/'packaging/smoke_webkit_deb.py').read_text()
+        self.assertIn('preveri_sklad()',smoke.split('def ob_zagonu',1)[1])
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('smoke_sklad',ROOT/'packaging/smoke_webkit_deb.py')
+        vir=smoke.split('PT_GNU_STACK, PF_X =',1)[1].split('def preveri_sklad',1)[0]
+        imena={}
+        exec('PT_GNU_STACK, PF_X ='+vir,imena)
+        with tempfile.TemporaryDirectory() as d:
+            # knjiznica z RW skladom (iz tega sistema) in ista z izbrisanim PT_GNU_STACK (tip spremenjen v PT_NULL)
+            # vsak ELF64 tega sistema ima PT_GNU_STACK RW - tudi tolmac Pythona, ki ta preizkus poganja
+            dobra=Path(d)/'dobra.so'
+            import sys as _sys
+            dobra.write_bytes(Path(os.path.realpath(_sys.executable)).read_bytes())
+            self.assertEqual(imena['sklad_elf'](str(dobra)) & imena['PF_X'],0)
+            podatki=bytearray(dobra.read_bytes())
+            phoff=int.from_bytes(podatki[0x20:0x28],'little'); phentsize=int.from_bytes(podatki[0x36:0x38],'little')
+            phnum=int.from_bytes(podatki[0x38:0x3A],'little')
+            for i in range(phnum):
+                o=phoff+i*phentsize
+                if int.from_bytes(podatki[o:o+4],'little')==imena['PT_GNU_STACK']:
+                    podatki[o:o+4]=(0).to_bytes(4,'little')
+            slaba=Path(d)/'slaba.so'
+            slaba.write_bytes(bytes(podatki))
+            self.assertIsNone(imena['sklad_elf'](str(slaba)),'knjiznica brez PT_GNU_STACK mora biti prepoznana')
+
     def test_bolt_na_preizkusni_knjiznici(self):
         """bolt.sh od instrumentacije do optimizirane knjiznice na majhnih knjiznicah z imeni WebKita (Clang 22, lld,
         --emit-relocs); ucni tek je preizkusni program. Brez bolt-22 in clang-22 (CI preizkusov) preskoceno."""
@@ -653,6 +687,9 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertIn('.note.bolt_info',sekcije)
                 self.assertNotIn('bolt_instr',subprocess.run([llvm+'/llvm-readelf','-s',str(lib/ime)],capture_output=True,
                                                               text=True).stdout)   # optimizirana, ne instrumentirana
+                # PT_GNU_STACK RW (19. 10. 2026: --use-gnu-stack ga je odstranil -> izvrsljiv sklad vseh procesov)
+                segmenti=subprocess.run([llvm+'/llvm-readelf','-lW',str(lib/ime)],capture_output=True,text=True).stdout
+                self.assertRegex(segmenti,r'GNU_STACK\s+(\S+\s+){5}RW\s',ime)
             # Ucni tek je dal profil (instrumentirani knjiznici), preverba je tekla z optimiziranima - enak rezultat.
             self.assertTrue(list((d/'delo'/'fdata').glob('webkit.*.fdata')))
             self.assertTrue(list((d/'delo'/'fdata').glob('jsc.*.fdata')))

@@ -87,6 +87,56 @@ def knjiznice(pid="self"):
         return sorted({v.split()[-1] for v in f if any(k in v for k in ("libwebkitgtk-6.0", "libjavascriptcoregtk-6.0", "libsoup-3.0"))})
 
 
+PT_GNU_STACK, PF_X = 0x6474E551, 0x1
+
+
+def sklad_elf(pot):
+    """Zastavice PT_GNU_STACK knjiznice ELF64 (little endian) ali None, ce ga nima."""
+    with open(pot, "rb") as f:
+        glava = f.read(64)
+        if glava[:4] != b"\x7fELF" or glava[4] != 2 or glava[5] != 1:
+            return None
+        phoff = int.from_bytes(glava[0x20:0x28], "little")
+        phentsize = int.from_bytes(glava[0x36:0x38], "little")
+        phnum = int.from_bytes(glava[0x38:0x3A], "little")
+        f.seek(phoff)
+        tabela = f.read(phentsize * phnum)
+    for i in range(phnum):
+        z = tabela[i * phentsize:(i + 1) * phentsize]
+        if int.from_bytes(z[0:4], "little") == PT_GNU_STACK:
+            return int.from_bytes(z[4:8], "little")
+    return None
+
+
+def preveri_sklad():
+    """19. 10. 2026: knjiznici z BOLT (--use-gnu-stack) nista imeli PT_GNU_STACK in glibc je vsem procesom z WebKitom
+    naredil izvrsljiv sklad. Vsaka nalozena knjiznica WebKita/libsoup mora imeti PT_GNU_STACK brez X, sklad tega
+    procesa (ze z nalozenimi knjiznicami) pa ne sme biti izvrsljiv."""
+    for pot in knjiznice():
+        zastavice = sklad_elf(os.path.realpath(pot))
+        if zastavice is None or zastavice & PF_X:
+            napaka("%s: PT_GNU_STACK %s - sklad bi bil izvrsljiv" % (pot, "manjka" if zastavice is None else "je izvrsljiv"))
+    with open("/proc/self/maps") as f:
+        skladi = [v.split()[1] for v in f if v.rstrip().endswith("[stack]")]
+    if not skladi or any("x" in d for d in skladi):
+        napaka("sklad procesa z WebKitom je izvrsljiv: %s" % skladi)
+    # Spletni in omrezni procesi (tudi v peskovniku, ce je njihov maps berljiv).
+    izvrsljivi = []
+    for pid, podatki in procesi_potomci().items():
+        if not os.path.basename(podatki[0]).startswith("WebKit"):
+            continue
+        try:
+            with open("/proc/%d/maps" % pid) as f:
+                if any(v.rstrip().endswith("[stack]") and "x" in v.split()[1] for v in f):
+                    izvrsljivi.append((pid, podatki[0]))
+        except OSError:
+            continue
+    if izvrsljivi:
+        napaka("izvrsljiv sklad v procesih WebKita: %s" % izvrsljivi)
+    print("sklad: PT_GNU_STACK RW v vseh knjiznicah, [stack] %s, procesi WebKita brez izvrsljivega sklada" % skladi,
+          flush=True)
+
+
 def preveri_knjiznice():
     # GI nalozi knjiznico typeliba sele ob prvem klicu funkcije: razlicici najprej, nato /proc/self/maps.
     soup = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version())
@@ -301,6 +351,7 @@ def ob_zagonu(app):
             izid["stran"] = True
             print("stran se je nalozila", flush=True)
             preveri_knjiznice()
+            preveri_sklad()
             preveri_peskovnik()
             pogled.load_uri("http://127.0.0.1:%d/av1" % streznik.server_port)
         elif naslov.startswith("AV1 ") and izid["av1"] is None:
