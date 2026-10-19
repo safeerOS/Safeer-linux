@@ -117,6 +117,12 @@ def pytest_unconfigure(config):
     # sprostitev predmeta GObject iz globalne spremenljivke modula (g_object_unref v _PyModule_Clear) obvisela na
     # futexu - polni tek je izpisal porocilo in nato visel do casovne omejitve (gdb na posnetku jedra, 18. 10. 2026).
     # Zasebno vodilo ustavimo po PID (in mapo pobrisemo), preden se proces konca.
+    if "koda" in _izid:
+        # Deljena povezava vodila seje (Gio.bus_get, tudi Gtk.Application) ima exit-on-close: ko vodilo ustavimo, njena
+        # delovna nit procesu poslje SIGTERM (raise). Ce pride pred os._exit, je izhodna koda 143 namesto izida
+        # preizkusov - vsi preizkusi so uspeli, tek pa je padel (strace, 19. 10. 2026: tgkill iz niti GDBus po
+        # kill(dbus-daemon)). Proces se tu tako ali tako konca z os._exit, zato SIGTERM do konca prezremo.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     ustavi_vodilo()
     prej = _izid.pop("vodilo_prej", None)
     if prej is None:

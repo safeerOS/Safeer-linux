@@ -4,13 +4,15 @@ import urllib.parse
 from gi.repository import Gio, GLib, GObject
 import gi
 
-# Skupno za Safeer Browser GTK3 (WebKit2 4.1) in Splet / Safeer Browser GTK4 (WebKit 6.0) - 14. 10. 2026.
-if gi.get_required_version("Gtk") == "4.0":
-    gi.require_version('WebKit', '6.0')
-    from gi.repository import WebKit as WebKit2
-else:
+# Splet in Safeer Browser: GTK4 in WebKit 6.0 (GTK3 umaknjen 18. 10. 2026). WebKit2 4.1 samo, ce je proces ze izbral
+# GTK 3. Prej je bil WebKit2 4.1 privzet, ce Gtk se ni bil izbran: samostojni uvoz (tests/test_network_errors.py v svojem
+# procesu) je padel z »Namespace WebKit2 not available«, ker CI namesti samo gir1.2-webkit-6.0 (19. 10. 2026).
+if gi.get_required_version("Gtk") == "3.0":
     gi.require_version('WebKit2', '4.1')
     from gi.repository import WebKit2
+else:
+    gi.require_version('WebKit', '6.0')
+    from gi.repository import WebKit as WebKit2
 
 BESEDILA = {
     "sl": ("Varne povezave ni mogoče potrditi", "Strani trenutno ni mogoče odpreti",

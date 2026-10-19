@@ -29,6 +29,19 @@ class _Brez(os_deskriptorji.BrezBujenja, http.server.ThreadingHTTPServer):
     daemon_threads = True
 
 
+def _ipv6_povratna() -> bool:
+    """::1 je na povratni zanki. Sam /proc/net/if_inet6 ne zadostuje: vsebnik z jedrom IPv6 in lo brez ::1 bi streznik na
+    »::« zagnal, bujenje na ::1 pa bi padlo in shutdown() bi cakal brez konca (ves tek CI do casovne omejitve)."""
+    if not socket.has_ipv6:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            s.bind(("::1", 0))
+        return True
+    except OSError:
+        return False
+
+
 def _prebujanja(tid: int) -> int:
     with open("/proc/self/task/%d/status" % tid) as f:
         return sum(int(v.split()[1]) for v in f if "ctxt_switches" in v)
@@ -73,7 +86,7 @@ class BrezBujenja(unittest.TestCase):
         s, nit = self._zazeni(_Brez, "0.0.0.0")
         self.assertLess(self._ustavi(s, nit), 1.0)
 
-    @unittest.skipUnless(socket.has_ipv6 and os.path.exists("/proc/net/if_inet6"), "brez IPv6")
+    @unittest.skipUnless(_ipv6_povratna(), "brez IPv6 na povratni zanki")
     def test_shutdown_ipv6(self):
         class V6(_Brez):
             address_family = socket.AF_INET6
