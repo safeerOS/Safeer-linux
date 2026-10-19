@@ -501,6 +501,10 @@
   };
 
   // ------------------------------------------------------------------ ura in pozdrav
+  // Skrito okno (zaprto okno razdelka ali glavno okno se ob delovni povrsini samo skrije): brez periodicnega dela -
+  // testni PC 19. 10. 2026: skriti okni Nastavitev in Safeer OS sta v mirovanju porabili ~1 % jedra (ura vsako sekundo,
+  // stevec Scita), safeer_os pa je odgovarjal na njune klice. Ob ponovnem prikazu se osvezi takoj (visibilitychange).
+  function skrito() { return document.visibilityState === "hidden"; }
   function osveziUro() {
     var zdaj = new Date();
     var lok = LOKALE[jezik] || "en-GB";
@@ -2752,6 +2756,7 @@
     clearInterval(napraveCas);
     napraveCas = setInterval(function () {
       if (S.razdelek !== "naprave") { clearInterval(napraveCas); return; }
+      if (skrito()) return;
       if (S.povezava.stanje !== "povezan") osveziPovezavo();
     }, 12000);
   }
@@ -2994,6 +2999,7 @@
     clearInterval(internetCas);
     internetCas = setInterval(function () {
       if (S.razdelek !== "omrezje") { clearInterval(internetCas); return; }
+      if (skrito()) return;
       if (!internetPreizkusa) nalozInternet(false);
     }, 5000);
   }
@@ -3281,6 +3287,7 @@
     clearInterval(scitCas);
     scitCas = setInterval(function () {
       if (S.razdelek !== "nastavitve" && S.razdelek !== "scit") { clearInterval(scitCas); return; }
+      if (skrito()) return;
       // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
       var blok = $("blokScit");
       if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
@@ -3470,6 +3477,7 @@
     clearInterval(zvokCas);
     zvokCas = setInterval(function () {
       if (S.razdelek !== "zvok") { clearInterval(zvokCas); return; }
+      if (skrito()) return;
       nalozZvok();
     }, 2000);
   }
@@ -5569,6 +5577,7 @@
     if (sporocilaCasovnik) return;
     sporocilaCasovnik = setInterval(function () {
       if (S.razdelek !== "sporocila") { clearInterval(sporocilaCasovnik); sporocilaCasovnik = 0; return; }
+      if (skrito()) return;
       naloziSporocila();
     }, 30000);
   }
@@ -10294,7 +10303,8 @@
     poveziVgrajeneKanale();
     poveziPorabo();
     osveziUro();
-    setInterval(osveziUro, 1000);
+    setInterval(function () { if (!skrito()) osveziUro(); }, 1000);
+    document.addEventListener("visibilitychange", function () { if (!skrito()) osveziUro(); });
     narisiDomov();
     narisiPovezavo();
     if (PREDVAJALNIK) zacniPredvajalnik();
