@@ -35,7 +35,7 @@ class Tovor(unittest.TestCase):
         for naslov in ("wss://127.0.0.1:41234/cast/ws", "127.0.0.1", "::1", "[::1]", "localhost",
                        "::ffff:127.0.0.1"):
             self.assertEqual(link_pot.pot_naslova(naslov), "rele", naslov)
-        for naslov in ("wss://192.168.0.77:8990/cast/ws", "192.168.0.50", "fe80::1", ""):
+        for naslov in ("wss://192.168.0.107:8990/cast/ws", "192.168.0.50", "fe80::1", ""):
             self.assertEqual(link_pot.pot_naslova(naslov), "lan", naslov)
 
 

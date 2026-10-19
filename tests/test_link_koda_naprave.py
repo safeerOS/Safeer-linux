@@ -108,7 +108,7 @@ class OdjemalecKodaNaprave(unittest.TestCase):
             return 200, {"qr_id": "ab" * 12, "expires_in_seconds": 300}, "f" * 64
 
         with mock.patch.object(link_hub.link_tls, "zahteva", zahteva):
-            p = link_hub.zacni_qr("wss://192.168.0.77:8990/cast/ws", "n-pc", "PC")
+            p = link_hub.zacni_qr("wss://192.168.0.107:8990/cast/ws", "n-pc", "PC")
         self.assertRegex(p["koda"], r"^\d{6}$")
         self.assertEqual(len(p["skrivnost"]), 32, "telefoni preverjajo dolzino skrivnosti QR (16..128)")
         self.assertEqual(poslano["telo"]["code_sha256"], _sha(p["koda"]))
@@ -118,15 +118,15 @@ class OdjemalecKodaNaprave(unittest.TestCase):
     def test_qr_lastnega_huba_nosi_naslov_v_domacem_omrezju(self):
         # Prijava na lastni Hub (127.0.0.1): v QR mora iti naslov, ki ga telefon doseze (12. 10. 2026).
         def zahteva(url, telo=None, zeton=None, timeout=5.0, pripeti=None):
-            return 200, {"qr_id": "ab" * 12, "address": "192.168.0.220:8990", "expires_in_seconds": 300}, "f" * 64
+            return 200, {"qr_id": "ab" * 12, "address": "192.168.0.120:8990", "expires_in_seconds": 300}, "f" * 64
 
         with mock.patch.object(link_hub.link_tls, "zahteva", zahteva):
             p = link_hub.zacni_qr("wss://127.0.0.1:8990/cast/ws", "n-pc", "PC")
-            tuj = link_hub.zacni_qr("wss://192.168.0.77:8990/cast/ws", "n-pc", "PC")
-        self.assertEqual(p["naslov"], "192.168.0.220:8990")
-        self.assertIn("192.168.0.220", p["povezava"])
+            tuj = link_hub.zacni_qr("wss://192.168.0.107:8990/cast/ws", "n-pc", "PC")
+        self.assertEqual(p["naslov"], "192.168.0.120:8990")
+        self.assertIn("192.168.0.120", p["povezava"])
         self.assertNotIn("127.0.0.1", p["povezava"])
-        self.assertEqual(tuj["naslov"], "192.168.0.77:8990", "tuj Hub ostane na svojem naslovu")
+        self.assertEqual(tuj["naslov"], "192.168.0.107:8990", "tuj Hub ostane na svojem naslovu")
 
     def test_odobri_kodo_odgovori(self):
         klici = []
