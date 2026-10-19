@@ -227,8 +227,7 @@ class PrevzemPriSrediscih(unittest.TestCase):
         tovor = self.nase.oddaj(self.pot)["payload"]
         prostor = mock.Mock(free=len(self.vsebina) + 1024, total=10 ** 12)
         try:
-            with mock.patch.object(shutil, "disk_usage", return_value=prostor), \
-                    mock.patch.object(link_viri, "rezerva_diska", lambda mapa: 1024 ** 3):
+            with mock.patch.object(shutil, "disk_usage", return_value=prostor):
                 cilj, razlog = self._prevzemi([self.nase.par], tovor)
             self.assertEqual((cilj, razlog), (None, "ni prostora"))
             self.assertEqual(os.listdir(self.mapa), [], "tudi delne datoteke ni")
@@ -246,6 +245,34 @@ class PrevzemPriSrediscih(unittest.TestCase):
                                                        mapa=self.mapa)
         self.assertEqual(razlog, "")
         self._je_cela(cilj)
+
+
+class VelikostIzSporocila(unittest.TestCase):
+    """Pregled 72d1d79: nic ni preverjalo, da Safeer Link velikost iz share.file res poda prejemu - brez nje ostane samo
+    varovalka ENOSPC."""
+
+    def test_velikost_gre_prejemu(self):
+        from core import safeer_link
+
+        class Most:
+            _hub = staticmethod(lambda: "wss://127.0.0.1:1/cast/ws")
+            _odtis = staticmethod(lambda: "ab" * 32)
+            _sredisce_naprave = staticmethod(lambda _p: (None, 0))
+        with mock.patch.object(link_deljenje, "prevzemi_pri_srediscih", return_value=(None, "x")) as prevzemi:
+            safeer_link.SafeerLink._prevzemi_datoteko(Most(), "tv-1", {"path": "/cast/file/1?k=2", "name": "a.jpg",
+                                                                       "sha256": "c" * 64, "size": 5_000_000})
+            safeer_link.SafeerLink._prevzemi_datoteko(Most(), "tv-1", {"path": "/p", "name": "b", "size": "ni"})
+        self.assertEqual(prevzemi.call_args_list[0].kwargs.get("velikost"), 5_000_000)
+        self.assertEqual(prevzemi.call_args_list[1].kwargs.get("velikost"), -1, "neveljavna velikost je neznana")
+
+    def test_majhna_datoteka_na_velikem_disku(self):
+        """Polna rezerva (2 % diska, do 10 GiB) bi na disku 2 TB z 8 GiB prostega zavrnila fotografijo; pri prejemu
+        velja najmanjsa rezerva (1 GiB)."""
+        import shutil
+        prostor = mock.Mock(free=8 * 1024 ** 3, total=2 * 1024 ** 4)
+        with mock.patch.object(shutil, "disk_usage", return_value=prostor):
+            self.assertTrue(link_deljenje._dovolj_prostora("/tmp", 5_000_000))
+            self.assertFalse(link_deljenje._dovolj_prostora("/tmp", 7_500 * 1024 ** 2))
 
 
 class ZacasnaMapaSredisca(unittest.TestCase):

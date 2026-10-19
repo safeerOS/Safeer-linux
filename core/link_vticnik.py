@@ -297,6 +297,18 @@ NAJVEC_HKRATNIH_POZDRAVOV = 8
 NAJVEC_NITI_POZDRAVA = 2 * NAJVEC_HKRATNIH_POZDRAVOV
 
 
+def _zbudi_tiho(s) -> None:
+    """Samo shutdown: rokovanje ali branje v niti, ki vticnico ima, se takoj zbudi z napako, stevilka deskriptorja pa
+    ostane njena, dokler je ne zapre ona - close iz druge niti bi stevilko sprostil in jedro bi jo lahko takoj dalo
+    drugi povezavi ali datoteki istega procesa, ki bi jo nit nato zaprla (pregled 72d1d79)."""
+    if s is None:
+        return
+    try:
+        s.shutdown(socket.SHUT_RDWR)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _zapri_tiho(s) -> None:
     if s is None:
         return
@@ -397,7 +409,7 @@ def sprejmi_s_pozdravom(posluh, ctx, pozdrav_velja, preberi_vrstico, konec: floa
                 stanje["st"] += 1
                 kljuc = stanje["st"]
                 v_teku[kljuc] = [surov, time.monotonic()]
-            _zapri_tiho(izrinjena)                  # njena nit se zbudi z napako in pospravi
+            _zbudi_tiho(izrinjena)                  # njena nit se zbudi z napako in jo SAMA zapre
             try:
                 threading.Thread(target=obdelaj, args=(kljuc, surov), name="safeer-pozdrav", daemon=True).start()
             except RuntimeError:                    # sistem niti ne da: povezava odpade, stetje ostane pravo

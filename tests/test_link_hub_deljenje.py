@@ -214,6 +214,7 @@ class DeljenjeVZivo(unittest.TestCase):
         # testnem vsebniku lahko vecja od prostega prostora - preizkus meri prenos, ne disk.
         cls._rezerva = mock.patch.object(link_viri, "rezerva_diska", lambda mapa: 0)
         cls._rezerva.start()
+        cls.addClassCleanup(cls._rezerva.stop)       # tudi, ce setUpClass pozneje pade (tearDownClass takrat ne tece)
         # Prostor diska je lazen: rezerva pravega diska (link_viri.rezerva_diska, 2 %) je odvisna od okolja preizkusa.
         cls.streznik.hub.deljenje = link_hub_deljenje.Deljenje(mapa=lambda: os.path.join(cls.tmp.name, "zaloga"),
                                                                prosto=lambda _m: 50 * 1024 ** 3,
@@ -224,7 +225,6 @@ class DeljenjeVZivo(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls._rezerva.stop()
         cls.streznik.ustavi()
         cls.tmp.cleanup()
 

@@ -49,8 +49,21 @@ class MostLinkaVZivo(unittest.TestCase):
         okno.set_child(pogled)
         okno.present()
         pogled.load_html(STRAN, "file:///safeer/assets/link/index.html")
+        # Zivi preizkusi WebKita cakajo do 15 s (v CI tece ~5000 preizkusov v enem procesu, spletni proces se zazene
+        # pocasi - CI 39318125947: po 2,5 s se ni bilo nicesar). Po sporocilu glavnega okvirja se 1,5 s, da ima okvir
+        # drugega izvora cas poskusiti.
         zanka = GLib.MainLoop()
-        GLib.timeout_add(2500, lambda: (zanka.quit(), False)[1])
+        konec = GLib.get_monotonic_time() + 15_000_000
+
+        def preveri():
+            if any(m == "zapri" for m, _z in prejeto):
+                GLib.timeout_add(1500, lambda: (zanka.quit(), False)[1])
+                return False
+            if GLib.get_monotonic_time() >= konec:
+                zanka.quit()
+                return False
+            return True
+        GLib.timeout_add(100, preveri)
         zanka.run()
         okno.destroy()
         # Glavni okvir: z zetonom. Okvir drugega izvora: njegovo sporocilo nima zetona, SafeerLink starsa ni dosegljiv.

@@ -129,6 +129,88 @@ class TihePovezave(unittest.TestCase):
         self.assertLessEqual(najvec_niti[0], link_vticnik.NAJVEC_NITI_POZDRAVA)
         self.assertIsNotNone(izid.get("sprejeto"), "prava naprava pride skozi tudi po poplavi")
 
+    def test_izrinjanje_ne_zapre_tuje_stevilke(self):
+        """Pregled 72d1d79: glavna nit je izrinjeno vticnico zaprla (close) - stevilka deskriptorja se je sprostila in
+        nit pozdrava bi jo lahko zaprla, ko jo je jedro ze dalo drugi povezavi istega procesa. Glavna nit sme izrinjeno
+        samo zbuditi (shutdown); zapre jo nit, ki jo ima."""
+        posluh = socket.socket()
+        posluh.bind(("127.0.0.1", 0))
+        posluh.listen(64)
+        port = posluh.getsockname()[1]
+        z = link_zvok.ZvokNaNapravo(tls_mapa=self.mapa, ffmpeg=sys.executable)
+        z._zeton = "pravi-zeton"
+        izid, tihe, zbujene, glavna = {}, [], [], {}
+        pravi_zbudi = getattr(link_vticnik, "_zbudi_tiho", lambda s: None)
+        pravi_zapri = link_vticnik._zapri_tiho
+
+        def zbudi(s):
+            zbujene.append(threading.current_thread().name)
+            pravi_zbudi(s)
+
+        def zapri(s):
+            if threading.current_thread().name == glavna.get("ime"):
+                glavna.setdefault("zaprla", 0)
+                glavna["zaprla"] += 1
+            pravi_zapri(s)
+        try:
+            with mock.patch.object(link_vticnik, "_zbudi_tiho", side_effect=zbudi, create=True), \
+                    mock.patch.object(link_vticnik, "_zapri_tiho", side_effect=zapri), \
+                    mock.patch.object(link_vticnik, "NAJVEC_HKRATNIH_POZDRAVOV", 2), \
+                    mock.patch.object(link_zvok, "ROKOVANJE_S", 10.0), mock.patch.object(link_zvok, "CAKANJE_S", 2):
+                def tece():
+                    glavna["ime"] = threading.current_thread().name
+                    izid["sprejeto"] = z._sprejmi(posluh, self.ctx)
+                nit = threading.Thread(target=tece, name="preizkus-sprejem", daemon=True)
+                nit.start()
+                for _ in range(5):
+                    tihe.append(socket.create_connection(("127.0.0.1", port), timeout=10))
+                    time.sleep(0.05)
+                nit.join(20)
+        finally:
+            for s in tihe:
+                s.close()
+            posluh.close()
+        self.assertGreaterEqual(len(zbujene), 3, "cez mejo se najstarejsa izrine (zbudi)")
+        self.assertTrue(all(ime == "preizkus-sprejem" for ime in zbujene))
+        self.assertEqual(glavna.get("zaprla", 0), 0, "glavna nit izrinjene vticnice ne zapre (close)")
+
+    def test_meja_niti_zapre_novo_povezavo_brez_niti(self):
+        """Ko je zivih niti pozdrava NAJVEC_NITI_POZDRAVA, nova povezava ne dobi niti (zapre se takoj)."""
+        posluh = socket.socket()
+        posluh.bind(("127.0.0.1", 0))
+        posluh.listen(64)
+        port = posluh.getsockname()[1]
+        z = link_zvok.ZvokNaNapravo(tls_mapa=self.mapa, ffmpeg=sys.executable)
+        z._zeton = "pravi-zeton"
+        izid, tihe = {}, []
+        try:
+            with mock.patch.object(link_vticnik, "NAJVEC_NITI_POZDRAVA", 2), \
+                    mock.patch.object(link_vticnik, "NAJVEC_HKRATNIH_POZDRAVOV", 8), \
+                    mock.patch.object(link_zvok, "ROKOVANJE_S", 10.0), mock.patch.object(link_zvok, "CAKANJE_S", 3):
+                nit = threading.Thread(target=lambda: izid.update(sprejeto=z._sprejmi(posluh, self.ctx)), daemon=True)
+                nit.start()
+                for _ in range(5):
+                    tihe.append(socket.create_connection(("127.0.0.1", port), timeout=10))
+                    time.sleep(0.05)
+                time.sleep(0.5)
+                niti = sum(1 for t in threading.enumerate() if t.name == "safeer-pozdrav")
+                zaprte = 0
+                for s in tihe:
+                    s.settimeout(0.2)
+                    try:
+                        zaprte += s.recv(1) == b""
+                    except socket.timeout:
+                        pass
+                    except OSError:
+                        zaprte += 1
+                nit.join(20)
+        finally:
+            for s in tihe:
+                s.close()
+            posluh.close()
+        self.assertLessEqual(niti, 2)
+        self.assertGreaterEqual(zaprte, 3, "povezave cez mejo niti so zaprte takoj")
+
     def test_brez_povezave_vrne_none(self):
         """Varovalka: brez naprave se cakanje konca ob CAKANJE_S (zvok je prej tu vrgel socket.timeout)."""
         posluh = socket.socket()

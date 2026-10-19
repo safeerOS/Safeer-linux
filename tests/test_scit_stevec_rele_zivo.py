@@ -135,7 +135,8 @@ class ReleVZivo(unittest.TestCase):
                 izid["most"] = p.evaluate_javascript_finish(rezultat).to_boolean()
             except Exception as e:  # noqa: BLE001
                 izid["napaka"] = str(e)
-            GLib.timeout_add(1500, lambda: (zanka.quit(), False)[1])     # stetje skript pride v ~0,3 s
+            # Stetje skript pride v ~0,3 s; v CI (~5000 preizkusov v enem procesu) je spletni proces pocasnejsi.
+            GLib.timeout_add(3000, lambda: (zanka.quit(), False)[1])
 
         def ob_nalaganju(_p, dogodek):
             if dogodek == WebKit.LoadEvent.FINISHED:

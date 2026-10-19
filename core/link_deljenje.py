@@ -326,8 +326,10 @@ def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_od
               spi: Callable[[float], None] = time.sleep, velikost: int = -1) -> Tuple[Optional[str], str, int]:
     """(pot, "", 200) ali (None, razlog, koda HTTP sredisca); koda 0 = do odgovora ni prislo ali prenos ni uspel.
 
-    `velikost` (share.file size, -1 = neznana): ce po prejemu na disku ne bi ostala rezerva, prevzema ne zacnemo -
-    sredisce datoteko obdrzi za nov poskus (prej je prejem pisal do polnega diska, ENOSPC; koncni pregled 19. 10. 2026).
+    `velikost` (share.file size, -1 = neznana): ce po prejemu na disku ne bi ostala rezerva, prevzema ne zacnemo
+    (prej je prejem pisal do polnega diska, ENOSPC; koncni pregled 19. 10. 2026). Datoteka ostane na sredisci do izteka
+    (DATOTEKA_VELJA_S); samodejnega novega poskusa ni - posiljatelj jo poslje znova. Brez velikosti (starejse
+    sredisce) ostane samo varovalka ENOSPC.
 
     Prekinjen prevzem (izpad Wi-Fi) nadaljuje, kjer je ostal (Range), do POSKUSOV krat; kar je ze prislo, je v
     datoteki ».safeer-delno« ob cilju in dobi koncno ime sele, ko je cela in se odtis ujema."""
@@ -357,12 +359,13 @@ def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_od
 
 
 def _dovolj_prostora(mapa: str, bajtov: int) -> bool:
-    """Ali po prejemu `bajtov` na disku ostane rezerva (link_viri.rezerva_diska, kot pri srediscu in drugod v Linku).
-    Prej je prejem pisal do polnega diska (ENOSPC) in sele nato delno datoteko zbrisal - za trenutek je bil disk
-    sistema poln (koncni pregled 19. 10. 2026)."""
+    """Ali po prejemu `bajtov` na disku ostane vsaj najmanjsa rezerva (link_viri.NAJMANJ_REZERVE_DISKA, 1 GiB). Prej je
+    prejem pisal do polnega diska (ENOSPC) in sele nato delno datoteko zbrisal - za trenutek je bil disk sistema poln
+    (koncni pregled 19. 10. 2026). Polna rezerva (2 % diska, do 10 GiB) bi na velikem disku zavrnila tudi fotografijo,
+    ki jo uporabnik pricakuje (pregled 72d1d79) - prejem je dejanje uporabnika, sprejem na srediscu ni."""
     try:
         from core import link_viri
-        return shutil.disk_usage(mapa).free - max(0, bajtov) >= link_viri.rezerva_diska(mapa)
+        return shutil.disk_usage(mapa).free - max(0, bajtov) >= link_viri.NAJMANJ_REZERVE_DISKA
     except (OSError, ImportError):
         return True                      # prostora ne znamo izmeriti: kot prej (ENOSPC ostane varovalka)
 
