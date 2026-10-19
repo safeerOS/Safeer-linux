@@ -395,13 +395,10 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
     # Besedilo »kaj je novo« in stran izdaje sta od seznama, iz katerega je ponujena razlicica.
     vir, vir_m = (skupina_b, mb) if iz_bete_kaj else (skupina, m)
     novo = vir.get("novo") if isinstance(vir.get("novo"), dict) else {}
-    # Paket .deb brez Flatpaka: ponudba »hitrejsi Splet« (Flatpak na runtime GNOME, ista ali novejsa razlicica).
+    # Ponudbe »hitrejsi Splet: preklopi na Flatpak« ni vec (19. 10. 2026): od 15. 10. ima .deb nas WebKit, od 1.0.127 v
+    # paketu safeer-webkit s PGO in BOLT (Flatpak brez BOLT) - trditev »hitrejsi« nima podlage v meritvi, uporabnik pa bi
+    # prenesel ~420 MB. Kljuc ostane (vmesnik gumb skrije), namestitev Flatpaka (namesti_flatpak) ostane za rocni preklop.
     preklop = None
-    os_paket = _izberi(skupina.get("safeer-os"), skupina_b.get("safeer-os"))[0] or {}
-    nasa_os = razlicice.get("safeer-os", "")
-    if nacin == "deb" and veljavna_datoteka(os_paket.get("flatpak")) and \
-            not novejsa(nasa_os, str(os_paket.get("razlicica") or "")):
-        preklop = {"razlicica": str(os_paket.get("razlicica")), "datoteka": os_paket["flatpak"]}
     return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(vir_m.get("stran") or STRAN),
             "preverjeno": int(time.time()), "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)},
             "kanal": kanal, "na_beti": any(je_predizdaja(v) for v in razlicice.values()), "beta_napaka": beta_napaka}

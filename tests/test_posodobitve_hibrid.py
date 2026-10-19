@@ -63,9 +63,9 @@ class PonudbaFlatpak(unittest.TestCase):
         with mock.patch.object(P, "veljavna_datoteka", side_effect=lambda d: isinstance(d, dict) and bool(d.get("url"))):
             return P.preveri("linux", {"safeer-os": nasa}, manifest=m, nacin=nacin)
 
-    def test_deb_dobi_ponudbo(self):
-        izid = self._preveri(self._m(), "0.4.85", "deb")
-        self.assertEqual(izid["flatpak_preklop"]["datoteka"], F)
+    def test_deb_ni_ponudbe(self):
+        """Od 1.0.127 ima .deb isti WebKit kot Flatpak (in BOLT): ponudba »hitrejsi Splet« bi bila neresnicna."""
+        self.assertIsNone(self._preveri(self._m(), "0.4.85", "deb")["flatpak_preklop"])
 
     def test_starejsi_flatpak_ni_ponudbe(self):
         self.assertIsNone(self._preveri(self._m("0.4.84"), "0.4.85", "deb")["flatpak_preklop"])
