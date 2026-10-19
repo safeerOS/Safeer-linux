@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 
 _os = None
 _control = None
+_control_bo_vgrajen = False
 _os_klic: Optional[Callable[[str, list], Optional[dict]]] = None
 
 
@@ -35,6 +36,18 @@ def os_app():
 
 def control_app():
     return _control
+
+
+def vgradi_control() -> None:
+    """Safeer OS to poklice pred uvozom safeer_control: Control bo v tem procesu Gio.Application (safeer_control._OSNOVA).
+    Prej je to povedala okoljska spremenljivka SAFEER_CONTROL_VGRAJEN, ki jo je Safeer OS nastavil in odstranil, ko so v
+    procesu ze tekle niti (GDBus, WebKit) - setenv med getenv druge niti je v glibc nedefiniran (19. 10. 2026)."""
+    global _control_bo_vgrajen
+    _control_bo_vgrajen = True
+
+
+def control_bo_vgrajen() -> bool:
+    return _control_bo_vgrajen
 
 
 def vgrajen() -> bool:

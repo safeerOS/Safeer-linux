@@ -51,7 +51,7 @@ class NapakaOdtisa(ValueError):
 
 
 def mapa() -> str:
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "jbl")
+    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "jbl")
 
 
 def _nastavitve_pot() -> str:

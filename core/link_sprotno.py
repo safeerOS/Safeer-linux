@@ -44,7 +44,7 @@ WINDOWS = os.name == "nt"
 def mapa_predpomnilnika() -> str:
     if WINDOWS:
         return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SafeerOS", "pretok")
-    return os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "safeer-control", "pretok")
+    return os.path.join((os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")), "safeer-control", "pretok")
 
 
 def _disk(mapa: str):

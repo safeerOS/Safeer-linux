@@ -12,9 +12,13 @@ import tempfile
 import time
 import unittest
 
-import test_delovna  # noqa: E402 - isto lazno okolje za safeer-cinnamon
-
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Tudi ce pytest tece iz druge mape: core/ (koren) in test_delovna (ta mapa) morata biti na poti.
+for _pot in (KOREN, os.path.dirname(os.path.abspath(__file__))):
+    if _pot not in sys.path:
+        sys.path.insert(0, _pot)
+
+import test_delovna  # noqa: E402 - isto lazno okolje za safeer-cinnamon
 TEMA = test_delovna.TEMA
 # Razred TestCase iz test_delovna ne sme biti ime v tem modulu: pytest bi pobral in pognal njegove preizkuse se enkrat.
 _vrednost = test_delovna.TestTemaCinnamon._vrednost

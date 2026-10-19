@@ -89,7 +89,7 @@ zapomni() {
         dconf dump "$PLANK_DOCK" > "$MAPA/plank-prej.ini" 2>/dev/null || true
     fi
     # Uporabnik je Plank morda uporabljal ze prej: ob izklopu docka mu ga pustimo teci.
-    if pgrep -x plank >/dev/null 2>&1; then : > "$MAPA/plank-je-tekel"; else rm -f "$MAPA/plank-je-tekel"; fi
+    if pgrep -u "$(id -u)" -x plank >/dev/null 2>&1; then : > "$MAPA/plank-je-tekel"; else rm -f "$MAPA/plank-je-tekel"; fi
 }
 
 # Izvirna vrednost kljuca (pred vklopom).
@@ -601,7 +601,7 @@ dock_zazeni() {
         cp -f "$SKUPNO/plank/dock.theme" "$PLANK_TEME/$TEMA/dock.theme"
     fi
     dock_prilagodi
-    pkill -x plank >/dev/null 2>&1 && sleep 0.5
+    pkill -u "$(id -u)" -x plank >/dev/null 2>&1 && sleep 0.5
     plank_zazeni
 }
 
@@ -726,8 +726,11 @@ LAUNCHERJI="${XDG_CONFIG_HOME:-$HOME/.config}/plank/dock1/launchers"
 
 najdi_program() {
     local d
-    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "$KOREN/usr/local/share/applications" \
-             "$KOREN/usr/share/applications" "$KOREN/var/lib/flatpak/exports/share/applications"; do
+    # Isti vrstni red kot XDG_DATA_DIRS seje s Flatpakom: najprej uporabnik (tudi Flatpak --user), nato sistem.
+    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" \
+             "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/exports/share/applications" \
+             "$KOREN/usr/local/share/applications" "$KOREN/usr/share/applications" \
+             "$KOREN/var/lib/flatpak/exports/share/applications"; do
         [ -f "$d/$1.desktop" ] && { printf '%s\n' "$d/$1.desktop"; return 0; }
     done
     return 1
@@ -876,7 +879,7 @@ dock() {
     dock_dodaj_pripete
     mkdir -p "$(dirname "$AUTOSTART")"
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon dock\nExec=safeer-cinnamon --dock\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' > "$AUTOSTART"
-    if [ -n "$novo" ] || ! pgrep -x plank >/dev/null 2>&1; then dock_zazeni takoj; else dock_prilagodi; fi
+    if [ -n "$novo" ] || ! pgrep -u "$(id -u)" -x plank >/dev/null 2>&1; then dock_zazeni takoj; else dock_prilagodi; fi
     # V postavitvi delovna spremembe zaslona javi Safeer OS, sicer nasa straza.
     if [ "$(profil_trenutni)" = dock ]; then (setsid "$0" --straza >/dev/null 2>&1 &); else straza_ustavi; fi
 }
@@ -895,7 +898,7 @@ dock_izklopi() {
     fi
     rm -f "$AUTOSTART" "$MAPA/dock-nastavljeno" "$MAPA/dock-tema-prozorna"
     if [ -n "$bil" ] || [ "${1:-}" = "koncno" ]; then
-        pkill -x plank >/dev/null 2>&1 || true
+        pkill -u "$(id -u)" -x plank >/dev/null 2>&1 || true
         if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then
             dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
             dconf load "$PLANK_DOCK" < "$MAPA/plank-prej.ini" 2>/dev/null || true
@@ -983,7 +986,7 @@ delovna_izklopi() {
                 --object-path /io/github/memelandfaner/SafeerOS --method org.gtk.Actions.Activate \
                 delovna-izklopi "[]" "{}" >/dev/null 2>&1 || true
         fi
-        pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true
+        pkill -TERM -u "$(id -u)" -f "safeer.*--delovna" >/dev/null 2>&1 || true
     fi
     return 0
 }
@@ -1210,7 +1213,7 @@ tekst() {      # $1 = povecava (1.25, 1.5) ali "obicajen"
     fi
     pisi org.cinnamon.desktop.interface:text-scaling-factor "$v"
     # Ikone docka sledijo velikosti besedila.
-    [ -f "$AUTOSTART" ] && pgrep -x plank >/dev/null 2>&1 && dock_prilagodi
+    [ -f "$AUTOSTART" ] && pgrep -u "$(id -u)" -x plank >/dev/null 2>&1 && dock_prilagodi
     return 0
 }
 

@@ -168,9 +168,9 @@ NAJVEC_KOPIJE = 1_000_000
 CONTROL_NASTAVITVE = os.path.expanduser("~/.config/safeer-control/link.json")
 #: Nastavitve Controla (pladenj: predvajanje_za_naprave, deljene mape ...), loceno od podatkov Linka v link.json.
 CONTROL_NASTAVITVE_PLADNJA = os.path.expanduser("~/.config/safeer-control/control.json")
-BRSKALNIK_NASTAVITVE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+BRSKALNIK_NASTAVITVE = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")),
                                     "safeer-mint", "settings.json")
-ZAPISKI_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+ZAPISKI_POT = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")),
                            "safeer-os", "zapiski.json")
 ISKALNIKI = {"google": "https://www.google.com/search?q=", "duckduckgo": "https://duckduckgo.com/?q=",
              "brave": "https://search.brave.com/search?q=", "startpage": "https://www.startpage.com/do/search?q=",
@@ -1165,7 +1165,7 @@ def videz_cinnamon_nastavi(kaj: str, vklop) -> dict:
     return videz_cinnamon()
 
 
-SAMOZAGON = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+SAMOZAGON = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")),
                          "autostart", "safeer-os.desktop")
 
 
@@ -2079,11 +2079,10 @@ class SafeerOS(Gtk.Application):
             zaklep = os_stabilnost.zakleni_primerek("safeer-control")
             if zaklep is None:
                 return False                      # locen Control se ravno zaganja
-            os.environ["SAFEER_CONTROL_VGRAJEN"] = "1"      # Control kot Gio.Application (glej safeer_control._OSNOVA)
-            try:
-                import safeer_control
-            finally:
-                os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)   # otroci (programi, ki jih zazenemo) je ne dedujejo
+            # Control kot Gio.Application (safeer_control._OSNOVA) - zastavica v procesu, ne okoljska spremenljivka:
+            # tu ze tecejo niti, setenv bi bil nevaren (core/en_proces.vgradi_control).
+            en_proces.vgradi_control()
+            import safeer_control
             safeer_control._ZAKLEP_PRIMERKA = zaklep
             safeer_control.VGRAJEN = True
             c = safeer_control.SafeerControl(ozadje=True)

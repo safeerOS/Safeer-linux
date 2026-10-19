@@ -87,7 +87,7 @@ ZMOZNOST_DATOTEKE = "d"
 
 def _zeton_zivi(izdan: float, rabljen: float, zdaj: float) -> bool:
     return zdaj - rabljen < ZETON_VELJA_S and zdaj - izdan < NAJDLJE_S
-TLS_MAPA = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-control", "tls")
+TLS_MAPA = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-control", "tls")
 
 # Kaj televizor zna predvajati ali pokazati; drugo se kaze kot navadna datoteka.
 VRSTE = {

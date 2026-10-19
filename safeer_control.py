@@ -37,6 +37,11 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
+#: Ponovni zagon nove razlicice (_znova_zazeni) naroci, naj se okno odpre takoj. Spremenljivko preberemo in odstranimo
+#: na zacetku uvoza, ko v procesu se ne tece nobena nit (pozneje tecejo Link, GDBus: setenv bi bil nevaren). V procesu
+#: Safeer OS je ni, zato tam okolja ne spreminjamo.
+_ODPRI_OB_ZAGONU = "SAFEER_CONTROL_ODPRI" in os.environ and os.environ.pop("SAFEER_CONTROL_ODPRI") == "1"
+
 # Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
@@ -84,7 +89,7 @@ NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-control")
 OS_ID = "io.github.memelandfaner.SafeerOS"
 #: True, ko Control tece v procesu Safeer OS (core/en_proces.py) - takrat ne zaganja sam sebe znova in ne konca procesa.
 VGRAJEN = False
-SAMOZAGON_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "autostart", "safeer-control.desktop")
+SAMOZAGON_POT = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "autostart", "safeer-control.desktop")
 
 # Besedila pladnja v jezikih vmesnika (isti nabor kot Safeer Browser).
 BESEDILA = {
@@ -163,7 +168,7 @@ def _jezik_sistema() -> Optional[str]:
 
 
 def _jezik_brskalnika() -> Optional[str]:
-    pot = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-mint", "settings.json")
+    pot = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-mint", "settings.json")
     try:
         with open(pot, "r", encoding="utf-8") as d:
             v = (json.load(d) or {}).get("ui_language")
@@ -877,8 +882,9 @@ class OddaljeniGledalec(Gtk.Window):
 
 # V procesu Safeer OS (core/en_proces.py) je Control Gio.Application: drugi Gtk.Application v istem procesu se ne
 # more registrirati (GLib 2.80: g_application_impl_attempt_primary, preverjeno 12. 10. 2026), Gio.Application pa se.
-# Okna takrat pripadajo aplikaciji Safeer OS (_dodaj_okno). Safeer OS nastavi SAFEER_CONTROL_VGRAJEN pred uvozom.
-_OSNOVA = Gio.Application if os.environ.get("SAFEER_CONTROL_VGRAJEN") == "1" else Gtk.Application
+# Okna takrat pripadajo aplikaciji Safeer OS (_dodaj_okno). Safeer OS pred uvozom poklice en_proces.vgradi_control().
+from core import en_proces as _en_proces  # noqa: E402
+_OSNOVA = Gio.Application if _en_proces.control_bo_vgrajen() else Gtk.Application
 
 
 class SafeerControl(_OSNOVA):
@@ -2214,7 +2220,7 @@ class SafeerControl(_OSNOVA):
             self.link.povezi_v_ozadju()
             if not VGRAJEN:      # v procesu Safeer OS posodobitve preverja in namesca Safeer OS (en postopek)
                 GLib.timeout_add_seconds(120, self._posodobitve_preveri)
-            if os.environ.pop("SAFEER_CONTROL_ODPRI", "") == "1" or self._okno_po_novi_razlicici():
+            if _ODPRI_OB_ZAGONU or self._okno_po_novi_razlicici():
                 self.pokazi_okno()
             return
         self._prva_aktivacija = False
@@ -2339,8 +2345,8 @@ class SafeerControl(_OSNOVA):
             pass
         # Pladenj ostane (--ozadje), okno pa se odpre takoj, ker ga je uporabnik pravkar zahteval.
         argv = [a for a in sys.argv if a != "--ozadje"] + ["--ozadje"]
-        os.environ["SAFEER_CONTROL_ODPRI"] = "1"
-        os.execv(sys.executable, [sys.executable] + argv)
+        # Okolje novemu procesu damo sami (execve): okolja tega procesa ne spreminjamo, ker v njem tecejo niti.
+        os.execve(sys.executable, [sys.executable] + argv, dict(os.environ, SAFEER_CONTROL_ODPRI="1"))
 
     # ------------------------------------------------------------------
     # Odpiranje naslovov: gledalec zaslona s Huba v svojem oknu, vse drugo v sistemskem brskalniku

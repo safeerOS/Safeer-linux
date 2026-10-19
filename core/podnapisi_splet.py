@@ -131,7 +131,7 @@ def poisci(ident: str, jeziki: Iterable[str] = (), odpri: Callable = _odpri) -> 
 
 
 def mapa_predpomnilnika() -> str:
-    return os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "safeer-os", "podnapisi")
+    return os.path.join((os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")), "safeer-os", "podnapisi")
 
 
 def ime_datoteke(rezultat: dict) -> str:

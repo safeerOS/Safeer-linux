@@ -157,7 +157,7 @@ def predojacitev(ojacitve_db: Iterable[float]) -> float:
 # ------------------------------------------------------------------ shramba
 
 def _pot() -> str:
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "predvajalnik.json")
+    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "predvajalnik.json")
 
 
 def privzete() -> dict:

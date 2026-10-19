@@ -551,7 +551,7 @@ def privzeti_monitor() -> Optional[str]:
                 return ime + ".monitor"
         except Exception:
             pass
-    zvocni_vticnik = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "pulse", "native")
+    zvocni_vticnik = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "pulse", "native")
     if os.path.exists(zvocni_vticnik) or os.environ.get("PULSE_SERVER"):
         return "@DEFAULT_MONITOR@"
     return None

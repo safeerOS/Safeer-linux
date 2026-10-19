@@ -68,7 +68,7 @@ def televizorji_v_linku() -> set:
 
 
 def _pot_zakasnitev() -> str:
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "zvocniki.json")
+    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "zvocniki.json")
 
 
 def omeji_zakasnitev(ms) -> int:

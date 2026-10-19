@@ -7,7 +7,10 @@ cd "$(dirname "$0")"
 L=./lab.sh
 napake=0
 ok()    { printf '  ok      %s\n' "$1"; }
-slabo() { printf '  NAPAKA  %s\n          dobljeno: »%s«, pricakovano: »%s«\n' "$1" "$2" "$3"; napake=$((napake + 1)); }
+# Ob napaki izpise tudi, koga resolved sprasuje: ce je preklopil na rezervo (usmerjevalnik), Scit tisti hip ne blokira - CI 19. 10. 2026
+# je padel na »Blokiraj spet« in premoru brez tega podatka.
+slabo() { printf '  NAPAKA  %s\n          dobljeno: »%s«, pricakovano: »%s«\n          resolved zdaj sprasuje: »%s«\n' \
+                 "$1" "$2" "$3" "$(trenutni 2>/dev/null)"; napake=$((napake + 1)); }
 je()    { if [[ "$2" =~ $3 ]]; then ok "$1"; else slabo "$1" "$2" "$3"; fi; }      # je OPIS DEJANSKO VZOREC
 dns()      { docker exec scit-odj resolvectl dns eth0 | sed 's/^[^:]*: *//'; }
 domene()   { docker exec scit-odj resolvectl domain eth0 | sed 's/^[^:]*: *//'; }

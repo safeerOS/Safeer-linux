@@ -194,7 +194,7 @@ def podatkovna_mapa() -> str:
         from core.threat_intel import default_data_dir
         return os.path.join(str(default_data_dir("safeer-mint")), "scit")
     except Exception:
-        return os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "safeer-mint", "scit")
+        return os.path.join((os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")), "safeer-mint", "scit")
 
 
 # ---------------------------------------------------------------------- DNS
@@ -1080,7 +1080,7 @@ def pravilo_namesceno() -> bool:
 
 
 def _znak_pravila() -> str:
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "scit-pravilo")
+    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "scit-pravilo")
 
 
 def namesti_pravilo() -> bool:

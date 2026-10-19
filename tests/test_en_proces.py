@@ -145,7 +145,7 @@ class DrugaAplikacija(unittest.TestCase):
     def test_vgrajen_control_je_gio_application(self):
         """Drugi Gtk.Application v istem procesu se ne registrira (GLib 2.80); Control v procesu Safeer OS je zato
         Gio.Application, okna pa doda Safeer OS."""
-        koda = ("import os, sys; os.environ['SAFEER_CONTROL_VGRAJEN']='1'; sys.path.insert(0, %r); "
+        koda = ("import os, sys; sys.path.insert(0, %r); from core import en_proces; en_proces.vgradi_control(); "
                 "import safeer_control as c; from gi.repository import Gio, Gtk; "
                 "print(issubclass(c.SafeerControl, Gtk.Application), issubclass(c.SafeerControl, Gio.Application))" % KOREN)
         izid = subprocess.run([sys.executable, "-c", koda], capture_output=True, text=True, timeout=60)
@@ -153,8 +153,11 @@ class DrugaAplikacija(unittest.TestCase):
         with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
             s = f.read()
         self.assertEqual(s.count("self._dodaj_okno("), 3)
+        # Brez okoljske spremenljivke: Safeer OS jo je nastavljal, ko so v procesu ze tekle niti (setenv - segfault).
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
-            self.assertIn('os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)', f.read())
+            izvor = f.read()
+        self.assertIn("en_proces.vgradi_control()", izvor)
+        self.assertNotIn("SAFEER_CONTROL_VGRAJEN", izvor)
 
 
 class OmrezniProcesSpleta(unittest.TestCase):

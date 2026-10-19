@@ -249,7 +249,7 @@ def pripravi(uri: str, ime: str = "", mapa: str = "") -> str:
         else:
             return uri
         koncnica, besedilo = pocisti(ime or u.path, podatki)
-        mapa = mapa or os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "safeer-os", "podnapisi")
+        mapa = mapa or os.path.join((os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")), "safeer-os", "podnapisi")
         os.makedirs(mapa, exist_ok=True)
         cilj = os.path.join(mapa, hashlib.sha256(uri.encode()).hexdigest()[:24] + koncnica)
         if koncnica == ".srt":
@@ -344,7 +344,7 @@ def v_vtt(ime: str, podatki: bytes) -> str:
 # ------------------------------------------------------------------ izbira uporabnika
 
 def _pot_nastavitev() -> str:
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "podnapisi.json")
+    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "podnapisi.json")
 
 
 def nalozi_nastavitve() -> dict:
