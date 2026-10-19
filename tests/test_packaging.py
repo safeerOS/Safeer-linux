@@ -1068,7 +1068,7 @@ class DebWebkitTests(unittest.TestCase):
                     if deb is None:
                         deb='safeer-os_%s_amd64.deb'%(ROOT/'packaging/VERSION_OS').read_text().strip()
                     deb=ROOT/deb
-                    okolje=dict(os.environ,SAFEER_WEBKIT_DEB=webkit,SAFEER_DEB_BREZ_QT='1',SAFEER_DEB_BREZ_NODE='1')
+                    okolje=dict(os.environ,SAFEER_WEBKIT_DEB=webkit,SAFEER_DEB_BREZ_QT='1')
                     try:
                         r=subprocess.run(['bash',str(ROOT/skripta)],cwd=ROOT,env=okolje,capture_output=True,text=True)
                         self.assertEqual(r.returncode,0,r.stdout[-2000:]+r.stderr[-2000:])

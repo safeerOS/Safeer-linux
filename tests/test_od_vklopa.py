@@ -232,9 +232,9 @@ class TestPaket(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb ni namescen")
     def test_paket_vsebuje_od_vklopa(self):
-        # Brez Node.js (30 MB prenosa; paket ostane _all) - Node.js preverja tests/test_node_izvajalnik.py in CI.
+        # Paket brez nasega WebKita, DRM in rqbit ostane _all (Node.js ni v paketu od 19. 10. 2026).
         r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN, capture_output=True, text=True,
-                           env=dict(os.environ, SAFEER_DEB_BREZ_NODE="1"))
+                           env=dict(os.environ))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(KOREN, "packaging", "VERSION_OS")) as f:
             deb = os.path.join(KOREN, "safeer-os_%s_all.deb" % f.read().strip())

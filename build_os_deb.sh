@@ -34,9 +34,10 @@ DEB_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$VERSION")"
 DEB_CONTROL_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CONTROL_VERSION")"
 DEB_CINNAMON_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CINNAMON_VERSION")"
 WEBKIT_DEB="${SAFEER_WEBKIT_DEB:-}"
-# Node.js (x86_64) je v paketu vedno, razen v preizkusih paketa (SAFEER_DEB_BREZ_NODE=1, brez 30 MB prenosa).
-NODE=1
-[ "${SAFEER_DEB_BREZ_NODE:-0}" = 1 ] && NODE=0
+# Node.js ni vec v paketu (lastnik, 19. 10. 2026): v 1.0.127 ga ne uporablja noben del Safeerja, uporabnik pa bi prenesel
+# +29 MB (102 MiB na disku). Ko ga bo kaj potrebovalo, ga vklopi SAFEER_DEB_Z_NODE=1 (pripeta razlicica, SHA-256).
+NODE=0
+[ "${SAFEER_DEB_Z_NODE:-0}" = 1 ] && NODE=1
 # Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
 # Nas rqbit (SAFEER_RQBIT_TOVOR, packaging/rqbit) je program za x86_64: paket je z njim amd64.
 if [ -n "$WEBKIT_DEB" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ] || [ -n "${SAFEER_RQBIT_TOVOR:-}" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
@@ -62,7 +63,7 @@ bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-os safeer-control
 if [ "${SAFEER_DEB_BREZ_QT:-0}" != 1 ]; then
     python3 "$DIR/packaging/pyside6_vendor.py" "$BUILD_ROOT/usr/lib/safeer-os/vendor"
 fi
-# Node.js 22 LTS (lastnik: nacin »deb«) v zasebni predponi /usr/lib/safeer-os/node: pripeta razlicica, SHA-256 arhiva
+# Node.js 22 LTS (samo s SAFEER_DEB_Z_NODE=1) v zasebni predponi /usr/lib/safeer-os/node: pripeta razlicica, SHA-256 arhiva
 # preverjena pred uporabo (packaging/node_vendor.py). Ne v PATH in ne v /usr/bin - sistemski node ostane nedotaknjen;
 # programi Safeer OS ga najdejo prek core/node_izvajalnik.py. Licenca (z licencami V8, OpenSSL, ICU ...) gre v doc.
 NODE_ODVISNOSTI=""

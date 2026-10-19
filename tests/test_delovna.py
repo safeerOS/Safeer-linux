@@ -1374,7 +1374,7 @@ class TestTemaCinnamon(unittest.TestCase):
         # Safeer Cinnamon je od 12. 10. 2026 v enem paketu safeer-os (build_os_deb.sh).
         r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN,
                            capture_output=True, text=True,
-                           env=dict(os.environ, SAFEER_DEB_BREZ_QT="1", SAFEER_DEB_BREZ_NODE="1"))
+                           env=dict(os.environ, SAFEER_DEB_BREZ_QT="1"))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(KOREN, "packaging", "VERSION_OS")) as f:
             deb = os.path.join(KOREN, "safeer-os_%s_all.deb" % f.read().strip())

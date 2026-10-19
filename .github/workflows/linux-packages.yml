@@ -430,20 +430,12 @@ jobs:
           dpkg-deb -f "$OS" Version | grep -Fx "$(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_OS)")"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_CONTROL)"))"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_CINNAMON)"))"
-          # Node.js 22 LTS (lastnik: nacin »deb«): v zasebni predponi z licenco, nikoli v PATH (sistemski node ostane svoj).
-          dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/node/bin/node'
-          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/nodejs/LICENSE'
-          if dpkg-deb -c "$OS" | grep -E '\./usr/(local/)?s?bin/(node|nodejs|npm|npx)$'; then echo "::error::node v PATH"; exit 1; fi
+          # Node.js ni v paketu (lastnik, 19. 10. 2026: v 1.0.127 ga nic ne uporablja, +29 MB prenosa).
+          if dpkg-deb -c "$OS" | grep -E '\./usr/lib/safeer-os/node/|\./usr/(local/)?s?bin/(node|nodejs|npm|npx)$'; then echo "::error::Node.js v paketu"; exit 1; fi
           # Profila AppArmor (Ubuntu 24.04+: peskovnik WebKita) kot conffile.
           dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | tee /dev/stderr | grep -Fx /etc/apparmor.d/safeer-os
           dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | grep -Fx /etc/apparmor.d/safeer-control
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$WEBKIT" "$OS"
-          NODE_RAZLICICA="$(python3 -c 'import sys; sys.path.insert(0, "packaging"); import node_vendor; print(node_vendor.RAZLICICA)')"
-          /usr/lib/safeer-os/node/bin/node --version | tee /dev/stderr | grep -Fx "v$NODE_RAZLICICA"
-          for koren in /usr/lib/safeer-os /usr/lib/safeer-control; do
-            /usr/bin/python3 -c "import sys; sys.path.insert(0, '$koren'); from core import node_izvajalnik as n; p = n.pot(sistemski=False); assert p == '/usr/lib/safeer-os/node/bin/node', p"
-          done
-          echo "::notice::Node.js v$NODE_RAZLICICA v paketu: $(du -sh /usr/lib/safeer-os/node | cut -f1)"
           # Namesceni rqbit je program iz posla rqbit-deb (SHA-256 iz zapisa gradnje); Safeer OS in Safeer Control ga
           # uporabita namesto prenosa z GitHuba.
           RQBIT_SHA="$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')"

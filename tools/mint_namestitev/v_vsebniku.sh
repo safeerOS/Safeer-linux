@@ -117,19 +117,9 @@ webkit_preizkus "s sistemskim WebKitGTK $(dpkg-query -W -f '${Version}' libwebki
 echo "== 1b. odvisnosti, brez katerih Safeer Link ne najde naprav"
 /usr/bin/python3 -c "import zeroconf, qrcode, cryptography" || { echo "NAPAKA: manjka python3-zeroconf/qrcode/cryptography"; exit 1; }
 
-echo "== 1c. Node.js v paketu (nacin deb): tece kot uporabnik, ne trci s sistemskim node"
-NODE=/usr/lib/safeer-os/node/bin/node
-NASA="$(su preizkus -c "$NODE --version")" || { echo "NAPAKA: nas Node.js se ne zazene"; exit 1; }
-echo "   nas Node.js: $NASA"
+echo "== 1c. Node.js ni v paketu (lastnik, 19. 10. 2026); posodobitev s predizdaje z Node.js ga pospravi"
+[ ! -e /usr/lib/safeer-os/node ] || { find /usr/lib/safeer-os/node | head -5; echo "NAPAKA: /usr/lib/safeer-os/node je ostal"; exit 1; }
 [ ! -e /usr/bin/node ] || { echo "NAPAKA: /usr/bin/node obstaja, ceprav nodejs ni namescen (paket ga ne sme prinesti)"; exit 1; }
-apt-get install -y -q --no-install-recommends nodejs >"$ZACASNO/nodejs.log" 2>&1 \
-  || { tail -20 "$ZACASNO/nodejs.log"; echo "NAPAKA: namestitev sistemskega nodejs ob safeer-os"; exit 1; }
-case "$(dpkg -S /usr/bin/node 2>/dev/null)" in nodejs:*) ;; *) echo "NAPAKA: /usr/bin/node ni iz paketa nodejs"; exit 1 ;; esac
-echo "   sistemski node: $(/usr/bin/node --version) (paket nodejs)"
-[ "$(su preizkus -c "$NODE --version")" = "$NASA" ] || { echo "NAPAKA: sistemski nodejs je spremenil nas Node.js"; exit 1; }
-su preizkus -c "python3 -c \"import sys; sys.path.insert(0, '/usr/lib/safeer-os'); from core import node_izvajalnik as n; assert n.pot() == '$NODE', n.pot()\"" \
-  || { echo "NAPAKA: programi Safeer OS ne najdejo nasega Node.js"; exit 1; }
-apt-get purge -y -q nodejs >/dev/null 2>&1 || true
 
 echo "== 1d. profili AppArmor (Ubuntu 24.04+: peskovnik WebKita) se prevedejo z apparmor_parser Minta"
 AA="$ZACASNO/apparmor"

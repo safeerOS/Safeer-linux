@@ -148,10 +148,14 @@ class Paket(unittest.TestCase):
         for tovor in ("install_os_payload.sh", "install_control_payload.sh"):
             self.assertRegex((KOREN / "packaging" / tovor).read_text(), r"for modul in [^\n]*\bnode_izvajalnik\b")
 
-    def test_preizkusi_gradnje_brez_prenosa(self):
-        for ime in ("test_delovna.py", "test_od_vklopa.py"):
-            besedilo = (KOREN / "tests" / ime).read_text(encoding="utf-8")
-            self.assertTrue(re.search(r'SAFEER_DEB_BREZ_NODE="1"', besedilo), ime)
+    def test_privzeto_brez_node(self):
+        """Lastnik, 19. 10. 2026: Node.js ni v paketu, dokler ga kaj ne uporablja (+29 MB prenosa, 102 MiB na disku)."""
+        b = (KOREN / "build_os_deb.sh").read_text(encoding="utf-8")
+        self.assertIn("NODE=0\n", b)
+        self.assertIn('[ "${SAFEER_DEB_Z_NODE:-0}" = 1 ] && NODE=1', b)
+        self.assertNotIn("SAFEER_DEB_BREZ_NODE", b)
+        ci = (KOREN / ".github" / "workflows" / "linux-packages.yml").read_text(encoding="utf-8")
+        self.assertIn('::error::Node.js v paketu', ci)
 
 
 if __name__ == "__main__":
