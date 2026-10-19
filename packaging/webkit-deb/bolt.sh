@@ -48,7 +48,10 @@ LLVM_RAZLICICA="$(sed -n 's/^LLVM_RAZLICICA="\(.*\)"$/\1/p' "$KOREN/packaging/we
 [ -n "$LLVM_PAKET" ] && [ -n "$LLVM_RAZLICICA" ] || { echo "bolt.sh: LLVM_PAKET ni v odvisnosti.sh" >&2; exit 1; }
 
 # Regularni izrazi funkcij za --skip-funcs (BOLT jih primerja s celim imenom, lokalna imajo pripono /N): vse oznake
-# v obsegu llintPCRangeStart..llintPCRangeEnd. Brez obsega (libwebkitgtk) prazno. awk prebere ves izhod (brez SIGPIPE).
+# v obsegu llintPCRangeStart..llintPCRangeEnd in vedno vse predpone interpreterjev JSC (IPInt preveri ob zagonu, da je
+# vsak rocaj tocno na bazi + opcode * 256 B, RELEASE_ASSERT -> CRASH() = abort() brez sporocila na Linuxu, WebKit
+# r238478; premaknjen ali instrumentiran rocaj = SIGABRT v JSC::initialize, kot v CI 39185371479). Brez obsega
+# (libwebkitgtk) prazno. awk prebere ves izhod (brez SIGPIPE).
 llint_preskoci() {
     "$LLVM/llvm-nm" --defined-only --numeric-sort "$1" | awk '
         $3 == "llintPCRangeStart" { v = 1 }
@@ -58,7 +61,8 @@ llint_preskoci() {
             else if (n ~ /^[A-Za-z][A-Za-z0-9]*$/) r = n "(/[0-9]+)?"
             if (r != "" && !(r in s)) { s[r] = 1; printf "%s%s", (k++ ? "," : ""), r }
         }
-        $3 == "llintPCRangeEnd" { v = 0 }'
+        $3 == "llintPCRangeEnd" { v = 0 }
+        END { if (k) printf ",llint_.*,ipint_.*,mint_.*,uint_.*,wasm_.*,vmEntry.*" }'
 }
 
 # Ena ponovitev padlega ucnega teka pod gdb: sklad klicev in ukaz, kjer se je proces ustavil (samo prvic).
