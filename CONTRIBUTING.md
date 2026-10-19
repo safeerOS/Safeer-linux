@@ -112,7 +112,9 @@ patch here, and we are happy to help you write them.
 
 If your change alters what the browser does, update the README in the same pull request. We do
 not ship documentation that promises something the code does not do, and we do not name a
-version number in prose where a link to the release will stay correct on its own.
+version number in prose where a link to the release will stay correct on its own. The one
+exception is the **Current version** section of the README and `CHANGELOG.md`, which the
+release process updates together with `packaging/VERSION*`.
 
 ## Code of conduct
 

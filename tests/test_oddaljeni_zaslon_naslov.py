@@ -36,10 +36,10 @@ class NaslovNaprave(unittest.TestCase):
             self.assertEqual(control.link.klici, [], "naprava ne sme dobiti screen.start")
 
     def test_z_naslovom_prosimo_in_vrnemo_naslov(self):
-        control = _control([{"id": "pc-1", "ime": "Pisarna", "naslov": "192.168.0.220"}])
+        control = _control([{"id": "pc-1", "ime": "Pisarna", "naslov": "192.168.0.120"}])
         izid = control._nova_oddaljena_seja("pc-1")
         self.assertTrue(izid["ok"], izid)
-        self.assertEqual(izid["naslov"], "192.168.0.220")
+        self.assertEqual(izid["naslov"], "192.168.0.120")
         self.assertEqual(control.link.klici, [("pc-1", "screen.start")])
 
     def test_neznana_naprava(self):
@@ -69,22 +69,22 @@ class NaslovIzSeznamaHuba(unittest.TestCase):
 
     SEZNAM = {"type": "cast.devices", "devices": [
         {"id": "tablica", "name": "Tablica", "ip": "127.0.0.1", "capabilities": ["remote"]},
-        {"id": "pc-2", "name": "Pisarna", "ip": "192.168.0.220", "capabilities": ["desktop"]},
+        {"id": "pc-2", "name": "Pisarna", "ip": "192.168.0.120", "capabilities": ["desktop"]},
         {"id": "daleč", "name": "Telefon", "ip": "", "capabilities": ["remote"]},
     ]}
 
     def test_hub_drugje(self):
-        link = self._link("wss://192.168.0.87:8990/cast/ws")
+        link = self._link("wss://192.168.0.108:8990/cast/ws")
         link._na_sporocilo_huba(self.SEZNAM)
         naslovi = {n["id"]: n["naslov"] for n in link.naprave_vse}
-        self.assertEqual(naslovi, {"tablica": "192.168.0.87", "pc-2": "192.168.0.220", "daleč": ""})
+        self.assertEqual(naslovi, {"tablica": "192.168.0.108", "pc-2": "192.168.0.120", "daleč": ""})
 
     def test_svoj_hub(self):
         link = self._link("wss://127.0.0.1:8990/cast/ws")
         link._na_sporocilo_huba(self.SEZNAM)
         naslovi = {n["id"]: n["naslov"] for n in link.naprave_vse}
         self.assertEqual(naslovi["tablica"], "127.0.0.1")
-        self.assertEqual(naslovi["pc-2"], "192.168.0.220")
+        self.assertEqual(naslovi["pc-2"], "192.168.0.120")
 
 
 if __name__ == "__main__":

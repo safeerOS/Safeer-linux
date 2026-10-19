@@ -1,0 +1,118 @@
+# Release notes · Opombe ob izdajah
+
+One file per version. Packages: [GitHub Releases](https://github.com/safeerOS/Safeer-linux/releases) · [safeer.si](https://safeer.si). Summary of the latest releases: [CHANGELOG.md](../../CHANGELOG.md).
+
+## Safeer Browser for Linux · Safeer OS · Safeer Control
+
+- [1.0.127](RELEASE_NOTES_1.0.127.md) — Safeer Browser for Linux 1.0.127 · Safeer OS 0.4.85 (with Safeer Control 2.1.82) — Safeer Browser on GTK 4.
+- [1.0.126](RELEASE_NOTES_1.0.126.md) (2026-10-11) — Safeer Browser for Linux 1.0.126 · Safeer Control 2.1.81 · Safeer OS 0.4.83 — Dock your way. Right-click a program on the desktop and choose Add to dock or Remove from dock.
+- [1.0.125](RELEASE_NOTES_1.0.125.md) — Safeer Browser for Linux 1.0.125 · Safeer Control 2.1.80 · Safeer OS 0.4.82 — Couch mode. The Media Center has a Couch mode button: big tiles, a clear selection frame, the window fills the screen.
+- [1.0.124](RELEASE_NOTES_1.0.124.md) (2026-10-11) — Safeer Browser for Linux 1.0.124 · Safeer Control 2.1.79 · Safeer OS 0.4.81 — Panels on the desktop.
+- [1.0.123](RELEASE_NOTES_1.0.123.md) — Safeer Browser for Linux 1.0.123 · Safeer Control 2.1.78 · Safeer OS 0.4.80 — Stremio add-ons as easy as on Android.
+- [1.0.122](RELEASE_NOTES_1.0.122.md) (2026-10-11) — Safeer Browser for Linux 1.0.122 · Safeer Control 2.1.77 · Safeer OS 0.4.79 — One search box for everything.
+- [1.0.120](RELEASE_NOTES_1.0.120.md) (2026-10-11) — Safeer Browser for Linux 1.0.120 · Safeer Control 2.1.76 · Safeer OS 0.4.78 — Install programs from the provider you choose.
+- [1.0.119](RELEASE_NOTES_1.0.119.md) (2026-10-11) — Safeer Browser for Linux 1.0.119 · Safeer Control 2.1.75 · Safeer OS 0.4.77 — Convert to … – checked on a real desktop and made friendlier.
+- [1.0.118](RELEASE_NOTES_1.0.118.md) (2026-10-11) — Safeer Browser for Linux 1.0.118 · Safeer Control 2.1.74 · Safeer OS 0.4.76 — Convert files on your computer.
+- [1.0.117](RELEASE_NOTES_1.0.117.md) (2026-10-09) — Safeer Browser for Linux 1.0.117 · Safeer Control 2.1.73 · Safeer OS 0.4.75 — Firefox stays behind the Shield.
+- [1.0.116](RELEASE_NOTES_1.0.116.md) (2026-10-09) — Safeer Browser for Linux 1.0.116 · Safeer Control 2.1.72 · Safeer OS 0.4.74 — Remote computer screen twice as smooth.
+- [1.0.115](RELEASE_NOTES_1.0.115.md) (2026-10-08) — Safeer Browser for Linux 1.0.115 · Safeer Control 2.1.71 · Safeer OS 0.4.73 — Sites no longer detect the ad blocker when they replace the ad library.
+- [1.0.114](RELEASE_NOTES_1.0.114.md) (2026-10-08) — Safeer Browser for Linux 1.0.114 · Safeer Control 2.1.70 · Safeer OS 0.4.72 — Stronger protection against ad-blocker detection.
+- [1.0.113](RELEASE_NOTES_1.0.113.md) — Safeer Browser for Linux 1.0.113 · Safeer Control 2.1.69 · Safeer OS 0.4.71 — Stronger protection against ad-blocker detection.
+- [1.0.112](RELEASE_NOTES_1.0.112.md) (2026-10-08) — Safeer Browser for Linux 1.0.112 · Safeer Control 2.1.68 · Safeer OS 0.4.70 — Web pages can no longer tell that Safeer has a built-in ad blocker.
+- [1.0.111](RELEASE_NOTES_1.0.111.md) (2026-10-08) — Safeer Browser for Linux 1.0.111 · Safeer Control 2.1.67 · Safeer OS 0.4.69 — The counter of blocked ads and threats is gone.
+- [1.0.110](RELEASE_NOTES_1.0.110.md) (2026-10-08) — Safeer Browser for Linux 1.0.110 · Safeer Control 2.1.66 · Safeer OS 0.4.68 — Hardening release for DNS-over-HTTPS and housekeeping.
+- [1.0.109](RELEASE_NOTES_1.0.109.md) (2026-10-08) — Safeer Browser for Linux 1.0.109 · Safeer Control 2.1.65 · Safeer OS 0.4.67 — Security release. After several review rounds, an independent code review (8 October 2026) of the browser, Safeer OS…
+- [1.0.108](RELEASE_NOTES_1.0.108.md) (2026-10-07) — Safeer Browser for Linux 1.0.108 · Safeer Control 2.1.64 · Safeer OS 0.4.66 — Since the built-in browser was introduced (the change is dated 28 September 2026), the installed Safeer OS package…
+- [1.0.107](RELEASE_NOTES_1.0.107.md) (2026-10-07) — Safeer Browser for Linux 1.0.107 · Safeer Control 2.1.63 · Safeer OS 0.4.65 — Release 1.0.105 made every device decide for itself what each other device may reach on it.
+- [1.0.106](RELEASE_NOTES_1.0.106.md) — Safeer Browser for Linux 1.0.106 · Safeer Control 2.1.62 · Safeer OS 0.4.64 — Release 1.0.105 made every device decide for itself what each other device may reach on it.
+- [1.0.105](RELEASE_NOTES_1.0.105.md) (2026-10-06) — Safeer Browser for Linux 1.0.105 · Safeer Control 2.1.61 · Safeer OS 0.4.63 — Until this release every device paired into Safeer Link was equal.
+- [1.0.104](RELEASE_NOTES_1.0.104.md) (2026-10-06) — Safeer Browser for Linux 1.0.104 · Safeer Control 2.1.60 · Safeer OS 0.4.62 — The screen of this computer on a phone, tablet or TV now depends on how the viewing device reaches the computer.
+- [1.0.103](RELEASE_NOTES_1.0.103.md) (2026-10-06) — Safeer Browser for Linux 1.0.103 · Safeer Control 2.1.59 · Safeer OS 0.4.61 — A program of this computer opened from a phone, tablet or TV runs on a separate, virtual screen.
+- [1.0.102](RELEASE_NOTES_1.0.102.md) (2026-10-06) — Safeer Browser for Linux 1.0.102 · Safeer Control 2.1.58 · Safeer OS 0.4.60 — When you open a program of this computer from a phone, tablet or TV, it runs on a separate, virtual screen and only…
+- [1.0.101](RELEASE_NOTES_1.0.101.md) (2026-10-06) — Safeer Browser for Linux 1.0.101 · Safeer Control 2.1.57 · Safeer OS 0.4.59 — The previous release fixed the way from a device to this computer.
+- [1.0.100](RELEASE_NOTES_1.0.100.md) (2026-10-06) — Safeer Browser for Linux 1.0.100 · Safeer Control 2.1.56 · Safeer OS 0.4.58 — Global Link brings a device only as far as the door of this computer's hub.
+- [1.0.99](RELEASE_NOTES_1.0.99.md) (2026-10-05) — Safeer Browser for Linux 1.0.99 · Safeer Control 2.1.55 · Safeer OS 0.4.57 — The screen of one computer can be shown on another computer.
+- [1.0.98](RELEASE_NOTES_1.0.98.md) (2026-10-05) — Safeer Browser for Linux 1.0.98 · Safeer Control 2.1.54 · Safeer OS 0.4.56 — A file sent from another computer arrives.
+- [1.0.97](RELEASE_NOTES_1.0.97.md) (2026-10-05) — Safeer Browser for Linux 1.0.97 · Safeer Control 2.1.53 · Safeer OS 0.4.55 — After it starts, the computer is back in Safeer Link sooner.
+- [1.0.96](RELEASE_NOTES_1.0.96.md) (2026-10-05) — Safeer Browser for Linux 1.0.96 · Safeer Control 2.1.52 · Safeer OS 0.4.54 — The screen of this computer opens from another device again. "Connected screens" on a phone, tablet or TV asked the…
+- [1.0.95](RELEASE_NOTES_1.0.95.md) (2026-10-05) — Safeer Browser for Linux 1.0.95 · Safeer Control 2.1.51 · Safeer OS 0.4.53 — A stopped device can be released from the notification.
+- [1.0.94](RELEASE_NOTES_1.0.94.md) (2026-10-04) — Safeer Browser for Linux 1.0.94 · Safeer Control 2.1.50 · Safeer OS 0.4.52 — The hub defends itself.
+- [1.0.93](RELEASE_NOTES_1.0.93.md) (2026-10-04) — Safeer Browser for Linux 1.0.93 · Safeer Control 2.1.49 · Safeer OS 0.4.51 — Files refresh by themselves.
+- [1.0.92](RELEASE_NOTES_1.0.92.md) (2026-10-04) — Safeer Browser for Linux 1.0.92 · Safeer Control 2.1.48 · Safeer OS 0.4.50 — Programs: a newly installed program appears at once.
+- [1.0.91](RELEASE_NOTES_1.0.91.md) (2026-10-04) — Safeer Browser for Linux 1.0.91 · Safeer Control 2.1.47 · Safeer OS 0.4.49 — Safeer Link connections on the computer no longer break under load.
+- [1.0.90](RELEASE_NOTES_1.0.90.md) (2026-10-04) — Safeer Browser for Linux 1.0.90 · Safeer Control 2.1.46 · Safeer OS 0.4.48 — "Rename device" works when the computer is the hub.
+- [1.0.89](RELEASE_NOTES_1.0.89.md) (2026-10-04) — Safeer Browser for Linux 1.0.89 · Safeer Control 2.1.45 · Safeer OS 0.4.47 — Drop a file on a device to send it.
+- [1.0.88](RELEASE_NOTES_1.0.88.md) (2026-10-04) — Safeer Browser for Linux 1.0.88 · Safeer Control 2.1.44 · Safeer OS 0.4.46 — One search field on the desktop finds more.
+- [1.0.87](RELEASE_NOTES_1.0.87.md) (2026-10-04) — Safeer Browser for Linux 1.0.87 · Safeer Control 2.1.43 · Safeer OS 0.4.45 — The first film from a torrent: a visible step, not silent waiting.
+- [1.0.86](RELEASE_NOTES_1.0.86.md) (2026-10-04) — Safeer Browser for Linux 1.0.86 · Safeer Control 2.1.42 · Safeer OS 0.4.44 — Open with … in Files.
+- [1.0.85](RELEASE_NOTES_1.0.85.md) (2026-10-04) — Safeer Browser for Linux 1.0.85 · Safeer Control 2.1.41 · Safeer OS 0.4.43 — This release is about the Shield (DNS filtering for the whole computer).
+- [1.0.84](RELEASE_NOTES_1.0.84.md) (2026-10-03) — Safeer Browser for Linux 1.0.84 · Safeer Control 2.1.40 · Safeer OS 0.4.42 — File search finds everything, at once.
+- [1.0.83](RELEASE_NOTES_1.0.83.md) (2026-10-03) — Safeer Browser for Linux 1.0.83 · Safeer Control 2.1.39 · Safeer OS 0.4.41 — The computer no longer falls asleep in the middle of a film.
+- [1.0.82](RELEASE_NOTES_1.0.82.md) (2026-10-03) — Safeer Browser for Linux 1.0.82 · Safeer Control 2.1.38 · Safeer OS 0.4.40 · Safeer Cinnamon 1.2.1 — Select several files.
+- [1.0.81](RELEASE_NOTES_1.0.81.md) (2026-10-03) — Safeer Browser for Linux 1.0.81 · Safeer Control 2.1.37 · Safeer OS 0.4.39 · Safeer Cinnamon 1.2.0 — You choose how much of it you want. "Safeer Cinnamon" in the menu now opens a small window with three layouts: Look…
+- [1.0.80](RELEASE_NOTES_1.0.80.md) (2026-10-03) — Safeer Browser for Linux 1.0.80 · Safeer Control 2.1.36 · Safeer OS 0.4.38 — A film starts with a source that works.
+- [1.0.79](RELEASE_NOTES_1.0.79.md) (2026-10-03) — Safeer Browser for Linux 1.0.79 · Safeer Control 2.1.35 · Safeer OS 0.4.37 — Cloud gaming on the Safeer desktop.
+- [1.0.78](RELEASE_NOTES_1.0.78.md) (2026-10-03) — Safeer Browser for Linux 1.0.78 · Safeer Control 2.1.34 · Safeer OS 0.4.36 — Files in Safeer OS were a viewer: you could open, create, rename and delete, but not copy or move, and a deleted…
+- [1.0.77](RELEASE_NOTES_1.0.77.md) (2026-10-03) — Safeer Browser for Linux 1.0.77 · Safeer Control 2.1.33 · Safeer OS 0.4.35 · Safeer Cinnamon 1.1.0 — Safeer from power-on.
+- [1.0.76](RELEASE_NOTES_1.0.76.md) — Safeer Browser for Linux 1.0.76 · Safeer Control 2.1.32 · Safeer OS 0.4.34 · Safeer Cinnamon 1.1.0 — Safeer from power-on.
+- [1.0.75](RELEASE_NOTES_1.0.75.md) (2026-10-03) — Safeer Browser for Linux 1.0.75 · Safeer Control 2.1.31 · Safeer OS 0.4.33 — Keep. A film on the shelf “On your devices” used to disappear 48 hours after it was last played.
+- [1.0.74](RELEASE_NOTES_1.0.74.md) (2026-10-03) — Safeer Browser for Linux 1.0.74 · Safeer Control 2.1.30 · Safeer OS 0.4.32 — The shelf “On your devices” is now in the Media Centre on the computer too.
+- [1.0.73](RELEASE_NOTES_1.0.73.md) (2026-10-03) — Safeer Browser for Linux 1.0.73 · Safeer Control 2.1.29 · Safeer OS 0.4.31 — The computer remembers what it downloaded for your devices – with title and poster.
+- [1.0.72](RELEASE_NOTES_1.0.72.md) (2026-10-03) — Safeer Browser for Linux 1.0.72 · Safeer Control 2.1.28 · Safeer OS 0.4.30 — Films from torrent add-ons now play in the Media Centre on the computer.
+- [1.0.71](RELEASE_NOTES_1.0.71.md) (2026-10-03) — Safeer Browser for Linux 1.0.71 · Safeer Control 2.1.27 · Safeer OS 0.4.29 — Downloads for your other devices clean up after themselves.
+- [1.0.70](RELEASE_NOTES_1.0.70.md) (2026-10-03) — Safeer Browser for Linux 1.0.70 · Safeer Control 2.1.26 · Safeer OS 0.4.28 — Media Center with the same catalogue as on your other devices: Films, Series, Music, Radio and Live TV as a poster…
+- [1.0.69](RELEASE_NOTES_1.0.69.md) (2026-10-02) — Safeer Browser for Linux 1.0.69 · Safeer Control 2.1.25 · Safeer OS 0.4.27 — Your start page, your shortcuts: on the Web start page, "Edit shortcuts" (or right-click a shortcut) lets you remove…
+- [1.0.67](RELEASE_NOTES_1.0.67.md) — Safeer Browser for Linux 1.0.67 · Safeer Control 2.1.23 · Safeer OS 0.4.25 — Update from the tray: Safeer Control checks safeer.si itself (every few hours) and, when a new version is out, shows…
+- [1.0.66](RELEASE_NOTES_1.0.66.md) (2026-10-02) — Safeer Browser for Linux 1.0.66 · Safeer Control 2.1.22 · Safeer OS 0.4.24 — Updates – what is new: the Updates section in Settings now also says what the offered version brings (one line from…
+- [1.0.65](RELEASE_NOTES_1.0.65.md) (2026-10-02) — Safeer Browser for Linux 1.0.65 · Safeer Control 2.1.21 · Safeer OS 0.4.23 — Updates with one press (Safeer OS 0.4.23)
+- [1.0.64](RELEASE_NOTES_1.0.64.md) (2026-10-02) — Safeer Browser for Linux 1.0.64 · Safeer Control 2.1.20 · Safeer OS 0.4.22 — Handoff, polished (Safeer Control 2.1.20, Safeer OS 0.4.22)
+- [1.0.63](RELEASE_NOTES_1.0.63.md) (2026-10-02) — Safeer Browser for Linux 1.0.63 · Safeer Control 2.1.19 · Safeer OS 0.4.21 — The computer as a full partner in handoff (Safeer Control 2.1.19, Safeer OS 0.4.21)
+- [1.0.62](RELEASE_NOTES_1.0.62.md) (2026-10-02) — Safeer Browser for Linux 1.0.62 · Safeer Control 2.1.18 · Safeer OS 0.4.20 — Send to device – the computer as the target (Safeer Control 2.1.18, Safeer OS 0.4.20)
+- [1.0.61](RELEASE_NOTES_1.0.61.md) (2026-10-02) — Safeer Browser for Linux 1.0.61 · Safeer Control 2.1.17 · Safeer OS 0.4.19 — Continue on another device – the computer as the source (Safeer Control 2.1.17, Safeer OS 0.4.19)
+- [1.0.60](RELEASE_NOTES_1.0.60.md) (2026-10-02) — Safeer Browser for Linux 1.0.60 · Safeer Control 2.1.16 · Safeer OS 0.4.18 — Trust circle tidies itself (Safeer Control 2.1.16)
+- [1.0.59](RELEASE_NOTES_1.0.59.md) (2026-10-02) — Safeer Browser for Linux 1.0.59 · Safeer Control 2.1.15 · Safeer OS 0.4.17 — Live transcoding helper (Safeer Control 2.1.15)
+- [1.0.58](RELEASE_NOTES_1.0.58.md) (2026-10-02) — Safeer Browser for Linux 1.0.58 · Safeer Control 2.1.14 · Safeer OS 0.4.16 — The computer helps with live transcoding (Safeer Control 2.1.14)
+- [1.0.57](RELEASE_NOTES_1.0.57.md) (2026-10-01) — Safeer Browser for Linux 1.0.57 · Safeer Control 2.1.13 · Safeer OS 0.4.15 — Convert a whole folder for TV – proportional share (Safeer OS 0.4.15, Safeer Control 2.1.13)
+- [1.0.56](RELEASE_NOTES_1.0.56.md) (2026-10-01) — Safeer Browser for Linux 1.0.56 · Safeer Control 2.1.12 · Safeer OS 0.4.14 — Convert for TV – devices in Safeer Link share their graphics (Safeer OS 0.4.14, Safeer Control 2.1.12)
+- [1.0.55](RELEASE_NOTES_1.0.55.md) (2026-10-01) — Safeer Browser for Linux 1.0.55 · Safeer Control 2.1.11 · Safeer OS 0.4.13 — Shared space in Safeer Link (Safeer OS 0.4.13, Safeer Control 2.1.11)
+- [1.0.54](RELEASE_NOTES_1.0.54.md) (2026-10-01) — Safeer Browser for Linux 1.0.54 · Safeer Control 2.1.10 · Safeer OS 0.4.12 — Safeer Link – no double work (Safeer Control 2.1.10)
+- [1.0.53](RELEASE_NOTES_1.0.53.md) (2026-10-01) — Safeer Browser for Linux 1.0.53 · Safeer Control 2.1.9 · Safeer OS 0.4.11 — Safeer Link – every device says how much it can help (Safeer Control 2.1.9)
+- [1.0.52](RELEASE_NOTES_1.0.52.md) (2026-10-01) — Safeer Browser for Linux 1.0.52 · Safeer Control 2.1.8 · Safeer OS 0.4.10 — Safeer Link – devices help each other (Safeer Control 2.1.8)
+- [1.0.51](RELEASE_NOTES_1.0.51.md) (2026-10-01) — Safeer Browser for Linux 1.0.51 · Safeer Control 2.1.7 · Safeer OS 0.4.9 · Safeer Cinnamon 1.0.0 — Safeer Link (Safeer Control 2.1.7)
+- [1.0.50](RELEASE_NOTES_1.0.50.md) (2026-09-29) — Safeer Browser for Linux 1.0.50 · Safeer Control 2.1.6 · Safeer OS 0.4.8 — Safeer OS 0.4.8
+- [1.0.49](RELEASE_NOTES_1.0.49.md) (2026-09-29) — Safeer Browser for Linux 1.0.49 · Safeer Control 2.1.5 · Safeer OS 0.4.7 — Safeer OS 0.4.7 – magnet links, subtitles, DVD and media from your other devices.
+- [1.0.48](RELEASE_NOTES_1.0.48.md) (2026-09-29) — Safeer Browser for Linux 1.0.48 · Safeer Control 2.1.4 · Safeer OS 0.4.6 — Safeer OS 0.4.6 – Safeer Media and a Safeer Link without a single hub.
+- [1.0.47](RELEASE_NOTES_1.0.47.md) (2026-09-28) — Safeer Browser for Linux 1.0.47 · Safeer Control 2.1.3 · Safeer OS 0.4.5 — Safeer OS 0.4.5 – Messages.
+- [1.0.46](RELEASE_NOTES_1.0.46.md) (2026-09-28) — Safeer Browser for Linux 1.0.46 · Safeer Control 2.1.2 · Safeer OS 0.4.4 — Safeer OS 0.4.4 – two ways to use it. safeer-os opens Safeer OS as a program in a window.
+- [1.0.45](RELEASE_NOTES_1.0.45.md) (2026-09-21) — Safeer Browser for Linux 1.0.45 · Safeer Control 2.1.1 · Safeer OS 0.4.3 — Safeer Control 2.1.1: the TV remote controls a media player as a media player.
+- [1.0.44](RELEASE_NOTES_1.0.44.md) (2026-09-21) — Safeer Browser for Linux 1.0.44 · Safeer Control 2.1.0 · Safeer OS 0.4.2 — Safeer Control 2.1.0: your devices can edit the files you share.
+- [1.0.43](RELEASE_NOTES_1.0.43.md) (2026-09-20) — Safeer Browser for Linux 1.0.43 · Safeer Control 2.0.9 · Safeer OS 0.4.1 (new) — Safeer OS comes to Linux as a package - and any phone can join Safeer Link without an app.
+- [1.0.42](RELEASE_NOTES_1.0.42.md) — Sound over HDMI works again after using Safeer Link: no more leftover "Safeer-TV" outputs.
+- [1.0.41](RELEASE_NOTES_1.0.41.md) — Programs you start from the TV get their own screen, and your desktop stays yours.
+- [1.0.40](RELEASE_NOTES_1.0.40.md) — Programs you start from the TV get their own screen, and your desktop stays yours.
+- [1.0.39](RELEASE_NOTES_1.0.39.md) — Programs you start from the TV get their own screen, and your desktop stays yours.
+- [1.0.38](RELEASE_NOTES_1.0.38.md) — Programs you start from the TV get their own screen, and your desktop stays yours.
+- [1.0.37](RELEASE_NOTES_1.0.37.md) — Programs you start from the TV get their own screen, and your desktop stays yours.
+- [1.0.36](RELEASE_NOTES_1.0.36.md) — The browser speaks your language, and the project is now open for everyone to read.
+- [1.0.35](RELEASE_NOTES_1.0.35.md) — Safeer Control 2.0.2: your programs on the TV, a key that is really held, and a fix that mattered.
+- [1.0.34](RELEASE_NOTES_1.0.34.md) — Safeer Control 2.0.1: quiet in the background, and files for your TV.
+- [1.0.33](RELEASE_NOTES_1.0.33.md) — Safeer Link polish — and Safeer Control 2.0 as a standalone desktop app.
+- [1.0.32](RELEASE_NOTES_1.0.32.md) — Safeer Link: control your TV from this computer — and let your phone control this computer.
+- [1.0.31](RELEASE_NOTES_1.0.31.md) — Safeer Link: name your devices the way you like, on each device separately.
+- [1.0.30](RELEASE_NOTES_1.0.30.md) — Open PDF files from your computer, and clearer Safeer Link wording.
+- [1.0.29](RELEASE_NOTES_1.0.29.md) — Saving a PDF works again, and in-page downloads are no longer blocked.
+- [1.0.28](RELEASE_NOTES_1.0.28.md) — The built-in PDF viewer now speaks Safeer's language, and a PDF tab has a name.
+- [1.0.27](RELEASE_NOTES_1.0.27.md) — Safeer Link: the computer now receives as well as sends — and no TV is required.
+- [1.0.26](RELEASE_NOTES_1.0.26.md) — Copying a link out of the address bar now works the way it should:
+- [1.0.25](RELEASE_NOTES_1.0.25.md) — "Set as default browser" works again, on every install:
+- [1.0.24](RELEASE_NOTES_1.0.24.md) — One page can no longer take the computer down with it:
+- [1.0.23](RELEASE_NOTES_1.0.23.md) — YouTube keeps playing:
+- [1.0.22](RELEASE_NOTES_1.0.22.md) — Fewer ads and a wider net against web traps (Safeer Shield):
+- [1.0.21](RELEASE_NOTES_1.0.21.md) — Update of the protection against web traps (Safeer Shield):
+- [1.0.14](RELEASE_NOTES_1.0.14.md) — Exclude grok.com and its subdomains, accounts.x.ai and auth.x.ai from cosmetic cleanup, overlay removal and…
+- [1.0.13](RELEASE_NOTES_1.0.13.md) — Use WebKit's WEBBROWSER resource cache instead of the local-document cache.
+- [1.0.12](RELEASE_NOTES_1.0.12.md) — Fixes the reported DuckDuckGo connection failure and YouTube in-player advertisements.
+- [1.0.11](RELEASE_NOTES_1.0.11.md) — Fixes the “Set as default browser” button and --set-default command.
+- [1.0.10](RELEASE_NOTES_1.0.10.md) — Fixes browser-side sign-in failures.
+- [1.0.9](RELEASE_NOTES_1.0.9.md) — Fixes a startup crash affecting profiles with enabled sidebar integrations.
+- [1.0.8](RELEASE_NOTES_1.0.8.md) — DNS now uses libsoup 3 with HTTP/2, bounded responses, certificate validation and HTTPS-only endpoints.

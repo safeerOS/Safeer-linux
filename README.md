@@ -14,6 +14,21 @@ Slovenian: [README.sl.md](README.sl.md) · Website: [safeer.si](https://safeer.s
 
 ---
 
+## Current version
+
+| | |
+|---|---|
+| **Safeer Browser for Linux** | **1.0.127** — tag [`v1.0.127`](../../releases/tag/v1.0.127) |
+| **Safeer OS for Linux** (with Safeer Control 2.1.82) | **0.4.85** — same release |
+| Versions in the code | `packaging/VERSION`, `packaging/VERSION_OS`, `packaging/VERSION_CONTROL` (checked by `packaging/check_version.py`) |
+| What changed | [CHANGELOG.md](CHANGELOG.md) · every version: [docs/releases/](docs/releases/) |
+| Download | [safeer.si](https://safeer.si/#prenosi) · [GitHub Releases](../../releases/latest) |
+
+Other editions: Windows 1.0.51 in [safeerOS/Safeer-windows](https://github.com/safeerOS/Safeer-windows) ·
+Android TV browser 2.1.215, Safeer OS 0.5.93 for TV, tablet and phone, and Safeer Player 0.2.77 in
+[safeerOS/Android-tv](https://github.com/safeerOS/Android-tv) · phone browser in
+[safeerOS/Mobile-android](https://github.com/safeerOS/Mobile-android).
+
 ## What it does
 
 **Native GTK4, our own WebKit.** Native GTK4 with WebKitGTK 6.0 — no Electron, no second browser
