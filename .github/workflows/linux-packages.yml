@@ -888,7 +888,7 @@ jobs:
           # Safeer DRM v paketu (/app, pripet odtis, brez CDM) in na gostitelju po poti iz /.flatpak-info (app-path): ukaz zagona
           # kaze na isto datoteko, kot jo vidi gostitelj (flatpak info --show-location).
           flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerOS "$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm
-          GOST="$(flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '/app/lib/safeer-os'); from core import safeer_drm as d; u = d.ukaz_zagona([str(d.izvrsljiva())], peskovnik=False, gostitelj=True); print(u[5])")"
+          GOST="$(flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '/app/lib/safeer-os'); from core import safeer_drm as d; u = d.ukaz_zagona([str(d.izvrsljiva())], peskovnik=False, gostitelj=True); assert u[:3] == ['flatpak-spawn', '--host', '--watch-bus'], u; print(u[-1])")"
           echo "Safeer DRM na gostitelju: $GOST"
           [ "$(readlink -f "$GOST")" = "$(readlink -f "$(flatpak info --show-location io.github.memelandfaner.SafeerOS)/files/lib/safeer-os/safeer-drm/safeer-drm")" ]
           test -x "$GOST"
