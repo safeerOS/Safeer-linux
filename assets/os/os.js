@@ -3658,6 +3658,14 @@
     "p:universal-access": "uporabnik", "p:region": "splet", "p:datetime": "ura", "p:system": "drsniki", "p:about": "info",
     "p:info-overview": "info", "p:removable-media": "disk", "p:thunderbolt": "povezava", "p:diagnostics": "dokument"
   };
+  // Dodatne kljucne besede (vse jezike hkrati), da iskanje najde vnos po besedi, ki jo ljudje res vpisejo: »wifi« najde
+  // omrezje (preizkus 19. 10. 2026: »wifi« ni nasel nicesar, ceprav polje za primer navaja Wi-Fi).
+  var KLJUCNE_NASTAVITEV = {
+    "o:omrezje": "wifi wi-fi wlan wireless brezzicno brezžično internet ethernet lan vpn",
+    "p:wifi": "wifi wi-fi wlan wireless brezzicno brezžično internet", "p:network": "ethernet lan vpn proxy internet",
+    "o:bluetooth": "bt slusalke slušalke headphones", "sound": "zvok audio glasnost volume", "display": "monitor resolution locljivost ločljivost",
+    "o:tiskalniki": "printer tiskalnik", "power": "baterija battery napajanje spanje sleep"
+  };
   // Kljuc besedila za vnos: modul »m_<id>«, orodje »o_<id>«, plosca GNOME »p_<id>«.
   function kljucNastavitve(k) {
     return k.indexOf("o:") === 0 ? "o_" + k.slice(2) : k.indexOf("p:") === 0 ? "p_" + k.slice(2) : "m_" + k;
@@ -3674,7 +3682,7 @@
         var seznam = vrsta === "o" ? r.orodja : vrsta === "p" ? r.plosce : r.moduli;
         if (!seznam || seznam.indexOf(kljuc) < 0) return;
         var b = kljucNastavitve(k);
-        elementi.push({ modul: vrsta === "p" ? k : kljuc, ime: t(b), en: BESEDILA_OS.en[b] || "",
+        elementi.push({ modul: vrsta === "p" ? k : kljuc, ime: t(b), en: BESEDILA_OS.en[b] || "", kljucne: KLJUCNE_NASTAVITEV[k] || "",
                         ikona: IKONA_NASTAVITVE[vrsta === "p" ? k : kljuc] || g[1] });
       });
       if (g[0] === "g_sistem") {
@@ -3701,7 +3709,9 @@
   // ---- iskanje po Nastavitvah (lastnik, 19. 10. 2026): vsaka nastavitev - Safeer OS, Ščit, deli Safeerja in sistem - je
   // dosegljiva po imenu. Iskanje gleda ime in opis v jeziku vmesnika, angleško ime in ključne besede sistema; skupina, ki
   // ji ustreza naslov, ostane cela. Stikala, ki jih skrije logika strani (hidden), ostanejo skrita.
-  var NASTAVITVE_ELEMENTI = ".stikalo, .nastavitev, [data-iskanje-blok]";
+  // .drsnik: glasnost in svetlost v Hitrih nastavitvah (preizkus na testnem PC 19. 10. 2026: »wifi« je pokazal »ni nastavitve«
+  // in hkrati Glasnost, ker drsnik iskanje ni skrilo).
+  var NASTAVITVE_ELEMENTI = ".stikalo, .nastavitev, .drsnik, [data-iskanje-blok]";
   function besediloZaIskanje(e) {
     var deli = [e.textContent || "", e.getAttribute("data-kljucne") || "", e.getAttribute("aria-label") || ""];
     if (e.dataset && e.dataset.nastavitev) deli.push(BESEDILA_OS.en[e.dataset.nastavitev] || "", BESEDILA_OS.en[e.dataset.nastavitev + "Pod"] || "");

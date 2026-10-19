@@ -3,6 +3,7 @@ v WebKitGTK 6.0 (Xvfb) - lastnik, 19. 10. 2026: »stranska vrstica in iskalna lu
 dosegljivi«, »Nastavitve morajo odrazati celotne nastavitve operacijskega sistema«, Safeer Agent v Nastavitvah."""
 import http.server
 import json
+import re
 import os
 import tempfile
 import threading
@@ -297,6 +298,31 @@ class OknoNastavitev(_Stran):
         self.assertIn("Zasloni", self._vidne(), "skupina ustreza po naslovu - ostane cela")
         self.tipka("Enter")
         self.assertEqual(self._js("window.__kliknjeni"), ["Zvok"])
+
+    def test_iskanje_skrije_drsnik_in_wifi_najde_omrezje(self):
+        """Drsnik (Glasnost) v Hitrih nastavitvah se iskanju skrije kot ostali vnosi; »wifi« najde Omrezne povezave
+        (testni PC 19. 10. 2026: »wifi« je pokazal »ni nastavitve« in hkrati Glasnost)."""
+        js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "os", "os.js"), encoding="utf-8").read()
+        kljucne = re.search(r'"o:omrezje": "([^"]*)"', js).group(1)   # isti vir kot vnos Omrezne povezave
+        self.assertIn("wifi", kljucne.split())
+        # Oba v #skupineNastavitev: #hitreNastavitve se ob osvezitvi stanja izrise na novo (vstavljeni drsnik izgine).
+        self._js("""(function () { var c = document.getElementById('skupineNastavitev');
+            var d = document.createElement('div'); d.className = 'drsnik'; d.id = '__glasnost';
+            d.innerHTML = '<label>Glasnost</label><input type="range">'; c.appendChild(d);
+            var b = document.createElement('button'); b.className = 'nastavitev'; b.id = '__omrezje'; b.type = 'button';
+            b.innerHTML = '<span>Omrežne povezave</span>';
+            b.setAttribute('data-kljucne', 'Network connections ' + %s);
+            document.getElementById('skupineNastavitev').appendChild(b); return 1; })()""" % json.dumps(kljucne))
+        def isci(niz):
+            self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.value=%s; v.dispatchEvent(new Event('input')); return 1;})()" % json.dumps(niz))
+        isci("wifi")
+        self.assertTrue(self._js("document.getElementById('__glasnost').classList.contains('ni-zadetek')"))
+        self.assertFalse(self._js("document.getElementById('__omrezje').classList.contains('ni-zadetek')"))
+        self.assertTrue(self._js("document.getElementById('nastavitveNiZadetkov').hidden"))
+        isci("glasn")
+        self.assertFalse(self._js("document.getElementById('__glasnost').classList.contains('ni-zadetek')"))
+        isci("")
+        self._js("document.getElementById('__glasnost').remove(), document.getElementById('__omrezje').remove(), 1")
 
     def test_safeer_agent(self):
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('agentStanje').textContent")
