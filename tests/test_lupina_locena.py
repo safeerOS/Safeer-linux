@@ -217,7 +217,7 @@ class Odjemalec(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("PySide6 ni na voljo")
         # QApplication (ne QCoreApplication): naslednji preizkusi v istem procesu ustvarjajo okna QML.
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ["QT_QPA_PLATFORM"] = os.environ.get("QT_QPA_PLATFORM") or "offscreen"  # rezervacija "" (okolje_procesa)
         cls.app = QApplication.instance() or QApplication(["test"])
 
         class Most(QObject):

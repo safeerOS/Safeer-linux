@@ -39,8 +39,9 @@ class Hibrid(unittest.TestCase):
             return mock.Mock(returncode=0, stdout="", stderr="")
         with mock.patch.object(P.subprocess, "run", side_effect=run):
             P.namesti_linux("flatpak+deb", ["/home/u/.cache/a.flatpak", "/home/u/.cache/a.deb"], ["f" * 64, "d" * 64])
-        # .deb kot root iz preverjene kopije (P.NAMESTI_DEB_KOT_ROOT), z vsoto .deb, ne Flatpaka
-        self.assertEqual(klici[0][:7], ["flatpak-spawn", "--host", "pkexec", "/bin/sh", "-c", P.NAMESTI_DEB_KOT_ROOT,
+        # .deb kot root iz preverjene kopije (P.NAMESTI_DEB_KOT_ROOT), z vsoto .deb, ne Flatpaka; pkexec in sh z
+        # absolutno potjo na gostitelju (core/root_ukaz.py: pkexec isce program po PATH klicatelja).
+        self.assertEqual(klici[0][:7], ["flatpak-spawn", "--host", "/usr/bin/pkexec", "/bin/sh", "-c", P.NAMESTI_DEB_KOT_ROOT,
                                         "safeer-posodobitev"])
         self.assertEqual(klici[0][7:], ["d" * 64, "/home/u/.cache/a.deb"])
         self.assertEqual(klici[1][:3], ["flatpak", "install", "--user"])

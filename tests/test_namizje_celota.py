@@ -252,7 +252,7 @@ class NamizjeQmlZivo(unittest.TestCase):
             import PySide6  # noqa: F401 - preveri, ali je namescen
         except ImportError:
             raise unittest.SkipTest("PySide6 ni namescen")
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ["QT_QPA_PLATFORM"] = os.environ.get("QT_QPA_PLATFORM") or "offscreen"  # rezervacija "" (okolje_procesa)
         from PySide6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication(["test"])
 
