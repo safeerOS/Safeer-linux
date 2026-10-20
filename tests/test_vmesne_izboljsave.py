@@ -96,6 +96,7 @@ class ZaklepSpleta(unittest.TestCase):
             with mock.patch.object(os_splet.VdelaniSplet, "sprazni_predpomnilnik") as sp, \
                     mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[7]), \
                     mock.patch.object(os_splet, "pss_mb", return_value=400), \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
                     mock.patch.object(os_splet.os, "kill") as kill:
                 self.assertTrue(s.ob_zaklepu())
             sp.assert_called_once()
@@ -109,9 +110,24 @@ class ZaklepSpleta(unittest.TestCase):
                 with mock.patch.object(os_splet.VdelaniSplet, "sprazni_predpomnilnik"), \
                         mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[7]), \
                         mock.patch.object(os_splet, "pss_mb", return_value=velikost), \
+                        mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
                         mock.patch.object(os_splet.os, "kill") as kill:
                     self.assertFalse(s.ob_zaklepu())
                 kill.assert_not_called()
+
+    def test_nas_libsoup_ob_zaklepu_ne_konca(self):
+        """Ponovni pregled OpenAI 1.0.129 (B2): ob zaklepu zaslona je velik omrezni proces koncal tudi z nasim libsoup -
+        odprt zavihek bi naslednjo stran nalozil z notranjo napako WebKit (kot lupa 20. 10. 2026)."""
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            with mock.patch.object(os_splet.VdelaniSplet, "sprazni_predpomnilnik") as sp, \
+                    mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[7]), \
+                    mock.patch.object(os_splet, "pss_mb", return_value=400), \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=True), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
+                self.assertFalse(s.ob_zaklepu())
+            sp.assert_called_once()                  # predpomnilnik se se vedno sprosti
+            kill.assert_not_called()
 
 
 if __name__ == "__main__":

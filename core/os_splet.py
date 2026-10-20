@@ -2249,6 +2249,10 @@ class VdelaniSplet:
         self.sprazni_predpomnilnik()
         if self.aplikacije or len(self._skriti()):
             return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov / lupe
+        if libsoup_brez_puscanja():
+            # Ponovni pregled OpenAI 1.0.129 (B2): z nasim libsoup proces ne raste, konec pa pokvari prvo nalaganje v
+            # odprtih zavihkih (WebKitErrorDomain 300 - napaka lupe 20. 10. 2026). Samo sistemski libsoup.
+            return False
         try:
             if any(z["pogled"].is_loading() for z in self.zavihki):
                 return False
