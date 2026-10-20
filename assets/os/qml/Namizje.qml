@@ -783,7 +783,10 @@ Item {
         id: vrsticaCipov
         objectName: "vrsticaCipov"
         // Zlozena lupa: cipi desno od nje v isti vrstici (paneli zato zacnejo visje); razsirjena: pod njo kot prej.
-        x: koren.lupaZlozljiva ? (koren.width - koren.sirinaZlozene - width - 12) / 2 + koren.sirinaZlozene + 12 : (koren.width - width) / 2
+        // Cipi sledijo DEJANSKEMU desnemu robu lupe (tudi med njeno animacijo): prej je imel vsak svoj izracun in ko se
+        // je cip razsiril (»Safeer Link · 6 naprav«) ali se je okno spremenilo, se je cip prekrival z lupo (testni PC
+        // 20. 10. 2026, aplikacija v oknu 1130 x 720).
+        x: koren.lupaZlozljiva ? iskanje.x + iskanje.width + 12 : (koren.width - width) / 2
         y: koren.lupaZlozljiva ? koren.sredinaLupe - height / 2 : iskanje.y + iskanje.height + 10
         visible: !zadetki.visible && !(koren.lupaZlozljiva && koren.lupaOdprta)
         spacing: 8

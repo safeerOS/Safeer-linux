@@ -112,6 +112,37 @@ class LupaNamizja(unittest.TestCase):
         self._tipka(Qt.Key.Key_K, "", Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(polje.property("activeFocus") and k.property("lupaOdprta"))
 
+    def _nikoli_prekrivanja(self, trajanje=0.6):
+        """Ves cas (tudi med animacijo) so cipi desno od lupe in par je na sredini okna."""
+        from gi.repository import GLib
+        from PySide6.QtCore import QCoreApplication
+        iskanje, cipi = self._el("iskanje"), self._el("vrsticaCipov")
+        konec = time.monotonic() + trajanje
+        while time.monotonic() < konec:
+            QCoreApplication.processEvents()
+            GLib.MainContext.default().iteration(False)
+            desno = iskanje.property("x") + iskanje.property("width")
+            self.assertGreaterEqual(cipi.property("x"), desno + 11, "cipi cez lupo")
+            time.sleep(0.01)
+        levo = iskanje.property("x")
+        desno = self.koren.property("width") - cipi.property("x") - cipi.property("width")
+        self.assertAlmostEqual(levo, desno, delta=2, msg="lupa in cipi skupaj na sredini")
+
+    def test_cipi_nikoli_cez_lupo(self):
+        """Testni PC 20. 10. 2026 (aplikacija v oknu 1130 x 720): ko je Safeer Link nasel naprave in je cip postal sirsi
+        (»Safeer Link · 6 naprav«), se je cip 8-10 s prekrival z iskalnim poljem. Cipi zdaj sledijo dejanskemu desnemu robu
+        lupe, zato prekrivanje ni mogoce - tudi med animacijo in ob spremembi velikosti okna."""
+        self._namizje()
+        k, iskanje = self.koren, self._el("iskanje")
+        self.assertTrue(self._pocakaj(lambda: not k.property("lupaOdprta") and iskanje.property("width") <= 300))
+        self._nikoli_prekrivanja(0.3)
+        k.setProperty("napravVLinku", 6)          # cip se razsiri
+        self._nikoli_prekrivanja()
+        self.okno.resize(1130, 720)                # sprememba velikosti okna
+        self._nikoli_prekrivanja()
+        k.setProperty("napravVLinku", 0)          # cip se zozi
+        self._nikoli_prekrivanja()
+
     def test_polje_programov_obdrzi_svoje_tipke(self):
         from PySide6.QtCore import QMetaObject, Qt
         self._namizje()
