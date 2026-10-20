@@ -172,7 +172,13 @@ class TestPrioritetaZmogljivosti(unittest.TestCase):
 
 
 class TestSamodejnaRezerva(unittest.TestCase):
-    """Prehod med Mesh in rezervnim nacinom v HubGostitelj."""
+    """Prehod med Mesh in rezervnim nacinom v HubGostitelj (samodejna rezerva je v 1.0.129 izklopljena - preizkusi
+    jo vklopijo, da logika ostane preverjena za 1.0.130)."""
+
+    def setUp(self):
+        zaplata = mock.patch.object(link_hub_streznik, "SAMODEJNA_REZERVA", True)
+        zaplata.start()
+        self.addCleanup(zaplata.stop)
 
     def test_prehod_v_rezervo_ob_neuspesnem_zagonu_streznika(self):
         s = LazniStreznik(uspe=False)
@@ -488,6 +494,23 @@ class TestSamodejnaRezerva(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_tuj_hub_brez_kroga_ne_sprozi_rezerve_v_129():
+    """Neodvisni pregled OpenAI 1.0.129: SafeerLink ustvari HubGostitelj brez clan/hubi/nas_id - tuj Hub v istem
+    omrezju (drug krog) bi po 60 s sprozil rezervo. V 1.0.129 je samodejna rezerva izklopljena: ostane Mesh."""
+    s = LazniStreznik(uspe=True)
+    o = LazniOglas()
+    ura_cas = [100.0]
+    tuj = {"id": "tuj1", "fp": "tujfp", "prio": 60, "naslov": "wss://tuj:8990/cast/ws"}
+    g = link_hub_streznik.HubGostitelj(poisci=lambda: tuj, streznik=s, oglas=o, sosedje=lambda: [],
+                                       ura=lambda: ura_cas[0])     # kot SafeerLink._gostitelj: brez clan/hubi/nas_id
+    assert g.preveri()
+    for _ in range(4):
+        ura_cas[0] += 31.0
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            assert g.preveri(), "racunalnik ne sme nehati gostiti zaradi tujega Huba"
+    assert not g.v_rezervi() and g.nacin() == "mesh" and s.tece()
 
 
 def test_nova_prioriteta_res_v_zapisu_txt():

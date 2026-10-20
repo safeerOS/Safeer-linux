@@ -240,7 +240,9 @@ fi
 # the command and the theme still exist (a logged-in user in their own session, the others in a temporary D-Bus
 # session). Without this Cinnamon would fall back to the default theme and the panel, dock and wallpaper would stay
 # changed.
-if [ "${1:-}" = "remove" ] && [ -x /usr/bin/safeer-cinnamon ]; then
+# Samo namizno okolje (safeer-os): aplikacija (safeer-os-app) Cinnamona ne nosi in ne sme izklopiti videza, ki ga ima
+# uporabnik od drugod (neodvisni pregled OpenAI 1.0.129). dpkg poda ime paketa v DPKG_MAINTSCRIPT_PACKAGE.
+if [ "${1:-}" = "remove" ] && [ "${DPKG_MAINTSCRIPT_PACKAGE:-safeer-os}" = "safeer-os" ] && [ -x /usr/bin/safeer-cinnamon ]; then
     getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 { print $1 ":" $3 ":" $6 }' | while IFS=: read -r ime uid dom; do
         [ -f "$dom/.config/safeer-cinnamon/vklopljeno" ] || continue
         if [ -S "/run/user/$uid/bus" ]; then
@@ -281,7 +283,7 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
         /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
     fi
 fi
-if [ "${1:-}" = "purge" ]; then rm -rf /var/lib/safeer-cinnamon; fi
+if [ "${1:-}" = "purge" ] && [ "${DPKG_MAINTSCRIPT_PACKAGE:-safeer-os}" = "safeer-os" ]; then rm -rf /var/lib/safeer-cinnamon; fi
 # AppArmor: ob odstranitvi profil umaknemo iz jedra (datoteka v /etc ostane do purge, kot vsaka nastavitev).
 if [ "${1:-}" = "remove" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
     for profil in safeer-os safeer-control; do

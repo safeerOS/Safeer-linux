@@ -4036,6 +4036,12 @@ DODATEK_VRSTE = {
 VKLOP_BATERIJA = 40
 IZKLOP_BATERIJA = 30
 #: Cas cakanja na soseda v Mesh pred prehodom v rezervni nacin
+#: Samodejni prehod iz Mesha v rezervo (izvolitev enega Huba). IZKLOPLJEN v 1.0.129 (neodvisni pregled OpenAI,
+#: 20. 10. 2026): SafeerLink._gostitelj ustvari HubGostitelj brez hubi/clan/nas_id, zato bi tuj Safeer Hub v istem
+#: omrezju (ni v krogu) po 60 s sprozil rezervo in racunalnik bi nehal gostiti; iz rezerve pa se ne vrne, ker
+#: _mesh_lastni_hub v rezervi preveri() ne klice. Do popravka in preizkusa na testnem PC (1.0.130) velja vedenje
+#: 1.0.128: Mesh, rezerva samo rocno (SAFEER_LINK_MESH=0).
+SAMODEJNA_REZERVA = False
 ROK_REZERVNEGA_NACINA_S = 60.0
 #: Cas v rezervnem nacinu pred ponovnim poskusom Link Mesh
 ROK_POSKUSA_MESH_S = 60.0
@@ -4708,7 +4714,7 @@ class HubGostitelj:
                                 print("[SafeerLink] vrnitev v Link Mesh uspela", flush=True)
                             self._brez_sosedov_od = None
                             self._samodejna_rezerva = False
-                        elif len(tuji_mdns) > 0:
+                        elif len(tuji_mdns) > 0 and SAMODEJNA_REZERVA:
                             if self._brez_sosedov_od is None:
                                 self._brez_sosedov_od = zdaj
                             elif zdaj - self._brez_sosedov_od >= ROK_REZERVNEGA_NACINA_S:
@@ -4750,7 +4756,7 @@ class HubGostitelj:
                     return True
 
                 if not self.streznik.zazeni():
-                    if self._nacin == "mesh":
+                    if self._nacin == "mesh" and SAMODEJNA_REZERVA:
                         self._preidi_v_rezervo("zagon strežnika ni uspel")
                     return False
 

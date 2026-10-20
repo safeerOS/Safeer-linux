@@ -1890,3 +1890,17 @@ sys.exit("neznan ukaz")
         self.assertEqual(len(gtk4),2)      # paket izdaje (nas WebKit) in lokalna gradnja (sistemski WebKit)
         for vrstica in gtk4:
             self.assertIn('gstreamer1.0-plugins-good',vrstica)
+
+
+def test_aplikacija_ne_izklopi_cinnamona_ob_odstranitvi():
+    """Neodvisni pregled OpenAI 1.0.129: safeer-os-app je dobil isti prerm/postrm kot namizno okolje - odstranitev
+    aplikacije bi izklopila videz Safeer Cinnamon (od ločenega paketa), purge pa pobrisal njegovo stanje. Cinnamonov
+    del velja samo za paket safeer-os (dpkg poda ime v DPKG_MAINTSCRIPT_PACKAGE)."""
+    import re
+    from pathlib import Path
+    s = (Path(__file__).resolve().parents[1] / "build_os_deb.sh").read_text(encoding="utf-8")
+    pogoj = '[ "${DPKG_MAINTSCRIPT_PACKAGE:-safeer-os}" = "safeer-os" ]'
+    izklop = re.search(r'^if \[ "\$\{1:-\}" = "remove" \].*safeer-cinnamon.*then$', s, re.M)
+    assert izklop and pogoj in izklop.group(0), "izklop videza ni omejen na safeer-os"
+    brisanje = re.search(r"^if .*purge.*rm -rf /var/lib/safeer-cinnamon.*$", s, re.M)
+    assert brisanje and pogoj in brisanje.group(0), "brisanje stanja Cinnamona ni omejeno na safeer-os"
