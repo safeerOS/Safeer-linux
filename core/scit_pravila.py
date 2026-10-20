@@ -614,14 +614,30 @@ FUNKCIJE_ZASEBNOSTI = (("ICECandidateFiltering", True), ("EnumeratingAllNetworkI
 #: (webkit_json) - izmerjeno: ustavi <a ping>, navigator.sendBeacon pa ne (tega ustavijo pravila gostiteljev).
 
 
+#: Stabilne funkcije WebKita, ki so v WebKitGTK privzeto izklopljene, strani pa jih pricakujejo (webmaster pregled
+#: motorja 20. 10. 2026, testni PC, WebKitGTK 2.54.1): brez StorageAPI je navigator.storage undefined in
+#: navigator.storage.estimate()/persist() v PWA in spletnih urejevalnikih vrze napako JS (status »stable«).
+FUNKCIJE_SPLETA = (("StorageAPI", True), ("StorageAPIEstimate", True))
+
+
 def zasebnost_pogleda(WebKit, nastavitve) -> List[str]:
     """Nastavi zasebnost pogleda (Splet, kanali Sporocil, Medijski center); vrne nastavljene funkcije."""
+    return nastavi_funkcije(WebKit, nastavitve, FUNKCIJE_ZASEBNOSTI)
+
+
+def funkcije_spleta(WebKit, nastavitve) -> List[str]:
+    """Stabilne spletne funkcije, ki jih WebKitGTK privzeto ne vklopi (FUNKCIJE_SPLETA)."""
+    return nastavi_funkcije(WebKit, nastavitve, FUNKCIJE_SPLETA)
+
+
+def nastavi_funkcije(WebKit, nastavitve, pari) -> List[str]:
+    """Funkcije WebKita po imenu (samo tiste, ki jih ta WebKit pozna); vrne nastavljene."""
     izid: List[str] = []
     try:
         funkcije = WebKit.Settings.get_all_features()
     except Exception:  # noqa: BLE001 - WebKit pred 2.42 nima API funkcij
         return izid
-    zelene = dict(FUNKCIJE_ZASEBNOSTI)
+    zelene = dict(pari)
     for i in range(funkcije.get_length()):
         f = funkcije.get(i)
         ime = f.get_identifier()

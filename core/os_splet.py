@@ -1105,6 +1105,7 @@ class VdelaniSplet:
         self.drsnik_zavihkov.set_child(self.skatla_zavihkov)
         self.vrstica_zavihkov.append(self.drsnik_zavihkov)
         self.nov_gumb = self._gumb("+", lambda *_: self.nov_zavihek(), "new-tab")
+        self._poimenuj(self.nov_gumb, "nov")
         self.vrstica_zavihkov.append(self.nov_gumb)
         presledek = Gtk.Box(); presledek.set_hexpand(True)
         self.vrstica_zavihkov.append(presledek)
@@ -1116,12 +1117,13 @@ class VdelaniSplet:
 
         orodja = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         orodja.set_name("splet-orodja")
-        self.nazaj = self._gumb("←", lambda *_: self.trenutni() and self.trenutni().go_back(), "nav")
-        self.naprej = self._gumb("→", lambda *_: self.trenutni() and self.trenutni().go_forward(), "nav")
-        self.osvezi = self._gumb("↻", lambda *_: self._osvezi_trenutni(), "nav")
-        self.domov = self._gumb("⌂", lambda *_: self.odpri_domov(), "nav")
-        for g, namig in ((self.nazaj, "nazaj"), (self.naprej, "naprej"), (self.osvezi, "osvezi"), (self.domov, "domov")):
-            g.set_tooltip_text(self._t(namig)); orodja.append(g)
+        self.nazaj = self._poimenuj(self._gumb("←", lambda *_: self.trenutni() and self.trenutni().go_back(), "nav"), "nazaj")
+        self.naprej = self._poimenuj(self._gumb("→", lambda *_: self.trenutni() and self.trenutni().go_forward(), "nav"),
+                                     "naprej")
+        self.osvezi = self._poimenuj(self._gumb("↻", lambda *_: self._osvezi_trenutni(), "nav"), "osvezi")
+        self.domov = self._poimenuj(self._gumb("⌂", lambda *_: self.odpri_domov(), "nav"), "domov")
+        for g in (self.nazaj, self.naprej, self.osvezi, self.domov):
+            orodja.append(g)
         naslov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         naslov.set_name("splet-naslov")
         naslov.set_hexpand(True)
@@ -1135,7 +1137,7 @@ class VdelaniSplet:
         self.vnos.set_placeholder_text(self._t("naslov"))
         self.vnos.connect("activate", self._vnesi_naslov)
         self._tipke(self.vnos, lambda e: self.tipka(e))
-        self.zvezdica = self._gumb("☆", lambda *_: self.dodaj_trenutno(), "address-action")
+        self.zvezdica = self._poimenuj(self._gumb("☆", lambda *_: self.dodaj_trenutno(), "address-action"), "dodaj")
         self.zvezdica.set_margin_end(5)
         self.gumb_povecave = Gtk.Button(label="100 %")
         self.gumb_povecave.set_has_frame(False)
@@ -1151,6 +1153,7 @@ class VdelaniSplet:
         naslov.append(self.zvezdica)
         orodja.append(naslov)
         self.gumb_prenosov = self._gumb("⬇", self._pokazi_prenose, "nav")
+        self._poimenuj(self.gumb_prenosov, "prenosi")
         self.gumb_prenosov.set_visible(False)
         orodja.append(self.gumb_prenosov)
         self.scit = self._gumb("♢", lambda *_: self._pokazi_scit(), "nav")
@@ -1342,13 +1345,20 @@ class VdelaniSplet:
                  "⌂": "go-home-symbolic", "☆": "non-starred-symbolic", "♢": "security-high-symbolic",
                  "+": "list-add-symbolic"}
         if napis in ikone and self._ima_ikono(ikone[napis]):
-            g = self.Gtk.Button.new_from_icon_name(ikone[napis])
+            g = self.Gtk.Button.new_from_icon_name(ikone[napis])  # dostopnost: ime da klicatelj (_poimenuj)
         else:
             g = self.Gtk.Button(label=napis)
         g.set_has_frame(False)
         g.add_css_class(razred)
         g.connect("clicked", dejanje)
         return g
+    def _poimenuj(self, gumb, kljuc):
+        """Ime za bralnik zaslona in namig: gumbi z ikono ali znakom (+, ⬇, ×, zvok) so bili brez imena
+        (webmaster pregled 20. 10. 2026) - Orca je prebrala samo »gumb«."""
+        besedilo = self._t(kljuc)
+        gumb.set_tooltip_text(besedilo)
+        gumb.update_property([self.Gtk.AccessibleProperty.LABEL], [besedilo])
+        return gumb
 
     # ---------------------------------------------------------------- vsili temno
     def _temno_nacin(self) -> str:
@@ -1604,6 +1614,7 @@ class VdelaniSplet:
             self.skripte.namesti(pogled)          # uporabniske skripte v svojem svetu (core/splet_skripte.py)
         nastavitve = pogled.get_settings()
         scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
+        scit_pravila.funkcije_spleta(W, nastavitve)       # navigator.storage (webmaster pregled 20. 10. 2026)
         if aplikacija:
             izklopi_dusenje(W, nastavitve)
         nastavi_kompozitor(W, nastavitve, self._skia())
@@ -1759,9 +1770,10 @@ class VdelaniSplet:
         # 180 px in prvi zavihek je bil pri 7 zavihkih odrezan (testni PC 17. 10. 2026).
         naslov_lbl.set_width_chars(3); naslov_lbl.set_max_width_chars(22)
         naslov_lbl.set_xalign(0); naslov_lbl.set_hexpand(True)
-        zapri = self._gumb("×", lambda *_: self.zapri_zavihek(pogled), "tab-close")
+        zapri = self._poimenuj(self._gumb("×", lambda *_: self.zapri_zavihek(pogled), "tab-close"), "zapri")
         zvok = self.Gtk.Button.new_from_icon_name("audio-volume-high-symbolic")
         zvok.set_has_frame(False); zvok.add_css_class("tab-close"); zvok.set_visible(False)
+        self._poimenuj(zvok, "utisaj")
         zvok.connect("clicked", lambda *_: (pogled.set_is_muted(not pogled.get_is_muted()), self._osvezi_zvok(pogled)))
         vrstica.append(ikona); vrstica.append(naslov_lbl); vrstica.append(zvok); vrstica.append(zapri)
         # GTK4: ni EventBox; klik na zavihek ujame GestureClick na sami vrstici (gumb × ostane svoj).
@@ -2880,7 +2892,7 @@ class VdelaniSplet:
             self.zvezdica.set_icon_name(ikona)
         else:
             self.zvezdica.set_label("★" if ima else "☆")
-        self.zvezdica.set_tooltip_text(self._t("zaznamek_odstrani") if ima else self._t("dodaj"))
+        self._poimenuj(self.zvezdica, "zaznamek_odstrani" if ima else "dodaj")
 
     def osvezi_povezavo(self):
         if self.stanje_povezave is None:   # samostojni Safeer Browser (safeer_brskalnik.py): brez oznake Linka
@@ -3772,7 +3784,7 @@ class VdelaniSplet:
         utisan = bool(pogled.get_is_muted())
         z["zvok"].set_visible(igra or utisan)
         z["zvok"].set_icon_name("audio-volume-muted-symbolic" if utisan else "audio-volume-high-symbolic")
-        z["zvok"].set_tooltip_text(self._t("zvok" if utisan else "utisaj"))
+        self._poimenuj(z["zvok"], "zvok" if utisan else "utisaj")
     def _nastavitve(self, *_):
         """Nastavitve brskalnika po skupinah kot Firefox (lastnik 14. 10. 2026): Splosno, Zasebnost in varnost, Prenosi."""
         Gtk = self.Gtk

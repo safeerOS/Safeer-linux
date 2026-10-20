@@ -1,5 +1,7 @@
 """Dostopnost: vsak gumb ima ime za bralnik zaslona (GTK4 in QML). Pregled 18. 10. 2026 je nasel tri gumbe »Zapri«
-samo z ikono v Spletu (core/os_splet.py) in zvezdico priljubljenih v Programih brez imena; ta preizkus prepreci nove."""
+samo z ikono v Spletu (core/os_splet.py) in zvezdico priljubljenih v Programih brez imena; ta preizkus prepreci nove.
+Webmaster pregled 20. 10. 2026: preizkus ni videl `self.Gtk.Button...` in `self._gumb("+")` - Splet je imel +, ⬇, × in
+gumb zvoka brez imena."""
 
 import pathlib
 import re
@@ -16,13 +18,15 @@ class GumbiGtk(unittest.TestCase):
         for f in datoteke:
             v = f.read_text(encoding="utf-8").splitlines()
             for i, vrstica in enumerate(v):
-                m = re.search(r"(\w+)\s*=\s*Gtk\.(?:Button|ToggleButton|MenuButton)\.new_from_icon_name\(", vrstica) or \
-                    re.search(r"(\w+)\s*=\s*Gtk\.(?:Button|ToggleButton|MenuButton)\(icon_name=", vrstica)
-                if not m:
+                m = re.search(r"([\w.]+)\s*=\s*(?:self\.)?Gtk\.(?:Button|ToggleButton|MenuButton)\.new_from_icon_name\(", vrstica) or \
+                    re.search(r"([\w.]+)\s*=\s*(?:self\.)?Gtk\.(?:Button|ToggleButton|MenuButton)\(icon_name=", vrstica) or \
+                    re.search(r"([\w.]+)\s*=\s*self\._gumb\(\"[^\w\"]+\"", vrstica)
+                if not m or "ime da klicatelj" in vrstica:
                     continue
                 okolica = "\n".join(v[i:i + 12])
-                if "tooltip_text" not in vrstica and not re.search(
-                        re.escape(m.group(1)) + r"\.(set_tooltip_text|update_property|set_tooltip_markup)", okolica):
+                if "tooltip_text" not in vrstica and "_poimenuj(" not in vrstica and not re.search(
+                        re.escape(m.group(1)) + r"\.(set_tooltip_text|update_property|set_tooltip_markup)", okolica) \
+                        and not re.search(r"_poimenuj\(" + re.escape(m.group(1)) + r"\b", okolica):
                     brez.append("%s:%d" % (f.name, i + 1))
         self.assertEqual(brez, [])
 

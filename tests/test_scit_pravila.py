@@ -439,3 +439,42 @@ class FilterWebKit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_navigator_storage_v_zivem_webkitu():
+    """Webmaster pregled motorja 20. 10. 2026: navigator.storage je bil undefined (StorageAPI privzeto izklopljen).
+    Pravi WebKitGTK 6.0 (Xvfb): po funkcije_spleta je estimate() na voljo. Brez zaslona/WebKita se preskoci."""
+    import os
+    import pytest
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        pytest.skip("potrebuje zaslon")
+    try:
+        import gi
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("WebKit", "6.0")
+        from gi.repository import GLib, Gtk, WebKit
+    except Exception:  # noqa: BLE001
+        pytest.skip("potrebuje WebKitGTK")
+    from core import scit_pravila as sp
+
+    def preveri(vklop):
+        v = WebKit.WebView(network_session=WebKit.NetworkSession.new_ephemeral())
+        o = Gtk.Window()
+        o.set_child(v)
+        if vklop:
+            assert "StorageAPI" in sp.funkcije_spleta(WebKit, v.get_settings())
+        izid, zanka = [], GLib.MainLoop()
+
+        def nalozeno(p, d):
+            if d == WebKit.LoadEvent.FINISHED:
+                p.evaluate_javascript("typeof navigator.storage === 'object' && typeof navigator.storage.estimate",
+                                      -1, None, None, None,
+                                      lambda w, r: (izid.append(w.evaluate_javascript_finish(r).to_string()), zanka.quit()))
+        v.connect("load-changed", nalozeno)
+        v.load_html("<p>x</p>", "https://example.org/")      # varen kontekst (https), brez omrezja
+        GLib.timeout_add(10000, lambda: (zanka.quit(), False)[1])
+        zanka.run()
+        o.set_child(None)
+        return izid[0] if izid else None
+    assert preveri(True) == "function"
+    assert preveri(False) != "function"      # brez vklopa ga ni - preizkus res meri popravek
