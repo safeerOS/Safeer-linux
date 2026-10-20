@@ -49,7 +49,7 @@ IMENA_OZADIJ = {
     "fr": {"jezero": "Montagnes et lac", "gore": "Montagnes", "aurora": "Aurore", "zora": "Aube", "globina": "Profondeur"},
     "it": {"jezero": "Montagne e lago", "gore": "Montagne", "aurora": "Aurora", "zora": "Alba", "globina": "Profondità"},
 }
-PRIVZETI_VIDEZ = {"zameglitev": 1.0, "prosojnost": 0.55}
+PRIVZETI_VIDEZ = {"zameglitev": 1.0, "prosojnost": 0.55, "spletniZadetki": True}
 SLIKE = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
 _qt_app = None
@@ -217,6 +217,9 @@ def _preveri_videz(sprememba: dict) -> dict:
     # Iskanje po spletu v privzetem brskalniku namesto plosce na namizju (stikalo delovne povrsine, 15. 10. 2026 tudi QML).
     if isinstance(sprememba.get("spletVBrskalniku"), bool):
         izid["spletVBrskalniku"] = sprememba["spletVBrskalniku"]
+    # Sprotni zadetki spleta med tipkanjem (core/spletni_zadetki.py): privzeto vklopljeni, izklop v Prilagodi.
+    if isinstance(sprememba.get("spletniZadetki"), bool):
+        izid["spletniZadetki"] = sprememba["spletniZadetki"]
     return izid
 
 
@@ -408,7 +411,8 @@ def videz_za_qml(shramba, ozadje_sistema: str, jezik: str = "sl", paleta: Option
             if ozadje_sistema and os.path.basename(pot) == os.path.basename(ozadje_sistema):
                 izbira = "safeer:" + kljuc
     izid = {"izbira": izbira or ozadje_sistema, "ozadje": _url(ozadje_sistema), "zameglitev": v["zameglitev"],
-            "prosojnost": v["prosojnost"], "spletVBrskalniku": bool(v.get("spletVBrskalniku")), "ozadja": ozadja, "windows": "",
+            "prosojnost": v["prosojnost"], "spletVBrskalniku": bool(v.get("spletVBrskalniku")),
+            "spletniZadetki": v.get("spletniZadetki") is not False, "ozadja": ozadja, "windows": "",
             "lastna": "" if izbira else ozadje_sistema}
     if paleta:
         izid["paleta"] = paleta
@@ -657,6 +661,9 @@ class Namizje:
             # Gumb »Oddaljeno« v Programih (isti QML kot na Windows): na Linuxu odpre zaslon naprave Safeer Control
             # (upravljaj_racunalnik, kot »Upravljaj« na delovni povrsini). Prej je klic koncal z neznano metodo (15. 10. 2026).
             self._odgovor_v_ozadju(klic_id, lambda: so.upravljaj_racunalnik(str(a[0]) if a else ""))
+        elif metoda == "spletniZadetki":
+            # Asinhrono na glavni niti (pogled WebKit): odgovor, ko so zadetki prebrani ali rok potekel.
+            self.os._spletni_zadetki(str(a[0]) if a else "", lambda r: odg(klic_id, True, r))
         elif metoda == "videzNamizja":
             odg(klic_id, True, self.videz())
         elif metoda == "nastaviVidezNamizja":

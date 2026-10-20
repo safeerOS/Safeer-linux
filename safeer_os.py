@@ -3078,6 +3078,24 @@ class SafeerOS(Gtk.Application):
         #splet-namizje-glava button:hover { background-color: rgba(104, 168, 229, 0.20); border-color: #9dceff; }
     """
 
+    def _spletni_zadetki(self, niz: str, povratni) -> None:
+        """Sprotni zadetki spleta v lupi (core/spletni_zadetki.py): stran rezultatov izbranega iskalnika v skritem pogledu
+        ISTE seje kot Splet. Brez peskovnika WebKita ali ob izklopu v Prilagodi: prazno."""
+        niz = " ".join(str(niz or "").split())[:200]
+        if len(niz) < 3 or not self._peskovnik_na_voljo():
+            povratni([])
+            return
+        try:
+            self._ustvari_splet_namizja(prvi_zavihek=False)
+            if getattr(self, "_predogled_iskanja", None) is None:
+                from core.spletni_zadetki import PredogledIskanja
+                self._predogled_iskanja = PredogledIskanja(Gtk, WebKit2, GLib, self._spletni_namizje.seja,
+                                                           self._spletni_namizje.kontekst)
+            self._predogled_iskanja.isci(_iskalnik() + GLib.uri_escape_string(niz, None, False), povratni)
+        except Exception as e:  # noqa: BLE001 - lupa brez sprotnih zadetkov dela naprej
+            print("[SafeerOS] sprotni zadetki:", e, flush=True)
+            povratni([])
+
     def _splet_na_namizju(self, niz: str, vrh: float = 0, domov: bool = False) -> bool:
         """Iskanje po spletu iz zgornjega polja delovne povrsine: rezultati v plosci na namizju (isti vgrajeni
         brskalnik z vsemi moznostmi kot Splet v Safeer OS: zavihki, naslov, Scit, meni), ne v drugem programu.

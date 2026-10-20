@@ -48,6 +48,11 @@ class LupaNamizja(unittest.TestCase):
                         {"id": "/a/footclient.desktop", "ime": "Foot Client", "splosno": "", "skupina": "drugo",
                          "kljucne": ["shell"], "ikona": ""}]
 
+            def _spletni_zadetki(self, niz, povratni):
+                klici.append(("spletniZadetki", [niz]))
+                povratni([{"naslov": "Linux Mint", "url": "https://www.linuxmint.com/", "stran": "linuxmint.com",
+                           "odlomek": "Prost operacijski sistem"}])
+
             def _obdelaj_klic(self, pogled, klic_id, metoda, a):
                 klici.append((metoda, a))
                 odg = {"predvajalnikStanje": {}, "agentVprasaj": {"ok": True, "koda": "", "povzetek": "Utišano na Dnevna soba."}}
@@ -219,6 +224,38 @@ class LupaNamizja(unittest.TestCase):
         self._namizje(platforma="windows")
         self.assertFalse(self.koren.property("lupaZlozljiva"))
         self.assertTrue(self.koren.property("lupaOdprta"))
+
+    def test_sprotni_zadetki_spleta(self):
+        """Lastnik 20. 10. 2026: lupa ze med tipkanjem pokaze prve zadetke spleta (core/spletni_zadetki.py), pod
+        »Isci v spletu«; klik odpre stran v Spletu. Enter na njih ne caka (privzeta izbira ostane)."""
+        from PySide6.QtCore import QMetaObject, Q_ARG, Qt
+        self._namizje()
+        model = self._el("zadetkiModel")
+        for k, c in ((Qt.Key.Key_L, "l"), (Qt.Key.Key_I, "i"), (Qt.Key.Key_N, "n")):
+            self._tipka(k, c)
+        vrste = lambda: [model.get(i).property("vrsta").toString() for i in range(model.property("count"))]  # noqa: E731
+        self.assertTrue(self._pocakaj(lambda: "spletZadetek" in vrste(), 3), vrste())
+        self.assertIn(("spletniZadetki", ["lin"]), self.klici)
+        i = vrste().index("spletZadetek")
+        self.assertEqual(vrste()[i - 1], "splet")                       # tik pod »Isci v spletu«
+        self.assertEqual(model.get(i).property("ime").toString(), "Linux Mint")
+        self.assertIn("linuxmint.com", model.get(i).property("opis").toString())
+        self.assertNotEqual(self._el("zadetki").property("trenutni"), i)  # privzeta izbira ni zadetek spleta
+        QMetaObject.invokeMethod(self._el("zadetki"), "izberi", Q_ARG("QVariant", i))
+        self.assertTrue(self._pocakaj(lambda: ("spletNaNamizju", ["https://www.linuxmint.com/"]) in
+                                      [(m, list(a)[:1]) for m, a in self.klici]), self.klici[-4:])
+
+    def test_brez_sprotnih_zadetkov_ob_izklopu(self):
+        from PySide6.QtCore import Qt
+        self._namizje()
+        v = dict(self.koren.property("videz").toVariant() if hasattr(self.koren.property("videz"), "toVariant")
+                 else self.koren.property("videz"))
+        v["spletniZadetki"] = False
+        self.koren.setProperty("videz", v)
+        for k, c in ((Qt.Key.Key_L, "l"), (Qt.Key.Key_I, "i"), (Qt.Key.Key_N, "n")):
+            self._tipka(k, c)
+        self._pocakaj(lambda: False, 1.2)
+        self.assertNotIn(("spletniZadetki", ["lin"]), self.klici)
 
     def test_safeer_agent_v_lupi(self):
         from PySide6.QtCore import Qt

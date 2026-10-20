@@ -150,6 +150,10 @@ Item {
                 Gumb { objectName: "spletVBrskalniku"; besedilo: (koren.videz.spletVBrskalniku ? "✓ " : "") + prilagodi.napisBrskalnik
                        Accessible.role: Accessible.CheckBox; Accessible.checked: !!koren.videz.spletVBrskalniku
                        onKlik: prilagodi.nastavi({ spletVBrskalniku: !koren.videz.spletVBrskalniku }) }
+                // Sprotni zadetki spleta v lupi (lastnik, 20. 10. 2026): iskalni niz gre iskalniku ze med tipkanjem.
+                Gumb { objectName: "spletniZadetki"; besedilo: (koren.videz.spletniZadetki !== false ? "✓ " : "") + koren.t("spletniZadetki")
+                       Accessible.role: Accessible.CheckBox; Accessible.checked: koren.videz.spletniZadetki !== false
+                       onKlik: prilagodi.nastavi({ spletniZadetki: koren.videz.spletniZadetki === false }) }
                 // Moznost Sporocila v celoti (lastnik, 15. 10. 2026): izklop skrije razdelek povsod in ustavi kanale.
                 Gumb { objectName: "sporocilaVklop"; besedilo: (koren.videz.sporocila !== false ? "✓ " : "") + koren.t("sporocilaVklop")
                        Accessible.role: Accessible.CheckBox; Accessible.checked: koren.videz.sporocila !== false

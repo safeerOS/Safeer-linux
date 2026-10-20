@@ -541,7 +541,7 @@ Item {
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],
-                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: []
+                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: [], splet: []
             }
             deli = d
             function pocakaj(metoda, args, kam, obdelaj) {
@@ -570,6 +570,12 @@ Item {
                 var poNaslovu = r.filter(function (x) { return zadetki.ujema((x.naslov || "") + " " + (x.izvajalec || ""), bs) })
                 return (poNaslovu.length ? poNaslovu : r).slice(0, 5)
             })
+            // Sprotni zadetki spleta (core/spletni_zadetki.py, lastnik 20. 10. 2026): stran rezultatov izbranega iskalnika v
+            // skritem Spletu, sele ko uporabnik za trenutek neha tipkati. Ne steje v »caka«: Enter ne caka nanje.
+            spletniCasovnik.stop()
+            if (linux && q.length >= 3 && !cilj && koren.videz.spletniZadetki !== false && !Iskanje.SafeerIskanje.jeNaslov(q)) {
+                spletniCasovnik.niz = q; spletniCasovnik.st = st; spletniCasovnik.restart()
+            }
             if (cilj) pocakaj("napraveZaMedij", [], "naCilj", function (r) {
                 var izbor = r.filter(function (n) { return zadetki.cilj && zadetki.cilj.vrste.indexOf(n.platforma) >= 0 })
                 if (zadetki.cilj && zadetki.cilj.vrste === zadetki.pc) izbor.unshift({ id: "", ime: koren.t("taRacunalnik"), platforma: "linux" })
@@ -588,6 +594,10 @@ Item {
                 else v.push({ vrsta: "naCilj", skupina: koren.t("skPrikaziNa"), ime: koren.t("niNapraveCilja"), opis: "", kljuc: "", ikona: "", podatki: "{}" })
             }
             v.push({ vrsta: "splet", skupina: koren.t("skSplet"), ime: koren.t("isciVSpletu", { q: q }), opis: koren.t("odpreVBrskalniku"), kljuc: q, ikona: "", podatki: "{}" })
+            ;(d.splet || []).forEach(function (z) {
+                v.push({ vrsta: "spletZadetek", skupina: koren.t("skSplet"), ime: z.naslov || "", opis: [z.stran || "", z.odlomek || ""].filter(function (x) { return !!x }).join(" · "),
+                         kljuc: z.url || "", ikona: "", podatki: "{}" })
+            })
             // Safeer Agent v lupi (ce je nastavljen): ukaz z besedami, npr. »daj to na TV« - ta vrstica ali Ctrl+Enter.
             if (koren.agentNaVoljo && zadnjiNiz.length >= 2)
                 v.push({ vrsta: "agent", skupina: koren.t("skAgent"), ime: koren.t("agentVprasaj", { q: zadnjiNiz }), opis: koren.t("agentOpisZadetka"),
@@ -655,6 +665,20 @@ Item {
             var z = zadetkiModel.count ? zadetkiModel.get(trenutni) : null
             if (z && z.vrsta === "naCilj" && JSON.parse(z.podatki).izberi && !premaknjen) { koren.obvesti(koren.t("izberiNapravo")); return }
             if (z) izberi(trenutni); else izberiVnos({ vrsta: "splet", kljuc: q })
+        }
+        Timer {
+            id: spletniCasovnik
+            objectName: "spletniCasovnik"
+            property string niz: ""
+            property int st: 0
+            interval: 450
+            onTriggered: {
+                var st = spletniCasovnik.st, niz = spletniCasovnik.niz
+                koren.klic("spletniZadetki", [niz], function (r) {
+                    if (st !== zadetki.zahteva || !Array.isArray(r) || !r.length) return
+                    var dd = zadetki.deli; dd.splet = r.slice(0, 3); zadetki.deli = dd; zadetki.sestavi()
+                })
+            }
         }
         Timer { id: enterCasovnik; interval: 1500; onTriggered: if (zadetki.poEnter) { zadetki.poEnter = false; zadetki.enter() } }
         function izberi(i) {
@@ -753,7 +777,7 @@ Item {
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
+                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "spletZadetek" ? "↗" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
                                : (model.vrsta === "medij" || model.vrsta === "katalog" || model.vrsta === "mediji") ? "🎵"
                                : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : (model.vrsta === "safeer" || model.vrsta === "agent") ? "✦"
                                : model.vrsta === "program" ? "▣" : "📄"
