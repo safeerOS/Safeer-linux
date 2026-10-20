@@ -1032,6 +1032,55 @@ class TestTemaCinnamon(unittest.TestCase):
             self.APPLETI = prej
             self.ZACETNO = TestTemaCinnamon.ZACETNO
 
+    def test_obvestila_safeer_namesto_mintovih_in_nazaj(self):
+        """Applet obvestil Cinnamona 6.6.9 po preureditvi pulta kaze stevilo brez seznama (testni PC 20. 10. 2026,
+        ponovljeno s --izklopi). Vklop postavi nas popravljeni obvestila@safeer.si na isto mesto, ponovni vklop ga ne
+        podvoji, --izklopi vrne Mintovega; ce applet ni namescen, se nic ne zgodi."""
+        prej = self.APPLETI
+        try:
+            self.APPLETI = prej[:-1] + ", 'panel1:right:3:notifications@cinnamon.org:7']"
+            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(prej, self.APPLETI)
+            for namescen in (True, False):
+                tmp = tempfile.mkdtemp()
+                try:
+                    o = self._okolje(tmp)
+                    if namescen:
+                        os.makedirs(os.path.join(o["koren"], "usr", "share", "cinnamon", "applets", "obvestila@safeer.si"))
+                    self._ukaz(o, "--profil", "dock")
+                    appleti = self._vrednost(o, "org.cinnamon", "enabled-applets")
+                    if namescen:
+                        self.assertIn("panel1:right:3:obvestila@safeer.si:7", appleti)
+                        self.assertNotIn("notifications@cinnamon.org", appleti)
+                    else:
+                        self.assertIn("panel1:right:3:notifications@cinnamon.org:7", appleti)
+                    self._ukaz(o, "--profil", "delovna")
+                    self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets").count("obvestila@safeer.si"),
+                                     1 if namescen else 0)
+                    self._ukaz(o, "--izklopi")
+                    self._kot_na_zacetku(o)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+        finally:
+            self.APPLETI = prej
+            self.ZACETNO = TestTemaCinnamon.ZACETNO
+
+    def test_applet_obvestila_odklopi_signal_in_prevzame_obvestila(self):
+        """Kopija appleta obvestil: odstranjen applet odklopi 'notify-applet-update' (prej je obvestila kradel v mapo,
+        ki ni vec na zaslonu) in razvrscanje prevzame obvestilo, ki ga drzi drug vsebnik."""
+        js = open(os.path.join(TEMA, "appleti", "obvestila@safeer.si", "applet.js"), encoding="utf-8").read()
+        self.assertIn("this._trayHandler = Main.messageTray.connect('notify-applet-update'", js)
+        odstranitev = js.split("on_applet_removed_from_panel ()", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("Main.messageTray.disconnect(this._trayHandler)", odstranitev)
+        razvrsti = js.split("_reorderNotifications() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("parent.remove_child(actor)", razvrsti)
+        import json
+        meta = json.load(open(os.path.join(TEMA, "appleti", "obvestila@safeer.si", "metadata.json"), encoding="utf-8"))
+        self.assertEqual(meta["uuid"], "obvestila@safeer.si")
+        node = shutil.which("node")
+        if node:
+            subprocess.run([node, "-e", "new Function(require('fs').readFileSync(process.argv[1],'utf8'))",
+                            os.path.join(TEMA, "appleti", "obvestila@safeer.si", "applet.js")], check=True)
+
     def test_applet_miska_starejsa_shema_in_odstranitev(self):
         """Applet v Node z laznim Cinnamonom: kljuca, ki ju starejsa shema nima, se ne bereta (get_boolean bi prekinil
         Cinnamon); po odstranitvi iz pulta je meni unicen, odgovori D-Bus ne sprozijo novih klicev (pregled 14. 10.)."""

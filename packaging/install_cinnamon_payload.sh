@@ -28,6 +28,10 @@ done
 mkdir -p "$ROOT/usr/share/cinnamon/applets"
 cp -a "$T/appleti/miska@safeer.si" "$ROOT/usr/share/cinnamon/applets/"
 chmod 644 "$ROOT/usr/share/cinnamon/applets/miska@safeer.si/"*
+# Obvestila: kopija appleta obvestil Cinnamona s popravkom (prazen seznam ob stevilu obvestil), glej safeer-cinnamon obvestila.
+cp -a "$T/appleti/obvestila@safeer.si" "$ROOT/usr/share/cinnamon/applets/"
+find "$ROOT/usr/share/cinnamon/applets/obvestila@safeer.si" -type d -exec chmod 755 {} +
+find "$ROOT/usr/share/cinnamon/applets/obvestila@safeer.si" -type f -exec chmod 644 {} +
 # Obrobe oken rise Mint-Y (kot pri vseh Mintovih temah): barve vzame iz nase teme GTK (wm_bg, wm_title,
 # selected_bg_color ...), zato so v paleti Safeer. GTK 2 prevzamemo od Mint-Y-Dark-Blue.
 for tema in Safeer-Cinnamon Safeer-Cinnamon-Kontrast; do

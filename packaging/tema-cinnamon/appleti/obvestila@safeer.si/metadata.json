@@ -1,0 +1,6 @@
+{
+ "uuid": "obvestila@safeer.si",
+ "name": "Obvestila (Safeer)",
+ "description": "Click to display and manage system notifications. Safeer Cinnamon copy of notifications@cinnamon.org 6.6.9 with the fix of linuxmint/cinnamon master: a removed applet no longer takes notifications (no count without a list).",
+ "icon": "cs-notifications"
+}

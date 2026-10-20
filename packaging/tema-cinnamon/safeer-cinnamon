@@ -434,6 +434,56 @@ PY
     return 0
 }
 
+# Obvestila (20. 10. 2026): applet obvestil Cinnamona 6.6.9 ima napako - po preureditvi pulta (vklop, izklop, menjava
+# postavitve) pult kaze stevilo obvestil, seznam pa je prazen (testni PC: 5 obvestil, prazen seznam; ponovljeno s
+# --izklopi). Nas obvestila@safeer.si je njegova kopija s popravkom iz linuxmint/cinnamon master. Med vklopom ga
+# postavimo na mesto Mintovega (isti pult, isto mesto) in si zapomnimo zamenjane vnose; --izklopi vrne Mintovega.
+# Enkrat na vklop: ce uporabnik vmes sam vrne Mintovega, ga menjava postavitve ne zamenja znova.
+obvestila() {   # $1 = dodaj | odstrani
+    local v izid
+    [ -d "$KOREN/usr/share/cinnamon/applets/obvestila@safeer.si" ] || [ -d "$HOME/.local/share/cinnamon/applets/obvestila@safeer.si" ] \
+        || [ "$1" = odstrani ] || return 0
+    v="$(beri org.cinnamon:enabled-applets)" || return 0
+    mkdir -p "$MAPA"
+    izid="$(python3 - "$1" "$v" "$MAPA/obvestila-zamenjana" <<'PY2'
+import ast, os, sys
+kaj, vrednost, zapis = sys.argv[1:4]
+MINT, NAS = "notifications@cinnamon.org", "obvestila@safeer.si"
+try:
+    appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+
+
+def zamenjaj(a, iz, v):
+    d = a.split(":")
+    if len(d) >= 4 and d[3] == iz:
+        d[3] = v
+        return ":".join(d)
+    return a
+
+
+if kaj == "dodaj":
+    zamenjani = [a for a in appleti if len(a.split(":")) >= 4 and a.split(":")[3] == MINT]
+    if not zamenjani:
+        sys.exit(0)
+    with open(zapis, "w", encoding="utf-8") as f:
+        f.write("\n".join(zamenjani) + "\n")
+    print(repr([zamenjaj(a, MINT, NAS) for a in appleti]))
+else:
+    if not os.path.isfile(zapis):
+        sys.exit(0)
+    prej = [v for v in open(zapis, encoding="utf-8").read().split("\n") if v]
+    os.remove(zapis)
+    nazaj = {zamenjaj(a, MINT, NAS): a for a in prej}
+    print(repr([nazaj.get(a, a) for a in appleti]))
+PY2
+)" || return 0
+    [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
+    return 0
+}
+obvestila_enkrat() { [ -e "$MAPA/obvestila-ponujena" ] || { mkdir -p "$MAPA"; obvestila dodaj; : > "$MAPA/obvestila-ponujena"; }; }
+
 # Ze vklopljen Safeer Cinnamon iz starejse razlicice dobi Misko enkrat; ce jo uporabnik odstrani, je ne vracamo.
 miska_enkrat() { [ -e "$MAPA/miska-ponujena" ] || { mkdir -p "$MAPA"; miska dodaj; : > "$MAPA/miska-ponujena"; }; }
 
@@ -1156,6 +1206,7 @@ vklopi() {
     esac
     # Enkrat na vklop (do --izklopi): ob vsaki menjavi postavitve bi se Miska, ki jo je uporabnik odstranil, vrnila.
     miska_enkrat
+    obvestila_enkrat
 }
 
 izklopi() {
@@ -1177,6 +1228,8 @@ izklopi() {
     rm -f "$MAPA/pokazi-namizje-ponujeno" "$MAPA/seznam-sredina-ponujeno" "$MAPA/ikone-posodobitev"
     miska odstrani
     rm -f "$MAPA/miska-ponujena"
+    obvestila odstrani
+    rm -f "$MAPA/obvestila-ponujena"
     seznam_oken_vrni
     # "Vrni prejsnji videz" vrne tudi zagonski in prijavni zaslon, ce ju je uporabnik vklopil.
     # (SAFEER_CINNAMON_BREZ_SISTEMA: preizkusi ukaza se sistemskih nastavitev ne dotikajo.)
