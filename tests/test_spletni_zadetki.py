@@ -172,3 +172,48 @@ class PredogledVZivo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_isti_niz():
+    assert sz.isti_niz("https://duckduckgo.com/?q=vreme%20ljubljana", "https://duckduckgo.com/?q=vreme+ljubljana&ia=web")
+    assert not sz.isti_niz("https://duckduckgo.com/?q=vreme%20ljubljana", "https://duckduckgo.com/?q=vreme+lj&ia=web")
+    assert sz.isti_niz("https://www.google.com/search?q=a", "https://www.google.com/sorry/index")   # ne vemo
+
+
+def test_stari_finished_ne_vrne_zadetkov_prejsnjega_niza():
+    """Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in takoj javi FINISHED -
+    v pogledu je se stran prejsnjega niza. Brati se sme sele po COMMITTED novega nalaganja."""
+    import types
+    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
+    WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
+    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
+    p = sz.PredogledIskanja(None, WebKit, GLib)
+    nalozeni, branja = [], []
+    p._pogled = lambda: types.SimpleNamespace(load_uri=nalozeni.append)
+    p._preberi = lambda rod, poskus: branja.append(rod)
+    p.isci("https://duckduckgo.com/?q=vreme+lj", lambda r: None, motor="duckduckgo")
+    p._nalozeno(None, LoadEvent.COMMITTED)
+    p.isci("https://duckduckgo.com/?q=vreme+ljubljana", lambda r: None, motor="duckduckgo")
+    p._nalozeno(None, LoadEvent.FINISHED)          # prekinjeno staro nalaganje: stran prejsnjega niza
+    assert branja == []
+    p._nalozeno(None, LoadEvent.COMMITTED)         # nalaganje novega niza
+    p._nalozeno(None, LoadEvent.FINISHED)
+    assert branja == [2]
+
+
+def test_lupa_ne_poslje_poti_in_imen_datotek():
+    """Webmaster pregled pomocnika 1.0.129: poti in imena datotek isce uporabnik na racunalniku - ne v sprotne zadetke."""
+    import json
+    import shutil
+    import subprocess
+    if shutil.which("node") is None:
+        raise unittest.SkipTest("ni node")
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    primeri = {"vreme ljubljana": True, "python 3.12": True, "izvid-krvi-2026.pdf": False, "~/Dokumenti/davki": False,
+               "/etc/fstab": False, "Proračun 2026.ods": False, "dokumenti/davki": False, "safeer.si": False, "ab": False}
+    js = ("const S=require(%s);const p=%s;const o={};for(const k in p)o[k]=S.smeSprotniSplet(k);console.log(JSON.stringify(o))"
+          % (json.dumps(os.path.join(koren, "assets", "os", "iskanje.js")), json.dumps(primeri)))
+    izid = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    assert izid == primeri
+    qml = open(os.path.join(koren, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
+    assert "Iskanje.SafeerIskanje.smeSprotniSplet(q)" in qml

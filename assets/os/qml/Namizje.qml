@@ -578,7 +578,7 @@ Item {
             // Sprotni zadetki spleta (core/spletni_zadetki.py, lastnik 20. 10. 2026): stran rezultatov izbranega iskalnika v
             // skritem Spletu, sele ko uporabnik za trenutek neha tipkati. Ne steje v »caka«: Enter ne caka nanje.
             spletniCasovnik.stop()
-            var spletOk = linux && !cilj && koren.videz.spletniZadetki !== false && !Iskanje.SafeerIskanje.jeNaslov(q)
+            var spletOk = linux && !cilj && koren.videz.spletniZadetki !== false && Iskanje.SafeerIskanje.smeSprotniSplet(q)
             if (spletOk && q.length >= 3) {
                 spletniCasovnik.niz = q; spletniCasovnik.st = st; spletniCasovnik.restart()
             }

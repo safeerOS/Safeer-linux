@@ -123,6 +123,18 @@ def ocisti(surovo, najvec: int = NAJVEC) -> List[dict]:
     return izid
 
 
+def isti_niz(zahtevan: str, stran: str) -> bool:
+    """Ali je stran v pogledu za iskani niz (parameter q, kjer ga imata oba; sicer ne vemo - True)."""
+    def q(url: str) -> Optional[str]:
+        try:
+            v = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("q")
+        except Exception:  # noqa: BLE001
+            return None
+        return " ".join(v[0].split()).lower() if v else None
+    a, b = q(zahtevan), q(stran)
+    return a is None or b is None or a == b
+
+
 class PredogledIskanja:
     """Skrit pogled WebKit, ki nalozi stran rezultatov in vrne prve zadetke (glej opis modula)."""
 
@@ -232,7 +244,13 @@ class PredogledIskanja:
         return False
 
     def _nalozeno(self, pogled, dogodek) -> None:
-        if dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None:
+        # Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in TAKOJ javi FINISHED
+        # (tudi po load-failed CANCELLED) - takrat je v pogledu se stran PREJSNJEGA niza in njeni zadetki bi se
+        # pokazali (in 10 min ostali v predpomnilniku) pod novim nizom. Beremo sele po COMMITTED nalaganja tega iskanja.
+        if dogodek == self.WebKit.LoadEvent.COMMITTED:
+            self._potrjen = self._rod
+        elif dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None \
+                and getattr(self, "_potrjen", 0) == self._rod:
             self._preberi(self._rod, 0)
 
     def _napaka(self, _p, _d, uri, napaka) -> bool:
@@ -255,6 +273,8 @@ class PredogledIskanja:
             except Exception:  # noqa: BLE001
                 surovo = []
             zadetki = ocisti(surovo)
+            if not isti_niz(self._url, pogled.get_uri() or ""):
+                zadetki = []                               # v pogledu je stran drugega niza: ne kazi in ne shrani
             if zadetki or poskus >= POSKUSOV:
                 self._shrani(self._url, zadetki)
                 self._koncaj(zadetki)

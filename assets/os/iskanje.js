@@ -55,6 +55,17 @@ var SafeerIskanje = (function (tvornica) {
     return /^(~\/|\/|[a-z]:[\\/])/i.test(s) || /\.[a-z0-9]{1,8}$/i.test(s);
   }
 
+  // Sprotni zadetki spleta (lupa): niz, ki je pot ali ime datoteke, uporabnik isce na racunalniku - ne posljemo ga
+  // iskalniku (webmaster pregled pomocnika 1.0.129: »izvid-krvi-2026.pdf« ali »~/Dokumenti/davki« bi sel Googlu).
+  // Stevilke razlicic (»python 3.12«) niso koncnica datoteke.
+  var KONCNICE_DATOTEK = /\.(pdf|docx?|odt|xlsx?|ods|pptx?|odp|txt|rtf|md|csv|json|xml|html?|jpe?g|png|gif|webp|heic|svg|mp[34]|m4a|mkv|avi|mov|flac|wav|ogg|zip|7z|tar|gz|xz|deb|rpm|apk|exe|iso|odg|epub|log|conf|ini|ya?ml|py|js|sh)$/i;
+  function smeSprotniSplet(niz) {
+    var s = String(niz || "").trim();
+    if (s.length < 3 || jeNaslov(s)) return false;
+    if (/^(~|\.{1,2})?[\/\\]|^[a-z]:[\\/]/i.test(s) || /[\/\\]/.test(s)) return false;
+    return !KONCNICE_DATOTEK.test(s);
+  }
+
   function vsebujeMedijskoBesedo(niz) {
     return /\b(film|filmi|filme|movie|movies|pelicula|peliculas|serie|series|serien|serija|serije|musik|music|musica|musique|glasba|glasbo|pesem|pesmi|song|songs|chanson|chansons|canzone|canzoni|lied|lieder|radio|tv|fernsehen|television|video|podcast)\b/i.test(brezNaglasa(niz));
   }
@@ -108,6 +119,7 @@ var SafeerIskanje = (function (tvornica) {
     oceniSpletno: oceniSpletno,
     jeNaslov: jeNaslov,
     jePotAliKoncnica: jePotAliKoncnica,
+    smeSprotniSplet: smeSprotniSplet,
     vsebujeMedijskoBesedo: vsebujeMedijskoBesedo,
     nameraIskanja: nameraIskanja
   };
