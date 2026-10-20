@@ -206,10 +206,13 @@ class Kanali(unittest.TestCase):
         self.assertIs(s.get_visible_child(), self.k.zivi[a].gradnik)
         nalaganja = []
         self.k.zivi[a].aplikacija.pogled.connect("load-changed", lambda p, d: nalaganja.append((time.monotonic(), d.value_nick)))
-        # prvo nalaganje najprej konca (brez omrezja: neuspeh in nato stran z napako omrezja - sicer tekma):
-        # 1,5 s brez dogodkov nalaganja
+        # prvo nalaganje najprej konca (brez omrezja: neuspeh, samodejni ponovitvi in nato stran z napako omrezja -
+        # sicer tekma). Tisina mora biti daljsa od najdaljsega zamika ponovitve (CI 20. 10. 2026: 1,5 s je bilo
+        # enako zamiku druge ponovitve in ta je prisla po clear()).
+        from core.network_errors import ZAMIKI_PONOVITVE
+        tisina = max(ZAMIKI_PONOVITVE) + 1.0
         self.assertTrue(_cakaj(lambda: self.k.zivi[a].nalozen and not self.k.zivi[a].aplikacija.pogled.is_loading()
-                               and (not nalaganja or time.monotonic() - nalaganja[-1][0] > 1.5), 15))
+                               and (not nalaganja or time.monotonic() - nalaganja[-1][0] > tisina), 20))
         nalaganja.clear()
         self.k.pokazi(stran, prekrivanje, b, r)
         self.assertIs(s.get_visible_child(), self.k.zivi[b].gradnik)
