@@ -95,3 +95,31 @@ Vsaka od teh napak je ze bila narejena; neodvisni pregled ali lastna raziskava j
   Podprocesu daj okolje z `env=`/`execve`, zastavice v procesu namesto okoljskih spremenljivk.
 - **Scit (DNS):** razresevalnik odgovori v ~0,4 s (`ROK_NAPREJ`), sicer systemd-resolved preide na usmerjevalnik
   MIMO Scita in tam ostane. Pocasen DoH ne sme zadrzati odgovora.
+
+## Pravila iz napak izdaje 1.0.129 (20. 10. 2026) - obvezno za vsakega pomocnika
+Lastnik je dvakrat posnel isto napako (lupa -> »Išči v spletu« -> »Strani trenutno ni mogoče odpreti«), webmaster
+pregled pa je na strani nasel 6 napacnih SHA-256. Vsaka tocka spodaj je ze bila narejena narobe.
+- **Popravi vzrok, ne simptoma; »popravljeno« sele po uporabnikovi poti v zivo.** Prvi popravek (samodejna ponovitev)
+  je skril simptom, lastnik je cez 10 minut poslal »Se vedno ne deluje«. Vzrok je bil izmerjen sele z nadzorom procesov:
+  napako ponovi na pravi napravi po enakih korakih kot uporabnik (lupa, cakanje, iskanje), zapisi dnevnik (sled.log) in
+  sele nato popravi. Preizkus enote ne dokazuje, da uporabnikova pot dela.
+- **Omreznega procesa WebKit nikoli ne koncaj od zunaj (SIGTERM),** dokler zivijo spletni procesi istega konteksta:
+  WebKit jih hrani za nove zavihke s povezavo na koncanega - prvo nalaganje odpove z notranjo napako (WebKitErrorDomain
+  300). Velja tudi za recikliranje ob porabi pomnilnika. Puscanje libsoup resujemo z nasim popravkom (packaging/libsoup),
+  ne z ubijanjem procesa; AppImage nosi sistemski libsoup - zaznava »nas libsoup« mora to razlikovati.
+- **Samodejna ponovitev nalaganja:** samo GET glavnega okvirja; POST, PUT in neznana metoda nikoli. `decide-policy`
+  pride tudi za iframe - metode zbiraj (ne zamenjuj) in neznan naslov je GET samo, ce so vse zbrane GET. Napake, pri
+  katerih zahteva morda ze odsla (prekinjena povezava, rok), ponovi samo na straneh zadetkov iskalnikov
+  (core/network_errors.py). Preizkus, ki caka »tisino« nalaganja, mora cakati dlje od najdaljsega zamika ponovitve.
+- **Vsote in stevilke na strani nikoli rocno.** Gradnja strani vzame SHA-256 iz SHA256SUMS izdaje in se USTAVI ob
+  neujemanju ali manjkajoci vsoti; po objavi prenesi vsaj eno datoteko in primerjaj vsoto. Isto za velikosti in razlicice.
+- **Ne strgaj iskalnikov z urllib/curl** (DuckDuckGo po 2 zahtevah vrne 202 - robot). Sprotni zadetki lupe beremo v
+  skritem Spletu v seji uporabnika (core/spletni_zadetki.py), skripta v locenem svetu, besedilo prek textContent.
+- **Preizkus, ki isce v kodi** (dostopnost, encoding, mostovi), mora pokriti vse oblike zapisa (`Gtk.Button`,
+  `self.Gtk.Button`, pomozne funkcije `self._gumb(...)`); preveri, da pade na kodi pred popravkom.
+- **Simbolne povezave v preizkusih paketov:** `stat -L` (knjiznica .so.4 je povezava; inode povezave ni inode datoteke).
+- **Testni PC (XTEST):** pred vsakim klikom ali tipkanjem posnetek; koordinate iz pomanjsanega posnetka preracunaj
+  (1440x900 zaslon, pomanjsan posnetek) - napacen klik je tipkal v lupo namizja.
+- **Webmaster pregled:** vsaka sprememba strani safeer.si, Spleta ali lupe gre pred objavo skozi webmaster pregled
+  (vsote, povezave 200, sitemap/canonical, telefon, dostopnost, hitrost) - drug agent kot avtor. Napake iz pregleda
+  se popravijo ali izrecno prestavijo v zapisnik; prestavljene tocke so prva naloga naslednje izdaje.

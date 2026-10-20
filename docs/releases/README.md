@@ -4,6 +4,7 @@ One file per version. Packages: [GitHub Releases](https://github.com/safeerOS/Sa
 
 ## Safeer Browser for Linux · Safeer OS · Safeer Control
 
+- [1.0.129](RELEASE_NOTES_1.0.129.md) — Safeer Browser for Linux 1.0.129 · Safeer OS 0.4.87 (with Safeer Control 2.1.84) — Searching the web from the magnifier works again; results while you type; one file per download.
 - [1.0.128](RELEASE_NOTES_1.0.128.md) — Safeer Browser for Linux 1.0.128 · Safeer OS 0.4.86 (with Safeer Control 2.1.83) — Security fixes for updates and the Shield.
 - [1.0.127](RELEASE_NOTES_1.0.127.md) — Safeer Browser for Linux 1.0.127 · Safeer OS 0.4.85 (with Safeer Control 2.1.82) — Safeer Browser on GTK 4.
 - [1.0.126](RELEASE_NOTES_1.0.126.md) (2026-10-11) — Safeer Browser for Linux 1.0.126 · Safeer Control 2.1.81 · Safeer OS 0.4.83 — Dock your way. Right-click a program on the desktop and choose Add to dock or Remove from dock.
