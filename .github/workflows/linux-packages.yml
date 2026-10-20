@@ -1178,6 +1178,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Vrata izdaje (20. 10. 2026, »pravila namesto navodil«): brez zapisa neodvisnega pregleda drugega ponudnika
+      # (docs/pregledi/<oznaka>.md) in z odprtimi kriticnimi/visokimi najdbami izdaja ne nastane.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Independent review by another vendor (tools/preveri_pregled.py)
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: python3 tools/preveri_pregled.py "$TAG" "$SHA"
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -1230,6 +1240,16 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || { echo "::error::beta oznaka mora biti vX.Y.Z-beta.N: $TAG"; exit 1; }
+      # Vrata izdaje (20. 10. 2026, »pravila namesto navodil«): brez zapisa neodvisnega pregleda drugega ponudnika
+      # (docs/pregledi/<oznaka>.md) in z odprtimi kriticnimi/visokimi najdbami izdaja ne nastane.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Independent review by another vendor (tools/preveri_pregled.py)
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: python3 tools/preveri_pregled.py "$TAG" "$SHA"
       - uses: actions/download-artifact@v8
         with:
           path: artifacts

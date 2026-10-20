@@ -2,14 +2,21 @@
 # Pred potiskom na gtk4-deb-webkit, main ali oznako zazene vse teste na TOCNO tistem, kar se potiska.
 # Znana okoljska napaka laptopa (test_predvaja_in_tipke) ne zadrzi potiska. Preskok: SAFEER_PRESKOCI_TESTE=1 git push ...
 set -u
-[ "${SAFEER_PRESKOCI_TESTE:-}" = "1" ] && { echo "pre-push: testi preskoceni (SAFEER_PRESKOCI_TESTE=1)"; exit 0; }
 korenin="$(git rev-parse --show-toplevel)"
-potisk=0; sha=""
+potisk=0; sha=""; oznake=""
 while read -r lokalna lsha oddaljena rsha; do
   case "$oddaljena" in refs/heads/gtk4-deb-webkit|refs/heads/main|refs/tags/*) potisk=1; sha="$lsha";; esac
+  case "$oddaljena" in refs/tags/v*) case "$lsha" in 0000000*) ;; *) oznake="$oznake ${oddaljena#refs/tags/}=$lsha";; esac;; esac
 done
 [ "$potisk" = 1 ] || exit 0
 case "$sha" in 0000000*) exit 0;; esac
+# Vrata izdaje (20. 10. 2026): oznaka izdaje samo z zapisom neodvisnega pregleda drugega ponudnika
+# (tools/preveri_pregled.py, docs/pregledi/<oznaka>.md). Tega SAFEER_PRESKOCI_TESTE ne preskoci.
+for o in $oznake; do
+  ime="${o%%=*}"; c="$(git -C "$korenin" rev-parse "${o#*=}^{commit}" 2>/dev/null)" || c="${o#*=}"
+  python3 "$korenin/tools/preveri_pregled.py" "$ime" "$c" || { echo "pre-push: oznaka $ime brez veljavnega neodvisnega pregleda - potisk ustavljen"; exit 1; }
+done
+[ "${SAFEER_PRESKOCI_TESTE:-}" = "1" ] && { echo "pre-push: testi preskoceni (SAFEER_PRESKOCI_TESTE=1)"; exit 0; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 git -C "$korenin" archive "$sha" | tar -x -C "$T"
 cd "$T" || exit 1
