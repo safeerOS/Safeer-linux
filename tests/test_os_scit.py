@@ -480,8 +480,17 @@ class VrnitevDns(unittest.TestCase):
             self.assertTrue(os_scit.je_ostanek("eth9"), "vmesnik brez streznikov (stari revert)")
         with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: False):
             self.assertTrue(os_scit.je_ostanek("eth9"), "nas streznik, na katerem nihce ne poslusa (sesutje)")
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True):
+        # Kdo poslusa, je vedno zamenjano: prava vrata 5354 racunalnika (ali vticnica, ki jo je pustil drug preizkus) bi
+        # izid spreminjala - preizkus je padal sam, v polnem teku pa je bil zelen (CI 20. 10. 2026).
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+                       vrata_nasa=lambda vrata: False, tuj_scit=lambda dns, nasa: True):
             self.assertFalse(os_scit.je_ostanek("eth9"), "tam tece Scit drugega prijavljenega uporabnika")
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+                       vrata_nasa=lambda vrata: True, tuj_scit=lambda dns, nasa: False):
+            self.assertFalse(os_scit.je_ostanek("eth9"), "poslusa nas proces (Scit)")
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+                       vrata_nasa=lambda vrata: False, tuj_scit=lambda dns, nasa: False):
+            self.assertTrue(os_scit.je_ostanek("eth9"), "vrata je po sesutju zasedel tuj proces, ki ni Scit")
         with Zamenjave(dns_vmesnika=lambda v: "192.168.0.1", nekdo_poslusa=lambda vrata: False):
             self.assertFalse(os_scit.je_ostanek("eth9"))
         with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:9999 192.168.0.1", nekdo_poslusa=lambda vrata: False):
