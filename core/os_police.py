@@ -23,7 +23,6 @@ Kljuc vnosa (enak v assets/os/os.js, funkcija kljucVnosa - enakost varuje preizk
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 import time
@@ -32,6 +31,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from core.iskalni_kljuc import kljuc as kljuc_imena
 from core.viri_sink import brez_prijave, ima_prijavo
+from core import shramba_json
 
 NAJVEC_PRILJUBLJENIH = 500
 NAJVEC_PREDVAJANJ = 400
@@ -379,17 +379,11 @@ class Police:
 
     def _pisi(self, ime: str, podatki: Any) -> bool:
         """Atomaren zapis: najprej zacasna datoteka v isti mapi, nato zamenjava (os.replace je atomaren)."""
-        zacasna = self.mapa / (".%s.%d.%d.tmp" % (ime, os.getpid(), threading.get_ident()))
         try:
             self.mapa.mkdir(parents=True, exist_ok=True)
-            zacasna.write_text(json.dumps(podatki, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-            os.replace(zacasna, self.mapa / ime)
+            shramba_json.zapisi_atomsko(self.mapa / ime, podatki, indent=None)
             return True
-        except OSError:
-            try:
-                zacasna.unlink()
-            except OSError:
-                pass
+        except OSError:  # zapisi_atomsko pobrise zacasno datoteko sam
             return False
 
     def _ocisti_prijave(self) -> None:

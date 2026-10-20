@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import threading
 import time
@@ -38,6 +37,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from core.viri_sink import brez_prijave
+from core import shramba_json
 
 DATOTEKA = "nazadnje_seznam.json"
 TIPI = ("seznam", "samodejni", "yt")
@@ -222,17 +222,12 @@ class NazadnjePredvajano:
         return self._podatki
 
     def _pisi(self) -> None:
-        zacasna = self.pot.with_name(".%s.%d.%d.tmp" % (DATOTEKA, os.getpid(), threading.get_ident()))
         try:
             self.pot.parent.mkdir(parents=True, exist_ok=True)
-            zacasna.write_text(json.dumps(self._podatki, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-            os.replace(zacasna, self.pot)
+            shramba_json.zapisi_atomsko(self.pot, self._podatki, indent=None)
             self._zapisano = time.monotonic()
-        except OSError:
-            try:
-                zacasna.unlink()
-            except OSError:
-                pass
+        except OSError:  # zapisi_atomsko pobrise zacasno datoteko sam
+            pass
 
     def zadnji(self) -> Optional[dict]:
         with self._zaklep:

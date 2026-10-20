@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import userscripts
 
 from core import zasebni_webkit
+from core import shramba_json
 
 NAJVEC_SKRIPT = 50
 NAJVEC_BAJTOV = 256 * 1024
@@ -86,10 +87,7 @@ def _zapisi(seznam: List[Dict[str, Any]]) -> None:
         os.chmod(m, 0o700)
     except OSError:
         pass
-    zacasna = _kazalo_pot().with_suffix(".tmp")
-    zacasna.write_text(json.dumps(seznam, ensure_ascii=False), encoding="utf-8")
-    os.chmod(zacasna, 0o600)
-    os.replace(zacasna, _kazalo_pot())
+    shramba_json.zapisi_atomsko(_kazalo_pot(), seznam, indent=None)
 
 
 def _pot_skripte(s: Dict[str, Any]) -> Path:

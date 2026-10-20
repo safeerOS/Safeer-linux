@@ -25,6 +25,7 @@ import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
+from core import shramba_json
 
 VZORCEV = 3
 CAS_VZORCA_S = 1.5
@@ -164,16 +165,11 @@ class Meritve:
         if len(self._podatki) > NAJVEC_ZAPISOV:
             for k, _z in sorted(self._podatki.items(), key=lambda kv: float(kv[1].get("cas") or 0))[:len(self._podatki) - NAJVEC_ZAPISOV]:
                 self._podatki.pop(k, None)
-        zacasna = self.pot.with_name(".%s.%d.tmp" % (self.pot.name, threading.get_ident()))
         try:
             self.pot.parent.mkdir(parents=True, exist_ok=True)
-            zacasna.write_text(json.dumps(self._podatki), encoding="utf-8")
-            os.replace(zacasna, self.pot)
-        except OSError:
-            try:
-                zacasna.unlink()
-            except OSError:
-                pass
+            shramba_json.zapisi_atomsko(self.pot, self._podatki, indent=None)
+        except OSError:  # zapisi_atomsko pobrise zacasno datoteko sam
+            pass
 
 
 def razvrsti(moznosti: list, meritve: Optional[Meritve], naslov: Callable[[dict], str] = lambda m: str(m.get("url") or ""),

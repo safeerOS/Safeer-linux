@@ -30,6 +30,7 @@ from typing import Any, Callable, Optional
 
 from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
 from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
+from core import shramba_json
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -446,16 +447,11 @@ class Katalog:
 
     def _shrani_nastavitve(self, d: dict) -> None:
         """Atomaren zapis (zacasna datoteka v isti mapi + os.replace): izpad med pisanjem ne pusti pol datoteke."""
-        zacasna = self.config_dir / (".nastavitve.json.%d.%d.tmp" % (os.getpid(), threading.get_ident()))
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            zacasna.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-            os.replace(zacasna, self.config_dir / "nastavitve.json")
-        except OSError:
-            try:
-                zacasna.unlink()
-            except OSError:
-                pass
+            shramba_json.zapisi_atomsko(self.config_dir / "nastavitve.json", d, indent=None)
+        except OSError:  # zapisi_atomsko pobrise zacasno datoteko sam
+            pass
 
     # ------------------------------------------------------------------ most
     def pozna(self, metoda: str) -> bool:
@@ -1690,16 +1686,11 @@ class Katalog:
 
     def _pisi_napredke(self, d: dict) -> None:
         """Atomaren zapis napredek.json (zacasna datoteka + os.replace): izpad med pisanjem ne izgubi vseh mest."""
-        zacasna = self.config_dir / (".napredek.json.%d.%d.tmp" % (os.getpid(), threading.get_ident()))
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            zacasna.write_text(json.dumps(d), encoding="utf-8")
-            os.replace(zacasna, self.config_dir / "napredek.json")
-        except OSError:
-            try:
-                zacasna.unlink()
-            except OSError:
-                pass
+            shramba_json.zapisi_atomsko(self.config_dir / "napredek.json", d, indent=None)
+        except OSError:  # zapisi_atomsko pobrise zacasno datoteko sam
+            pass
 
     def _vzemi_nadaljevanje(self, ident: str, item: dict) -> int:
         """Sekunda iz »Nadaljuj« (enkrat, za skladbo, ki jo je Nadaljuj izbral); 0 za vse drugo."""

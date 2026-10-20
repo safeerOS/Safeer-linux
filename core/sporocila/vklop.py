@@ -10,11 +10,11 @@ Izklopljen kanal ostane na seznamu z vsemi nastavitvami in prijavo; samo ne tece
 from __future__ import annotations
 
 import json
-import os
 import threading
 from pathlib import Path
 
 from .identiteta import PRIVZETA_POT
+from core import shramba_json
 
 _zaklep = threading.Lock()
 
@@ -34,10 +34,7 @@ def _beri(pot=None) -> dict:
 def _pisi(podatki: dict, pot=None) -> None:
     p = _pot(pot)
     p.parent.mkdir(parents=True, exist_ok=True)
-    zacasna = p.with_suffix(".tmp")
-    zacasna.write_text(json.dumps(podatki, ensure_ascii=False), "utf-8")
-    os.chmod(zacasna, 0o600)
-    os.replace(zacasna, p)
+    shramba_json.zapisi_atomsko(p, podatki, indent=None)
 
 
 def sporocila_vklopljena(pot=None) -> bool:

@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
+from core import sqlite_baza
 
 #: Tabele, katerih ime se vstavi v SQL (DELETE po kanalu/pogovoru). Vrednosti gredo vedno prek »?«; ime tabele SQLite
 #: ne zna parametrizirati, zato je dovoljeno samo ime s tega seznama (neodvisni pregled 19. 10. 2026: danes so vsa imena
@@ -113,7 +114,7 @@ class StoritevSporocil:
     def __init__(self, pot: Optional[Path] = None, interval: float = 30):
         self.pot = Path(pot or PRIVZETA_POT)
         zasebna_baza(self.pot)
-        self.db = sqlite3.connect(str(self.pot), check_same_thread=False)
+        self.db = sqlite_baza.odpri(self.pot, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.graf = IdentitetniGraf(self.pot)
         self.adapterji: Dict[str, Adapter] = {}

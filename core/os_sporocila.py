@@ -25,6 +25,7 @@ from .sporocila import vklop as _vklop
 from . import predogled_datotek, splet_prenosi
 from .sporocila import predpomnilnik
 from .sporocila import slike as _slike
+from core import shramba_json
 
 # Znani ponudniki: IMAP/SMTP streznik in namig za prijavo (vecina zahteva "geslo za aplikacije").
 PONUDNIKI = {
@@ -626,10 +627,7 @@ class SporocilaOS:
             return seznam
         nov = [x for x in seznam if x.get("id") not in odstrani]
         pot = self._pot_osnutkov()
-        zacasna = pot.with_suffix(".tmp")
-        zacasna.write_text(json.dumps(nov, ensure_ascii=False, indent=1), "utf-8")
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, pot)
+        shramba_json.zapisi_atomsko(pot, nov, indent=1)
         return nov
 
     def osnutki(self) -> list:
@@ -658,10 +656,7 @@ class SporocilaOS:
         ostali = [x for x in self.osnutki() if x.get("id") != cist["id"]]
         seznam = ([cist] + ostali)[:50]
         pot = self._pot_osnutkov()
-        zacasna = pot.with_suffix(".tmp")
-        zacasna.write_text(json.dumps(seznam, ensure_ascii=False, indent=1), "utf-8")
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, pot)
+        shramba_json.zapisi_atomsko(pot, seznam, indent=1)
         return seznam
 
     def _osnutek_na_streznik(self, o: dict, prejsnji_mid: str) -> str:
@@ -694,10 +689,7 @@ class SporocilaOS:
                 self._osnutek_s_streznika(o)     # poslan ali izbrisan osnutek izgine tudi iz Gmaila
         seznam = [x for x in self.osnutki() if x.get("id") != str(osnutek_id)]
         pot = self._pot_osnutkov()
-        zacasna = pot.with_suffix(".tmp")
-        zacasna.write_text(json.dumps(seznam, ensure_ascii=False, indent=1), "utf-8")
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, pot)
+        shramba_json.zapisi_atomsko(pot, seznam, indent=1)
         return seznam
 
     # ------------------------------------------------------------------ Safeer Chat (Link)

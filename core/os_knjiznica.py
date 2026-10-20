@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import os
 import re
-import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from core import os_police
 from core.iskalni_kljuc import kljuc as kljuc_imena
+from core import sqlite_baza
 
 
 GLASBA = frozenset({".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".wma"})
@@ -83,7 +83,7 @@ class Knjiznica:
 
     @contextmanager
     def _baza(self):
-        baza = sqlite3.connect(self.pot, timeout=5)
+        baza = sqlite_baza.odpri(self.pot)
         baza.create_function("safeer_casefold", 1, lambda s: str(s or "").casefold(), deterministic=True)
         baza.create_function("safeer_kljuc", 1, lambda s: kljuc_imena(s or ""), deterministic=True)
         try:

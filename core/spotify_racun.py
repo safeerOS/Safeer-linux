@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import safeer_drm, uporabniske_skripte
+from core import shramba_json
 
 IZVOR = "https://open.spotify.com/"
 #: Prijava v Spotify poteka v Spletu (WebKit Safeer OS), ne v Safeer DRM: Google prijavo v vgrajenih brskalnikih
@@ -747,9 +748,7 @@ class Racun:
         d = dict(self._nastavitve(), **sprememba)
         try:
             self.pot.parent.mkdir(parents=True, exist_ok=True)
-            zacasna = self.pot.with_suffix(".tmp")
-            zacasna.write_text(json.dumps(d), encoding="utf-8")
-            os.replace(zacasna, self.pot)
+            shramba_json.zapisi_atomsko(self.pot, d, indent=None)
         except OSError:
             pass
 

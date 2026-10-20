@@ -43,6 +43,7 @@ from . import spotify_racun
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
+from core import shramba_json
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
 VIDEO = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".mpeg", ".mpg", ".ts", ".m3u8"}
@@ -1659,9 +1660,7 @@ class MediaCenter:
 
     def _save(self, data: dict) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        temporary = self.store_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temporary, self.store_path)
+        shramba_json.zapisi_atomsko(self.store_path, data, indent=2)
         # Viri so se spremenili: shranjeni pogledi se ob naslednjem odprtju osvezijo v ozadju.
         if self._predpomnilnik is not None:
             self.ozastari_predpomnilnik()
@@ -1715,7 +1714,7 @@ class MediaCenter:
             stanje[kljuc] = zdaj
             try:
                 self.config_dir.mkdir(parents=True, exist_ok=True)
-                (self.config_dir / "ni_na_voljo-2.json").write_text(json.dumps(stanje), encoding="utf-8")
+                shramba_json.zapisi_atomsko(self.config_dir / "ni_na_voljo-2.json", stanje, indent=None)
             except OSError:
                 pass
 
@@ -2045,7 +2044,7 @@ class MediaCenter:
         zadnji = dict(sorted(izbrisani.items(), key=lambda kv: kv[1], reverse=True)[:100])
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            (self.config_dir / "seznami_izbrisani.json").write_text(json.dumps(zadnji, ensure_ascii=False), encoding="utf-8")
+            shramba_json.zapisi_atomsko(self.config_dir / "seznami_izbrisani.json", zadnji, indent=None)
         except OSError:
             pass
 
@@ -2133,9 +2132,7 @@ class MediaCenter:
         # Edina pot zapisa seznamov: prijava streznika (zeton, geslo) nikoli ne pride na disk ne na druge naprave.
         cisti = [dict(x, skladbe=[viri_sink.cista_skladba(s) for s in x["skladbe"]]) if isinstance(x.get("skladbe"), list) else x
                  for x in seznami[:self.NAJVEC_SEZNAMOV] if isinstance(x, dict)]
-        zacasna = self.pot_seznamov.with_suffix(".tmp")
-        zacasna.write_text(json.dumps(cisti, ensure_ascii=False), encoding="utf-8")
-        os.replace(zacasna, self.pot_seznamov)
+        shramba_json.zapisi_atomsko(self.pot_seznamov, cisti, indent=None)
 
     @staticmethod
     def _seznam_vnos(ime: str, vir: str, s: dict) -> dict:
@@ -3228,10 +3225,8 @@ class MediaCenter:
         zavrnjeni = dict(sorted(stanje.get("zavrnjeni", {}).items(), key=lambda kv: kv[1][0], reverse=True)[:400])
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            zacasna = self.config_dir / "viri_sink.tmp"
-            zacasna.write_text(json.dumps({"izbrisani": viri_sink.obrezi_izbrisane(stanje.get("izbrisani", {})),
-                                           "zavrnjeni": zavrnjeni}, ensure_ascii=False), encoding="utf-8")
-            os.replace(zacasna, self.config_dir / "viri_sink.json")
+            shramba_json.zapisi_atomsko(self.config_dir / "viri_sink.json", {"izbrisani": viri_sink.obrezi_izbrisane(stanje.get("izbrisani", {})),
+                                           "zavrnjeni": zavrnjeni}, indent=None)
         except OSError:
             pass
 
@@ -3454,9 +3449,7 @@ class MediaCenter:
         try:
             izvoz = self.viri_izvoz()
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            zacasna = self.config_dir / "viri_za_naprave.tmp"
-            zacasna.write_text(json.dumps(izvoz, ensure_ascii=False), encoding="utf-8")
-            os.replace(zacasna, self.config_dir / "viri_za_naprave.json")
+            shramba_json.zapisi_atomsko(self.config_dir / "viri_za_naprave.json", izvoz, indent=None)
         except Exception:  # noqa: BLE001 - izvoz za naprave ne sme ustaviti Medijskega centra
             pass
 
@@ -4695,7 +4688,7 @@ class MediaCenter:
                 izbire.pop(next(iter(izbire)))
             try:
                 self.config_dir.mkdir(parents=True, exist_ok=True)
-                (self.config_dir / "izbrane-razlicice.json").write_text(json.dumps(izbire), encoding="utf-8")
+                shramba_json.zapisi_atomsko(self.config_dir / "izbrane-razlicice.json", izbire, indent=None)
             except OSError:
                 pass
         # Naslednji Predvajaj uporabi izbiro (razresen vnos ostane, uredi ga uporabi_izbiro).
