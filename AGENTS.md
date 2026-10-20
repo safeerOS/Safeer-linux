@@ -11,6 +11,9 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
   zacasne funkcije po zmogljivosti v trenutku, nikoli trajen rang; odpad katerekoli naprave ali streznika ne razbije
   kroga. Vsak krog naprav je svoj svet - skupnega imenika vseh uporabnikov ni (lastnik, 20. 10. 2026, po Giordanu
   Brunu: »v neskoncnem ni izstopajocih tock, zato je vsaka tocka osrednja«).
+- Rezervni nacin mora biti vedno na voljo, a ne sme izpodbijati najboljsega: vklopi se sam samo, ko najboljsi nacin
+  ne dela, in se vrne nanj, takoj ko spet dela (lastnik, 20. 10. 2026; npr. Link: Mesh je najboljsi, izvolitev enega
+  Huba je rezerva).
 - Vsaka izboljsava spletne izkusnje v Spletu (Safeer OS) gre tudi v vse brskalnike Safeer: Safeer Browser za Linux
   (safeer_brskalnik.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
 
