@@ -247,8 +247,10 @@ class PredogledIskanja:
         # Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in TAKOJ javi FINISHED
         # (tudi po load-failed CANCELLED) - takrat je v pogledu se stran PREJSNJEGA niza in njeni zadetki bi se
         # pokazali (in 10 min ostali v predpomnilniku) pod novim nizom. Beremo sele po COMMITTED nalaganja tega iskanja.
+        # OpenAI pregled 1.0.129 (E): zakasnjen COMMITTED prejsnjega niza ne sme potrditi novega iskanja.
         if dogodek == self.WebKit.LoadEvent.COMMITTED:
-            self._potrjen = self._rod
+            if isti_niz(self._url, (pogled.get_uri() if pogled is not None else "") or ""):
+                self._potrjen = self._rod
         elif dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None \
                 and getattr(self, "_potrjen", 0) == self._rod:
             self._preberi(self._rod, 0)

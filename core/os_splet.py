@@ -2253,24 +2253,12 @@ class VdelaniSplet:
         self.sprazni_predpomnilnik()
         if self.aplikacije or len(self._skriti()):
             return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov / lupe
-        if libsoup_brez_puscanja():
-            # Ponovni pregled OpenAI 1.0.129 (B2): z nasim libsoup proces ne raste, konec pa pokvari prvo nalaganje v
-            # odprtih zavihkih (WebKitErrorDomain 300 - napaka lupe 20. 10. 2026). Samo sistemski libsoup.
-            return False
-        try:
-            if any(z["pogled"].is_loading() for z in self.zavihki):
-                return False
-        except Exception:  # noqa: BLE001
-            return False
-        obnovljen = False
-        for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
-            if pss_mb(pid) >= meja_mb:
-                try:
-                    os.kill(pid, 15)
-                    obnovljen = True
-                except OSError:
-                    pass
-        return obnovljen
+        # Ponovni pregled OpenAI 1.0.129 (B2, E): ob zaklepu omreznega procesa ne koncamo vec - zavihki ostanejo zivi,
+        # konec bi pokvaril prvo nalaganje (WebKitErrorDomain 300, napaka lupe 20. 10. 2026) in izgubil piskotke seje
+        # (odjava). Pomnilnik s sistemskim libsoup (AppImage) obnovi varuh mirovanja (splet_spanje._omrezni), ki
+        # piskotke seje vrne. meja_mb ostane zaradi klicateljev.
+        del meja_mb
+        return False
 
     def sprazni_predpomnilnik(self) -> bool:
         """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).

@@ -232,3 +232,25 @@ def test_vsak_iskalnik_ima_ime_za_oznako():
     assert set(vrednosti["ISKALNIKI"]) == set(vrednosti["IMENA_ISKALNIKOV"])
     vir = open(os.path.join(koren, "safeer_os.py"), encoding="utf-8").read()
     assert "dict(z, iskalnik=ime)" in vir
+
+
+def test_zakasnjen_committed_starega_niza_ne_potrdi_novega():
+    """OpenAI pregled 1.0.129 (E): COMMITTED prejsnjega niza po novem isci() ne sme potrditi novega iskanja."""
+    import types
+    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
+    WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
+    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
+    p = sz.PredogledIskanja(None, WebKit, GLib)
+    branja = []
+    p._pogled = lambda: types.SimpleNamespace(load_uri=lambda _u: None)
+    p._preberi = lambda rod, poskus: branja.append(rod)
+    p.isci("https://duckduckgo.com/?q=vreme+lj", lambda r: None, motor="duckduckgo")
+    p.isci("https://duckduckgo.com/?q=vreme+ljubljana", lambda r: None, motor="duckduckgo")
+    star = types.SimpleNamespace(get_uri=lambda: "https://duckduckgo.com/?q=vreme+lj")
+    nov = types.SimpleNamespace(get_uri=lambda: "https://duckduckgo.com/?q=vreme+ljubljana&ia=web")
+    p._nalozeno(star, LoadEvent.COMMITTED)          # zakasnjen COMMITTED prejsnjega niza
+    p._nalozeno(star, LoadEvent.FINISHED)
+    assert branja == []
+    p._nalozeno(nov, LoadEvent.COMMITTED)
+    p._nalozeno(nov, LoadEvent.FINISHED)
+    assert branja == [2]

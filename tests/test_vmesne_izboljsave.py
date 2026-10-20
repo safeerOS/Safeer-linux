@@ -90,17 +90,19 @@ class ZaklepSpleta(unittest.TestCase):
         s.config = Config()
         return s, os_splet
 
-    def test_velik_proces_obnovi_zavihki_ostanejo(self):
+    def test_zaklep_ne_konca_omreznega_procesa(self):
+        """OpenAI pregled 1.0.129 (E): ob zaklepu je velik omrezni proces s sistemskim libsoup koncal pod zivimi zavihki
+        (odjava, notranja napaka WebKit). Zdaj samo sprostitev predpomnilnika; pomnilnik obnovi varuh mirovanja."""
         with tempfile.TemporaryDirectory() as d:
             s, os_splet = self._splet(d)
             with mock.patch.object(os_splet.VdelaniSplet, "sprazni_predpomnilnik") as sp, \
                     mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[7]), \
-                    mock.patch.object(os_splet, "pss_mb", return_value=400), \
+                    mock.patch.object(os_splet, "pss_mb", return_value=900), \
                     mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
                     mock.patch.object(os_splet.os, "kill") as kill:
-                self.assertTrue(s.ob_zaklepu())
+                self.assertFalse(s.ob_zaklepu())
             sp.assert_called_once()
-            kill.assert_called_once_with(7, 15)
+            kill.assert_not_called()
             self.assertEqual(len(s.zavihki), 1)
 
     def test_majhen_ali_med_nalaganjem_ne(self):
