@@ -97,8 +97,8 @@ def javni_kljuc_potrdila(der: bytes) -> str:
         pass
     try:
         import subprocess
-        pem = subprocess.run(["openssl", "x509", "-inform", "DER", "-pubkey", "-noout"], input=der, check=True, capture_output=True).stdout
-        spki = subprocess.run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=pem, check=True, capture_output=True).stdout
+        pem = subprocess.run(["openssl", "x509", "-inform", "DER", "-pubkey", "-noout"], input=der, check=True, capture_output=True, timeout=30).stdout
+        spki = subprocess.run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=pem, check=True, capture_output=True, timeout=30).stdout
         return base64.b64encode(spki).decode("ascii")
     except Exception:
         return ""

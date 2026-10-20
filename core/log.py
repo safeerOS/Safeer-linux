@@ -88,12 +88,53 @@ def install(config_dir, app_version=""):
         sys.stderr = _Tee(sys.__stderr__, logging.WARNING)
         _installed = True
         logger.info("Safeer Browser %s started (pid %d)", app_version, os.getpid())
+        _crash_traces(config_dir)
     except Exception as exc:  # noqa: BLE001 - logging is best effort
         try:
             sys.__stderr__.write(f"[Log] Dnevnika ni bilo mogoče odpreti: {exc}\n")
         except Exception:  # noqa: BLE001
             pass
     return log_path(config_dir)
+
+
+#: Sled sesutja (faulthandler) - odprta do konca procesa, sicer je ob SIGSEGV ne bi bilo kam zapisati.
+SLED_NAME = "sled.log"
+_sled = None
+
+
+def _crash_traces(config_dir):
+    """Safeer OS, Control in lupina so imeli sled vseh niti ob sesutju v knjiznici C (SIGSEGV, SIGABRT, SIGTRAP WebKita)
+    in dnevnik neujetih izjem v nitih; Safeer Browser ne (revizija stabilnosti 20. 10. 2026) - sesutje je bilo brez sledi."""
+    global _sled
+    import faulthandler
+    import signal
+    import threading
+    import traceback
+    try:
+        pot = os.path.join(config_dir, SLED_NAME)
+        if os.path.exists(pot) and os.path.getsize(pot) > 1024 * 1024:
+            os.replace(pot, pot + ".1")
+        _sled = open(pot, "a", encoding="utf-8")  # noqa: SIM115 - odprta do konca procesa
+        os.chmod(pot, 0o600)
+        faulthandler.enable(file=_sled, all_threads=True)
+        if hasattr(signal, "SIGTRAP"):
+            faulthandler.register(signal.SIGTRAP, file=_sled, all_threads=True, chain=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        logging.getLogger(_LOGGER_NAME).warning("faulthandler: %s", exc)
+    logger = logging.getLogger(_LOGGER_NAME)
+    prej = sys.excepthook
+
+    def neujeta(vrsta, vrednost, sled):
+        logger.error("Neujeta izjema:\n%s", "".join(traceback.format_exception(vrsta, vrednost, sled)))
+        prej(vrsta, vrednost, sled)
+    sys.excepthook = neujeta
+
+    def v_niti(args):
+        if args.exc_type is SystemExit:
+            return
+        logger.error("Neujeta izjema v niti %s:\n%s", getattr(args.thread, "name", "?"),
+                     "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+    threading.excepthook = v_niti
 
 
 def event(message, *args):
