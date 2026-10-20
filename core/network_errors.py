@@ -42,18 +42,50 @@ BESEDILA = {
 }
 
 
+#: Prehodne napake povezave (lastnik, 20. 10. 2026: Google iskanje v Spletu je enkrat pokazalo »Strani trenutno ni
+#: mogoce odpreti«, ponovni poskus je delal - prej se je samodejno ponovilo samo iskanje DuckDuckGo). Brez napak
+#: potrdil: te nikoli ne ponavljamo.
+PREHODNE_TLS = ("EOF", "HANDSHAKE", "NOT_TLS")
+PREHODNE_IO = ("CONNECTION_CLOSED", "BROKEN_PIPE", "PARTIAL_INPUT", "TIMED_OUT", "CONNECTION_REFUSED",
+               "HOST_UNREACHABLE", "NETWORK_UNREACHABLE", "PROXY_FAILED", "NOT_CONNECTED")
+#: Zamiki samodejnih ponovitev (s): DoH posrednik ali Scit po kratkem izpadu (omrezje, prebujenje) potrebuje do ~1 s.
+ZAMIKI_PONOVITVE = (0.4, 1.5)
+
+
+def je_prehodna(error) -> bool:
+    """Napaka povezave, ki jo ponovni poskus lahko odpravi (prekinjena povezava, posrednik, rok)."""
+    for imena, domena, enum in ((PREHODNE_TLS, Gio.tls_error_quark(), Gio.TlsError),
+                                (PREHODNE_IO, Gio.io_error_quark(), Gio.IOErrorEnum)):
+        for ime in imena:
+            koda = getattr(enum, ime, None)
+            if koda is not None and error.matches(domena, koda):
+                return True
+    if error.matches(Gio.resolver_error_quark(), Gio.ResolverError.TEMPORARY_FAILURE):
+        return True
+    return error.matches(WebKit2.network_error_quark(), WebKit2.NetworkError.TRANSPORT)
+
+
 def can_retry_search(uri, method, error, attempted):
-    # Only idempotent search GETs, never forms, account callbacks or certificates.
+    """Samodejna ponovitev glavne navigacije: samo GET (nikoli obrazci), http(s), prehodna napaka povezave in
+    najvec len(ZAMIKI_PONOVITVE)-krat za isti naslov. Ponovitev je nov GET istega naslova - zahteva ni prispela do
+    strani ali odgovor ni prisel, zato je za GET varna."""
+    if isinstance(attempted, bool):
+        attempted = 1 if attempted else 0
     parsed = urllib.parse.urlsplit(uri)
-    return (not attempted and method == 'GET' and parsed.scheme == 'https'
-            and parsed.hostname in ('duckduckgo.com', 'www.duckduckgo.com', 'html.duckduckgo.com', 'lite.duckduckgo.com')
-            and parsed.path in ('', '/', '/html/', '/lite/')
-            and bool(urllib.parse.parse_qs(parsed.query).get('q'))
-            and any(error.matches(Gio.tls_error_quark(), code)
-                    for code in (Gio.TlsError.EOF, Gio.TlsError.HANDSHAKE, Gio.TlsError.NOT_TLS)))
+    return (attempted < len(ZAMIKI_PONOVITVE) and method == 'GET' and parsed.scheme in ('https', 'http')
+            and bool(parsed.hostname) and je_prehodna(error))
 
 
-def error_html(uri, method, certificate=False, jezik="sl"):
+def opis_napake(error) -> str:
+    """Kratka tehnicna oznaka napake za stran in dnevnik (brez naslova strani)."""
+    try:
+        return "%s %d" % (GLib.quark_to_string(error.domain) if isinstance(error.domain, int) else error.domain,
+                          error.code)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def error_html(uri, method, certificate=False, jezik="sl", koda=""):
     jezik = (jezik or "sl")[:2] if (jezik or "sl")[:2] in BESEDILA else "en"
     t_cert, t_ni, m_cert, m_ni, t_znova, t_nazaj = BESEDILA[jezik]
     host = html.escape(urllib.parse.urlsplit(uri).hostname or '')
@@ -61,10 +93,11 @@ def error_html(uri, method, certificate=False, jezik="sl"):
     title = t_cert if certificate else t_ni
     message = m_cert if certificate else m_ni
     retry = f'<a href="{target}">{t_znova}</a>' if method == 'GET' and not certificate else ''
+    oznaka = f'<p class="k">{html.escape(koda)}</p>' if koda else ''
     return f'''<!doctype html><html lang="{jezik}"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
-    <title>{title} — Safeer</title><style>html{{color-scheme:dark}}body{{background:#0c1420;color:#eef4fa;font:18px system-ui;max-width:620px;margin:12vh auto;padding:28px;line-height:1.6}}h1{{font-size:28px}}p{{color:#bdcadd}}a{{display:inline-block;padding:12px 22px;background:#85cd3e;color:#102006;border-radius:10px;text-decoration:none;font-weight:600}}</style>
-    <h1>{title}</h1><p>{host}</p><p>{message}</p>{retry}<p>{t_nazaj}</p></html>'''
+    <title>{title} — Safeer</title><style>html{{color-scheme:dark}}body{{background:#0c1420;color:#eef4fa;font:18px system-ui;max-width:620px;margin:12vh auto;padding:28px;line-height:1.6}}h1{{font-size:28px}}p{{color:#bdcadd}}a{{display:inline-block;padding:12px 22px;background:#85cd3e;color:#102006;border-radius:10px;text-decoration:none;font-weight:600}}.k{{font-size:13px;color:#7f8ea3}}</style>
+    <h1>{title}</h1><p>{host}</p><p>{message}</p>{retry}<p>{t_nazaj}</p>{oznaka}</html>'''
 
 
 def _ima_vire(view):
@@ -83,7 +116,7 @@ class NetworkErrorHandler:
         self.view = view
         self.jezik = jezik          # klicljivo ali niz; Splet: jezik vmesnika
         self.requests = {}
-        self.retried = set()
+        self.retried = {}           # naslov -> stevilo samodejnih ponovitev
         self.error_document = False
         self.pending = None
         self.generation = 0
@@ -91,6 +124,9 @@ class NetworkErrorHandler:
         # WebKitGTK 6.0 nima resource-load-started: glavna zahteva je tam vedno GET (gumb »Poskusi znova« = nov GET).
         if _ima_vire(view):
             view.connect('resource-load-started', self.resource_started)
+        else:
+            # 6.0: metodo glavne navigacije izvemo iz odlocitve (POST obrazca se ne sme ponoviti kot GET).
+            view.connect('decide-policy', self.decide_policy)
         view.connect('load-changed', self.load_changed)
         view.connect('load-failed', self.load_failed)
         view.connect('load-failed-with-tls-errors', self.certificate_failed)
@@ -99,6 +135,15 @@ class NetworkErrorHandler:
     def resource_started(self, view, resource, request):
         if resource == view.get_main_resource():
             self.requests = {request.get_uri(): request.get_http_method()}
+
+    def decide_policy(self, view, decision, kind):
+        try:
+            if kind == WebKit2.PolicyDecisionType.NAVIGATION_ACTION:
+                zahteva = decision.get_navigation_action().get_request()
+                self.requests = {zahteva.get_uri(): zahteva.get_http_method() or 'GET'}
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
     def load_changed(self, view, event):
         if event == WebKit2.LoadEvent.STARTED:
@@ -119,12 +164,21 @@ class NetworkErrorHandler:
             GLib.source_remove(self.pending)
             self.pending = None
 
-    def show_error(self, uri, certificate=False):
+    def _metoda(self, uri):
+        """Metoda glavne zahteve (resource-load-started ali, kjer ga ni, decide-policy). Naslov napake je lahko ze
+        preusmerjen (Google iskanje 302): preusmerjen GET ostane GET, POST ne velja za GET. Brez podatka v WebKitu
+        brez resource-load-started GET kot prej."""
+        if uri in self.requests:
+            return self.requests[uri]
+        if self.requests:
+            return 'GET' if list(self.requests.values()) == ['GET'] else None
+        return 'GET' if self._brez_virov() else None
+
+    def show_error(self, uri, certificate=False, koda=""):
         self.view._safeer_load_failed = True
         self.error_document = True
         jezik = self.jezik() if callable(self.jezik) else (self.jezik or "sl")
-        self.view.load_alternate_html(error_html(uri, self.requests.get(uri, 'GET' if self._brez_virov() else None),
-                                                 certificate, jezik), uri, None)
+        self.view.load_alternate_html(error_html(uri, self._metoda(uri), certificate, jezik, koda), uri, None)
 
     def _brez_virov(self):
         return not _ima_vire(self.view)
@@ -140,9 +194,14 @@ class NetworkErrorHandler:
             return False
         if error.matches(WebKit2.policy_error_quark(), WebKit2.PolicyError.FRAME_LOAD_INTERRUPTED_BY_POLICY_CHANGE):
             return False
-        metoda = self.requests.get(uri, 'GET' if self._brez_virov() else None)
-        if can_retry_search(uri, metoda, error, uri in self.retried):
-            self.retried.add(uri)
+        metoda = self._metoda(uri)
+        poskusov = self.retried.get(uri, 0)
+        koda = opis_napake(error)
+        # Dnevnik (sled.log): samo ime gostitelja, brez poti in poizvedbe (zasebnost).
+        print("[Splet] napaka nalaganja %s: %s (%s), ponovitev %d" % (urllib.parse.urlsplit(uri).hostname or "?", koda,
+              getattr(error, "message", ""), poskusov), flush=True)
+        if can_retry_search(uri, metoda, error, poskusov):
+            self.retried[uri] = poskusov + 1
             generation = self.generation
             def retry():
                 self.pending = None
@@ -151,8 +210,8 @@ class NetworkErrorHandler:
                 if self.generation == generation:
                     view.load_uri(uri)
                 return False
-            self.pending = GLib.timeout_add(400, retry)
+            self.pending = GLib.timeout_add(int(ZAMIKI_PONOVITVE[poskusov] * 1000), retry)
             return True
         certificate = error.matches(Gio.tls_error_quark(), Gio.TlsError.BAD_CERTIFICATE)
-        self.show_error(uri, certificate)
+        self.show_error(uri, certificate, koda)
         return True
