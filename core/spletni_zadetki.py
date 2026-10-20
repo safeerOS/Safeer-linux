@@ -167,11 +167,12 @@ class PredogledIskanja:
         p, o = self.pogled, self.okno
         self.pogled = self.okno = None
         try:
+            if o is not None:
+                o.set_child(None)              # najprej iz okna, sicer GTK ob dispose opozori (Gtk-CRITICAL)
             if p is not None:
                 p.stop_loading()
                 p.run_dispose()
             if o is not None:
-                o.set_child(None)
                 o.destroy()
         except Exception:  # noqa: BLE001
             pass

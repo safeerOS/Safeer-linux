@@ -518,11 +518,15 @@ Item {
                                                      + p.map(function (x) { return (x.zadeva || "") + " " + (x.zadnje_sporocilo || "") }).join(" "), bs)
             }).slice(0, 4)
         }
+        property string spletNiz: ""          // niz, za katerega so prikazani sprotni zadetki spleta
         function isci(q) {
             q = (q || "").trim(); zadnjiNiz = q; premaknjen = false; poEnter = false
             var st = ++zahteva
+            // Sprotni zadetki spleta ostanejo, dokler uporabnik niz le dopolnjuje (»linux m« -> »linux mi«), in se zamenjajo,
+            // ko pridejo novi - brez utripanja ob vsaki crki (lastnik 20. 10. 2026: zadetki sproti in smiselni).
+            var prejSplet = (deli.splet && spletNiz && q.length >= 3 && q.toLowerCase().indexOf(spletNiz.toLowerCase()) === 0) ? deli.splet : []
             deli = {}; caka = 0
-            if (!q) { zadetkiModel.clear(); return }
+            if (!q) { zadetkiModel.clear(); spletNiz = ""; return }
             var c = ciljMedija(q)
             cilj = c && c.q ? c : null
             if (cilj) q = cilj.q
@@ -541,8 +545,9 @@ Item {
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],
-                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: [], splet: []
+                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: [], splet: prejSplet
             }
+            if (!prejSplet.length) spletNiz = ""
             deli = d
             function pocakaj(metoda, args, kam, obdelaj) {
                 caka++
@@ -573,7 +578,8 @@ Item {
             // Sprotni zadetki spleta (core/spletni_zadetki.py, lastnik 20. 10. 2026): stran rezultatov izbranega iskalnika v
             // skritem Spletu, sele ko uporabnik za trenutek neha tipkati. Ne steje v »caka«: Enter ne caka nanje.
             spletniCasovnik.stop()
-            if (linux && q.length >= 3 && !cilj && koren.videz.spletniZadetki !== false && !Iskanje.SafeerIskanje.jeNaslov(q)) {
+            var spletOk = linux && !cilj && koren.videz.spletniZadetki !== false && !Iskanje.SafeerIskanje.jeNaslov(q)
+            if (spletOk && q.length >= 3) {
                 spletniCasovnik.niz = q; spletniCasovnik.st = st; spletniCasovnik.restart()
             }
             if (cilj) pocakaj("napraveZaMedij", [], "naCilj", function (r) {
@@ -671,12 +677,14 @@ Item {
             objectName: "spletniCasovnik"
             property string niz: ""
             property int st: 0
-            interval: 450
+            // 0,2 s po zadnji crki (skupaj s casovnikIskanja ~0,4 s): dovolj za premor med besedami, ne caka po nepotrebnem.
+            interval: 200
             onTriggered: {
                 var st = spletniCasovnik.st, niz = spletniCasovnik.niz
                 koren.klic("spletniZadetki", [niz], function (r) {
-                    if (st !== zadetki.zahteva || !Array.isArray(r) || !r.length) return
-                    var dd = zadetki.deli; dd.splet = r.slice(0, 3); zadetki.deli = dd; zadetki.sestavi()
+                    if (st !== zadetki.zahteva || !Array.isArray(r)) return
+                    var dd = zadetki.deli; dd.splet = r.slice(0, 3); zadetki.deli = dd; zadetki.spletNiz = r.length ? niz : ""
+                    zadetki.sestavi()
                 })
             }
         }

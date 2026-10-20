@@ -236,6 +236,10 @@ class LupaNamizja(unittest.TestCase):
         vrste = lambda: [model.get(i).property("vrsta").toString() for i in range(model.property("count"))]  # noqa: E731
         self.assertTrue(self._pocakaj(lambda: "spletZadetek" in vrste(), 3), vrste())
         self.assertIn(("spletniZadetki", ["lin"]), self.klici)
+        # Dopolnjevanje niza: prejsnji zadetki spleta ostanejo, dokler ne pridejo novi (brez utripanja).
+        self._tipka(Qt.Key.Key_U, "u")
+        self.assertTrue(self._pocakaj(lambda: ("spletniZadetki", ["linu"]) in self.klici, 2))
+        self.assertIn("spletZadetek", vrste())
         i = vrste().index("spletZadetek")
         self.assertEqual(vrste()[i - 1], "splet")                       # tik pod »Isci v spletu«
         self.assertEqual(model.get(i).property("ime").toString(), "Linux Mint")
