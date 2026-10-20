@@ -251,13 +251,18 @@ class OmrezniProcesSpleta(unittest.TestCase):
                 self.assertFalse(s.koncaj_omrezni_proces())
             kill.assert_not_called()
 
-    def test_sprostitev_konca_omrezni(self):
+    def test_sprostitev_ne_konca_omreznega(self):
+        """Webmaster pregled pomocnika 1.0.129: sprostitev Spleta (60 s po skritju) je s sistemskim libsoup (AppImage)
+        koncala omrezni proces pod spletnimi procesi, ki jih WebKit hrani - napaka lupe in izguba piskotkov seje."""
         from unittest import mock
         with tempfile.TemporaryDirectory() as d:
             s, os_splet = self._splet(d)
-            with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
+            with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k, \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
                 s.sprosti_zavihke()
-            k.assert_called_once()
+            k.assert_not_called()
+            kill.assert_not_called()
 
     def test_odprte_datoteke_tega_procesa(self):
         from core import os_splet

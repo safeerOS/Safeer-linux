@@ -2215,7 +2215,11 @@ class VdelaniSplet:
         self.zavihki = []
         self.aktivni = None
         self._pokazi_vprasanje()
-        self.koncaj_omrezni_proces()
+        # Omreznega procesa tu ne koncamo vec (webmaster pregled pomocnika 1.0.129): WebKit po zaprtju zavihkov hrani
+        # spletne procese s povezavo nanj in prvo nalaganje bi odpovedalo (napaka lupe 20. 10. 2026), izgubili bi se
+        # piskotki seje (odjava iz banke, poste). Z nasim libsoup ne raste; s sistemskim (AppImage) ga obnovi samo se
+        # varuh nad 300 MB med mirovanjem ali zaklepom (s ponovnim vnosom piskotkov seje) - redko, uporabnik pa ostane
+        # prijavljen. Prava resitev za AppImage: nas libsoup tudi v AppImage (1.0.130).
 
     def koncaj_omrezni_proces(self) -> bool:
         """Konca omrezni proces Spleta, ko Splet nima zavihkov; ob naslednjem zavihku WebKit zazene novega.
