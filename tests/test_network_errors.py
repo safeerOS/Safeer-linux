@@ -102,3 +102,45 @@ def test_splet_vidi_odlocitve_pred_politiko():
     s = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core", "os_splet.py"),
              encoding="utf-8").read()
     assert s.index("NetworkErrorHandler(pogled") < s.index('pogled.connect("decide-policy", self._politika)')
+
+
+def test_iframe_ne_prepise_post_glavne_navigacije():
+    """Pomocnik (pregled popravkov 2812b8b): odlocitev GET podokvirja med oddajo obrazca je prepisala POST glavne
+    navigacije - neuspel POST bi se ponovil kot GET. Metode se zbirajo; POST ostane POST, neznan naslov ob POST ni GET."""
+    from core.network_errors import NetworkErrorHandler, WebKit2
+
+    class Zahteva:
+        def __init__(self, u, m): self.u, self.m = u, m
+        def get_uri(self): return self.u
+        def get_http_method(self): return self.m
+
+    class Odlocitev:
+        def __init__(self, u, m): self.z = Zahteva(u, m)
+        def get_navigation_action(self):
+            z = self.z
+            class A:
+                def get_request(self): return z
+            return A()
+
+    class Pogled:
+        def connect(self, *a): pass
+        def load_uri(self, uri): self.nalozen = uri
+        def load_alternate_html(self, html, uri, _b): self.napaka = uri
+    v = Pogled()
+    h = NetworkErrorHandler(v)
+    h._brez_virov = lambda: True
+    nav = WebKit2.PolicyDecisionType.NAVIGATION_ACTION
+    assert h.decide_policy(v, Odlocitev("https://trgovina.si/placaj", "POST"), nav) is False
+    h.decide_policy(v, Odlocitev("https://oglasi.example/okvir", "GET"), nav)
+    assert h._metoda("https://trgovina.si/placaj") == "POST"
+    assert h._metoda("https://trgovina.si/hvala") is None          # neznan naslov po POST: brez ponovitve
+    napaka = GLib.Error.new_literal(Gio.io_error_quark(), "Connection terminated unexpectedly", Gio.IOErrorEnum.PARTIAL_INPUT)
+    from unittest.mock import patch
+    with patch("core.network_errors.GLib.timeout_add", side_effect=AssertionError("POST se ne sme ponoviti")):
+        h.load_failed(v, WebKit2.LoadEvent.STARTED, "https://trgovina.si/placaj", napaka)
+    assert not hasattr(v, "nalozen") and v.napaka == "https://trgovina.si/placaj"
+    from core import network_errors as ne
+    for i in range(ne.NAJVEC_ZAHTEV + 5):
+        h.decide_policy(v, Odlocitev("https://a.si/%d" % i, "GET"), nav)
+    assert len(h.requests) == ne.NAJVEC_ZAHTEV
+    assert h._metoda("https://a.si/preusmerjen") == "GET"            # same GET: preusmerjen GET ostane GET

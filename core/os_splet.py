@@ -206,8 +206,8 @@ def pss_mb(pid: int) -> float:
 
 def libsoup_brez_puscanja(maps: str = "/proc/self/maps") -> bool:
     """Ali proces uporablja nas libsoup (popravek puscanja SoupConnection prek posrednika, packaging/libsoup,
-    12. 10. 2026) - v paketih .deb (vgrajeni WebKit), Flatpaku (/app) in AppImage ($APPDIR). Sistemski libsoup
-    (Ubuntu 3.4.4) puscanje se ima."""
+    12. 10. 2026) - v paketih .deb (vgrajeni WebKit) in Flatpaku (/app). Sistemski libsoup (Ubuntu 3.4.4, tudi v
+    AppImage) puscanje se ima."""
     try:
         with open(maps, encoding="utf-8", errors="replace") as f:
             poti = {v.split()[-1] for v in f if "libsoup-3.0.so" in v and len(v.split()) >= 6}
@@ -216,10 +216,9 @@ def libsoup_brez_puscanja(maps: str = "/proc/self/maps") -> bool:
     if not poti:
         return False
     from core import zasebni_webkit
+    # AppImage NE: nosi WebKitGTK in libsoup sistema gradnje (Ubuntu 3.4.4, s puscanjem) - pomocnik, pregled
+    # popravkov 2812b8b; tam omrezni proces koncamo kot prej (notranja napaka WebKita se samodejno ponovi).
     nase = tuple(m.rstrip("/") + "/" for m in zasebni_webkit.PREDPONE_PAKETOV) + ("/app/",)
-    appdir = os.environ.get("APPDIR", "")
-    if appdir:
-        nase += (appdir.rstrip("/") + "/",)
     return all(pot.startswith(nase) for pot in poti)
 
 

@@ -48,6 +48,8 @@ BESEDILA = {
 PREHODNE_TLS = ("EOF", "HANDSHAKE", "NOT_TLS")
 PREHODNE_IO = ("CONNECTION_CLOSED", "BROKEN_PIPE", "PARTIAL_INPUT", "TIMED_OUT", "CONNECTION_REFUSED",
                "HOST_UNREACHABLE", "NETWORK_UNREACHABLE", "PROXY_FAILED", "NOT_CONNECTED")
+#: Toliko zadnjih navigacij (naslov -> metoda) si zapomni decide_policy (glavni okvir in podokvirji).
+NAJVEC_ZAHTEV = 32
 #: Notranja napaka WebKita (WebCore::internalError): domena in koda, kot ju WebKitGTK 2.54 da v load-failed.
 DOMENA_NOTRANJE, KODA_NOTRANJE = "WebKitErrorDomain", 300
 #: Zamiki samodejnih ponovitev (s): DoH posrednik ali Scit po kratkem izpadu (omrezje, prebujenje) potrebuje do ~1 s.
@@ -145,10 +147,17 @@ class NetworkErrorHandler:
             self.requests = {request.get_uri(): request.get_http_method()}
 
     def decide_policy(self, view, decision, kind):
+        # Odlocitve pridejo tudi za podokvirje (iframe), WebKitGTK 6.0 pa zanesljivo ne pove, za kateri okvir gre:
+        # metode zato ZBIRAMO (zadnjih NAJVEC_ZAHTEV), ne zamenjamo - sicer bi GET iframa med oddajo obrazca prepisal
+        # POST glavne navigacije in neuspel POST bi se ponovil kot GET (pomocnik, pregled popravkov 2812b8b).
         try:
             if kind == WebKit2.PolicyDecisionType.NAVIGATION_ACTION:
                 zahteva = decision.get_navigation_action().get_request()
-                self.requests = {zahteva.get_uri(): zahteva.get_http_method() or 'GET'}
+                uri, metoda = zahteva.get_uri(), zahteva.get_http_method() or 'GET'
+                self.requests.pop(uri, None)
+                self.requests[uri] = metoda
+                while len(self.requests) > NAJVEC_ZAHTEV:
+                    self.requests.pop(next(iter(self.requests)))
         except Exception:  # noqa: BLE001
             pass
         return False
@@ -179,7 +188,7 @@ class NetworkErrorHandler:
         if uri in self.requests:
             return self.requests[uri]
         if self.requests:
-            return 'GET' if list(self.requests.values()) == ['GET'] else None
+            return 'GET' if all(m == 'GET' for m in self.requests.values()) else None
         return 'GET' if self._brez_virov() else None
 
     def show_error(self, uri, certificate=False, koda=""):

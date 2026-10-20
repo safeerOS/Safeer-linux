@@ -215,6 +215,10 @@ class OmrezniProcesSpleta(unittest.TestCase):
             self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/usr/lib/x86_64-linux-gnu/libsoup-3.0.so.0.4.4")))
             self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/usr/lib/x86_64-linux-gnu/libc.so.6")))
             self.assertFalse(os_splet.libsoup_brez_puscanja(os.path.join(d, "ni")))
+            # AppImage nosi libsoup sistema gradnje (s puscanjem): ne steje kot nas (pomocnik, 20. 10. 2026).
+            from unittest import mock
+            with mock.patch.dict(os.environ, {"APPDIR": "/tmp/.mount_SafeerX"}):
+                self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/tmp/.mount_SafeerX/usr/lib/x86_64-linux-gnu/libsoup-3.0.so.0")))
 
     def test_brez_procesa_spleta_nic(self):
         from unittest import mock
