@@ -1142,9 +1142,9 @@ class SafeerLink:
         `tiho` pomeni, da neuspeha ne javimo strani - med hitrim iskanjem bi uporabnik v treh
         sekundah dobil stiri sporocila »ni naprav«, ceprav iskanje se tece.
         """
-        if link_hub_streznik.mesh_vklopljen() and self._clan_kroga():
+        g = getattr(self, "_hub_gostitelj", None)
+        if link_hub_streznik.mesh_vklopljen() and not (g is not None and g.v_rezervi()) and self._clan_kroga():
             # Link Mesh: povezemo se na SVOJ Hub; do drugih naprav nas pelje on (sosednje povezave).
-            g = getattr(self, "_hub_gostitelj", None)
             p = self.povezava
             if g is not None and g.gostimo() and p is not None and p.aktivna \
                     and p.ws_naslov.startswith("wss://127.0.0.1:"):
@@ -1584,6 +1584,9 @@ class SafeerLink:
         """Link Mesh: racunalnik gosti SVOJ Hub in se nanj poveze - tudi ce je shranjen naslov televizorja.
         Do drugih naprav nas pelje nas Hub (sosednje povezave), zato izpad televizorja ne podre nicesar."""
         if not link_hub_streznik.mesh_vklopljen() or not self._clan_kroga():
+            return
+        g = getattr(self, "_hub_gostitelj", None)
+        if g is not None and g.v_rezervi():
             return
         try:
             g = self._gostitelj()

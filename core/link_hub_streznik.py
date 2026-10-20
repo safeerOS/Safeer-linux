@@ -4024,6 +4024,174 @@ class HubStreznik:
 STORITEV_MDNS = "_safeercast._tcp.local."
 #: Prioriteta racunalnika pri izvolitvi huba (IzvolitevHuba.PRIORITETA_LINUX).
 PRIORITETA_LINUX = 80
+#: Dodatek k prioriteti glede na vrsto naprave za prelom ob izenacenju.
+DODATEK_VRSTE = {
+    "streznik": 4,
+    "racunalnik": 3,
+    "tv": 2,
+    "tablica": 1,
+    "telefon": 0,
+}
+#: Pragovi histereze za baterijo (enako kot core/link_daljinec.py)
+VKLOP_BATERIJA = 40
+IZKLOP_BATERIJA = 30
+#: Cas cakanja na soseda v Mesh pred prehodom v rezervni nacin
+ROK_REZERVNEGA_NACINA_S = 60.0
+#: Cas v rezervnem nacinu pred ponovnim poskusom Link Mesh
+ROK_POSKUSA_MESH_S = 60.0
+
+
+def je_domaci_streznik() -> bool:
+    """Ali je ta racunalnik izrecno nastavljen kot domaci streznik (prioriteta 100)."""
+    return (
+        os.environ.get("SAFEER_DOMACI_STREZNIK") == "1"
+        or os.environ.get("SAFEER_LINK_STREZNIK") == "1"
+        or os.environ.get("SAFEER_STREZNIK") == "1"
+    )
+
+
+def baterija(koren: str = "/sys/class/power_supply") -> Dict[str, object]:
+    """Baterija prenosnika: raven in ali je na omrezju ({} pri namiznem racunalniku)."""
+    raven, polni, na_omrezju = -1, False, False
+    try:
+        for ime in sorted(os.listdir(koren)):
+            pot = os.path.join(koren, ime)
+            try:
+                with open(os.path.join(pot, "type"), encoding="utf-8") as d:
+                    vrsta = d.read().strip()
+            except OSError:
+                continue
+            if vrsta == "Mains":
+                try:
+                    with open(os.path.join(pot, "online"), encoding="utf-8") as d:
+                        na_omrezju = na_omrezju or d.read().strip() == "1"
+                except OSError:
+                    pass
+            elif vrsta == "Battery" and raven < 0:
+                try:
+                    with open(os.path.join(pot, "capacity"), encoding="utf-8") as d:
+                        raven = int(d.read().strip())
+                    with open(os.path.join(pot, "status"), encoding="utf-8") as d:
+                        polni = d.read().strip() in ("Charging", "Full")
+                except (OSError, ValueError):
+                    pass
+    except OSError:
+        return {}
+    if raven < 0:
+        return {}
+    return {"raven": raven, "polni": polni or na_omrezju}
+
+
+def izracunaj_prioriteto(
+    ram_prosto_mb: Optional[int] = None,
+    cpu_obremenitev: Optional[float] = None,
+    baterija_info: Optional[dict] = None,
+    streznik: Optional[bool] = None,
+    zadnja_prioriteta: Optional[int] = None,
+    vrsta: str = "racunalnik",
+) -> int:
+    """Izracun prioritete za izvolitev po trenutni zmogljivosti (prost RAM, CPU, baterija).
+
+    Zmogljivost v trenutku doloca stopnjo, vrsta naprave pa le prelom ob izenacenju.
+    Izrecna izbira domacega streznika ohrani prioriteto 100.
+    """
+    if streznik is True or (streznik is None and je_domaci_streznik()):
+        return 100
+
+    # 1. Baterija / napajanje (0 do 30 tock)
+    if baterija_info is None:
+        try:
+            baterija_info = baterija()
+        except Exception:
+            baterija_info = {}
+
+    na_omrezju = not baterija_info or bool(baterija_info.get("polni"))
+    raven = int(baterija_info.get("raven", 100)) if baterija_info else 100
+
+    if na_omrezju:
+        tocke_baterija = 30
+    else:
+        # Histereza: ce je prejsnja prioriteta ze bila visoka (>= 50), ohranimo tocke do 30 %
+        prag = IZKLOP_BATERIJA if (zadnja_prioriteta is not None and zadnja_prioriteta >= 50) else VKLOP_BATERIJA
+        if raven >= prag:
+            tocke_baterija = 20
+        else:
+            tocke_baterija = 0
+
+    # 2. Prost pomnilnik (0 do 30 tock, penal ob kriticnem pomanjkanju)
+    if ram_prosto_mb is None:
+        try:
+            with open("/proc/meminfo", encoding="utf-8", errors="replace") as f:
+                for vrstica in f:
+                    if vrstica.startswith("MemAvailable:"):
+                        ram_prosto_mb = int(vrstica.split()[1]) // 1024
+                        break
+        except Exception:
+            pass
+        if ram_prosto_mb is None:
+            ram_prosto_mb = 2048
+
+    if ram_prosto_mb >= 2048:
+        tocke_ram = 30
+    elif ram_prosto_mb >= 1024:
+        tocke_ram = 20
+    elif ram_prosto_mb >= 500:
+        tocke_ram = 10
+    else:
+        tocke_ram = -10
+
+    # 3. Obremenitev CPU (0 do 30 tock, penal ob preobremenitvi)
+    if cpu_obremenitev is None:
+        try:
+            jedra = os.cpu_count() or 1
+            cpu_obremenitev = os.getloadavg()[0] / jedra
+        except Exception:
+            cpu_obremenitev = 0.2
+
+    if cpu_obremenitev < 0.5:
+        tocke_cpu = 30
+    elif cpu_obremenitev < 1.0:
+        tocke_cpu = 20
+    elif cpu_obremenitev < 1.8:
+        tocke_cpu = 10
+    else:
+        tocke_cpu = -15
+
+    skupaj = tocke_baterija + tocke_ram + tocke_cpu
+
+    # Naprava na bateriji pod 30 % ne sme postati koordinator pred napravami z lastnim napajanjem
+    if not na_omrezju and raven < IZKLOP_BATERIJA:
+        skupaj = min(skupaj, 20)
+
+    # 4. Zaokrozevanje v stopnje (80, 60, 40, 20, 10) s histerezo
+    zadnja_osnova = None
+    if zadnja_prioriteta is not None and zadnja_prioriteta < 100:
+        for d in DODATEK_VRSTE.values():
+            if (zadnja_prioriteta - d) in (80, 60, 40, 20, 10):
+                zadnja_osnova = zadnja_prioriteta - d
+                break
+        if zadnja_osnova is None:
+            zadnja_osnova = (zadnja_prioriteta // 10) * 10
+
+    if skupaj >= 75 or (zadnja_osnova == 80 and skupaj >= 65):
+        osnova = 80
+    elif skupaj >= 55 or (zadnja_osnova == 60 and skupaj >= 45):
+        osnova = 60
+    elif skupaj >= 35 or (zadnja_osnova == 40 and skupaj >= 25):
+        osnova = 40
+    elif skupaj >= 15 or (zadnja_osnova == 20 and skupaj >= 10):
+        osnova = 20
+    else:
+        osnova = 10
+
+    # 5. Prelom izenacenja: vrsta naprave
+    dodatek = DODATEK_VRSTE.get(vrsta, 3)
+    return max(0, min(100, osnova + dodatek))
+
+
+def trenutna_prioriteta(zadnja: Optional[int] = None) -> int:
+    """Trenutna prioriteta racunalnika glede na zmogljivost."""
+    return izracunaj_prioriteto(zadnja_prioriteta=zadnja)
 
 
 def ime_oglasa(id_naprave: str) -> str:
@@ -4050,10 +4218,13 @@ class Oglas:
     def __init__(self) -> None:
         self._zc = None
         self._info = None
+        self._prioriteta: int = PRIORITETA_LINUX
 
-    def zacni(self, vrata: int, odtis: str, id_naprave: str, ime: str) -> bool:
+    def zacni(self, vrata: int, odtis: str, id_naprave: str, ime: str, prioriteta: Optional[int] = None) -> bool:
         if self._info is not None:
             return True
+        prio = prioriteta if prioriteta is not None else trenutna_prioriteta()
+        self._prioriteta = prio
         try:
             import socket as _s
             from zeroconf import ServiceInfo, Zeroconf   # type: ignore
@@ -4066,7 +4237,7 @@ class Oglas:
                 b"fp": (odtis or "").encode(),
                 b"name": (ime or "").encode("utf-8")[:63],
                 b"id": (id_naprave or "").encode(),
-                b"prio": str(PRIORITETA_LINUX).encode(),
+                b"prio": str(prio).encode(),
                 # Link Mesh: ta Hub zna sosednje povezave (star Hub tega ne oglasi in ga ne klicemo).
                 b"mesh": MESH.encode(),
             }
@@ -4088,6 +4259,21 @@ class Oglas:
             # Prej tiho: Hub brez oglasa je tekel, ne da bi bilo iz dnevnika razvidno, da ga v omrezju ni videti.
             print("[SafeerLink] oglas mDNS ni uspel: %s: %s" % (type(e).__name__, e), flush=True)
             self._zc, self._info = None, None
+            return False
+
+    def posodobi_prioriteto(self, nova_prio: int) -> bool:
+        """Posodobi objavljeno prioriteto v oglasu mDNS brez prekinitve delovanja streznika."""
+        if getattr(self, "_prioriteta", None) == nova_prio:
+            return True
+        self._prioriteta = nova_prio
+        if self._zc is None or self._info is None:
+            return False
+        try:
+            self._info.properties[b"prio"] = str(nova_prio).encode()
+            self._zc.update_service(self._info)
+            return True
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] posodobitev prioritete mDNS ni uspela: %s: %s" % (type(e).__name__, e), flush=True)
             return False
 
     def koncaj(self) -> None:
@@ -4197,12 +4383,14 @@ def je_pred(a_prio: int, a_id: str, b_prio: int, b_id: str) -> bool:
     return a_id < b_id
 
 
-def boljsi_hub(hubi: List[dict], nas_id: str, nas_odtis: str = "", prioriteta: int = PRIORITETA_LINUX,
+def boljsi_hub(hubi: List[dict], nas_id: str, nas_odtis: str = "", prioriteta: Optional[int] = None,
                clan: Optional[Callable[[str], bool]] = None) -> Optional[dict]:
     """Oglasen hub clana kroga zaupanja, ki je pri izvolitvi pred nami (ali None: gostimo mi).
 
     Nas lastni oglas (isti id ali odtis) in oglasi zunaj kroga ne stejejo - tuj oglas nima glasu.
     """
+    if prioriteta is None:
+        prioriteta = trenutna_prioriteta()
     naj = None
     for h in hubi:
         hid = str(h.get("id") or "")
@@ -4266,7 +4454,7 @@ def mesh_vklopljen() -> bool:
 
 
 class HubGostitelj:
-    """Zdruzi Hub, oglas in pravilo »gosti samo, kadar drugega ni«.
+    """Zdruzi Hub, oglas, samodejno rezervo in izvolitev po trenutni zmogljivosti.
 
     `poisci()` naj vrne isto kot link_hub.poisci_hub_z_odtisom (ali None). Loceno zato, da je
     pravilo preizkusljivo brez omrezja.
@@ -4276,13 +4464,19 @@ class HubGostitelj:
                  streznik: Optional["HubStreznik"] = None, oglas: Optional["Oglas"] = None,
                  hubi: Optional[Callable[[], List[dict]]] = None,
                  clan: Optional[Callable[[str], bool]] = None,
-                 nas_id: Optional[Callable[[], str]] = None) -> None:
+                 nas_id: Optional[Callable[[], str]] = None,
+                 sosedje: Optional[Callable[[], List[str]]] = None,
+                 ura: Optional[Callable[[], float]] = None,
+                 zmogljivost: Optional[Callable[[], dict]] = None) -> None:
         self.poisci = poisci
         # Gateway (izvolitev): vsi oglaseni hubi s prioriteto, clanstvo v krogu in nas id za oglas.
         # Brez njih (ali ko mDNS ne vidi nobenega huba) velja staro pravilo »samo, kadar drugega ni«.
         self.hubi = hubi
         self.clan = clan
         self.nas_id_fn = nas_id
+        self.sosedje_fn = sosedje
+        self.ura = ura or time.monotonic
+        self.zmogljivost_fn = zmogljivost
         self.ime = ime
         self.streznik = streznik or HubStreznik()
         self.oglas = oglas or Oglas()
@@ -4290,11 +4484,84 @@ class HubGostitelj:
         self._zaklep = threading.Lock()
         self.mesh = None
 
+        # Stanje nacina delovanja: "mesh" ali "rezerva"
+        self._nacin = "mesh" if mesh_vklopljen() else "rezerva"
+        self._samodejna_rezerva = False
+        self._brez_sosedov_od: Optional[float] = None
+        self._poskus_mesh_ob: float = 0.0
+        self._prioriteta: int = PRIORITETA_LINUX
+
     def gostimo(self) -> bool:
         return self.streznik.tece()
 
+    def v_rezervi(self) -> bool:
+        """Ali je Safeer Link trenutno v rezervnem nacinu (izvolitev enega Huba)."""
+        return self._nacin == "rezerva"
+
+    def nacin(self) -> str:
+        """Trenutni nacin: 'mesh' ali 'rezerva'."""
+        return self._nacin
+
+    def trenutna_prioriteta(self) -> int:
+        """Izracunana prioriteta po trenutni zmogljivosti s histerezo."""
+        parametri = {}
+        if self.zmogljivost_fn is not None:
+            try:
+                parametri = self.zmogljivost_fn() or {}
+            except Exception:
+                parametri = {}
+        prio = izracunaj_prioriteto(zadnja_prioriteta=self._prioriteta, **parametri)
+        self._prioriteta = prio
+        return prio
+
+    def _povezani_sosedje(self) -> List[str]:
+        if self.sosedje_fn is not None:
+            try:
+                return list(self.sosedje_fn() or [])
+            except Exception:
+                return []
+        hub = getattr(self.streznik, "hub", None)
+        if hub is not None and callable(getattr(hub, "sosedje", None)):
+            try:
+                return list(hub.sosedje() or [])
+            except Exception:
+                return []
+        return []
+
+    def _tuji_clani_mdns(self, oglaseni: List[dict], najden: Optional[dict]) -> List[dict]:
+        vsi = list(oglaseni or [])
+        if najden and najden not in vsi:
+            vsi.append(najden)
+        clani = []
+        nas_id = self.nas_id or (self.nas_id_fn() if self.nas_id_fn is not None else "")
+        nas_odtis = (self.streznik.odtis if self.streznik.tece() else "").lower()
+        for h in vsi:
+            hid = str(h.get("id") or "")
+            if not hid or hid == nas_id:
+                continue
+            odtis = str(h.get("fp") or "").lower()
+            if nas_odtis and odtis == nas_odtis:
+                continue
+            if self.clan is not None and not self.clan(hid):
+                continue
+            clani.append(h)
+        return clani
+
+    def _preidi_v_rezervo(self, razlog: str) -> None:
+        self._nacin = "rezerva"
+        self._samodejna_rezerva = True
+        self._poskus_mesh_ob = self.ura()
+        self._brez_sosedov_od = None
+        print("[SafeerLink] prehod v rezervni način (%s)" % razlog, flush=True)
+
+    def _poskusi_vrnitev_v_mesh(self) -> None:
+        self._nacin = "mesh"
+        self._poskus_mesh_ob = self.ura()
+        self._brez_sosedov_od = self.ura()
+        print("[SafeerLink] poskus vrnitve v Link Mesh ...", flush=True)
+
     def preveri(self) -> bool:
-        """En pregled: ce Huba ni, ga zazenemo; ce se je vrnil boljsi, se umaknemo."""
+        """En pregled: preveri nacin (Mesh ali rezerva), stanje streznika in izvolitev."""
         try:
             najden = self.poisci()
         except Exception:
@@ -4303,39 +4570,112 @@ class HubGostitelj:
             oglaseni = self.hubi() if self.hubi is not None else []
         except Exception:
             oglaseni = []
+
         with self._zaklep:
             nas_odtis = self.streznik.odtis if self.streznik.tece() else ""
-            if mesh_vklopljen():
-                # Link Mesh: vsaka naprava je vozlisce; nihce se ne umika.
+            zdaj = self.ura()
+
+            # 1. Rocni izklop SAFEER_LINK_MESH=0 vedno vsili rezervo
+            if not mesh_vklopljen():
+                self._nacin = "rezerva"
+                self._samodejna_rezerva = False
+
+            # 2. V rezervnem nacinu vsakih ~60 s znova poskusimo Mesh (ce nismo rocno izklopljeni)
+            elif self._samodejna_rezerva and self._nacin == "rezerva":
+                if zdaj - self._poskus_mesh_ob >= ROK_POSKUSA_MESH_S:
+                    self._poskusi_vrnitev_v_mesh()
+
+            # 3. Odlocitev: ali naj ta racunalnik gosti Hub?
+            if self._nacin == "mesh":
                 gostimo = True
             elif oglaseni:
-                # Gateway: racunalnik (80) je boljsi koordinator od televizorja (60), tablice (40) in
-                # telefona (20); umaknemo se samo boljsemu clanu kroga (npr. domacemu strezniku, 100).
                 nas_id = self.nas_id or (self.nas_id_fn() if self.nas_id_fn is not None else "")
-                gostimo = boljsi_hub(oglaseni, nas_id, nas_odtis, clan=self.clan) is None
+                nas_prio = self.trenutna_prioriteta()
+                gostimo = boljsi_hub(oglaseni, nas_id, nas_odtis, prioriteta=nas_prio, clan=self.clan) is None
             else:
                 gostimo = naj_gostimo(najden, self.nas_id, nas_odtis)
+
             if gostimo:
                 if self.streznik.tece():
+                    if self._nacin == "mesh":
+                        sosedje = self._povezani_sosedje()
+                        tuji_mdns = self._tuji_clani_mdns(oglaseni, najden)
+                        if len(sosedje) > 0:
+                            if self._samodejna_rezerva:
+                                print("[SafeerLink] vrnitev v Link Mesh uspela", flush=True)
+                            self._brez_sosedov_od = None
+                            self._samodejna_rezerva = False
+                        elif len(tuji_mdns) > 0:
+                            if self._brez_sosedov_od is None:
+                                self._brez_sosedov_od = zdaj
+                            elif zdaj - self._brez_sosedov_od >= ROK_REZERVNEGA_NACINA_S:
+                                cas_s = int(zdaj - self._brez_sosedov_od)
+                                self._preidi_v_rezervo("sosedje v Mesh niso dosegljivi %d s" % cas_s)
+                                nas_id = self.nas_id or (self.nas_id_fn() if self.nas_id_fn is not None else "")
+                                nas_prio = self.trenutna_prioriteta()
+                                if oglaseni:
+                                    gostimo = boljsi_hub(oglaseni, nas_id, nas_odtis, prioriteta=nas_prio, clan=self.clan) is None
+                                else:
+                                    gostimo = naj_gostimo(najden, self.nas_id, nas_odtis)
+                                if not gostimo:
+                                    print("[SafeerLink] drug Safeer Link je spet na voljo; računalnik neha gostiti", flush=True)
+                                    if self.mesh is not None:
+                                        self.mesh.ustavi()
+                                        self.mesh = None
+                                    self.oglas.koncaj()
+                                    self.streznik.ustavi()
+                                    return False
+                        else:
+                            self._brez_sosedov_od = None
+
+                    if self._nacin == "rezerva":
+                        nas_prio = self.trenutna_prioriteta()
+                        if hasattr(self.oglas, "posodobi_prioriteto"):
+                            try:
+                                self.oglas.posodobi_prioriteto(nas_prio)
+                            except Exception:
+                                pass
+
                     return True
+
                 if not self.streznik.zazeni():
+                    if self._nacin == "mesh":
+                        self._preidi_v_rezervo("zagon strežnika ni uspel")
                     return False
-                self.nas_id = id_za_oglas()
-                self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime)
-                print("[SafeerLink] računalnik gosti Safeer Link (vrata %d)" % self.streznik.vrata)
-                if mesh_vklopljen() and self.nas_id and getattr(self.streznik, "hub", None) is not None:
-                    from core import link_mesh
-                    self.streznik.hub.nas_id = self.nas_id
-                    import os
-                    self.mesh = link_mesh.MeshPovezovalec(
-                        self.streznik.hub, self.nas_id, self.ime,
-                        pot_znanih=os.path.join(link_krog._mapa_nastavitev(), "mesh-sosedje.json"),
-                        vrata=lambda s=self.streznik: s.vrata if s.tece() else 0)
-                    self.mesh.zazeni()
+
+                self.nas_id = (self.nas_id_fn() if self.nas_id_fn is not None else "") or id_za_oglas()
+                nas_prio = self.trenutna_prioriteta() if self._nacin == "rezerva" else PRIORITETA_LINUX
+                try:
+                    self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime, prioriteta=nas_prio)
+                except TypeError:
+                    self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime)
+                if self._nacin == "rezerva":
+                    print("[SafeerLink] računalnik gosti Safeer Link v rezervnem načinu (vrata %d, prioriteta %d)"
+                          % (self.streznik.vrata, nas_prio), flush=True)
+                else:
+                    print("[SafeerLink] računalnik gosti Safeer Link (vrata %d)" % self.streznik.vrata, flush=True)
+
+                if self._nacin == "mesh":
+                    sosedje = self._povezani_sosedje()
+                    tuji_mdns = self._tuji_clani_mdns(oglaseni, najden)
+                    if len(sosedje) == 0 and len(tuji_mdns) > 0:
+                        self._brez_sosedov_od = zdaj
+                    if self.nas_id and getattr(self.streznik, "hub", None) is not None:
+                        from core import link_mesh
+                        self.streznik.hub.nas_id = self.nas_id
+                        import os
+                        self.mesh = link_mesh.MeshPovezovalec(
+                            self.streznik.hub, self.nas_id, self.ime,
+                            pot_znanih=os.path.join(link_krog._mapa_nastavitev(), "mesh-sosedje.json"),
+                            vrata=lambda s=self.streznik: s.vrata if s.tece() else 0)
+                        self.mesh.zazeni()
                 return True
+
             if self.streznik.tece():
-                # Drug Hub je spet tu: umaknemo se, da hisa nima dveh sredisc.
-                print("[SafeerLink] drug Safeer Link je spet na voljo; računalnik neha gostiti")
+                print("[SafeerLink] drug Safeer Link je spet na voljo; računalnik neha gostiti", flush=True)
+                if self.mesh is not None:
+                    self.mesh.ustavi()
+                    self.mesh = None
                 self.oglas.koncaj()
                 self.streznik.ustavi()
             return False
