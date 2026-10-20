@@ -43,6 +43,9 @@ import time
 #: se vedno 4-6 utripov v roku. Prej 2 s - meritev 19. 10. 2026 (vsebnik, mirovanje): varuh 2,5 bujenja/s, lupina in
 #: Safeer OS vsak 0,5/s samo zaradi utripa.
 UTRIP_S = 5
+#: Lupina utripa pogosteje: zamrznjeno namizje je uporabnik videl 19,2 s (testni PC, 20. 10. 2026, SIGSTOP lupine), preden
+#: ga je varuh zamenjal. Lupina nima stanja (ponoven zagon 0,4 s), zato je hitra zamenjava poceni; +0,3 bujenja/s.
+UTRIP_LUPINA_S = 2
 
 _obvestila: dict = {"vtic": None, "naslov": None, "prebrano": False, "utrip": 0}
 
@@ -98,12 +101,14 @@ NAJVEC_ZAMIK_S = 30.0
 #: Zamrznitev: toliko sekund brez utripa. Safeer OS ima vec casa - glavna nit ima kdaj kratke sinhrone posege (GStreamer,
 #: nov spletni proces); lazna zamrznitev bi prekinila uporabnikovo delo. Do prvega READY=1 velja ZAGON_* (hladen zagon).
 ZAMRZNITEV_OS_S = 30
-ZAMRZNITEV_LUPINA_S = 20
+ZAMRZNITEV_LUPINA_S = 8
 ZAGON_OS_S = 120
 ZAGON_LUPINA_S = 60
 #: Scit (core/scit_proces.py) utripa vsako sekundo, ko razresevalnik odgovori: zataknjen Scit zamenjamo v nekaj sekundah
-#: (prej je zamrznjen Safeer OS Scit ustavil za ~30 s, odpornost 20. 10. 2026). Vrata medtem drzi varuh.
-ZAMRZNITEV_SCIT_S = 8
+#: (prej je zamrznjen Safeer OS Scit ustavil za ~30 s, odpornost 20. 10. 2026). Vrata medtem drzi varuh. systemd-resolved
+#: ob prvi neodgovorjeni poizvedbi po ~0,75 s preide na naslednji streznik (usmerjevalnik) in tam ostane, dokler ga nov
+#: Scit ob zagonu ne vrne (_uporabi) - zato je meja cim krajsa, a z rezervo za tri izgubljene utripe.
+ZAMRZNITEV_SCIT_S = 5
 ZAGON_SCIT_S = 45
 USTAVI_SCIT_S = 10
 #: Scit je storitev za ves racunalnik: varuh nad njim ne obupa za vedno (lokalni program bi ga sicer lahko z nekaj

@@ -315,7 +315,7 @@ def main() -> int:
     lupina.pokazi()
     lupina.odjemalec.zacni()
     utrip = QTimer()
-    utrip.setInterval(varuh_procesov.UTRIP_S * 1000)
+    utrip.setInterval(varuh_procesov.UTRIP_LUPINA_S * 1000)
     utrip.timeout.connect(lambda: varuh_procesov.obvesti("WATCHDOG=1"))
     utrip.start()
     obrezovanje = QTimer()
