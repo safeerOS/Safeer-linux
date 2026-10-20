@@ -323,12 +323,18 @@ class Razresevalnik:
         self._tece = False
         self._kljuc = threading.Lock()
         self._proste = threading.BoundedSemaphore(self.NAJVEC_HKRATI)
+        self._proste_tcp = threading.BoundedSemaphore(self.NAJVEC_TCP)
         self.zavrzenih = 0
 
-    #: Najvec hkrati obdelanih poizvedb (UDP paketov in TCP povezav). Prej je vsak paket dobil svojo nit brez meje:
-    #: nevihta poizvedb (ali zataknjen DoH) je lahko ustvarila tisoce niti in podrla proces z vmesnikom vred. Cez mejo
-    #: paket zavrzemo - systemd-resolved ga ponovi (20. 10. 2026, odpornost 1.0.129).
+    #: Najvec hkrati obdelanih poizvedb UDP. Prej je vsak paket dobil svojo nit brez meje: nevihta poizvedb (ali
+    #: zataknjen DoH) je lahko ustvarila tisoce niti in podrla proces z vmesnikom vred. Cez mejo paket zavrzemo -
+    #: systemd-resolved ga ponovi (20. 10. 2026, odpornost 1.0.129).
     NAJVEC_HKRATI = 256
+    #: TCP ima svojo, manjso mejo in kratek rok za glavo: povezava, ki ne poslje nicesar, bi sicer mesto drzala 10 s -
+    #: vsak lokalni program bi s 300 odprtimi povezavami zasedel vsa mesta in utisal Scit za ves racunalnik
+    #: (neodvisni pregled 1.0.129: oglasi mimo, kanarcek brez odgovora, varuh bi Scit zamenjeval do obupa).
+    NAJVEC_TCP = 32
+    ROK_GLAVE_TCP_S = 2.0
 
     def _zacni(self, u: socket.socket, t: socket.socket, vrata: int) -> int:
         self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
@@ -374,9 +380,9 @@ class Razresevalnik:
             return self._zacni(u, t, vrata)
         return 0
 
-    def _zasedi(self) -> bool:
-        """Prosto mesto za novo poizvedbo (brez cakanja); False = meja NAJVEC_HKRATI dosezena, poizvedbo zavrzi."""
-        if self._proste.acquire(blocking=False):
+    def _zasedi(self, semafor: Optional[threading.BoundedSemaphore] = None) -> bool:
+        """Prosto mesto za novo poizvedbo (brez cakanja); False = meja dosezena, poizvedbo zavrzi."""
+        if (semafor or self._proste).acquire(blocking=False):
             return True
         with self._kljuc:
             self.zavrzenih += 1
@@ -396,13 +402,13 @@ class Razresevalnik:
 
     def _odgovori(self, paket: bytes, tcp: bool) -> Optional[bytes]:
         ime = ime_poizvedbe(paket)
-        with self._kljuc:
-            self.poizvedb += 1
         if ime and ime.lower().rstrip(".") == KANAREK_DOH:
             # Firefox vprasa to ime, preden sam vklopi DNS prek HTTPS. Ce ga ni, ostane pri sistemskem DNS - pri
             # Scitu. Sicer bi oglase in nevarne strani razresil mimo nas (support.mozilla.org: canary domain).
-            # Ne steje kot blokirano: ni oglas.
+            # Ne steje kot blokirano: ni oglas. Tudi ne kot poizvedba: utrip procesa Scit ga vprasa vsako sekundo.
             return odgovor_zavrnjeno(paket)
+        with self._kljuc:
+            self.poizvedb += 1
         if ime:
             kategorija = self.blokiraj(ime)
             if kategorija:
@@ -549,6 +555,14 @@ class Razresevalnik:
             except OSError:
                 break
 
+            if ime_poizvedbe(paket).lower().rstrip(".") == KANAREK_DOH:
+                # Kanarcek (utrip procesa Scit, Firefox) odgovorimo takoj, brez niti in mimo meje: polna vrsta ne
+                # sme utisati preverbe, ali Scit zivi.
+                try:
+                    u.sendto(odgovor_zavrnjeno(paket), od)
+                except OSError:
+                    pass
+                continue
             if not self._zasedi():
                 continue
 
@@ -576,7 +590,7 @@ class Razresevalnik:
             except OSError:
                 break
 
-            if not self._zasedi():
+            if not self._zasedi(self._proste_tcp):
                 try:
                     s.close()
                 except OSError:
@@ -585,8 +599,9 @@ class Razresevalnik:
 
             def delo(s=s):
                 try:
-                    s.settimeout(10)
+                    s.settimeout(self.ROK_GLAVE_TCP_S)
                     n = struct.unpack("!H", self._preberi(s, 2))[0]
+                    s.settimeout(10)
                     odgovor = self._odgovori(self._preberi(s, n), True)
                     if odgovor:
                         s.sendall(struct.pack("!H", len(odgovor)) + odgovor)
@@ -597,15 +612,15 @@ class Razresevalnik:
                         s.close()
                     except OSError:
                         pass
-                    self._proste.release()
-            self._zazeni_delo(delo)
+                    self._proste_tcp.release()
+            self._zazeni_delo(delo, self._proste_tcp)
 
-    def _zazeni_delo(self, delo: Callable[[], None]) -> None:
+    def _zazeni_delo(self, delo: Callable[[], None], semafor: Optional[threading.BoundedSemaphore] = None) -> None:
         try:
             threading.Thread(target=delo, name="safeer-scit-poizvedba", daemon=True).start()
         except RuntimeError:
             # Sistem ne da nove niti (meja procesa): poizvedbo zavrzemo, mesto sprostimo - zanka tece naprej.
-            self._proste.release()
+            (semafor or self._proste).release()
             with self._kljuc:
                 self.zavrzenih += 1
 
@@ -672,13 +687,26 @@ class Nabor:
         return None
 
     def shrani(self, pot: str) -> None:
-        os.makedirs(os.path.dirname(pot), exist_ok=True)
-        zacasna = pot + ".tmp"
-        with open(zacasna, "wb") as f:
-            f.write(self.GLAVA + struct.pack("<Q", len(self.zgoscenke)))
-            self.zgoscenke.tofile(f)
-            self.kategorije.tofile(f)
-        os.replace(zacasna, pot)
+        """Atomsko, z edinstveno zacasno datoteko: sezname osvezujeta lahko dva procesa (Scit in Splet ali Safeer
+        Browser) hkrati - prej sta pisala v isti domene.bin.tmp."""
+        import tempfile
+        mapa = os.path.dirname(pot)
+        os.makedirs(mapa, exist_ok=True)
+        fd, zacasna = tempfile.mkstemp(prefix="." + os.path.basename(pot) + ".", dir=mapa)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(self.GLAVA + struct.pack("<Q", len(self.zgoscenke)))
+                self.zgoscenke.tofile(f)
+                self.kategorije.tofile(f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(zacasna, pot)
+        except BaseException:
+            try:
+                os.unlink(zacasna)
+            except OSError:
+                pass
+            raise
 
     @classmethod
     def nalozi(cls, pot: str) -> Optional["Nabor"]:
@@ -740,11 +768,8 @@ class Seznami:
             return {}
 
     def _zapisi_meta(self) -> None:
-        os.makedirs(self.mapa, exist_ok=True)
-        zacasna = self._meta_pot() + ".tmp"
-        with open(zacasna, "w", encoding="utf-8") as f:
-            json.dump(self.meta, f)
-        os.replace(zacasna, self._meta_pot())
+        from core import shramba_json
+        shramba_json.zapisi_atomsko(self._meta_pot(), self.meta, indent=None, nacin=0o644)
 
     # -- zivljenje
     def na_voljo(self) -> bool:
@@ -1481,7 +1506,10 @@ class Scit:
             self.napaka = ""
         return {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata),
                 "napaka": self.napaka, "blokiranih": r.blokiranih if r else 0, "poizvedb": r.poizvedb if r else 0,
-                "premor": self.premor_se()}
+                "premor": self.premor_se(), "vrata": r.vrata if r else 0,
+                # Splet v Safeer OS (Scit v svojem procesu) oznako »DNS nesifriran« dobi iz tega hitrega stanja.
+                "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
+                                    and r.nesifrirano())}
 
     def stanje(self) -> dict:
         r = self.razresevalnik

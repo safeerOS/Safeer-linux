@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import stat
 import tempfile
+import time
 import unittest
 
 from core import shramba_json
@@ -77,6 +78,35 @@ class TestShrambaJson(unittest.TestCase):
         b.osvezi()
         self.assertEqual(b.get("x"), 2)
         self.assertEqual(b.get("y"), "lokalno")
+
+    def test_hkraten_set_dveh_niti_se_ne_izgubi(self):
+        """Neodvisni pregled 1.0.129: nit A je nastavila kljuc med zapisom niti B; B je po zapisu prevzela staro
+        vrednost z diska in A-jeva se ni zapisala nikoli."""
+        import threading
+        from unittest import mock
+        s = shramba_json.Shramba(self.pot)
+        s.set("b", "staro")
+        v_zapisu, nadaljuj = threading.Event(), threading.Event()
+        pravi = shramba_json.zapisi_atomsko
+
+        def pocasen(*a, **k):
+            if threading.current_thread().name == "B":
+                v_zapisu.set()
+                nadaljuj.wait(5)
+            return pravi(*a, **k)
+        with mock.patch.object(shramba_json, "zapisi_atomsko", pocasen):
+            s.podatki["a"] = 1
+            b = threading.Thread(target=s.shrani, name="B")
+            b.start()
+            self.assertTrue(v_zapisu.wait(5))
+            a = threading.Thread(target=s.set, args=("b", "novo"), name="A")
+            a.start()
+            time.sleep(0.2)
+            nadaljuj.set()
+            b.join(5)
+            a.join(5)
+        self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1, "b": "novo"})
+        self.assertEqual(s.get("b"), "novo")
 
     def test_napaka_zapisa_ne_pusti_zacasne(self):
         with self.assertRaises(TypeError):

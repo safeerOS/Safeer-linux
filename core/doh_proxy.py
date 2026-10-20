@@ -338,6 +338,15 @@ def sistemski_scit_vrata() -> int:
     return _scit_vrata[1]
 
 
+def znana_scit_vrata(vrata: int) -> None:
+    """Scit v svojem procesu (core/scit_odjemalec.py) je povedal, na katerih vratih tece: Splet ga vprasa takoj, brez
+    cakanja na preverbo v ozadju. Prej je prvo ime vedno slo v scit_kategorija, ta pa je v procesu Safeer OS nalozila
+    in zacela prenasati SVOJE sezname - dva nabora v pomnilniku in dva prenosa (neodvisni pregled 1.0.129)."""
+    global _scit_vrata
+    if vrata:
+        _scit_vrata = (time.monotonic() + 30.0, int(vrata))
+
+
 def scit_kategorija(ime: str, samo_z_diska: bool = False) -> Optional[str]:
     """Kategorija, ce Safeer Scit ime blokira; '' ce ga ne; None, ce nabora (se) ni. Isti nabor kot sistemski Scit
     (os_scit.skupni_seznami - en prenos seznamov na proces). samo_z_diska: brez prenasanja (rezerva pri ponudniku)."""

@@ -61,26 +61,39 @@ def pot_nastavitev() -> str:
 
 
 def podedovane_vticnice(vrednost: str) -> Optional[tuple]:
-    """'3,4' -> (UDP, TCP) vticnici na 127.0.0.1:<VRATA>, ki ju je odprl varuh; sicer None (proces odpre svoje)."""
+    """'3,4' -> (UDP, TCP) vticnici na 127.0.0.1:<VRATA>, ki ju je odprl varuh; sicer None (proces odpre svoje).
+
+    Preverja KOPIJI (os.dup): opisnika, ki nista nasi vticnici (varuh ju po obupu ni vec dal, na
+    stevilki 3 je npr. ze vticnica obvestil), ostaneta nedotaknjena - prej ju je ovil in ob pospravljanju zaprl."""
     from core import os_scit
     try:
         fd_u, fd_t = (int(x) for x in vrednost.split(","))
-        u = socket.socket(fileno=fd_u)
-        t = socket.socket(fileno=fd_t)
-    except (ValueError, OSError):
+    except ValueError:
         return None
+    kopije = []
     try:
-        if (u.type != socket.SOCK_DGRAM or t.type != socket.SOCK_STREAM or u.getsockname()[0] != os_scit.NASLOV
-                or u.getsockname() != t.getsockname() or u.getsockname()[1] not in os_scit.VRATA):
-            raise ValueError(u.getsockname())
+        for fd, vrsta in ((fd_u, socket.SOCK_DGRAM), (fd_t, socket.SOCK_STREAM)):
+            kopija = os.dup(fd)                   # dup: CLOEXEC; vrsto in druzino socket() prebere iz jedra
+            try:
+                k = socket.socket(fileno=kopija)
+            except OSError:
+                os.close(kopija)
+                raise
+            kopije.append(k)
+            naslov = k.getsockname()
+            if k.family != socket.AF_INET or k.type != vrsta or naslov[0] != os_scit.NASLOV or naslov[1] not in os_scit.VRATA:
+                raise ValueError(naslov)
+        if kopije[0].getsockname() != kopije[1].getsockname():
+            raise ValueError("razlicna vrata")
     except (OSError, ValueError) as e:
         print("[Scit] podedovani vticnici nista nasi (%s): odprem svoje" % e, flush=True)
-        for s in (u, t):
-            s.close()
+        for k in kopije:
+            k.close()
         return None
-    u.set_inheritable(False)
-    t.set_inheritable(False)
-    return u, t
+    # Kopiji (CLOEXEC) ostaneta, izvirnika zapremo: podprocesi (resolvectl, pkexec) ju ne smejo dobiti.
+    for fd in (fd_u, fd_t):
+        os.close(fd)
+    return kopije[0], kopije[1]
 
 
 class Streznik:
@@ -111,7 +124,12 @@ class Streznik:
             if not self._proste.acquire(blocking=False):
                 s.close()
                 continue
-            threading.Thread(target=self._streci, args=(s,), name="safeer-scit-ipc", daemon=True).start()
+            try:
+                threading.Thread(target=self._streci, args=(s,), name="safeer-scit-ipc", daemon=True).start()
+            except RuntimeError:
+                # Sistem ne da nove niti: to zahtevo zavrnemo, vticnica streze naprej.
+                s.close()
+                self._proste.release()
 
     def _streci(self, s: socket.socket) -> None:
         try:
@@ -196,8 +214,9 @@ def main(argumenti: Optional[list] = None) -> int:
     if "--pospravi" in argumenti:
         return pospravi()
     from core import os_scit, shramba_json, varuh_procesov
-    varuh_procesov.pripravi_obvestila()
+    # Najprej vticnici (fd 3 in 4), sele nato vticnica obvestil - sicer bi ta lahko dobila stevilko 3.
     podedovane = podedovane_vticnice(os.environ.get("SAFEER_SCIT_FDS", ""))
+    varuh_procesov.pripravi_obvestila()
     if podedovane is not None:
         os_scit.uporabi_podedovane(*podedovane)
     scit = os_scit.Scit(shramba_json.Shramba(pot_nastavitev()))

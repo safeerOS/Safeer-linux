@@ -1,8 +1,9 @@
 """Safeer OS -> Scit v svojem procesu (core/scit_proces.py): isti vmesnik kot core/os_scit.Scit za safeer_os.py.
 
 Klici gredo prek vticnice scit.sock (en JSON v vrstici). Kar safeer_os klice na glavni niti (stanje_pulta(preveri=False),
-naprej(), twitch_brez_oglasov()), vrne zadnje znano stanje brez cakanja. Ce proces Scit ravno ni dosegljiv (ponovni
-zagon), klic vrne zadnje znano stanje - vmesnik se ne zatakne in ne pokaze lazne napake.
+naprej(), twitch_brez_oglasov()), vrne zadnje znano stanje brez cakanja. Ce proces Scit ni dosegljiv (ponovni zagon ali
+varuh je obupal), stanje pove tece=False in napaka="proces" - uporabnik ne sme misliti, da je zasciten, ko ni
+(neodvisni pregled 1.0.129).
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ from typing import Any, Optional, Tuple
 #: nekaj kratkih podprocesov (resolvectl, pkcheck).
 ROK_S = 30.0
 ROK_VKLOPA_S = 200.0
+#: Oznaka »DNS nesifriran« v Spletu velja iz stanja, mlajsega od toliko sekund; starejse stanje se osvezi v ozadju.
+SVEZE_S = 30.0
 
 
 class ScitOdjemalec:
@@ -26,8 +29,23 @@ class ScitOdjemalec:
         self._kljuc = threading.Lock()
         self._stanje: dict = {}
         self._cas = 0.0
+        self._osvezujem = False
         from core import os_scit
-        os_scit.zunanje_nesifrirano = lambda: bool(self._stanje.get("nesifrirano"))
+        os_scit.zunanje_nesifrirano = self._nesifrirano
+
+    def _nesifrirano(self) -> bool:
+        """Za Splet (doh_proxy.dns_nesifriran, glavna nit): zadnje sveze stanje; staro sprozi osvezitev v ozadju."""
+        star = time.monotonic() - self._cas
+        if star > SVEZE_S / 2 and not self._osvezujem:
+            self._osvezujem = True
+
+            def osvezi() -> None:
+                try:
+                    self.stanje_pulta()
+                finally:
+                    self._osvezujem = False
+            threading.Thread(target=osvezi, name="safeer-scit-nesifrirano", daemon=True).start()
+        return star < SVEZE_S and bool(self._stanje.get("nesifrirano"))
 
     # ------------------------------------------------------------------ prenos
     def _klic(self, metoda: str, rok: float = ROK_S, **argumenti) -> Optional[Any]:
@@ -53,17 +71,25 @@ class ScitOdjemalec:
         return odgovor["ok"]
 
     def _stanje_iz(self, izid: Optional[Any], spremenjeno: bool = False) -> dict:
-        """Novo stanje (ali zadnje znano, ce klic ni uspel); po spremembi tudi kljuce os.json iz procesa Scit."""
-        if isinstance(izid, dict):
-            with self._kljuc:
-                self._stanje = dict(self._stanje, **izid)
-                self._cas = time.monotonic()
+        """Novo stanje; ce klic ni uspel, zadnje znano z tece=False in napaka="proces" (Scit ne filtrira - vmesnik
+        tega ne sme skriti). Po spremembi prevzame tudi kljuce os.json, ki jih je zapisal proces Scit."""
         if spremenjeno:
             try:
                 self.shramba.osvezi()
             except Exception:  # noqa: BLE001
                 pass
-        return dict(self._stanje) if not isinstance(izid, dict) else izid
+        if isinstance(izid, dict) and izid.get("tece") and izid.get("vrata"):
+            doh = sys.modules.get("core.doh_proxy")
+            if doh is not None and hasattr(doh, "znana_scit_vrata"):
+                doh.znana_scit_vrata(izid["vrata"])
+        with self._kljuc:
+            if isinstance(izid, dict):
+                self._stanje = dict(self._stanje, **izid)
+            else:
+                self._stanje = dict(self._stanje, tece=False, napaka="proces", nesifrirano=False,
+                                    vklop=bool(self.shramba.get("scit", False)))
+            self._cas = time.monotonic()
+            return dict(self._stanje) if not isinstance(izid, dict) else izid
 
     # ------------------------------------------------------------------ isti vmesnik kot os_scit.Scit
     def stanje(self) -> dict:

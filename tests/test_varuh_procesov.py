@@ -359,13 +359,15 @@ class Pomozne(unittest.TestCase):
             t.bind(("127.0.0.1", 0))
             vticnice[:] = [u, t]
             procesi = vp.sestavi(["--delovna"], KOREN, sys.executable, mapa)
-        try:
             scit, os_ = procesi
+            scit.pred_zagonom(scit)                    # vrata odpre tik pred zagonom
+        try:
             self.assertEqual(scit.ime, "safeer-scit")
             self.assertTrue(scit.storitev and not scit.glavni and os_.glavni)
             self.assertTrue(scit.argv[1].endswith(os.path.join("core", "scit_proces.py")))
             self.assertEqual(scit.podedovani, (u.fileno(), t.fileno()))
             self.assertEqual(scit.okolje["SAFEER_SCIT_FDS"], "3,4")
+            self.assertEqual(scit.obup_premor_s, vp.OBUP_SCIT_PREMOR_S)
             self.assertEqual(scit.okolje["SAFEER_SCIT_VTIC"], os_.okolje["SAFEER_SCIT_VTIC"])
             self.assertEqual(scit.zamrznitev_s, vp.ZAMRZNITEV_SCIT_S)
             self.assertIsNotNone(scit.ob_obupu)

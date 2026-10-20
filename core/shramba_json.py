@@ -29,8 +29,8 @@ except ImportError:  # Windows: en proces, brez zaklepa med procesi
     fcntl = None
 
 _NI = object()
-#: Zapisi v enem procesu (vec niti) - med procesi je zaklep flock na <pot>.lock.
-_ZAKLEP_NITI = threading.RLock()
+#: Zapisi v enem procesu (vec niti) - med procesi je zaklep flock na <pot>.lock. RLock: set() klice shrani().
+ZAKLEP_NITI = threading.RLock()
 
 
 def zapisi_atomsko(pot: str, podatki: Any, *, indent: Optional[int] = 1, nacin: int = 0o600) -> None:
@@ -119,7 +119,7 @@ def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *
     """Zapise kljuce, ki so v `lokalno` drugacni kot v `znano` (zadnje stanje datoteke, ki ga ta proces pozna), na
     trenutno vsebino datoteke - pod zaklepom, atomsko. Kljuce, ki jih je medtem spremenil drug proces (in jih ta ni),
     prevzame v `lokalno` (na mestu). Vrne novo znano stanje (globoka kopija `lokalno`)."""
-    with _ZAKLEP_NITI, zaklep(pot):
+    with ZAKLEP_NITI, zaklep(pot):
         spremenjeno = {k for k in set(lokalno) | set(znano) if lokalno.get(k, _NI) != znano.get(k, _NI)}
         disk = preberi_slovar(pot)
         if disk is None:
@@ -159,8 +159,11 @@ class Shramba:
         return privzeto if v is None else v
 
     def set(self, kljuc: str, vrednost) -> None:
-        self.podatki[kljuc] = vrednost
-        self.shrani()
+        # Dodelitev in zapis skupaj pod zaklepom niti: zapis druge niti med njima bi vrednost prepisal s staro z diska
+        # (neodvisni pregled 1.0.129, preverjeno s prepletanjem).
+        with ZAKLEP_NITI:
+            self.podatki[kljuc] = vrednost
+            self.shrani()
 
     def shrani(self) -> bool:
         try:
@@ -172,10 +175,10 @@ class Shramba:
 
     def osvezi(self) -> None:
         """Prevzame kljuce, ki jih je spremenil drug proces (brez zapisa); lastne nezapisane spremembe ostanejo."""
-        disk = preberi_slovar(self.pot)
-        if disk is None:
-            return
-        with _ZAKLEP_NITI:
+        with ZAKLEP_NITI:
+            disk = preberi_slovar(self.pot)
+            if disk is None:
+                return
             for k, v in disk.items():
                 if self.podatki.get(k, _NI) == self._znano.get(k, _NI) and self.podatki.get(k, _NI) != v:
                     self.podatki[k] = copy.deepcopy(v)

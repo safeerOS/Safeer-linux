@@ -317,8 +317,11 @@ class ConfigManager:
         return self.settings.get(key, default)
 
     def set(self, key: str, value: Any) -> bool:
-        self.settings[key] = value
-        return self.save_settings()
+        # Dodelitev in zapis pod istim zaklepom niti: sicer ju zapis druge niti (zdruzi_in_zapisi prevzame kljuce z
+        # diska) lahko loci in vrednost se izgubi (neodvisni pregled 1.0.129).
+        with shramba_json.ZAKLEP_NITI:
+            self.settings[key] = value
+            return self.save_settings()
 
     def increment_ads_blocked(self, count: int = 1):
         """Increments the cumulative blocked ads counter and saves settings."""

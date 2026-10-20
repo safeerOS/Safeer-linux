@@ -447,7 +447,8 @@ BESEDILA_SCITA = {
 }
 
 #: Napake Scita, ob katerih ikona pokaze napako (»ni_omrezja« ni napaka: Scit zacne, ko se racunalnik poveze).
-NAPAKE_SCITA = ("pravilo", "vrata", "ni_resolved", "lastni_dns")
+#: »proces«: proces Scit (core/scit_proces.py) ne odgovori - Scit ne filtrira, ikona tega ne sme skriti.
+NAPAKE_SCITA = ("pravilo", "vrata", "ni_resolved", "lastni_dns", "proces")
 
 
 def vrsta_scita(stanje: dict, zaposlen: str = "") -> str:

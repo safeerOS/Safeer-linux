@@ -150,6 +150,141 @@ class Omejitev(unittest.TestCase):
             r.ustavi()
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux")
+class NasicenjeTcp(unittest.TestCase):
+    """Neodvisni pregled 1.0.129: 300 praznih povezav TCP je zasedlo vsa mesta - oglasi brez odgovora (mimo filtra),
+    kanarcek brez odgovora (varuh bi Scit zamenjeval do obupa). Zdaj ima TCP svojo mejo in kratek rok za glavo."""
+
+    def setUp(self):
+        self.r = os_scit.Razresevalnik(lambda ime: "oglasi" if ime.endswith("oglas.test") else None, lambda: [])
+        self.u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.u.bind(("127.0.0.1", 0))
+        self.t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.t.bind(self.u.getsockname())
+        self.t.listen(512)
+        self.vrata = self.u.getsockname()[1]
+        self.r._zacni(self.u, self.t, self.vrata)
+        self.odprte = []
+
+    def tearDown(self):
+        for s in self.odprte:
+            s.close()
+        self.r.ustavi()
+
+    def test_prazne_povezave_tcp_ne_utisajo_udp(self):
+        for _ in range(300):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2)
+            try:
+                s.connect(("127.0.0.1", self.vrata))
+            except OSError:
+                s.close()
+                continue
+            self.odprte.append(s)
+        time.sleep(0.5)
+        self.assertEqual(vprasaj(self.vrata, "a.oglas.test", 2.0), 3)
+        self.assertTrue(os_scit._odgovori_kanarcku(self.vrata, 1.0))
+
+    def test_kanarcek_mimo_polne_vrste_in_brez_stetja(self):
+        while self.r._proste.acquire(blocking=False):      # vsa mesta UDP zasedena
+            pass
+        try:
+            self.assertTrue(os_scit._odgovori_kanarcku(self.vrata, 1.0))
+            self.assertEqual(self.r.poizvedb, 0)           # utrip vsako sekundo ne napihne statistike
+        finally:
+            for _ in range(self.r.NAJVEC_HKRATI):
+                self.r._proste.release()
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux: posix_spawn")
+class VarhovaPot(unittest.TestCase):
+    """Pot, po kateri vrata res pridejo do Scita: varuh_procesov.Otrok (posix_spawn DUP2) in VrataScita."""
+
+    def test_otrok_dobi_vticnici_kot_3_in_4(self):
+        from core import varuh_procesov as vp
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.bind(("127.0.0.1", 0))
+        t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        t.bind(u.getsockname())
+        izhod = tempfile.TemporaryFile()
+        try:
+            koda = "import socket; print([socket.socket(fileno=f).getsockname()[1] for f in (3, 4)])"
+            o = vp.Otrok([sys.executable, "-c", koda], dict(os.environ), izhod.fileno(), 0, (u.fileno(), t.fileno()))
+            self.assertEqual(o.wait(20), 0)
+            izhod.seek(0)
+            self.assertEqual(izhod.read().decode().strip(), str([u.getsockname()[1]] * 2))
+        finally:
+            u.close()
+            t.close()
+            izhod.close()
+
+    def test_po_obupu_vrata_znova_odpre(self):
+        from core import varuh_procesov as vp
+        odprte = []
+
+        def odpri():
+            u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            odprte.append((u, t))
+            return (u, t)
+        vrata = vp.VrataScita(KOREN, sys.executable, odpri=odpri)
+        p = vp.Proces("safeer-scit", ["/bin/true"], {}, zamrznitev_s=8, zagon_s=45, storitev=True,
+                      ob_obupu=vrata.ob_obupu, pred_zagonom=vrata.pred_zagonom, obup_premor_s=300)
+        try:
+            p.pred_zagonom(p)
+            self.assertEqual(p.okolje["SAFEER_SCIT_FDS"], "3,4")
+            with mock.patch("subprocess.run") as run:
+                p.ob_obupu(p)
+            self.assertIn("--pospravi", run.call_args[0][0])
+            self.assertTrue(odprte[0][0]._closed and odprte[0][1]._closed)     # resolved takoj na usmerjevalnik
+            self.assertNotIn("SAFEER_SCIT_FDS", p.okolje)
+            p.pred_zagonom(p)                              # »Zazeni znova« ali nov poskus po premoru
+            self.assertEqual(len(odprte), 2)
+            self.assertEqual(p.podedovani, (odprte[1][0].fileno(), odprte[1][1].fileno()))
+            self.assertEqual(p.okolje["SAFEER_SCIT_FDS"], "3,4")
+        finally:
+            for u, t in odprte:
+                u.close()
+                t.close()
+
+    def test_obup_scita_ni_trajen(self):
+        from core import varuh_procesov as vp
+        ura = [1000.0]
+        p = vp.Proces("safeer-scit", ["/bin/true"], {}, zamrznitev_s=8, zagon_s=45, storitev=True, obup_premor_s=300)
+        v = vp.Varuh([p], tempfile.mkdtemp(), ura=lambda: ura[0], dnevnik=lambda _b: None)
+        try:
+            for _ in range(vp.NAJVEC_NAPAK):
+                v._napaka(p, "preizkus")
+            self.assertTrue(p.obupal)
+            with mock.patch.object(v, "_zazeni") as zazeni, mock.patch.object(vp, "zaslon_na_voljo", lambda *_a: True):
+                ura[0] += 299
+                v.korak()
+                zazeni.assert_not_called()
+                ura[0] += 2
+                v.korak()
+                zazeni.assert_called_once_with(p)
+            self.assertFalse(p.obupal)
+        finally:
+            v.pospravi()
+
+    def test_podedovane_ne_zapre_tujih_opisnikov(self):
+        """Po obupu varuh fd 3/4 ni vec dal, na 3 pa je bila vticnica obvestil: prej jo je ovil, fd 4 ni obstajal, in
+        ob pospravljanju je zaprl tujo vticnico - READY in utrip nista vec prisla do varuha."""
+        import gc
+        obvestila = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        r, w = os.pipe()
+        os.close(w)                                        # neveljaven opisnik
+        try:
+            self.assertIsNone(scit_proces.podedovane_vticnice("%d,%d" % (obvestila.fileno(), w)))
+            gc.collect()
+            os.fstat(obvestila.fileno())                   # se odprta
+            self.assertIsNone(scit_proces.podedovane_vticnice("%d,%d" % (r, r)))
+            os.fstat(r)
+        finally:
+            obvestila.close()
+            os.close(r)
+
+
 class LaznScit:
     def __init__(self):
         self.klici = []
@@ -251,19 +386,52 @@ class Vticnica(unittest.TestCase):
 
 
 class OdjemalecBrezProcesa(unittest.TestCase):
-    def test_vrne_zadnje_stanje(self):
+    def tearDown(self):
+        os_scit.zunanje_nesifrirano = None
+
+    def test_mrtev_proces_ni_prikazan_kot_zascita(self):
+        """Proces Scit ne odgovori (ponovni zagon ali obup varuha): stanje NE sme kazati »deluje« (pregled 1.0.129)."""
         shramba = Shramba()
         shramba.podatki.update(scit=True, scit_naprej="mullvad")
         o = scit_odjemalec.ScitOdjemalec(shramba, os.path.join(tempfile.mkdtemp(), "ni.sock"))
+        o._stanje = {"vklop": True, "tece": True, "napaka": "", "blokiranih": 3, "nesifrirano": True}
+        o._cas = time.monotonic()
+        for s in (o.stanje(), o.stanje_pulta(), o.nastavi(False), o.stanje_pulta(preveri=False)):
+            self.assertFalse(s["tece"])
+            self.assertEqual(s["napaka"], "proces")
+            self.assertTrue(s["vklop"])                   # uporabnikova nastavitev ostane
+        self.assertFalse(os_scit.nesifrirano_v_procesu())
+        o.koncaj()                                        # konec Safeer OS Scita ne ustavi
+        from core import pladenj_sni
+        self.assertEqual(pladenj_sni.vrsta_scita(o.stanje_pulta(preveri=False)), "napaka")
+
+    def test_nesifrirano_samo_iz_svezega_stanja(self):
+        o = scit_odjemalec.ScitOdjemalec(Shramba(), os.path.join(tempfile.mkdtemp(), "ni.sock"))
+        o._stanje = {"nesifrirano": True}
+        o._cas = time.monotonic()
+        self.assertTrue(os_scit.nesifrirano_v_procesu())
+        o._cas = time.monotonic() - 3600                  # DoH je medtem spet delal: staro stanje ne velja
+        self.assertFalse(os_scit.nesifrirano_v_procesu())
+
+
+class StanjePulta(unittest.TestCase):
+    def test_hitro_stanje_ima_nesifrirano_in_vrata(self):
+        scit = os_scit.Scit(Shramba(), mapa=tempfile.mkdtemp())
+        scit._razlog = (time.monotonic(), "")
+        s = scit.stanje_pulta(preveri=False)
+        self.assertIn("nesifrirano", s)
+        self.assertIn("vrata", s)
+
+    def test_splet_dobi_vrata_scita_takoj(self):
+        """Splet v Safeer OS ne sme prvega imena filtrirati sam (svoji seznami v pomnilniku), ko Scit tece drugje."""
+        from core import doh_proxy
+        o = scit_odjemalec.ScitOdjemalec(Shramba(), os.path.join(tempfile.mkdtemp(), "ni.sock"))
         try:
-            self.assertEqual(o.stanje(), {})
-            self.assertEqual(o.nastavi(False), {})
-            self.assertTrue(o.vklopljen)                  # iz shrambe, dokler procesa ni
-            self.assertEqual(o.naprej()[0], "mullvad" if "mullvad" in os_scit.IZBIRE_NAPREJ else os_scit.PRIVZETI_NAPREJ)
-            o.koncaj()                                    # konec Safeer OS Scita ne ustavi
+            with mock.patch.object(doh_proxy, "_scit_vrata", (0.0, 0)):
+                o._stanje_iz({"tece": True, "vrata": 5355})
+                self.assertEqual(doh_proxy.sistemski_scit_vrata(), 5355)
         finally:
             os_scit.zunanje_nesifrirano = None
-
 
 if __name__ == "__main__":
     unittest.main()
