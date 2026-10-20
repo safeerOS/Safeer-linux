@@ -9,17 +9,11 @@ import copy
 import re
 import json
 import uuid
-import tempfile
-import threading
 import time
-import contextlib
 import urllib.parse
 from typing import Dict, Any, List, Tuple
 
-try:
-    import fcntl
-except ImportError:  # Windows: brez zaklepa med procesi (tam tece en sam proces)
-    fcntl = None
+from core import shramba_json
 
 
 def normalize_web_url(url: str) -> str:
@@ -210,68 +204,6 @@ def preseli_dns_na_scit(merged: Dict[str, Any], user_settings: Dict[str, Any]) -
     return True
 
 
-_NI = object()
-#: Zapis nastavitev v enem procesu (vec niti) - zaklep med procesi je flock na settings.json.lock.
-_ZAKLEP_ZAPISA = threading.RLock()
-
-
-@contextlib.contextmanager
-def _zaklep_datoteke(pot: str, rok: float = 2.0):
-    """Safeer OS in Safeer Browser (in Flatpak brskalnika) si delijo settings.json: zapis enega ne sme prekriti
-    zapisa drugega. Zaklep je najvec `rok` sekund - zataknjen proces ne sme ustaviti vmesnika (potem brez zaklepa)."""
-    if fcntl is None:
-        yield
-        return
-    fd = None
-    try:
-        fd = os.open(pot + ".lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
-        meja = time.monotonic() + rok
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= meja:
-                    print("[Config] zaklep nastavitev zaseden, pisem brez njega", flush=True)
-                    break
-                time.sleep(0.01)
-    except OSError:
-        pass
-    try:
-        yield
-    finally:
-        if fd is not None:
-            os.close(fd)
-
-
-def _preberi_slovar(pot: str):
-    """Vsebina settings.json kot slovar ali None (ni datoteke, ni berljiva ali ni slovar JSON)."""
-    try:
-        with open(pot, "r", encoding="utf-8") as f:
-            v = json.load(f)
-        return v if isinstance(v, dict) else None
-    except (OSError, ValueError):
-        return None
-
-
-def _zapisi_atomsko(pot: str, podatki: Dict[str, Any]) -> None:
-    """Nova vsebina v zacasno datoteko v isti mapi, fsync, nato os.replace: bralec ali sesutje sredi zapisa nikoli
-    ne vidi napol zapisane datoteke (prej open('w') + json.dump - prekinjen zapis je pomenil prazne nastavitve)."""
-    fd, zacasna = tempfile.mkstemp(prefix=".settings-", suffix=".tmp", dir=os.path.dirname(pot) or ".")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(podatki, f, indent=4, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(zacasna, pot)
-    except BaseException:
-        try:
-            os.unlink(zacasna)
-        except OSError:
-            pass
-        raise
-
-
 class ConfigManager:
     def __init__(self):
         self.config_dir = CONFIG_DIR
@@ -284,13 +216,8 @@ class ConfigManager:
 
     def _pokvarjena(self, napaka) -> None:
         """Neberljive nastavitve ne prepisemo s privzetimi: shranimo jo ob strani (rocna obnova) in zacnemo znova."""
-        shramba = f"{self.config_file}.pokvarjen-{time.strftime('%Y%m%d-%H%M%S')}"
-        try:
-            os.replace(self.config_file, shramba)
-            print(f"[Config] Nastavitve niso berljive ({napaka}); shranjene kot {shramba}, uporabim privzete.",
-                  flush=True)
-        except OSError as e:
-            print(f"[Config] Nastavitve niso berljive ({napaka}) in jih ni mogoce umakniti: {e}", flush=True)
+        if shramba_json.umakni_pokvarjeno(self.config_file, napaka) is None:
+            print(f"[Config] Nastavitve niso berljive ({napaka}) in jih ni mogoce umakniti", flush=True)
 
     def load_settings(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_dir):
@@ -377,32 +304,14 @@ class ConfigManager:
         Kljuce, ki jih je medtem spremenil drug proces, prevzame tudi v pomnilnik."""
         if settings is not None:
             self.settings = settings
-        with _ZAKLEP_ZAPISA:
-            try:
-                os.makedirs(self.config_dir, exist_ok=True)
-                with _zaklep_datoteke(self.config_file):
-                    znano = getattr(self, "_na_disku", {})
-                    spremenjeno = {k for k in set(self.settings) | set(znano)
-                                   if self.settings.get(k, _NI) != znano.get(k, _NI)}
-                    disk = _preberi_slovar(self.config_file)
-                    if disk is None:
-                        izid = copy.deepcopy(self.settings)
-                    else:
-                        izid = disk
-                        for k in spremenjeno:
-                            if k in self.settings:
-                                izid[k] = copy.deepcopy(self.settings[k])
-                            else:
-                                izid.pop(k, None)
-                    _zapisi_atomsko(self.config_file, izid)
-                    for k, v in izid.items():
-                        if k not in spremenjeno and self.settings.get(k, _NI) != v:
-                            self.settings[k] = copy.deepcopy(v)
-                    self._na_disku = copy.deepcopy(self.settings)
-                return True
-            except Exception as e:
-                print(f"[Config] Napaka pri shranjevanju: {e}")
-                return False
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
+                                                           getattr(self, "_na_disku", {}), indent=4)
+            return True
+        except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
+            print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
+            return False
 
     def get(self, key: str, default=None):
         return self.settings.get(key, default)

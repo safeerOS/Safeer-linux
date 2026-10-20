@@ -8,6 +8,7 @@ import os
 import select
 import signal
 import socket
+import struct
 import sys
 import tempfile
 import textwrap
@@ -330,7 +331,8 @@ class Pomozne(unittest.TestCase):
 
     def test_sestava_procesov(self):
         mapa = tempfile.mkdtemp()
-        with mock.patch.object(vp, "lupina_mogoca", lambda _k: True):
+        with mock.patch.object(vp, "lupina_mogoca", lambda _k: True), \
+                mock.patch.object(vp, "scit_v_procesu", lambda: False):
             procesi = vp.sestavi(["--delovna"], KOREN, sys.executable, mapa)
         lupina, os_ = procesi
         self.assertTrue(os_.glavni and not lupina.glavni)
@@ -339,10 +341,73 @@ class Pomozne(unittest.TestCase):
         self.assertTrue(os_.argv[-1] == "--delovna" and os_.argv[1].endswith("safeer_os.py"))
         self.assertTrue(lupina.argv[1].endswith(os.path.join("core", "lupina_proces.py")))
         self.assertEqual(os_.oom, vp.OOM_OS)
-        with mock.patch.object(vp, "lupina_mogoca", lambda _k: False):
+        with mock.patch.object(vp, "lupina_mogoca", lambda _k: False), \
+                mock.patch.object(vp, "scit_v_procesu", lambda: False):
             procesi = vp.sestavi(["--delovna"], KOREN, sys.executable, mapa)
         self.assertEqual([p.ime for p in procesi], ["safeer-os"])
         self.assertNotIn("SAFEER_LUPINA_VTIC", procesi[0].okolje)
+
+    def test_scit_v_svojem_procesu(self):
+        """1.0.129: Scit je prvi proces; varuh drzi vticnici na 127.0.0.1 in ju da otroku kot fd 3 in 4."""
+        mapa = tempfile.mkdtemp()
+        vticnice = []
+        with mock.patch.object(vp, "lupina_mogoca", lambda _k: False), \
+                mock.patch.object(vp, "vticnici_scita", lambda: tuple(vticnice)):
+            u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            u.bind(("127.0.0.1", 0))
+            t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            t.bind(("127.0.0.1", 0))
+            vticnice[:] = [u, t]
+            procesi = vp.sestavi(["--delovna"], KOREN, sys.executable, mapa)
+        try:
+            scit, os_ = procesi
+            self.assertEqual(scit.ime, "safeer-scit")
+            self.assertTrue(scit.storitev and not scit.glavni and os_.glavni)
+            self.assertTrue(scit.argv[1].endswith(os.path.join("core", "scit_proces.py")))
+            self.assertEqual(scit.podedovani, (u.fileno(), t.fileno()))
+            self.assertEqual(scit.okolje["SAFEER_SCIT_FDS"], "3,4")
+            self.assertEqual(scit.okolje["SAFEER_SCIT_VTIC"], os_.okolje["SAFEER_SCIT_VTIC"])
+            self.assertEqual(scit.zamrznitev_s, vp.ZAMRZNITEV_SCIT_S)
+            self.assertIsNotNone(scit.ob_obupu)
+            with mock.patch.dict(os.environ, {"SAFEER_SCIT_PROCES": "0"}), \
+                    mock.patch.object(vp, "lupina_mogoca", lambda _k: False):
+                self.assertEqual([p.ime for p in vp.sestavi(["--delovna"], KOREN, sys.executable, mapa)], ["safeer-os"])
+        finally:
+            u.close()
+            t.close()
+
+    def test_vticnici_scita(self):
+        vticnici = vp.vticnici_scita()
+        if vticnici is None:
+            self.skipTest("vsa vrata Scita so zasedena")
+        u, t = vticnici
+        try:
+            self.assertEqual(u.getsockname(), t.getsockname())
+            self.assertIn(u.getsockname()[1], (5354, 5355, 5356, 5357))
+            self.assertTrue(u.fileno() >= 10 and t.fileno() >= 10)
+            self.assertFalse(u.get_inheritable() or t.get_inheritable())   # lupina in Safeer OS ju ne dobita
+        finally:
+            u.close()
+            t.close()
+
+    def test_brez_lupine_ne_ustavi_scita(self):
+        """SAFEER_BREZ_LUPINE izkljuci lupino, ne Scita (storitev)."""
+        mapa = tempfile.mkdtemp()
+        scit = vp.Proces("safeer-scit", ["/bin/true"], zamrznitev_s=8, zagon_s=45, storitev=True)
+        lupina = vp.Proces("safeer-lupina", ["/bin/true"], zamrznitev_s=20, zagon_s=60)
+        os_ = vp.Proces("safeer-os", ["/bin/true"], zamrznitev_s=30, zagon_s=120, glavni=True)
+        v = vp.Varuh([scit, lupina, os_], mapa, dnevnik=lambda _b: None)
+        try:
+            os_.popen = mock.Mock(pid=4242, poll=lambda: None)
+            podatki = b"SAFEER_BREZ_LUPINE=1"
+            pomozni = [(socket.SOL_SOCKET, socket.SCM_CREDENTIALS, struct.pack("3i", 4242, os.getuid(), os.getgid()))]
+            v.vtic.close()
+            v.vtic = mock.Mock(recvmsg=mock.Mock(side_effect=[(podatki, pomozni, 0, None), BlockingIOError()]))
+            v._beri_obvestila()
+            self.assertTrue(lupina.izkljucen)
+            self.assertFalse(scit.izkljucen)
+        finally:
+            v.pospravi()
 
     def test_varuh_je_majhen(self):
         """Varuh ne uvaza subprocess, json, typing, Gtk ali Qt ob zagonu (izmerjeno: 8,8 MB namesto 15 MB)."""

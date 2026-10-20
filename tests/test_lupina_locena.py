@@ -526,7 +526,8 @@ class ZivoWayland(unittest.TestCase):
                 time.sleep(0.2)
             procesi = stanje().get("procesi") or {}
             try:
-                self.assertEqual(list(procesi), ["safeer-os"], "na Waylandu brez locene lupine")
+                # Scit tece v svojem procesu (1.0.129) tudi na Waylandu; lupine ni.
+                self.assertEqual([i for i in procesi if i != "safeer-scit"], ["safeer-os"], "na Waylandu brez locene lupine")
                 self.assertEqual(procesi["safeer-os"]["stanje"], "tece", sw.dnevnik())
                 stari = procesi["safeer-os"]["pid"]
                 os.kill(stari, signal.SIGSEGV)

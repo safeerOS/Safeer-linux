@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import configparser
 import hashlib
-import json
 import os
 import re
 import shutil
@@ -20,7 +19,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional, Tuple
 
-from core import gostitelj, link_programi, os_oblak_igre, zasebni_webkit
+from core import gostitelj, link_programi, os_oblak_igre, shramba_json, zasebni_webkit
 
 NAJVEC = 400
 IKONA_VELIKOST = 96
@@ -163,36 +162,15 @@ def oblika_namestitve(pot: str) -> str:
     return ""
 
 
-class Shramba:
-    """os.json: uporaba programov, pripeti programi in nastavitve Safeer OS."""
+class Shramba(shramba_json.Shramba):
+    """os.json: uporaba programov, pripeti programi in nastavitve Safeer OS.
+
+    Pisejo jo Safeer OS in Scit v svojem procesu (core/scit_proces.py): zapis samo spremenjenih kljucev pod zaklepom,
+    atomsko s fsync (core/shramba_json.py). Prej je vsak zapis zapisal celo kopijo procesa in pokvarjena datoteka je
+    tiho pomenila prazne nastavitve."""
 
     def __init__(self, pot: Optional[str] = None) -> None:
-        self.pot = pot or os.path.join(MAPA_NASTAVITEV, "os.json")
-        try:
-            with open(self.pot, encoding="utf-8") as f:
-                self.podatki = json.load(f) or {}
-        except Exception:
-            self.podatki = {}
-        if not isinstance(self.podatki, dict):
-            self.podatki = {}
-
-    def get(self, kljuc: str, privzeto=None):
-        v = self.podatki.get(kljuc)
-        return privzeto if v is None else v
-
-    def set(self, kljuc: str, vrednost) -> None:
-        self.podatki[kljuc] = vrednost
-        self.shrani()
-
-    def shrani(self) -> None:
-        try:
-            os.makedirs(os.path.dirname(self.pot), exist_ok=True)
-            zacasna = self.pot + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as f:
-                json.dump(self.podatki, f, ensure_ascii=False, indent=1)
-            os.replace(zacasna, self.pot)
-        except Exception:
-            pass
+        super().__init__(pot or os.path.join(MAPA_NASTAVITEV, "os.json"))
 
 
 class Programi:

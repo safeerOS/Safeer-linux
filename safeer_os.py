@@ -1852,8 +1852,14 @@ class SafeerOS(Gtk.Application):
         # Novo e-pismo: obvestilo namizja (kot Gmail in Outlook), klik odpre ta pogovor (lastnik, 15. 10. 2026: pismo
         # je prislo brez znacke in brez obvestila).
         self.sporocila.obvesti_novo = self._obvesti_novo_pismo
-        #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
-        self.scit = os_scit.Scit(self.shramba)
+        #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej. Pod varuhom tece v
+        #: svojem procesu (core/scit_proces.py, 1.0.129): zamrznitev ali sesutje tega procesa ga ne ustavi vec.
+        vtic_scita = okolje_procesa.prevzemi("SAFEER_SCIT_VTIC")
+        if vtic_scita:
+            from core import scit_odjemalec
+            self.scit = scit_odjemalec.ScitOdjemalec(self.shramba, vtic_scita)
+        else:
+            self.scit = os_scit.Scit(self.shramba)
         self._en_vir_naprej()
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}

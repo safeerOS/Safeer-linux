@@ -101,6 +101,11 @@ ZAMRZNITEV_OS_S = 30
 ZAMRZNITEV_LUPINA_S = 20
 ZAGON_OS_S = 120
 ZAGON_LUPINA_S = 60
+#: Scit (core/scit_proces.py) utripa vsako sekundo, ko razresevalnik odgovori: zataknjen Scit zamenjamo v nekaj sekundah
+#: (prej je zamrznjen Safeer OS Scit ustavil za ~30 s, odpornost 20. 10. 2026). Vrata medtem drzi varuh.
+ZAMRZNITEV_SCIT_S = 8
+ZAGON_SCIT_S = 45
+USTAVI_SCIT_S = 10
 #: Po SIGABRT (sled) toliko sekund do SIGKILL.
 ABORT_DO_KILL_S = 5
 #: Ustavljanje (SIGTERM): Safeer OS vrne DNS Scita, pospravi Splet (do 5 s za WebKit) - nato SIGKILL.
@@ -255,10 +260,13 @@ def _dnevnik(besedilo: str) -> None:
 class Otrok:
     """Zagnan proces (os.posix_spawn - brez modula subprocess, ki bi varuhu dodal ~1 MB)."""
 
-    def __init__(self, argv: list, okolje: dict, izhod_fd: int | None = None, oom: int = 0) -> None:
+    def __init__(self, argv: list, okolje: dict, izhod_fd: int | None = None, oom: int = 0,
+                 podedovani: tuple = ()) -> None:
         akcije = [(os.POSIX_SPAWN_OPEN, 0, os.devnull, os.O_RDONLY, 0)]
         if izhod_fd is not None:
             akcije += [(os.POSIX_SPAWN_DUP2, izhod_fd, 1), (os.POSIX_SPAWN_DUP2, izhod_fd, 2)]
+        # Vticnice, ki jih otrok podeduje kot fd 3, 4 ... (izvor je vedno > 2 + len: dup2 ne povozi drugega izvora).
+        akcije += [(os.POSIX_SPAWN_DUP2, fd, 3 + i) for i, fd in enumerate(podedovani)]
         # SIGPIPE in SIGXFSZ Python ignorira; otrok naj ju dobi privzeta (kot subprocess z restore_signals).
         self.pid = os.posix_spawn(argv[0], argv, okolje, file_actions=akcije,
                                   setsigdef=(signal.SIGPIPE, signal.SIGXFSZ))
@@ -294,11 +302,18 @@ class Proces:
 
     def __init__(self, ime: str, argv: list, okolje: dict | None = None, *, zamrznitev_s: float, zagon_s: float,
                  prost_mib: int = 0, meja_mib: int = 0, ustavi_s: float = 5, zacetni_zamik_s: float = 1.0,
-                 oom: int = 0, glavni: bool = False) -> None:
+                 oom: int = 0, glavni: bool = False, storitev: bool = False, podedovani: tuple = (),
+                 ob_obupu=None) -> None:
         self.ime, self.argv, self.okolje = ime, list(argv), dict(okolje or {})
         self.zamrznitev_s, self.zagon_s = zamrznitev_s, zagon_s
         self.prost_mib, self.meja_mib, self.ustavi_s = prost_mib, meja_mib, ustavi_s
         self.zacetni_zamik_s, self.oom, self.glavni = zacetni_zamik_s, oom, glavni
+        #: Storitev (Scit): tece neodvisno od namizja - SAFEER_BREZ_LUPINE je ne izkljuci.
+        self.storitev = storitev
+        #: Opisniki (fd), ki jih otrok dobi kot 3, 4 ... (vticnici Scita - ostaneta odprti med ponovnimi zagoni).
+        self.podedovani = tuple(podedovani)
+        #: Ob obupu (namesto obvestila): Scit zapre vrata in vrne DNS, sicer bi resolved cakal na mrtva vrata.
+        self.ob_obupu = ob_obupu
         self.popen: Otrok | None = None
         self.zacetek = 0.0
         self.pripravljen = False
@@ -392,7 +407,7 @@ class Varuh:
     def _zazeni(self, p: Proces) -> None:
         obnova = p.zagonov > 0 and p.pid_prej > 0 and not (p.obnova_prej and p.trajanje_prej < OBNOVA_PO_S)
         try:
-            p.popen = Otrok(p.argv, self._okolje(p, obnova), self.izhod_fd, p.oom)
+            p.popen = Otrok(p.argv, self._okolje(p, obnova), self.izhod_fd, p.oom, p.podedovani)
         except OSError as e:
             p.popen = None
             self.dnevnik("%s se ni zagnal: %s" % (p.ime, e))
@@ -468,7 +483,7 @@ class Varuh:
                 elif kljuc == "SAFEER_BREZ_LUPINE" and vrednost == "1" and p.glavni:
                     # Safeer OS lupine ne more streci (vticnica) in je odprl svojo delovno povrsino: lupino ugasnemo.
                     for drug in self.procesi:
-                        if drug is not p:
+                        if drug is not p and not drug.storitev:
                             drug.izkljucen = True
                             self._ustavi(drug, "konec")
                     self.dnevnik("Safeer OS ne streze lupine: lupina izkljucena")
@@ -481,7 +496,12 @@ class Varuh:
         if n >= NAJVEC_NAPAK:
             p.obupal = True
             self.dnevnik("%s: %s - %d napak v %d min, varuh odneha" % (p.ime, razlog, n, OKNO_NAPAK_S // 60))
-            if self.ob_obupu is not None:
+            if p.ob_obupu is not None:
+                try:
+                    p.ob_obupu(p)
+                except Exception as e:  # noqa: BLE001
+                    self.dnevnik("%s ob obupu: %s" % (p.ime, e))
+            elif self.ob_obupu is not None:
                 try:
                     self.ob_obupu(p)
                 except Exception as e:  # noqa: BLE001
@@ -687,10 +707,74 @@ def lupina_mogoca(koren: str) -> bool:
     return PathFinder.find_spec("PySide6", [p for p in poti if os.path.isdir(p)]) is not None
 
 
+def vticnici_scita() -> tuple | None:
+    """UDP in TCP vticnica na 127.0.0.1 na prvih prostih vratih Scita (core/os_scit.VRATA - isti vrstni red), z
+    opisnikoma nad 9 (Otrok ju da otroku kot 3 in 4). None, ce so vsa vrata zasedena (Scit takrat poisce sam)."""
+    import fcntl
+    for vrata in (5354, 5355, 5356, 5357):
+        u = t = None
+        try:
+            u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            u.bind(("127.0.0.1", vrata))
+            t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            t.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            t.bind(("127.0.0.1", vrata))
+            t.listen(64)
+        except OSError:
+            for v in (u, t):
+                if v is not None:
+                    v.close()
+            continue
+        izid = []
+        for v in (u, t):
+            fd = fcntl.fcntl(v.fileno(), fcntl.F_DUPFD_CLOEXEC, 10)
+            v.close()
+            izid.append(socket.socket(fileno=fd))
+        return tuple(izid)
+    return None
+
+
+def scit_v_procesu() -> bool:
+    """Scit v svojem procesu (privzeto). SAFEER_SCIT_PROCES=0: kot do 1.0.128 v procesu Safeer OS (zasilni izklop)."""
+    return os.environ.get("SAFEER_SCIT_PROCES", "1").strip() != "0"
+
+
+def _scit_ob_obupu(koren: str, python: str, vticnici: tuple):
+    def obup(p: Proces) -> None:
+        # Vrata zapremo (resolved dobi »vrata zaprta« in takoj vprasa usmerjevalnika, namesto da caka na vsako ime) in
+        # vmesnikom vrnemo DNS usmerjevalnika - brez filtra, a racunalnik ima DNS.
+        for v in vticnici:
+            try:
+                v.close()
+            except OSError:
+                pass
+        p.podedovani = ()
+        import subprocess
+        try:
+            subprocess.run([python, os.path.join(koren, "core", "scit_proces.py"), "--pospravi"],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return obup
+
+
 def sestavi(argumenti: list, koren: str, python: str, mapa: str) -> list:
-    """Procesa za delovno povrsino: lupina (ce je mogoca) in Safeer OS."""
+    """Procesi za delovno povrsino: Scit (v svojem procesu), lupina (ce je mogoca) in Safeer OS."""
     procesi = []
     okolje_os = {"SAFEER_OS_NADZOR": str(os.getpid())}
+    if scit_v_procesu():
+        vticnici = vticnici_scita()
+        vtic_scita = os.path.join(mapa, "scit.sock")
+        okolje_scit = {"SAFEER_SCIT_VTIC": vtic_scita}
+        if vticnici is not None:
+            okolje_scit["SAFEER_SCIT_FDS"] = "3,4"
+        okolje_os["SAFEER_SCIT_VTIC"] = vtic_scita
+        # Prvi na seznamu: zazene se pred Safeer OS, ki ga ob zagonu vprasa za stanje.
+        procesi.append(Proces("safeer-scit", [python, os.path.join(koren, "core", "scit_proces.py")], okolje_scit,
+                              zamrznitev_s=ZAMRZNITEV_SCIT_S, zagon_s=ZAGON_SCIT_S, ustavi_s=USTAVI_SCIT_S,
+                              zacetni_zamik_s=0.2, storitev=True,
+                              podedovani=tuple(v.fileno() for v in vticnici) if vticnici else (),
+                              ob_obupu=_scit_ob_obupu(koren, python, vticnici or ())))
     if lupina_mogoca(koren):
         vtic = os.environ.get("SAFEER_LUPINA_VTIC") or os.path.join(mapa, "lupina.sock")
         okolje_os["SAFEER_LUPINA_VTIC"] = vtic

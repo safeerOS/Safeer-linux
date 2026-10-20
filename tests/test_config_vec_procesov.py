@@ -95,7 +95,7 @@ class ZapisJeAtomski(Profil):
             self.assertFalse(c.set("language", "es"))
         self.assertEqual(self.pot.read_bytes(), pred)
         self.assertEqual(sorted(p.name for p in Path(self.mapa.name).iterdir()
-                                if p.name.startswith(".settings-")), [])
+                                if p.name.startswith(".settings.json.")), [])
 
     def test_pokvarjena_datoteka_ni_prepisana_s_privzetimi(self):
         self.pot.write_text('{"language": "de", "custom_portals": [', encoding="utf-8")

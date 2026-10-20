@@ -322,10 +322,40 @@ class Razresevalnik:
         self._tcp: Optional[socket.socket] = None
         self._tece = False
         self._kljuc = threading.Lock()
+        self._proste = threading.BoundedSemaphore(self.NAJVEC_HKRATI)
+        self.zavrzenih = 0
+
+    #: Najvec hkrati obdelanih poizvedb (UDP paketov in TCP povezav). Prej je vsak paket dobil svojo nit brez meje:
+    #: nevihta poizvedb (ali zataknjen DoH) je lahko ustvarila tisoce niti in podrla proces z vmesnikom vred. Cez mejo
+    #: paket zavrzemo - systemd-resolved ga ponovi (20. 10. 2026, odpornost 1.0.129).
+    NAJVEC_HKRATI = 256
+
+    def _zacni(self, u: socket.socket, t: socket.socket, vrata: int) -> int:
+        self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
+        _AKTIVNA_VRATA.add(vrata)
+        _AKTIVNI.add(self)
+        threading.Thread(target=self._zanka_udp, name="safeer-scit-udp", daemon=True).start()
+        threading.Thread(target=self._zanka_tcp, name="safeer-scit-tcp", daemon=True).start()
+        return vrata
+
+    def zazeni_z_vticnicama(self, u: socket.socket, t: socket.socket) -> int:
+        """Zazene na vticnicah, ki jih je odprl in podedoval varuh (core/scit_proces): med ponovnim zagonom procesa
+        Scit vrata ostanejo odprta in poizvedbe cakajo v cakalni vrsti jedra, namesto da bi resolved presel na
+        usmerjevalnik mimo Scita."""
+        if self._tece:
+            return self.vrata
+        naslov, vrata = u.getsockname()[:2]
+        if naslov != NASLOV or vrata not in VRATA or t.getsockname()[:2] != (naslov, vrata):
+            raise ValueError("podedovani vticnici nista na %s:%s" % (NASLOV, "/".join(map(str, VRATA))))
+        return self._zacni(u, t, vrata)
 
     def zazeni(self) -> int:
         if self._tece:
             return self.vrata
+        if _PODEDOVANE is not None:
+            # Proces Scit pod varuhom: vrata drzi varuh. Kopiji (dup) - ob izklopu zapremo svojo, varuhova ostane.
+            u, t = _PODEDOVANE
+            return self.zazeni_z_vticnicama(u.dup(), t.dup())
         for vrata in VRATA:
             u = t = None
             try:
@@ -341,13 +371,16 @@ class Razresevalnik:
                     if s is not None:
                         s.close()
                 continue
-            self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
-            _AKTIVNA_VRATA.add(vrata)
-            _AKTIVNI.add(self)
-            threading.Thread(target=self._zanka_udp, name="safeer-scit-udp", daemon=True).start()
-            threading.Thread(target=self._zanka_tcp, name="safeer-scit-tcp", daemon=True).start()
-            return vrata
+            return self._zacni(u, t, vrata)
         return 0
+
+    def _zasedi(self) -> bool:
+        """Prosto mesto za novo poizvedbo (brez cakanja); False = meja NAJVEC_HKRATI dosezena, poizvedbo zavrzi."""
+        if self._proste.acquire(blocking=False):
+            return True
+        with self._kljuc:
+            self.zavrzenih += 1
+        return False
 
     def ustavi(self) -> None:
         self._tece = False
@@ -495,11 +528,19 @@ class Razresevalnik:
             b += d
         return b
 
+    #: Zanki branja preverita vsakih toliko sekund, ali razresevalnik se tece (ustavi() ju konca brez shutdown -
+    #: podedovane vticnice si deli z varuhom, shutdown bi ustavil tudi njegovo kopijo).
+    ZANKA_S = 1.0
+
     def _zanka_udp(self) -> None:
         u = self._udp
-        while self._tece and u is not None:
+        if u is not None:
+            u.settimeout(self.ZANKA_S)
+        while self._tece and u is not None and self._udp is u:
             try:
                 paket, od = u.recvfrom(4096)
+            except TimeoutError:
+                continue
             except ConnectionResetError:
                 # Windows: ce odjemalec odide, preden dobi odgovor, sistem ob naslednjem branju javi napako 10054
                 # (ICMP »vrata zaprta«). To ni konec razresevalnika - prej se je zanka tu koncala in Scit je utihnil:
@@ -508,22 +549,39 @@ class Razresevalnik:
             except OSError:
                 break
 
+            if not self._zasedi():
+                continue
+
             def delo(p=paket, o=od):
-                odgovor = self._odgovori(p, False)
-                if odgovor and self._udp is not None:
-                    try:
-                        self._udp.sendto(odgovor, o)
-                    except OSError:
-                        pass
-            threading.Thread(target=delo, daemon=True).start()
+                try:
+                    odgovor = self._odgovori(p, False)
+                    if odgovor and self._udp is not None:
+                        try:
+                            self._udp.sendto(odgovor, o)
+                        except OSError:
+                            pass
+                finally:
+                    self._proste.release()
+            self._zazeni_delo(delo)
 
     def _zanka_tcp(self) -> None:
         t = self._tcp
-        while self._tece and t is not None:
+        if t is not None:
+            t.settimeout(self.ZANKA_S)
+        while self._tece and t is not None and self._tcp is t:
             try:
                 s, _ = t.accept()
+            except TimeoutError:
+                continue
             except OSError:
                 break
+
+            if not self._zasedi():
+                try:
+                    s.close()
+                except OSError:
+                    pass
+                continue
 
             def delo(s=s):
                 try:
@@ -539,7 +597,17 @@ class Razresevalnik:
                         s.close()
                     except OSError:
                         pass
-            threading.Thread(target=delo, daemon=True).start()
+                    self._proste.release()
+            self._zazeni_delo(delo)
+
+    def _zazeni_delo(self, delo: Callable[[], None]) -> None:
+        try:
+            threading.Thread(target=delo, name="safeer-scit-poizvedba", daemon=True).start()
+        except RuntimeError:
+            # Sistem ne da nove niti (meja procesa): poizvedbo zavrzemo, mesto sprostimo - zanka tece naprej.
+            self._proste.release()
+            with self._kljuc:
+                self.zavrzenih += 1
 
 
 # ---------------------------------------------------------------------- nabor domen
@@ -1018,11 +1086,28 @@ def vrata_nasa(vrata: int) -> bool:
 #: sprasujemo nikogar.
 _AKTIVNA_VRATA: set = set()
 _AKTIVNI = weakref.WeakSet()
+#: (UDP, TCP) vticnici, ki ju je odprl varuh (core/scit_proces.py) - Razresevalnik.zazeni ju uporabi namesto svojih.
+_PODEDOVANE: Optional[Tuple[socket.socket, socket.socket]] = None
+#: Scit v svojem procesu (core/scit_odjemalec.py): ali je nazadnje posiljal nesifrirano - zadnje znano stanje.
+zunanje_nesifrirano: Optional[Callable[[], bool]] = None
+
+
+def uporabi_podedovane(u: socket.socket, t: socket.socket) -> None:
+    """Razresevalniki tega procesa naj poslusajo na vticnicah varuha (ostanejo odprte med ponovnimi zagoni)."""
+    global _PODEDOVANE
+    _PODEDOVANE = (u, t)
 
 
 def nesifrirano_v_procesu() -> bool:
-    """Ali je Scit v tem procesu nazadnje moral imena poslati nesifrirano (Splet to pokaze ob svojem scitu)."""
-    return any(r.vrata and r.naprej is not None and r.sifrirano_naprej() and r.nesifrirano() for r in list(_AKTIVNI))
+    """Ali je Scit (v tem procesu ali v svojem, ki ga ta proces vprasa) nazadnje moral imena poslati nesifrirano
+    (Splet to pokaze ob svojem scitu)."""
+    if any(r.vrata and r.naprej is not None and r.sifrirano_naprej() and r.nesifrirano() for r in list(_AKTIVNI)):
+        return True
+    zunanje = zunanje_nesifrirano
+    try:
+        return bool(zunanje is not None and zunanje())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _odgovori_kanarcku(vrata: int, cas: float) -> bool:
