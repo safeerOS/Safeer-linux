@@ -1389,6 +1389,7 @@ Item {
 
     Programi {
         id: programi
+        objectName: "panelProgrami"
         zamegljeno: zamegljeno
         x: medijski.x + medijski.width + koren.rob; y: koren.vrhPanelov
         width: koren.width - koren.robDesno - x - koren.rob; height: koren.height - koren.robSpodaj - y - koren.rob

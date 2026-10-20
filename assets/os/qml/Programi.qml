@@ -65,10 +65,18 @@ Steklo {
         koren.klic("priljubljenoNastavi", [kljuc_, vrednost], function (p) { koren.nastaviPriljubljeno(p) })
     }
     function nastaviRazvrsti(v) { nastavi("programiRazvrsti", v); if (zastarelo && v !== "ime") nalozi() }
-    function ujema(p) { return !niz || String(p.ime).toLowerCase().indexOf(niz.toLowerCase()) >= 0 }
+    // Iskanje po imenu, splosnem imenu in kljucnih besedah programa (kot zgornja lupa): »AI« najde Claude.
+    function ujema(p) {
+        if (!niz) return true
+        var n = niz.toLowerCase()
+        return [p.ime, p.splosno].concat(p.kljucne || []).some(function (x) { return !!x && String(x).toLowerCase().indexOf(n) >= 0 })
+    }
+    // Iskanje gre cez VSE programe, ne samo izbrano kategorijo (testni PC 20. 10. 2026: v kategoriji Drugo »cl« ni
+    // nasel Claude, ki je v Ustvarjanju - zgornja lupa pa ga je). Med iskanjem je zato oznacena kategorija Vse.
+    readonly property string izbrana: niz ? "" : skupina
     readonly property var prikazani: {
-        if (skupina === "priljubljeni") return priljubljeni.filter(ujema)
-        var r = seznam.filter(function (p) { return (!skupina || panel.kategorijaP(p) === skupina) && panel.ujema(p) })
+        if (izbrana === "priljubljeni") return priljubljeni.filter(ujema)
+        var r = seznam.filter(function (p) { return (!izbrana || panel.kategorijaP(p) === izbrana) && panel.ujema(p) })
         var po = razvrsti
         return r.sort(function (a, b) {
             if (po === "nazadnje" && (b.zadnjic || 0) !== (a.zadnjic || 0)) return (b.zadnjic || 0) - (a.zadnjic || 0)
@@ -233,20 +241,22 @@ Steklo {
                     model: [""].concat(panel.linux && panel.priljubljeni.length ? ["priljubljeni"] : []).concat(panel.skupine)
                     delegate: Rectangle {
                         height: koren.px(26); width: n.implicitWidth + 22; radius: height / 2
-                        color: panel.skupina === modelData ? koren.paleta.poudarek : (ms.containsMouse || activeFocus ? koren.prekriv(0.14) : koren.prekriv(0.07))
+                        color: panel.izbrana === modelData ? koren.paleta.poudarek : (ms.containsMouse || activeFocus ? koren.prekriv(0.14) : koren.prekriv(0.07))
                         border.width: activeFocus ? 2 : 0; border.color: koren.paleta.fokus
                         activeFocusOnTab: true
-                        Accessible.role: Accessible.RadioButton; Accessible.name: n.text; Accessible.checked: panel.skupina === modelData
-                        Keys.onReturnPressed: panel.skupina = modelData
-                        Keys.onEnterPressed: panel.skupina = modelData
-                        Keys.onSpacePressed: panel.skupina = modelData
+                        Accessible.role: Accessible.RadioButton; Accessible.name: n.text; Accessible.checked: panel.izbrana === modelData
+                        // Izbira kategorije med iskanjem iskanje pocisti (sicer bi iskanje kategorijo prezrlo).
+                        function izberi() { poljeProgramov.text = ""; panel.skupina = modelData }
+                        Keys.onReturnPressed: izberi()
+                        Keys.onEnterPressed: izberi()
+                        Keys.onSpacePressed: izberi()
                         Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
                         Text {
                             id: n; anchors.centerIn: parent; font.pixelSize: koren.px(12)
                             text: modelData === "" ? koren.t("vse") : panel.imeSkupine(modelData)
-                            color: panel.skupina === modelData ? koren.paleta.poudarekTemna : koren.paleta.besedilo
+                            color: panel.izbrana === modelData ? koren.paleta.poudarekTemna : koren.paleta.besedilo
                         }
-                        MouseArea { id: ms; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: panel.skupina = modelData }
+                        MouseArea { id: ms; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: parent.izberi() }
                     }
                 }
             }

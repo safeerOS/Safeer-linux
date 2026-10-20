@@ -42,6 +42,12 @@ class LupaNamizja(unittest.TestCase):
             def _zacetek(self):
                 return {"jezik": "sl", "platforma": platforma, "mape": [], "agent": {"na_voljo": False}}
 
+            def _seznam_programov(self):
+                return [{"id": "/a/com.anthropic.Claude.desktop", "ime": "Claude", "splosno": "AI Assistant",
+                         "skupina": "programiranje", "kljucne": ["AI", "Chat"], "ikona": ""},
+                        {"id": "/a/footclient.desktop", "ime": "Foot Client", "splosno": "", "skupina": "drugo",
+                         "kljucne": ["shell"], "ikona": ""}]
+
             def _obdelaj_klic(self, pogled, klic_id, metoda, a):
                 klici.append((metoda, a))
                 odg = {"predvajalnikStanje": {}, "agentVprasaj": {"ok": True, "koda": "", "povzetek": "Utišano na Dnevna soba."}}
@@ -147,6 +153,29 @@ class LupaNamizja(unittest.TestCase):
         self._nikoli_prekrivanja()
         k.setProperty("napravVLinku", 0)          # cip se zozi
         self._nikoli_prekrivanja()
+
+    def test_iskanje_programov_cez_vse_kategorije(self):
+        """Testni PC 20. 10. 2026: v kategoriji Drugo »cl« ni nasel Claude (kategorija Ustvarjanje), zgornja lupa ga je.
+        Iskanje v panelu Programi gre zdaj cez vse programe (tudi po kljucnih besedah), oznacena je kategorija Vse;
+        izbira kategorije iskanje pocisti."""
+        from PySide6.QtCore import QMetaObject
+        self._namizje()
+        panel, polje = self._el("panelProgrami"), self._el("poljeProgramov")
+        def imena():
+            v = panel.property("prikazani")
+            v = v.toVariant() if hasattr(v, "toVariant") else v
+            return sorted(p["ime"] for p in v if p.get("skupina") != "splet")      # brez spletnih bliznjic
+        self.assertTrue(self._pocakaj(lambda: imena() == ["Claude", "Foot Client"]), imena())
+        panel.setProperty("skupina", "drugo")
+        self.assertTrue(self._pocakaj(lambda: imena() == ["Foot Client"]))
+        polje.setProperty("text", "cl")
+        self.assertTrue(self._pocakaj(lambda: "Claude" in imena()), imena())
+        self.assertEqual(panel.property("izbrana"), "", "med iskanjem je oznacena kategorija Vse")
+        polje.setProperty("text", "ai")                       # kljucna beseda
+        self.assertTrue(self._pocakaj(lambda: imena() == ["Claude"]), imena())
+        polje.setProperty("text", "")
+        self.assertTrue(self._pocakaj(lambda: imena() == ["Foot Client"]), "brez iskanja spet izbrana kategorija")
+        QMetaObject.invokeMethod(polje, "forceActiveFocus")
 
     def test_polje_programov_obdrzi_svoje_tipke(self):
         from PySide6.QtCore import QMetaObject, Qt
