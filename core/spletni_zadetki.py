@@ -137,7 +137,17 @@ def isti_niz(zahtevan: str, stran: str) -> bool:
 
 
 def ta_niz(zahtevan: str, dokument: str) -> bool:
-    """Strogo: dokument je stran rezultatov ISTEGA niza (ce iskanje nosi q, ga mora nositi tudi dokument)."""
+    """Strogo: dokument je stran rezultatov ISTEGA niza (ce iskanje nosi q, ga mora nositi tudi dokument) na ISTEM
+    gostitelju (ponovni pregled OpenAI I: preusmerjena tuja stran z istim q ne velja). Naslov iz tuje strani: najvec
+    4000 znakov, sicer ne velja."""
+    if not isinstance(dokument, str) or len(dokument) > 4000:
+        return False
+    try:
+        if (urllib.parse.urlsplit(zahtevan).hostname or "") != (urllib.parse.urlsplit(dokument).hostname or ""):
+            return False
+    except ValueError:
+        return False
+
     def q(url: str) -> Optional[str]:
         try:
             v = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("q")

@@ -262,3 +262,6 @@ def test_stran_brez_niza_ne_da_zadetkov():
             casovniki.pop(0)()
     assert izid == [] and not p._shramba                  # brez zadetkov, nic shranjeno (rok konca prazno)
     assert sz.ta_niz("https://a/?q=x", "https://a/?q=x&ia=web") and not sz.ta_niz("https://a/?q=x", "https://a/sorry")
+    assert not sz.ta_niz("https://duckduckgo.com/?q=x", "https://zlo.example/?q=x")          # tuj gostitelj (OpenAI I)
+    assert not sz.ta_niz("https://duckduckgo.com/?q=x", "https://duckduckgo.com/?q=x&" + "a" * 5000)
+    assert sz.ta_niz("https://duckduckgo.com/?q=Foo%20Bar", "https://duckduckgo.com/?q=foo+bar&ia=web")
