@@ -436,6 +436,12 @@ class NadzorProgramov:
 
     def _poslji(self) -> bool:
         self._casovnik = 0
+        # Nov program prinese tudi svojo ikono: tema ikon GTK jo vidi sele, ko mape prebere znova (core/gostitelj).
+        try:
+            from core import gostitelj
+            gostitelj.osvezi_temo_ikon()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self._ob_spremembi()
         except Exception:  # noqa: BLE001

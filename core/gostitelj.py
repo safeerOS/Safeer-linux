@@ -177,6 +177,21 @@ def ikona_iz_teme(ime: str, velikost: int) -> str:
         return ""
 
 
+def osvezi_temo_ikon() -> bool:
+    """Tema ikon GTK4 naj znova prebere mape ikon (samo glavna nit). GTK4 novih ikon sam ne opazi: program, namescen,
+    medtem ko Safeer OS tece, je imel v Programih do ponovnega zagona prazno ikono (testni PC 20. 10. 2026, Claude;
+    izmerjeno: has_icon ostane False tudi po 6 s, po set_search_path je True). Ponovna nastavitev iste poti iskanja
+    sprozi ponovno branje teme (vkljucno z ikonami gostitelja v Flatpaku, ki so ze v poti)."""
+    try:
+        tema = tema_ikon(nalozen_gtk())
+        if tema is None:
+            return False
+        tema.set_search_path(tema.get_search_path())
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def dodaj_ikone_gostitelja(Gtk) -> None:
     """Tema ikon GTK naj najde tudi ikone programov, namescenih na racunalniku."""
     if not v_flatpaku():
