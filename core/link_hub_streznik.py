@@ -4039,15 +4039,8 @@ IZKLOP_BATERIJA = 30
 ROK_REZERVNEGA_NACINA_S = 60.0
 #: Cas v rezervnem nacinu pred ponovnim poskusom Link Mesh
 ROK_POSKUSA_MESH_S = 60.0
-
-
-def je_domaci_streznik() -> bool:
-    """Ali je ta racunalnik izrecno nastavljen kot domaci streznik (prioriteta 100)."""
-    return (
-        os.environ.get("SAFEER_DOMACI_STREZNIK") == "1"
-        or os.environ.get("SAFEER_LINK_STREZNIK") == "1"
-        or os.environ.get("SAFEER_STREZNIK") == "1"
-    )
+#: Najdaljsi zamik med poskusi Link Mesh (30 minut)
+ZAMIK_POSKUSA_MAX_S = 1800.0
 
 
 def baterija(koren: str = "/sys/class/power_supply") -> Dict[str, object]:
@@ -4095,7 +4088,7 @@ def izracunaj_prioriteto(
     Zmogljivost v trenutku doloca stopnjo, vrsta naprave pa le prelom ob izenacenju.
     Izrecna izbira domacega streznika ohrani prioriteto 100.
     """
-    if streznik is True or (streznik is None and je_domaci_streznik()):
+    if streznik is True:
         return 100
 
     # 1. Baterija / napajanje (0 do 30 tock)
@@ -4489,10 +4482,15 @@ class HubGostitelj:
         self._samodejna_rezerva = False
         self._brez_sosedov_od: Optional[float] = None
         self._poskus_mesh_ob: float = 0.0
+        self._zamik_poskusa_s: float = ROK_POSKUSA_MESH_S
+        self._preizkus_mesh = False
+        self._preizkus_zacetek: Optional[float] = None
+        self._preizkus_zagnan_streznik = False
         self._prioriteta: int = PRIORITETA_LINUX
 
     def gostimo(self) -> bool:
-        return self.streznik.tece()
+        """Ali ta racunalnik aktivno gosti Hub za omrezje (ne le preizkus v ozadju)."""
+        return self.streznik.tece() and not self._preizkus_zagnan_streznik
 
     def v_rezervi(self) -> bool:
         """Ali je Safeer Link trenutno v rezervnem nacinu (izvolitev enega Huba)."""
@@ -4501,6 +4499,10 @@ class HubGostitelj:
     def nacin(self) -> str:
         """Trenutni nacin: 'mesh' ali 'rezerva'."""
         return self._nacin
+
+    def v_preizkusu_mesh(self) -> bool:
+        """Ali trenutno v ozadju tece preizkus Link Mesh."""
+        return self._preizkus_mesh
 
     def trenutna_prioriteta(self) -> int:
         """Izracunana prioriteta po trenutni zmogljivosti s histerezo."""
@@ -4551,14 +4553,94 @@ class HubGostitelj:
         self._nacin = "rezerva"
         self._samodejna_rezerva = True
         self._poskus_mesh_ob = self.ura()
+        self._zamik_poskusa_s = ROK_POSKUSA_MESH_S
         self._brez_sosedov_od = None
+        self._pocisti_preizkus()
         print("[SafeerLink] prehod v rezervni način (%s)" % razlog, flush=True)
 
-    def _poskusi_vrnitev_v_mesh(self) -> None:
+    def _zazeni_mesh(self) -> None:
+        if self.mesh is not None:
+            return
+        nas_id = self.nas_id or (self.nas_id_fn() if self.nas_id_fn is not None else "") or id_za_oglas()
+        self.nas_id = nas_id
+        if self.nas_id and getattr(self.streznik, "hub", None) is not None:
+            try:
+                from core import link_mesh
+                self.streznik.hub.nas_id = self.nas_id
+                import os
+                self.mesh = link_mesh.MeshPovezovalec(
+                    self.streznik.hub, self.nas_id, self.ime,
+                    pot_znanih=os.path.join(link_krog._mapa_nastavitev(), "mesh-sosedje.json"),
+                    vrata=lambda s=self.streznik: s.vrata if s.tece() else 0)
+                self.mesh.zazeni()
+            except Exception as e:
+                print("[SafeerLink] zagon MeshPovezovalec ni uspel: %s: %s" % (type(e).__name__, e), flush=True)
+
+    def _ustavi_mesh(self) -> None:
+        if self.mesh is not None:
+            try:
+                self.mesh.ustavi()
+            except Exception:
+                pass
+            self.mesh = None
+
+    def _pocisti_preizkus(self) -> None:
+        self._ustavi_mesh()
+        if self._preizkus_zagnan_streznik:
+            self.streznik.ustavi()
+            self._preizkus_zagnan_streznik = False
+        self._preizkus_mesh = False
+        self._preizkus_zacetek = None
+
+    def _zacni_preizkus_mesh(self, zdaj: float) -> None:
+        self._preizkus_mesh = True
+        self._preizkus_zacetek = zdaj
+        self._preizkus_zagnan_streznik = False
+        print("[SafeerLink] preizkus Link Mesh v ozadju ...", flush=True)
+        if self.streznik.tece():
+            # Ze gostimo v rezervi: zazeni MeshPovezovalec na svojem Hubu
+            self._zazeni_mesh()
+        else:
+            # Ne gostimo: zazeni svoj streznik BREZ oglasa vloge v rezervi in MeshPovezovalec samo za preizkus
+            if self.streznik.zazeni():
+                self._preizkus_zagnan_streznik = True
+                self._zazeni_mesh()
+            else:
+                self._neuspesen_preizkus(zdaj)
+
+    def _neuspesen_preizkus(self, zdaj: float) -> None:
+        self._pocisti_preizkus()
+        self._poskus_mesh_ob = zdaj
+        self._zamik_poskusa_s = min(self._zamik_poskusa_s * 2, ZAMIK_POSKUSA_MAX_S)
+        print("[SafeerLink] preizkus Link Mesh ni uspel; naslednji poskus čez %d s" % int(self._zamik_poskusa_s), flush=True)
+
+    def _preklopi_v_mesh(self, zdaj: float, oglaseni: List[dict], najden: Optional[dict]) -> None:
         self._nacin = "mesh"
-        self._poskus_mesh_ob = self.ura()
-        self._brez_sosedov_od = self.ura()
-        print("[SafeerLink] poskus vrnitve v Link Mesh ...", flush=True)
+        self._samodejna_rezerva = False
+        self._preizkus_mesh = False
+        self._preizkus_zacetek = None
+        self._preizkus_zagnan_streznik = False
+        self._zamik_poskusa_s = ROK_POSKUSA_MESH_S
+        self._brez_sosedov_od = None
+        print("[SafeerLink] vrnitev v Link Mesh uspela", flush=True)
+
+        nas_id = self.nas_id or (self.nas_id_fn() if self.nas_id_fn is not None else "") or id_za_oglas()
+        self.nas_id = nas_id
+
+        if not self.streznik.tece():
+            self.streznik.zazeni()
+
+        try:
+            self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime, prioriteta=PRIORITETA_LINUX)
+        except TypeError:
+            self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime)
+        if hasattr(self.oglas, "posodobi_prioriteto"):
+            try:
+                self.oglas.posodobi_prioriteto(PRIORITETA_LINUX)
+            except Exception:
+                pass
+
+        self._zazeni_mesh()
 
     def preveri(self) -> bool:
         """En pregled: preveri nacin (Mesh ali rezerva), stanje streznika in izvolitev."""
@@ -4579,13 +4661,25 @@ class HubGostitelj:
             if not mesh_vklopljen():
                 self._nacin = "rezerva"
                 self._samodejna_rezerva = False
+                if self._preizkus_mesh:
+                    self._pocisti_preizkus()
 
-            # 2. V rezervnem nacinu vsakih ~60 s znova poskusimo Mesh (ce nismo rocno izklopljeni)
+            # 2. V rezervnem nacinu tece preizkus Mesha v ozadju z narascajocim zamikom
             elif self._samodejna_rezerva and self._nacin == "rezerva":
-                if zdaj - self._poskus_mesh_ob >= ROK_POSKUSA_MESH_S:
-                    self._poskusi_vrnitev_v_mesh()
+                if self._preizkus_mesh:
+                    sosedje = self._povezani_sosedje()
+                    if len(sosedje) > 0:
+                        self._preklopi_v_mesh(zdaj, oglaseni, najden)
+                    elif self._preizkus_zacetek is not None and zdaj - self._preizkus_zacetek >= ROK_REZERVNEGA_NACINA_S:
+                        self._neuspesen_preizkus(zdaj)
+                else:
+                    if zdaj - self._poskus_mesh_ob >= self._zamik_poskusa_s:
+                        self._zacni_preizkus_mesh(zdaj)
+                        sosedje = self._povezani_sosedje()
+                        if len(sosedje) > 0:
+                            self._preklopi_v_mesh(zdaj, oglaseni, najden)
 
-            # 3. Odlocitev: ali naj ta racunalnik gosti Hub?
+            # 3. Odlocitev: ali naj ta racunalnik gosti Hub za omrezje?
             if self._nacin == "mesh":
                 gostimo = True
             elif oglaseni:
@@ -4619,18 +4713,26 @@ class HubGostitelj:
                                     gostimo = naj_gostimo(najden, self.nas_id, nas_odtis)
                                 if not gostimo:
                                     print("[SafeerLink] drug Safeer Link je spet na voljo; računalnik neha gostiti", flush=True)
-                                    if self.mesh is not None:
-                                        self.mesh.ustavi()
-                                        self.mesh = None
+                                    self._ustavi_mesh()
                                     self.oglas.koncaj()
                                     self.streznik.ustavi()
                                     return False
+                                else:
+                                    self._ustavi_mesh()
                         else:
                             self._brez_sosedov_od = None
 
                     if self._nacin == "rezerva":
                         nas_prio = self.trenutna_prioriteta()
-                        if hasattr(self.oglas, "posodobi_prioriteto"):
+                        if self._preizkus_zagnan_streznik:
+                            self._preizkus_zagnan_streznik = False
+                            nas_id = (self.nas_id_fn() if self.nas_id_fn is not None else "") or id_za_oglas()
+                            self.nas_id = nas_id
+                            try:
+                                self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime, prioriteta=nas_prio)
+                            except TypeError:
+                                self.oglas.zacni(self.streznik.vrata, self.streznik.odtis, self.nas_id, self.ime)
+                        elif hasattr(self.oglas, "posodobi_prioriteto"):
                             try:
                                 self.oglas.posodobi_prioriteto(nas_prio)
                             except Exception:
@@ -4660,30 +4762,20 @@ class HubGostitelj:
                     tuji_mdns = self._tuji_clani_mdns(oglaseni, najden)
                     if len(sosedje) == 0 and len(tuji_mdns) > 0:
                         self._brez_sosedov_od = zdaj
-                    if self.nas_id and getattr(self.streznik, "hub", None) is not None:
-                        from core import link_mesh
-                        self.streznik.hub.nas_id = self.nas_id
-                        import os
-                        self.mesh = link_mesh.MeshPovezovalec(
-                            self.streznik.hub, self.nas_id, self.ime,
-                            pot_znanih=os.path.join(link_krog._mapa_nastavitev(), "mesh-sosedje.json"),
-                            vrata=lambda s=self.streznik: s.vrata if s.tece() else 0)
-                        self.mesh.zazeni()
+                    self._zazeni_mesh()
                 return True
 
-            if self.streznik.tece():
+            if self.streznik.tece() and not self._preizkus_zagnan_streznik:
                 print("[SafeerLink] drug Safeer Link je spet na voljo; računalnik neha gostiti", flush=True)
-                if self.mesh is not None:
-                    self.mesh.ustavi()
-                    self.mesh = None
+                self._ustavi_mesh()
                 self.oglas.koncaj()
                 self.streznik.ustavi()
             return False
 
     def koncaj(self) -> None:
         with self._zaklep:
-            if self.mesh is not None:
-                self.mesh.ustavi()
-                self.mesh = None
+            self._ustavi_mesh()
             self.oglas.koncaj()
             self.streznik.ustavi()
+            self._preizkus_mesh = False
+            self._preizkus_zagnan_streznik = False

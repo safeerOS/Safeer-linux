@@ -123,9 +123,33 @@ class TestPrioritetaZmogljivosti(unittest.TestCase):
         prio = link_hub_streznik.izracunaj_prioriteto(streznik=True)
         self.assertEqual(prio, 100)
 
-        with mock.patch.dict(os.environ, {"SAFEER_DOMACI_STREZNIK": "1"}):
-            prio_env = link_hub_streznik.izracunaj_prioriteto()
-            self.assertEqual(prio_env, 100)
+    def test_prioriteta_brez_argumenta_streznik_nikoli_100(self):
+        # 1. Funkcija je_domaci_streznik ne sme obstajati v modulu
+        self.assertFalse(hasattr(link_hub_streznik, "je_domaci_streznik"),
+                         "je_domaci_streznik() mora biti odstranjena")
+
+        # 2. Nobena okoljska spremenljivka ne sme podeliti prioritete 100
+        okolja = [
+            {"SAFEER_DOMACI_STREZNIK": "1"},
+            {"SAFEER_LINK_STREZNIK": "1"},
+            {"SAFEER_STREZNIK": "1"},
+            {"SAFEER_DOMACI_STREZNIK": "1", "SAFEER_LINK_STREZNIK": "1", "SAFEER_STREZNIK": "1"},
+        ]
+        for env in okolja:
+            with mock.patch.dict(os.environ, env):
+                prio_brez = link_hub_streznik.izracunaj_prioriteto()
+                self.assertNotEqual(prio_brez, 100, f"okolje {env} ne sme podeliti prioritete 100")
+                self.assertLessEqual(prio_brez, 84)
+
+                prio_none = link_hub_streznik.izracunaj_prioriteto(streznik=None)
+                self.assertNotEqual(prio_none, 100)
+
+                prio_false = link_hub_streznik.izracunaj_prioriteto(streznik=False)
+                self.assertNotEqual(prio_false, 100)
+
+        # 3. Prioriteta 100 ostane SAMO prek izrecnega streznik=True
+        prio_streznik = link_hub_streznik.izracunaj_prioriteto(streznik=True)
+        self.assertEqual(prio_streznik, 100)
 
     def test_izenacenje_vrsta_naprave(self):
         # Ob enaki sistemski zmogljivosti vrsta naprave sluzi za prelom izenacenja
@@ -295,12 +319,14 @@ class TestSamodejnaRezerva(unittest.TestCase):
         # 65 s v rezervi -> poskus vrnitve v Mesh
         ura_cas[0] += 65.0
         g.preveri()
-        self.assertEqual(g.nacin(), "mesh", "po izteku intervala poskusi Mesh")
+        self.assertTrue(g.v_preizkusu_mesh(), "po izteku intervala zacne preizkus Mesh v ozadju")
+        self.assertTrue(g.v_rezervi(), "v_rezervi() mora ostati True med preizkusom")
 
-        # 5 sekund kasneje povezave se ni: se NE sme pasti nazaj v rezervo zaradi histereze (polni 60 s rok)
+        # 5 sekund kasneje povezave se ni: preizkus se vedno tece in ostajamo v rezervi
         ura_cas[0] += 5.0
         g.preveri()
-        self.assertEqual(g.nacin(), "mesh", "histereza mora zdrzati celoten 60 s poskusni rok")
+        self.assertTrue(g.v_preizkusu_mesh(), "preizkus mora zdrzati celoten 60 s poskusni rok")
+        self.assertTrue(g.v_rezervi())
 
     @mock.patch.dict(os.environ, {"SAFEER_LINK_MESH": "0"})
     def test_rocno_vsiljena_rezerva(self):
@@ -319,6 +345,145 @@ class TestSamodejnaRezerva(unittest.TestCase):
         g.preveri()
         self.assertTrue(g.v_rezervi())
         self.assertEqual(g.nacin(), "rezerva")
+
+    def test_med_preizkusom_v_rezervi_ostane_true_in_odjemalec_ne_zamenja_huba(self):
+        s = LazniStreznik(uspe=True)
+        o = LazniOglas()
+        ura_cas = [100.0]
+        sosedje_mesh = []
+        tv_oglas = {"id": "tv1", "fp": "tvfp1", "prio": 95, "naslov": "wss://tv:8990/cast/ws"}
+
+        g = link_hub_streznik.HubGostitelj(
+            poisci=lambda: tv_oglas,
+            hubi=lambda: [tv_oglas],
+            clan=lambda id_naprave: True,
+            nas_id=lambda: "pc1",
+            streznik=s,
+            oglas=o,
+            sosedje=lambda: sosedje_mesh,
+            ura=lambda: ura_cas[0],
+        )
+
+        # 1. Zacetek: zagon in prehod v rezervo (65 s brez povezave z oglasenim sosedom)
+        g.preveri()
+        ura_cas[0] += 65.0
+        g.preveri()
+        self.assertTrue(g.v_rezervi())
+        self.assertFalse(g.gostimo(), "zaradi TV z visjo prioriteto (95) PC v rezervi ne gosti")
+
+        # 2. Cas v rezervi potece (65 s) -> zacne se preizkus v ozadju
+        ura_cas[0] += 65.0
+        g.preveri()
+
+        # Med preizkusom:
+        self.assertTrue(g.v_rezervi(), "v_rezervi() mora med preizkusom ostati True")
+        self.assertTrue(g.v_preizkusu_mesh(), "v_preizkusu_mesh() mora biti True")
+        self.assertEqual(g.nacin(), "rezerva")
+        self.assertFalse(g.gostimo(), "PC med preizkusom se vedno ne gosti uradno za omrezje")
+
+        # Preveri, da SafeerLink odjemalec (po pravilu iz core/safeer_link.py) med preizkusom NE zamenja Huba:
+        # Odjemalec preklopi na lokalni Hub samo, ce mesh_vklopljen() in NOT g.v_rezervi()
+        odjemalec_preklopi = link_hub_streznik.mesh_vklopljen() and not g.v_rezervi()
+        self.assertFalse(odjemalec_preklopi, "odjemalec ne sme preklopiti na lokalni Hub med preizkusom")
+
+    def test_30_min_neuspesnih_preizkusov_omejeno_in_zamik_raste(self):
+        s = LazniStreznik(uspe=True)
+        o = LazniOglas()
+        ura_cas = [100.0]
+        sosedje_mesh = []
+        tv_oglas = {"id": "tv1", "fp": "tvfp1", "prio": 95, "naslov": "wss://tv:8990/cast/ws"}
+
+        g = link_hub_streznik.HubGostitelj(
+            poisci=lambda: tv_oglas,
+            hubi=lambda: [tv_oglas],
+            clan=lambda id_naprave: True,
+            nas_id=lambda: "pc1",
+            streznik=s,
+            oglas=o,
+            sosedje=lambda: sosedje_mesh,
+            ura=lambda: ura_cas[0],
+        )
+
+        # Prehod v rezervo
+        g.preveri()
+        ura_cas[0] += 65.0
+        g.preveri()
+        self.assertTrue(g.v_rezervi())
+
+        zacetni_zagoni = s.zagoni
+        vloge_spremembe = 0
+        prejsnja_v_rezervi = g.v_rezervi()
+
+        # Simuliramo 30 minut (1800 s) z lazno uro, klicemo preveri() vsakih 10 s
+        konec = ura_cas[0] + 1800.0
+        while ura_cas[0] < konec:
+            ura_cas[0] += 10.0
+            g.preveri()
+            trenutna_v_rezervi = g.v_rezervi()
+            if trenutna_v_rezervi != prejsnja_v_rezervi:
+                vloge_spremembe += 1
+                prejsnja_v_rezervi = trenutna_v_rezervi
+
+        # 1. Vloga se v 30 minutah neuspeha sploh ne sme zamenjati (ostane ves cas v rezervi!)
+        self.assertEqual(vloge_spremembe, 0, "vloga v_rezervi() se med neuspesnimi preizkusi ne sme preklapljati")
+        self.assertTrue(g.v_rezervi())
+
+        # 2. Zaradi narascajocega zamika (60, 120, 240, 480, 960 ...) je stevilo zagonov strogo omejeno:
+        # V 30 min je najvec 5 poskusov (60s preizkus + narascajoci premor)
+        novi_zagoni = s.zagoni - zacetni_zagoni
+        self.assertLessEqual(novi_zagoni, 5, "v 30 min se streznik sme zagnati najvec 5-krat (zamik raste)")
+        # Zamik poskusa mora narasti do najvisjih stopenj (vsaj 960 ali 1800 s)
+        self.assertGreaterEqual(g._zamik_poskusa_s, 960.0)
+
+    def test_uspesen_preizkus_preklopi_v_mesh_in_ponastavi_zamik(self):
+        s = LazniStreznik(uspe=True)
+        o = LazniOglas()
+        ura_cas = [100.0]
+        sosedje_mesh = []
+        tv_oglas = {"id": "tv1", "fp": "tvfp1", "prio": 95, "naslov": "wss://tv:8990/cast/ws"}
+
+        g = link_hub_streznik.HubGostitelj(
+            poisci=lambda: tv_oglas,
+            hubi=lambda: [tv_oglas],
+            clan=lambda id_naprave: True,
+            nas_id=lambda: "pc1",
+            streznik=s,
+            oglas=o,
+            sosedje=lambda: sosedje_mesh,
+            ura=lambda: ura_cas[0],
+        )
+
+        # Prehod v rezervo
+        g.preveri()
+        ura_cas[0] += 65.0
+        g.preveri()
+        self.assertTrue(g.v_rezervi())
+
+        # En neuspesen preizkus: 65 s do zacetka + 65 s v preizkusu brez sosedov
+        ura_cas[0] += 65.0
+        g.preveri()
+        self.assertTrue(g.v_preizkusu_mesh())
+        ura_cas[0] += 65.0
+        g.preveri()
+        self.assertFalse(g.v_preizkusu_mesh())
+        # Zamik se je podvojil na 120 s
+        self.assertEqual(g._zamik_poskusa_s, 120.0)
+
+        # Pocakamo 125 s v rezervi do naslednjega preizkusa
+        ura_cas[0] += 125.0
+        g.preveri()
+        self.assertTrue(g.v_preizkusu_mesh())
+
+        # Sosed se uspesno poveze v Mesh
+        sosedje_mesh.append("tv1")
+        g.preveri()
+
+        # Uspesen preizkus:
+        self.assertFalse(g.v_rezervi(), "mora preklopiti iz rezerve v mesh")
+        self.assertEqual(g.nacin(), "mesh")
+        self.assertFalse(g.v_preizkusu_mesh())
+        self.assertEqual(g._zamik_poskusa_s, link_hub_streznik.ROK_POSKUSA_MESH_S, "zamik se mora ponastaviti na 60 s")
+        self.assertTrue(g.gostimo(), "po uspesnem prehodu v mesh racunalnik gosti svoj Hub")
 
 
 if __name__ == "__main__":
