@@ -3740,7 +3740,7 @@ var BESEDILA_NAMIZJA = {
     posN_posiljanje_ni_uspelo: "la connessione si è interrotta",
     isciVSpletu: "Cerca «{q}» nel web",
     odpreVBrskalniku: "risultati qui sul desktop",
-    spletniOznaka: "i risultati qui sotto vengono da {ime} · disattivali in Personalizza desktop",
+    spletniOznaka: "i risultati qui sotto vengono da {ime} · disattivali in Personalizza il desktop",
     isciem: "Ricerca…",
     prostor: "{n} elementi",
     spremeniOzadje: "Cambia sfondo …",

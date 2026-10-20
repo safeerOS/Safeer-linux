@@ -210,7 +210,8 @@ def test_lupa_ne_poslje_poti_in_imen_datotek():
         raise unittest.SkipTest("ni node")
     koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     primeri = {"vreme ljubljana": True, "python 3.12": True, "izvid-krvi-2026.pdf": False, "~/Dokumenti/davki": False,
-               "/etc/fstab": False, "Proračun 2026.ods": False, "dokumenti/davki": False, "safeer.si": False, "ab": False}
+               "/etc/fstab": False, "Proračun 2026.ods": False, "baza gesel.kdbx": False, "kopija server.pem": False,
+               "moja pogodba.pages": False, "windows 11": True, "vreme 10.30": True, "dokumenti/davki": False, "safeer.si": False, "ab": False}
     js = ("const S=require(%s);const p=%s;const o={};for(const k in p)o[k]=S.smeSprotniSplet(k);console.log(JSON.stringify(o))"
           % (json.dumps(os.path.join(koren, "assets", "os", "iskanje.js")), json.dumps(primeri)))
     izid = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)

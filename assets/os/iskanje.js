@@ -58,7 +58,9 @@ var SafeerIskanje = (function (tvornica) {
   // Sprotni zadetki spleta (lupa): niz, ki je pot ali ime datoteke, uporabnik isce na racunalniku - ne posljemo ga
   // iskalniku (webmaster pregled pomocnika 1.0.129: »izvid-krvi-2026.pdf« ali »~/Dokumenti/davki« bi sel Googlu).
   // Stevilke razlicic (»python 3.12«) niso koncnica datoteke.
-  var KONCNICE_DATOTEK = /\.(pdf|docx?|odt|xlsx?|ods|pptx?|odp|txt|rtf|md|csv|json|xml|html?|jpe?g|png|gif|webp|heic|svg|mp[34]|m4a|mkv|avi|mov|flac|wav|ogg|zip|7z|tar|gz|xz|deb|rpm|apk|exe|iso|odg|epub|log|conf|ini|ya?ml|py|js|sh)$/i;
+  // Koncnica = 1-8 znakov za zadnjo piko, med njimi vsaj ena crka (pomocnik 1.0.129: seznam koncnic se da izcrpati -
+  // »baza gesel.kdbx«, »kopija server.pem«); »python 3.12«, »windows 11« ostanejo dovoljeni.
+  var KONCNICE_DATOTEK = /\.(?=[a-z0-9]{0,7}[a-z])[a-z0-9]{1,8}$/i;
   function smeSprotniSplet(niz) {
     var s = String(niz || "").trim();
     if (s.length < 3 || jeNaslov(s)) return false;
