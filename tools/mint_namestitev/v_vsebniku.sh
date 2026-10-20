@@ -65,14 +65,16 @@ fi
 # Najprej brskalnik, nato namizno okolje (kot uporabnik, ki ima ze enega): drugi WebKita ne sme namestiti ponovno.
 apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" >"$ZACASNO/namestitev.log" 2>&1 \
   || { tail -40 "$ZACASNO/namestitev.log"; echo "NAPAKA: namestitev brskalnika"; exit 1; }
-WK_INODE="$(stat -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)"
+# libwebkitgtk-6.0.so.4 je simbolna povezava (na .so.4.19.x): vsak paket ima svojo (majhno), stejejo inode prave
+# knjiznice - stat -L (CI 39447742751: stat brez -L je primerjal povezave in javil podvojen WebKit, ki ga ni bilo).
+WK_INODE="$(stat -L -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)"
 apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$OS" >"$ZACASNO/namestitev-os.log" 2>&1 \
   || { tail -40 "$ZACASNO/namestitev-os.log"; echo "NAPAKA: namestitev namiznega okolja"; exit 1; }
 grep -F "Safeer WebKit je ze namescen (ista gradnja)" "$ZACASNO/namestitev-os.log" \
   || { tail -20 "$ZACASNO/namestitev-os.log"; echo "NAPAKA: namizno okolje je WebKit namestilo ponovno"; exit 1; }
-[ "$(stat -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
-  && [ "$(stat -c %i /usr/lib/safeer-os/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
-  && [ "$(stat -c %i /usr/lib/safeer-browser/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+[ "$(stat -L -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+  && [ "$(stat -L -c %i /usr/lib/safeer-os/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+  && [ "$(stat -L -c %i /usr/lib/safeer-browser/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
   || { echo "NAPAKA: WebKit je na disku vec kot enkrat (ni trdih povezav)"; exit 1; }
 echo "   WebKit enkrat na disku (en inode za brskalnik, namizje in /usr/lib/safeer-webkit)"
 # Star loceni paket safeer-webkit (1.0.128) je odstranjen (Conflicts); mapa ni datoteka nobenega paketa.

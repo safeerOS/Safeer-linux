@@ -69,6 +69,12 @@ class VrataIzdaje(unittest.TestCase):
         izdaja = self._zapis(ponudnik="Anthropic")
         self.assertIn("ni neodvisen", " ".join(self.m.napake("v1.0.129", izdaja)))
 
+    def test_ponudnik_avtorja_tudi_v_daljsem_imenu(self):
+        """Kimi pregled 20. 10. 2026: »Claude prek Anthropic« ali »Anthropic/Claude« je prej sel skozi (samo celoten niz)."""
+        for ponudnik in ("Claude prek Anthropic", "Anthropic/Claude", "claude-opus", "ANTHROPIC API"):
+            izdaja = self._zapis(ponudnik=ponudnik)
+            self.assertIn("ni neodvisen", " ".join(self.m.napake("v1.0.129", izdaja)), ponudnik)
+
     def test_odprte_kriticne_ustavijo(self):
         izdaja = self._zapis(odprte="1")
         self.assertIn("mora biti 0", " ".join(self.m.napake("v1.0.129", izdaja)))

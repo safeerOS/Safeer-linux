@@ -71,7 +71,8 @@ def napake(oznaka: str, commit: str = "HEAD", besedilo: Optional[str] = None) ->
         return izid
     if p["Izdaja"] != oznaka:
         izid.append("zapis je za %s, ne za %s" % (p["Izdaja"], oznaka))
-    if p["Ponudnik"].lower() in AVTORJI:
+    # Podniz, ne celoten niz (Kimi pregled 20. 10. 2026: »Claude prek Anthropic« je sel skozi).
+    if any(a in p["Ponudnik"].lower() for a in AVTORJI):
         izid.append("pregledovalec ni neodvisen: ponudnik %s je ponudnik avtorja kode" % p["Ponudnik"])
     if not re.fullmatch(r"\d+", p["Odprte kriticne in visoke"]) or int(p["Odprte kriticne in visoke"]) != 0:
         izid.append("odprte kriticne/visoke najdbe: %s (mora biti 0)" % p["Odprte kriticne in visoke"])
