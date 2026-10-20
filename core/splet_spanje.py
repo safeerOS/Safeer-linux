@@ -204,6 +204,19 @@ def _tiki_vseh() -> dict:
     return izid
 
 
+
+def _sme_koncati_omrezni(s) -> bool:
+    """Ali se omrezni proces Spleta sme koncati (recikliranje): samo s sistemskim libsoup, ki pusca, in ko na njem ne
+    tecejo vdelane aplikacije (klepeti v realnem casu) ne skriti pogledi sprotnih zadetkov lupe. Z nasim libsoup proces
+    ne raste, konec pa pokvari prvo nalaganje v odprtih zavihkih (WebKitErrorDomain 300 - lupa 20. 10. 2026)."""
+    if s.aplikacije:
+        return False
+    skriti = getattr(s, "_skriti", None)
+    if skriti is not None and len(skriti()):
+        return False
+    from core.os_splet import libsoup_brez_puscanja
+    return not libsoup_brez_puscanja()
+
 class SpanjeZavihkov:
     """Spanje zavihkov, stran procesov in obnova omreznega procesa za en VdelaniSplet."""
 
@@ -703,15 +716,7 @@ class SpanjeZavihkov:
         if self._okno_neaktivno_od is None:
             self._okno_neaktivno_od = zdaj
             return False
-        if s.aplikacije:
-            return False          # vdelani klepeti tecejo v realnem casu na istem omreznem procesu (kot koncaj_omrezni_proces)
-        skriti = getattr(s, "_skriti", None)
-        if skriti is not None and len(skriti()):
-            return False          # skrit pogled sprotnih zadetkov lupe nalaga na istem procesu (OpenAI pregled 1.0.129)
-        from core.os_splet import libsoup_brez_puscanja
-        if libsoup_brez_puscanja():
-            # Recikliranje je le zdravilo za puscanje sistemskega libsoup. Z nasim libsoup proces ne raste, konec pa ni
-            # neskodljiv (spletni procesi za nove zavihke odpovejo z notranjo napako - kot lupa 20. 10. 2026).
+        if not _sme_koncati_omrezni(s):
             return False
         prenosi = any(zp.get("stanje") == "tece" for zp in s.prenosi)
         nalaganje = zvok = False
@@ -761,6 +766,11 @@ class SpanjeZavihkov:
             except Exception:  # noqa: BLE001
                 vsi = []
             seje = [c for c in vsi if c.get_expires() is None]
+            # Ponovni pregled OpenAI 1.0.129 (C): med branjem piskotkov je lupa lahko odprla skrit pogled ali se je
+            # zagnala vdelana aplikacija - pred koncem procesa vse pogoje preverimo znova.
+            if not _sme_koncati_omrezni(s):
+                self._recikliranje = False
+                return
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:

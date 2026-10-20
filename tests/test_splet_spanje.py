@@ -533,6 +533,8 @@ def test_piskotki_seje_se_vrnejo(monkeypatch):
         add_cookie=lambda c, *_a: dodani.append(c))
     s.seja = types.SimpleNamespace(get_cookie_manager=lambda: upr)
     ubiti, casovniki = [], []
+    import core.os_splet as os_splet
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)
     monkeypatch.setattr(splet_spanje.os, "kill", lambda pid, sig: ubiti.append(pid))
     sp.GLib.timeout_add = lambda _ms, f: casovniki.append(f) or 1
     izid = []
@@ -541,6 +543,29 @@ def test_piskotki_seje_se_vrnejo(monkeypatch):
     assert casovniki and casovniki[0]() is False           # proces ne obstaja vec: piskotki nazaj
     assert dodani == [seja_c] and izid == [1]              # samo piskotek seje (trajni so v shrambi)
     assert sp._recikliranje is False
+
+
+def test_recikliranje_preveri_znova_po_branju_piskotkov(monkeypatch):
+    """Ponovni pregled OpenAI 1.0.129 (C): kill je sledil asinhronemu branju piskotkov brez ponovne preverbe - medtem
+    je lupa lahko odprla skrit pogled (ali se je zagnala vdelana aplikacija) in proces bi se koncal pod njim."""
+    import core.os_splet as os_splet
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)
+    for zamenjaj in ("skrit", "aplikacija"):
+        s, sp = _sestavi()
+        cakajo = []
+        upr = types.SimpleNamespace(get_all_cookies=lambda _c, cb, _u: cakajo.append(cb),
+                                    get_all_cookies_finish=lambda r: [], add_cookie=lambda *_a: None)
+        s.seja = types.SimpleNamespace(get_cookie_manager=lambda: upr)
+        ubiti = []
+        monkeypatch.setattr(splet_spanje.os, "kill", lambda pid, sig: ubiti.append(pid))
+        sp.recikliraj_omrezni(999999, 400.0)
+        assert cakajo and sp._recikliranje is True
+        if zamenjaj == "skrit":
+            s._skriti = lambda: [object()]                    # med cakanjem lupa odpre skrit pogled
+        else:
+            s.aplikacije[object()] = object()
+        cakajo[0](None, "rezultat")
+        assert ubiti == [] and sp._recikliranje is False, zamenjaj
 
 
 def test_novi_moduli_v_tovoru_safeer_os():
