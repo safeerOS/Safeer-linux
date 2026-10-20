@@ -7,6 +7,10 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Odlocamo z izmerjenimi podatki, ne po obcutku. Vsako trditev (hitrost, RAM, CPU) podpre meritev.
 - Odlocitev vedno s strani uporabnika: kaj je zanj najbolj udobno in varno.
 - Popravek napake v odprtokodnem projektu (WebKit, libsoup …) vrnemo skupnosti.
+- Safeer Link nima sredisca: vsaka naprava je lahko sredisce. Vloge (sredisce, posrednik, pomocnik, nadzornik) so
+  zacasne funkcije po zmogljivosti v trenutku, nikoli trajen rang; odpad katerekoli naprave ali streznika ne razbije
+  kroga. Vsak krog naprav je svoj svet - skupnega imenika vseh uporabnikov ni (lastnik, 20. 10. 2026, po Giordanu
+  Brunu: »v neskoncnem ni izstopajocih tock, zato je vsaka tocka osrednja«).
 - Vsaka izboljsava spletne izkusnje v Spletu (Safeer OS) gre tudi v vse brskalnike Safeer: Safeer Browser za Linux
   (safeer_brskalnik.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
 
