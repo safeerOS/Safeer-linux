@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 IKONA_OS = "safeer-os"
 IKONA_CONTROL = "safeer-control"
 IME_CONTROL = "Safeer Control"
+IME_OS = "Safeer OS"
 #: Dejanje aplikacije, ki izvede gumb obvestila; parameter "id|kljuc".
 DEJANJE = "safeer-obvestilo"
 NAJVEC_OBVESTIL_Z_GUMBI = 32
@@ -159,7 +160,7 @@ def _poslji_app(app, ident: str, naslov: str, besedilo: str, ikona: str, priorit
 
 
 def _poslji_dbus(ident: str, naslov: str, besedilo: str, cas_ms: int, prioriteta: str, gumbi: List[Gumb],
-                 privzeto: Optional[Callable[[], None]]) -> bool:
+                 privzeto: Optional[Callable[[], None]], ime: str = IME_CONTROL, ime_ikone: str = IKONA_CONTROL) -> bool:
     try:
         from gi.repository import Gio, GLib
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -178,7 +179,7 @@ def _poslji_dbus(ident: str, naslov: str, besedilo: str, cas_ms: int, prioriteta
             zamenjaj = _stevilke.get(ident, 0)
         odgovor = vodilo.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
                                    "org.freedesktop.Notifications", "Notify",
-                                   GLib.Variant("(susssasa{sv}i)", (IME_CONTROL, zamenjaj, IKONA_CONTROL, naslov,
+                                   GLib.Variant("(susssasa{sv}i)", (ime, zamenjaj, ime_ikone, naslov,
                                                                     besedilo, dejanja, namigi, int(cas_ms))),
                                    GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 3000, None)
         stevilka = int(odgovor.unpack()[0])
@@ -198,11 +199,14 @@ _stevec = 0
 
 def poslji(naslov: str, besedilo: str = "", ident: str = "", *, gumbi: Optional[List[Gumb]] = None,
            privzeto: Optional[Callable[[], None]] = None, prioriteta: str = "normal", cas_ms: int = -1,
-           app=None) -> str:
+           app=None, dbus: bool = False) -> str:
     """Poslje obvestilo namizja; vrne njegov id. Novo obvestilo z istim `ident` zamenja starega.
 
     `app`: Gio.Application klicatelja (samostojni Control), ce Safeer OS v procesu ne tece. `cas_ms` velja samo za
-    pot D-Bus (-1: kot namizje). Z glavne niti ali iz katerekoli druge - nikoli ne caka na namizje."""
+    pot D-Bus (-1: kot namizje). Z glavne niti ali iz katerekoli druge - nikoli ne caka na namizje.
+
+    `dbus=True`: vedno pot org.freedesktop.Notifications (z imenom in ikono Safeer OS, ce ta tece), da je stevilka
+    obvestila znana (stevilka()) - tako ga lahko umakne tudi naslednji proces (npr. nova razlicica, zapri_stevilko)."""
     global _stevec
     if not ident:
         _stevec += 1
@@ -211,6 +215,13 @@ def poslji(naslov: str, besedilo: str = "", ident: str = "", *, gumbi: Optional[
     gumbi = list(gumbi or [])
     naslov, besedilo = str(naslov or ""), str(besedilo or "")
     a = cilj(app)
+    if dbus:
+        os_tece = a is not None and ikona(app) == IKONA_OS
+        threading.Thread(target=_poslji_dbus, args=(ident, naslov, besedilo, cas_ms, prioriteta, gumbi, privzeto,
+                                                     IME_OS if os_tece else IME_CONTROL,
+                                                     IKONA_OS if os_tece else IKONA_CONTROL),
+                         name="safeer-obvestilo", daemon=True).start()
+        return ident
     if a is not None:
         ime_ikone = ikona(app)
 
@@ -273,4 +284,31 @@ def umakni(ident: str, app=None) -> None:
             pass
 
 
-__all__ = ["poslji", "poslji_gio", "umakni", "cilj", "ikona", "registriraj_na"]
+def stevilka(ident: str) -> int:
+    """Stevilka obvestila na streznik obvestil (samo pot D-Bus; 0 = ni znana)."""
+    with _dejanja_zaklep:
+        return int(_stevilke.get(ident, 0) or 0)
+
+
+def zapri_stevilko(stevilka_obvestila: int) -> bool:
+    """Zapre obvestilo po stevilki, ki jo je dal streznik obvestil - tudi obvestilo prejsnjega procesa (nova
+    razlicica: »... je namescen - Znova zazeni zdaj« po samodejnem zagonu ne sme ostati, stresni preizkus 20. 10.)."""
+    try:
+        n = int(stevilka_obvestila)
+    except (TypeError, ValueError):
+        return False
+    if n <= 0:
+        return False
+    try:
+        from gi.repository import Gio, GLib
+        # Brez cakanja na odgovor (kot umakni): klicatelj je lahko glavna nit, streznik obvestil pa ne sme zadrzati zagona.
+        Gio.bus_get_sync(Gio.BusType.SESSION, None).call(
+            "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+            "CloseNotification", GLib.Variant("(u)", (n,)), None, Gio.DBusCallFlags.NONE, 3000, None, None)
+        return True
+    except Exception as e:  # noqa: BLE001 - obvestila ze ni ali ni streznika obvestil
+        print("[Safeer] zapiranje obvestila %d: %s" % (n, e), flush=True)
+        return False
+
+
+__all__ = ["poslji", "poslji_gio", "umakni", "cilj", "ikona", "registriraj_na", "stevilka", "zapri_stevilko"]

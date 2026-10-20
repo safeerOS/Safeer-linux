@@ -4117,7 +4117,10 @@ class SafeerOS(Gtk.Application):
         def zdaj() -> None:
             if self._nova_cakanje is not None and not self._koncano:
                 self._nova_cakanje.zdaj()
-        obvestila.poslji(b["naslov"], b["besedilo"], "safeer-nova-razlicica", gumbi=[("zdaj", b["zdaj"], zdaj)], app=self)
+        # Pot D-Bus: stevilko obvestila shranimo v stanje za novo razlicico, ki ga ob zagonu zapre (prej je obvestilo z
+        # gumbom »Znova zazeni zdaj« ostalo tudi po samodejnem zagonu nove razlicice - stresni preizkus 20. 10. 2026).
+        obvestila.poslji(b["naslov"], b["besedilo"], "safeer-nova-razlicica", gumbi=[("zdaj", b["zdaj"], zdaj)], app=self,
+                         dbus=True)
 
     def _zaposleno(self) -> str:
         """Kaj bi ponovni zagon prekinil ("" = nic): predvajanje, klic, prenos, posodobitev, delo Controla."""
@@ -4194,6 +4197,11 @@ class SafeerOS(Gtk.Application):
         if self._ponovni_zagon or self._koncano:
             return
         stanje = dict(self._stanje_za_obnovo(napredek=True), v=self._nova_razlicica)
+        try:
+            from core import obvestila
+            stanje["obvestilo"] = obvestila.stevilka("safeer-nova-razlicica")
+        except Exception:  # noqa: BLE001
+            pass
         nova_razlicica.shrani_stanje("safeer-os", stanje)
         print("[SafeerOS] zaganjam novo razlicico %s (zavihkov: %d, predvajanje: %s)"
               % (self._nova_razlicica, len(stanje["splet"]), "da" if stanje.get("predvajanje") else "ne"), flush=True)
@@ -4205,6 +4213,9 @@ class SafeerOS(Gtk.Application):
         stanje = nova_razlicica.preberi_stanje("safeer-os", RAZLICICA)
         if stanje:
             print("[SafeerOS] nova razlicica %s tece (prej %s): obnovim stanje" % (RAZLICICA, stanje.get("iz")), flush=True)
+            if stanje.get("obvestilo"):
+                from core import obvestila
+                obvestila.zapri_stevilko(stanje.get("obvestilo"))
         elif str(getattr(self, "_obnova_po_napaki", "")).isdigit():
             # Varuh je Safeer OS znova zagnal po sesutju, zamrznitvi ali preveliki porabi pomnilnika (lupina je ostala):
             # stanje, ki ga je posnel prav prejsnji proces (PID), ne kaksno starejse.

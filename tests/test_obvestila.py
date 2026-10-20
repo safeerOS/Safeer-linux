@@ -176,6 +176,28 @@ class PoDBusu(unittest.TestCase):
         obvestila.umakni("safeer-z")
         self.assertTrue(_pocakaj(lambda: ("CloseNotification", (7,)) in self.klici))
 
+    def test_nova_razlicica_zapre_obvestilo_prejsnjega_procesa(self):
+        """Stresni preizkus 20. 10. 2026: obvestilo »... je namescen - Znova zazeni zdaj« je ostalo po samodejnem zagonu
+        nove razlicice. Stari proces ga poslje po poti D-Bus (stevilka je znana), novi ga po stevilki zapre."""
+        obvestila.poslji("Safeer OS 9 je namescen", "", "safeer-nova-razlicica", gumbi=[("zdaj", "Zdaj", lambda: None)],
+                         dbus=True)
+        self.assertTrue(_pocakaj(lambda: obvestila.stevilka("safeer-nova-razlicica") == 7))
+        self.assertEqual(self.klici[0][0], "Notify")
+        with mock.patch.object(obvestila, "_stevilke", {}):     # nov proces: o obvestilu ne ve nicesar razen stevilke
+            self.assertTrue(obvestila.zapri_stevilko(7))
+        self.assertTrue(_pocakaj(lambda: ("CloseNotification", (7,)) in self.klici))
+        self.assertFalse(obvestila.zapri_stevilko(0))
+        self.assertFalse(obvestila.zapri_stevilko("ni"))
+
+
+class NovaRazlicicaObvestilo(unittest.TestCase):
+    def test_safeer_os_shrani_in_zapre_stevilko(self):
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            s = f.read()
+        self.assertIn('stanje["obvestilo"] = obvestila.stevilka("safeer-nova-razlicica")', s)
+        self.assertIn("obvestila.zapri_stevilko", s)
+        self.assertRegex(s, r'"safeer-nova-razlicica", gumbi=\[\("zdaj"[^\n]*\n[^\n]*dbus=True\)')
+
 
 if __name__ == "__main__":
     unittest.main()
