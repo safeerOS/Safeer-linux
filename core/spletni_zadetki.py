@@ -13,6 +13,7 @@ zapre (spletni proces vrne pomnilnik). Naslovi so samo http(s); naslov in odlome
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.parse
 from typing import Callable, Dict, List, Optional, Tuple
@@ -136,6 +137,22 @@ def isti_niz(zahtevan: str, stran: str) -> bool:
     return a is None or b is None or a == b
 
 
+#: Domene iskalnikov (ponovni pregled OpenAI J: preusmeritev www.google.com -> www.google.si ali duckduckgo.com ->
+#: html.duckduckgo.com je ista stran rezultatov; podniz »google.« v gostitelju pa ni dovolj - notgoogle.evil.com).
+DOMENE_ISKALNIKOV = (
+    re.compile(r"(^|\.)google\.[a-z]{2,3}(\.[a-z]{2})?$"), re.compile(r"(^|\.)duckduckgo\.com$"),
+    re.compile(r"(^|\.)bing\.com$"), re.compile(r"^search\.brave\.com$"), re.compile(r"(^|\.)ecosia\.org$"),
+    re.compile(r"(^|\.)startpage\.com$"))
+
+
+def isti_iskalnik(a: str, b: str) -> bool:
+    """Isti gostitelj ali gostitelja istega iskalnika (DOMENE_ISKALNIKOV)."""
+    a, b = (a or "").lower().rstrip("."), (b or "").lower().rstrip(".")
+    if a and a == b:
+        return True
+    return any(v.search(a) and v.search(b) for v in DOMENE_ISKALNIKOV)
+
+
 def ta_niz(zahtevan: str, dokument: str) -> bool:
     """Strogo: dokument je stran rezultatov ISTEGA niza (ce iskanje nosi q, ga mora nositi tudi dokument) na ISTEM
     gostitelju (ponovni pregled OpenAI I: preusmerjena tuja stran z istim q ne velja). Naslov iz tuje strani: najvec
@@ -143,7 +160,7 @@ def ta_niz(zahtevan: str, dokument: str) -> bool:
     if not isinstance(dokument, str) or len(dokument) > 4000:
         return False
     try:
-        if (urllib.parse.urlsplit(zahtevan).hostname or "") != (urllib.parse.urlsplit(dokument).hostname or ""):
+        if not isti_iskalnik(urllib.parse.urlsplit(zahtevan).hostname or "", urllib.parse.urlsplit(dokument).hostname or ""):
             return False
     except ValueError:
         return False

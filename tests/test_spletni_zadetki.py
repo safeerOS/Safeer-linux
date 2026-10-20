@@ -265,3 +265,8 @@ def test_stran_brez_niza_ne_da_zadetkov():
     assert not sz.ta_niz("https://duckduckgo.com/?q=x", "https://zlo.example/?q=x")          # tuj gostitelj (OpenAI I)
     assert not sz.ta_niz("https://duckduckgo.com/?q=x", "https://duckduckgo.com/?q=x&" + "a" * 5000)
     assert sz.ta_niz("https://duckduckgo.com/?q=Foo%20Bar", "https://duckduckgo.com/?q=foo+bar&ia=web")
+    # OpenAI J: preusmeritev istega iskalnika velja, podniz v tujem gostitelju ne
+    assert sz.ta_niz("https://www.google.com/search?q=x", "https://www.google.si/search?q=x")
+    assert sz.ta_niz("https://duckduckgo.com/?q=x", "https://html.duckduckgo.com/html/?q=x")
+    assert not sz.ta_niz("https://www.google.com/search?q=x", "https://notgoogle.evil.com/search?q=x")
+    assert not sz.ta_niz("https://www.google.com/search?q=x", "https://duckduckgo.com/?q=x")
