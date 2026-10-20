@@ -50,7 +50,7 @@ class LupaNamizja(unittest.TestCase):
 
             def _spletni_zadetki(self, niz, povratni):
                 klici.append(("spletniZadetki", [niz]))
-                povratni([{"naslov": "Linux Mint", "url": "https://www.linuxmint.com/", "stran": "linuxmint.com",
+                povratni([{"naslov": "Linux Mint", "url": "https://www.linuxmint.com/", "stran": "linuxmint.com", "iskalnik": "DuckDuckGo",
                            "odlomek": "Prost operacijski sistem"}])
 
             def _obdelaj_klic(self, pogled, klic_id, metoda, a):
@@ -244,6 +244,10 @@ class LupaNamizja(unittest.TestCase):
         self.assertEqual(vrste()[i - 1], "splet")                       # tik pod »Isci v spletu«
         self.assertEqual(model.get(i).property("ime").toString(), "Linux Mint")
         self.assertIn("linuxmint.com", model.get(i).property("opis").toString())
+        # Lastnik 20. 10. 2026: oznaka pove, kateri iskalnik je dobil niz in kje se zadetki izklopijo.
+        oznaka = model.get(i - 1).property("opis").toString()
+        self.assertIn("DuckDuckGo", oznaka)
+        self.assertIn("Prilagodi", oznaka)
         self.assertNotEqual(self._el("zadetki").property("trenutni"), i)  # privzeta izbira ni zadetek spleta
         QMetaObject.invokeMethod(self._el("zadetki"), "izberi", Q_ARG("QVariant", i))
         self.assertTrue(self._pocakaj(lambda: ("spletNaNamizju", ["https://www.linuxmint.com/"]) in

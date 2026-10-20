@@ -217,3 +217,17 @@ def test_lupa_ne_poslje_poti_in_imen_datotek():
     assert izid == primeri
     qml = open(os.path.join(koren, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
     assert "Iskanje.SafeerIskanje.smeSprotniSplet(q)" in qml
+
+
+def test_vsak_iskalnik_ima_ime_za_oznako():
+    """Oznaka pod sprotnimi zadetki (lastnik 20. 10. 2026) imenuje iskalnik - za vsak iskalnik iz nastavitev."""
+    import ast
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    drevo = ast.parse(open(os.path.join(koren, "safeer_os.py"), encoding="utf-8").read())
+    vrednosti = {}
+    for n in drevo.body:
+        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ("ISKALNIKI", "IMENA_ISKALNIKOV"):
+            vrednosti[n.targets[0].id] = ast.literal_eval(n.value)
+    assert set(vrednosti["ISKALNIKI"]) == set(vrednosti["IMENA_ISKALNIKOV"])
+    vir = open(os.path.join(koren, "safeer_os.py"), encoding="utf-8").read()
+    assert "dict(z, iskalnik=ime)" in vir

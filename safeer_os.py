@@ -330,13 +330,21 @@ def _ime_sistema() -> str:
     return "Linux"
 
 
-def _iskalnik() -> str:
+IMENA_ISKALNIKOV = {"google": "Google", "duckduckgo": "DuckDuckGo", "brave": "Brave", "startpage": "Startpage",
+                    "bing": "Bing", "ecosia": "Ecosia"}
+
+
+def _kljuc_iskalnika() -> str:
     try:
         with open(BRSKALNIK_NASTAVITVE, encoding="utf-8") as f:
             ime = (json.load(f) or {}).get("search_engine") or "duckduckgo"
     except Exception:
         ime = "duckduckgo"
-    return ISKALNIKI.get(ime, ISKALNIKI["duckduckgo"])
+    return ime if ime in ISKALNIKI else "duckduckgo"
+
+
+def _iskalnik() -> str:
+    return ISKALNIKI[_kljuc_iskalnika()]
 
 
 def _podatki_controla() -> dict:
@@ -3093,7 +3101,10 @@ class SafeerOS(Gtk.Application):
                 self._predogled_iskanja = PredogledIskanja(Gtk, WebKit2, GLib, splet.seja, splet.kontekst,
                                                            pripravi=splet.pripravi_skriti_pogled,
                                                            pozabi=splet.pozabi_skriti_pogled)
-            self._predogled_iskanja.isci(_iskalnik() + GLib.uri_escape_string(niz, None, False), povratni)
+            ime = IMENA_ISKALNIKOV.get(_kljuc_iskalnika(), "")
+            # Lupa pove, kateri iskalnik je dobil niz (oznaka pod zadetki, lastnik 20. 10. 2026).
+            self._predogled_iskanja.isci(_iskalnik() + GLib.uri_escape_string(niz, None, False),
+                                         lambda r: povratni([dict(z, iskalnik=ime) for z in r]))
         except Exception as e:  # noqa: BLE001 - lupa brez sprotnih zadetkov dela naprej
             print("[SafeerOS] sprotni zadetki:", e, flush=True)
             povratni([])
