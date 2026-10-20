@@ -124,9 +124,14 @@ class LupaNamizja(unittest.TestCase):
             desno = iskanje.property("x") + iskanje.property("width")
             self.assertGreaterEqual(cipi.property("x"), desno + 11, "cipi cez lupo")
             time.sleep(0.01)
-        levo = iskanje.property("x")
-        desno = self.koren.property("width") - cipi.property("x") - cipi.property("width")
-        self.assertAlmostEqual(levo, desno, delta=2, msg="lupa in cipi skupaj na sredini")
+        # Na sredini, ko se animacija lupe (160 ms) konca. Casovnik napraveNamizja lahko lazni stevec naprav vmes vrne na 0
+        # (lazni SafeerOS vrne prazen seznam) - zato pocakamo na mirno stanje namesto enkratnega odcitka.
+
+        def na_sredini():
+            levo = iskanje.property("x")
+            desno = self.koren.property("width") - cipi.property("x") - cipi.property("width")
+            return abs(levo - desno) <= 2
+        self.assertTrue(self._pocakaj(na_sredini, 2.0), "lupa in cipi skupaj na sredini")
 
     def test_cipi_nikoli_cez_lupo(self):
         """Testni PC 20. 10. 2026 (aplikacija v oknu 1130 x 720): ko je Safeer Link nasel naprave in je cip postal sirsi
