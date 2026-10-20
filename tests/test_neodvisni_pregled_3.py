@@ -206,6 +206,23 @@ class JblOdtis(unittest.TestCase):
         self.assertTrue(os_jbl.preklopi("bluetooth"))
         self.assertEqual(os_jbl.nastavitve()["odtis"], self.odtis_vrstice)
 
+    def test_vklop_pred_posodobitvijo_ukaz_sele_po_pripetem_odtisu(self):
+        """Odtisa ni (vklop pred 1.0.128): najprej prvi stik brez ukaza (getStatusEx), ukaz sele s pripetim odtisom
+        (ostanki neodvisnega pregleda 2, 20. 10. 2026)."""
+        self._nastavi()
+        self.assertTrue(os_jbl.preklopi("bluetooth"))
+        self.assertEqual([(m, p.split("?")[0]) for m, p, _g, _t in self.zahteve],
+                         [("GET", "/httpapi.asp"), ("POST", "/httpapi.asp")])
+        self.assertIn("getStatusEx", self.zahteve[0][1])
+
+    def test_vklop_pred_posodobitvijo_druga_naprava_ne_dobi_ukaza(self):
+        """Na naslovu (ali pod istim imenom v mDNS) je naprava z drugim naslovom Bluetooth: ukaza ni, odtis ostane prazen."""
+        self._nastavi(bt="AA:BB:CC:DD:EE:FF")
+        with mock.patch.object(os_jbl, "najdi", return_value=[{"ime": "JBL BAR 300", "naslov": "127.0.0.2", "mac": ""}]):
+            self.assertFalse(os_jbl.preklopi("tv"))
+        self.assertEqual([m for m, *_ in self.zahteve if m == "POST"], [])
+        self.assertFalse(os_jbl.nastavitve().get("odtis"))
+
 
 class PreusmeritveGithuba(unittest.TestCase):
     def _skok(self, kam):

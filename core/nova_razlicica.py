@@ -419,5 +419,7 @@ def znova(spremenljivka_nadzora: str, skripta: str, argv: Sequence[str]) -> int:
             tok.flush()
         except Exception:  # noqa: BLE001
             pass
-    os.execv(sys.executable, [sys.executable, skripta, *nacin_zagona(argv)])
+    from core import okolje_procesa
+    py = okolje_procesa.python_ukaz()
+    os.execv(py[0], py + [skripta, *nacin_zagona(argv)])
     return KODA_ZNOVA  # pragma: no cover - execv se ne vrne

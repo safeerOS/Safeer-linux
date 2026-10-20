@@ -115,13 +115,21 @@ def zaklep(pot: str, rok: float = 2.0):
 
 
 def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *,
-                     indent: Optional[int] = 1) -> Dict[str, Any]:
+                     indent: Optional[int] = 1, pristej: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """Zapise kljuce, ki so v `lokalno` drugacni kot v `znano` (zadnje stanje datoteke, ki ga ta proces pozna), na
     trenutno vsebino datoteke - pod zaklepom, atomsko. Kljuce, ki jih je medtem spremenil drug proces (in jih ta ni),
-    prevzame v `lokalno` (na mestu). Vrne novo znano stanje (globoka kopija `lokalno`)."""
+    prevzame v `lokalno` (na mestu). Vrne novo znano stanje (globoka kopija `lokalno`).
+
+    `pristej` {kljuc: n}: stevec povecaj za n glede na vrednost NA DISKU pod istim zaklepom - sicer bi proces s staro
+    kopijo (Safeer OS in Safeer Browser stejeta isti stevec Scita) povecanja drugega procesa prepisal."""
     with ZAKLEP_NITI, zaklep(pot):
-        spremenjeno = {k for k in set(lokalno) | set(znano) if lokalno.get(k, _NI) != znano.get(k, _NI)}
         disk = preberi_slovar(pot)
+        for k, n in (pristej or {}).items():
+            osnova = (disk or {}).get(k, lokalno.get(k, 0))
+            if not isinstance(osnova, int) or isinstance(osnova, bool):
+                osnova = 0
+            lokalno[k] = osnova + int(n)
+        spremenjeno = {k for k in set(lokalno) | set(znano) if lokalno.get(k, _NI) != znano.get(k, _NI)}
         if disk is None:
             izid = copy.deepcopy(lokalno)
         else:

@@ -435,3 +435,22 @@ class StanjePulta(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_proces_scita_nastavi_nas_webkit_pred_vsem():
+    """Pomocnik (pregled 1.0.129): proces Scit je tekel brez zasebni_webkit.nastavi - DoH naprej je odpovedal brez
+    gir1.2-soup-3.0 (imena nesifrirano usmerjevalniku) ali tekel na sistemskem libsoup. Klic mora biti pred vticnicami
+    in uvozom gi."""
+    from unittest import mock
+    from core import scit_proces, zasebni_webkit
+
+    class Prvi(Exception):
+        pass
+    with mock.patch.object(zasebni_webkit, "nastavi", side_effect=Prvi) as nastavi, \
+            mock.patch.object(scit_proces, "podedovane_vticnice", side_effect=AssertionError("vticnice pred WebKitom")):
+        try:
+            scit_proces.main([])
+        except Prvi:
+            pass
+    nastavi.assert_called_once_with(scit_proces.KOREN_PROGRAMA)
+    assert os.path.isfile(os.path.join(scit_proces.KOREN_PROGRAMA, "core", "scit_proces.py"))

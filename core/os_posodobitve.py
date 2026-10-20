@@ -304,15 +304,28 @@ def nacin_namestitve() -> str:
         return "flatpak+deb" if gostitelj_ima_deb() else "flatpak"
     if os.environ.get("APPIMAGE"):
         return "appimage"
-    if shutil.which("dpkg") and (os.path.exists("/var/lib/dpkg/info/safeer-os.list") or je_aplikacija_deb()):
+    if shutil.which("dpkg") and (namescen_deb("safeer-os") or je_aplikacija_deb()):
         return "deb"
     return "neznano"
+
+
+def namescen_deb(paket: str) -> bool:
+    """Paket je namescen (dpkg »ii«). Datoteka /var/lib/dpkg/info/<paket>.list ostane tudi po odstranitvi (stanje rc/ic,
+    pomocnik 20. 10. 2026: po menjavi aplikacija -> namizje je safeer-os-app.list ostal, 0 B) - zato ne steje."""
+    if not shutil.which("dpkg-query"):
+        return False
+    try:
+        r = subprocess.run(["dpkg-query", "-W", "-f", "${db:Status-Abbrev}", paket], capture_output=True, text=True,
+                           timeout=10)
+    except Exception:  # noqa: BLE001
+        return False
+    return r.returncode == 0 and r.stdout.startswith("ii")
 
 
 def je_aplikacija_deb() -> bool:
     """Ali je namescen paket safeer-os-app (aplikacija v oknu, od 20. 10. 2026) namesto namiznega okolja safeer-os.
     Posodobitev mora prenesti isti paket - namizno okolje bi aplikacijo zamenjalo z namizjem (in obratno)."""
-    return os.path.exists("/var/lib/dpkg/info/safeer-os-app.list")
+    return namescen_deb("safeer-os-app")
 
 
 def gostitelj_ima_deb() -> bool:

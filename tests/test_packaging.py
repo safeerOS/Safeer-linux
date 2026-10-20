@@ -121,7 +121,8 @@ class PackagingTests(unittest.TestCase):
             fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
             fake.chmod(0o755)
             output=subprocess.check_output([str(prefix/'bin/safeer-browser'),'https://example.com/a b'],env={**os.environ,'PYTHON':str(fake)},text=True).splitlines()
-            self.assertEqual(output,[str(prefix/'lib/safeer-browser'/vstop),'https://example.com/a b'])
+            # -s: uporabnikov site-packages ne vpliva (pomocnik, naloga 2-4, 20. 10. 2026).
+            self.assertEqual(output,['-s',str(prefix/'lib/safeer-browser'/vstop),'https://example.com/a b'])
             subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
 
     def test_browser_payload_can_actually_start(self):
@@ -740,7 +741,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('install -Dm755 "$DIR/packaging/prednalozi.py" "$BUILD_ROOT/usr/lib/safeer-browser/prednalozi.py"',kos)
         self.assertIn('"$BUILD_ROOT/etc/xdg/autostart/safeer-browser-prednalaganje.desktop"',kos)
         vnos=(ROOT/'packaging/safeer-browser-prednalaganje.desktop').read_text()
-        self.assertIn('Exec=/usr/bin/python3 /usr/lib/safeer-browser/prednalozi.py\n',vnos)
+        self.assertIn('Exec=/usr/bin/python3 -s /usr/lib/safeer-browser/prednalozi.py\n',vnos)
         self.assertIn('TryExec=/usr/lib/safeer-browser/prednalozi.py\n',vnos)
         for jezik in ('sl','de','es','fr','it'):
             self.assertIn('Name[%s]='%jezik,vnos)
@@ -1148,6 +1149,10 @@ class DebWebkitTests(unittest.TestCase):
                             self.assertIn(nujno,odv)    # odvisnosti vgrajenega WebKita
                         self.assertIn('safeer-webkit (= %s+vgrajen)'%deb_verzija,polja)
                         self.assertIn('safeer-webkit (<< 1.0.128+vgrajen~)',polja)
+                        # Replaces z isto mejo: dpkg -i star safeer-webkit odstrani sam in sele po razpakiranju (pomocnik,
+                        # pregled 1.0.129: brez njega »conflicting packages - not installing«).
+                        zamenja=polja.split('Replaces: ',1)[1].split('\n',1)[0]
+                        self.assertIn('safeer-webkit (<< 1.0.128+vgrajen~)',zamenja)
                         vsebina=subprocess.run(['dpkg-deb','-c',str(deb)],capture_output=True,text=True,check=True).stdout
                         vir='./usr/lib/%s/webkit-vgrajen/'%paket
                         for f in ('share/webkitgtk-safeer/odtis','share/webkitgtk-safeer/razlicica',
@@ -1165,6 +1170,9 @@ class DebWebkitTests(unittest.TestCase):
                         self.assertIn('cp -al "$wk_vir" "$wk_novo"',postinst)
                         self.assertIn('[ "$wk_p" = "%s" ] && continue'%paket,postrm)
                         self.assertIn('rm -rf /usr/lib/safeer-webkit',postrm)
+                        # Ostanki prekinjene namestitve se ne kopicijo (pomocnik, pregled 1.0.129).
+                        self.assertIn('rm -rf "$wk_cilj".novo.* "$wk_cilj".staro.*',postinst)
+                        self.assertIn('rm -rf /usr/lib/safeer-webkit.novo.* /usr/lib/safeer-webkit.staro.*',postrm)
                         self.assertNotIn('@safeer-webkit',postinst+postrm)
                         if lib=='safeer-os':
                             # Vnos »Safeer OS« (aplikacija v oknu): namizno okolje ga v meniju ne kaze, aplikacija ga.

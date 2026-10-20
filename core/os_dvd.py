@@ -182,7 +182,7 @@ def pogoni() -> List[dict]:
         pass
     for ime in imena:
         try:
-            with open("/sys/block/%s/size" % ime) as d:
+            with open("/sys/block/%s/size" % ime, encoding="utf-8") as d:
                 vstavljen = int(d.read().strip() or 0) > 0
         except (OSError, ValueError):
             vstavljen = False

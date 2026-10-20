@@ -918,7 +918,8 @@ def _glasnost(parametri: dict) -> dict:
 
 def _znova_zazeni(app) -> dict:
     """Zazene nov primerek istega programa in ta konca. Odprti zavihki se obnovijo iz seje."""
-    ukaz = [sys.executable] + list(sys.argv)
+    from core import okolje_procesa
+    ukaz = okolje_procesa.python_ukaz() + list(sys.argv)
     try:
         subprocess.Popen(ukaz, start_new_session=True, close_fds=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

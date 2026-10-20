@@ -162,6 +162,25 @@ class Razlicice(unittest.TestCase):
             n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]
             self.assertTrue(n["datoteka"]["url"].endswith("safeer-os_0.4.23_all.deb"))
 
+    def test_odstranjena_aplikacija_ne_steje(self):
+        """Pomocnik 20. 10. 2026: po menjavi aplikacija -> namizje ostane safeer-os-app.list (stanje rc/ic) - posodobitev
+        je zato namestila APLIKACIJO in odstranila namizno okolje. Steje samo stanje dpkg »ii«."""
+        def dpkg(stanja):
+            def tek(ukaz, **_k):
+                return mock.Mock(returncode=0, stdout=stanja.get(ukaz[-1], "un "))
+            return tek
+        with mock.patch.object(op.shutil, "which", return_value="/usr/bin/dpkg-query"), \
+                mock.patch.object(op.subprocess, "run", side_effect=dpkg({"safeer-os": "ii ", "safeer-os-app": "rc "})), \
+                mock.patch.object(op.os.path, "exists", return_value=True):
+            self.assertFalse(op.je_aplikacija_deb())
+            self.assertTrue(op.namescen_deb("safeer-os"))
+        with mock.patch.object(op.shutil, "which", return_value="/usr/bin/dpkg-query"), \
+                mock.patch.object(op.subprocess, "run", side_effect=dpkg({"safeer-os-app": "ii "})):
+            self.assertTrue(op.je_aplikacija_deb())
+            self.assertFalse(op.namescen_deb("safeer-os"))
+        with mock.patch.object(op.shutil, "which", return_value=None):
+            self.assertFalse(op.je_aplikacija_deb())
+
     def test_skupni_webkit_v_istem_apt_get(self):
         """safeer-os in safeer-browser (.deb) zahtevata safeer-webkit iz iste izdaje (od 19. 10. 2026): program ga prenese
         in namesti v istem apt-get, sicer posodobitev pade (apt-get odvisnosti ne razresi). Seznam za razlicice do 1.0.126

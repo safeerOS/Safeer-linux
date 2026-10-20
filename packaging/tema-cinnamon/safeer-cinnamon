@@ -473,10 +473,10 @@ if kaj == "dodaj":
 else:
     if not os.path.isfile(zapis):
         sys.exit(0)
-    prej = [v for v in open(zapis, encoding="utf-8").read().split("\n") if v]
     os.remove(zapis)
-    nazaj = {zamenjaj(a, MINT, NAS): a for a in prej}
-    print(repr([nazaj.get(a, a) for a in appleti]))
+    # Nas applet nazaj v Mintovega na mestu, kjer je ZDAJ (uporabnik ga je morda premaknil - pomocnik, pregled 1.0.129:
+    # prej je premaknjen ostal), z isto stevilko primerka: Mintov dobi svoje prejsnje nastavitve.
+    print(repr([zamenjaj(a, NAS, MINT) for a in appleti]))
 PY2
 )" || return 0
     [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"

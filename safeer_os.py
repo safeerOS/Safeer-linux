@@ -1184,7 +1184,7 @@ def _ukaz_os() -> str:
     from shutil import which
     if which("safeer-os"):
         return "safeer-os"
-    return '"%s" "%s"' % (sys.executable, os.path.join(KOREN, "safeer_os.py"))
+    return okolje_procesa.python_niz(os.path.join(KOREN, "safeer_os.py"))
 
 
 def _mapa_nastavitev() -> str:
@@ -1454,7 +1454,7 @@ def _ukaz_controla() -> Optional[list]:
         return [pot]
     skripta = os.path.join(KOREN, "safeer_control.py")
     if os.path.isfile(skripta):
-        return [sys.executable, skripta]
+        return okolje_procesa.python_ukaz() + [skripta]
     return None
 
 
@@ -3933,7 +3933,8 @@ class SafeerOS(Gtk.Application):
         def znova():
             if self.namizje:
                 vrni_mintov_pult(self.shramba)
-            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
+            py = okolje_procesa.python_ukaz()
+            os.execv(py[0], py + [os.path.abspath(__file__)])
         GLib.timeout_add(200, lambda: (znova(), False)[1])
         return vklop
 
@@ -7329,6 +7330,11 @@ class SafeerOS(Gtk.Application):
             adblock.YOUTUBE_ADBLOCK_SCRIPT, WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             WebKit2.UserScriptInjectionTime.START,
             ["*://*.youtube.com/*", "*://youtube.com/*", "*://*.youtube-nocookie.com/*"], None))
+        # Stevec Scita: YouTube skripta tece v glavnem svetu in odstranjene oglase javi z dogodkom DOM; bere ga samo
+        # rele z mostom v locenem svetu (core/os_splet.namesti_stevec). Brez njega se je stetje Medijskega centra
+        # izgubilo - stevec Scita je stel samo Splet.
+        from core.os_splet import namesti_stevec
+        namesti_stevec(WebKit2, upravitelj, lambda _u, r: self._stevec_medija(r))
         lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj,
                      "network_session": WebKit2.NetworkSession.new_ephemeral()}
         if hasattr(WebKit2, "WebsitePolicies"):
@@ -7354,6 +7360,21 @@ class SafeerOS(Gtk.Application):
         # procesu pustila ~150 MiB (meritev 11. 10. 2026), tega predvajanje skladbe ne sme sproziti.
         self._vgrajeno_filter(pripravi=False)
         return True
+
+    def _stevec_medija(self, rezultat) -> None:
+        """Sporocilo releja stevca iz medijskega pogleda: iste meje (adblock.preveri_stevec), isti stevec kot Splet."""
+        from core import adblock
+        try:
+            s = adblock.preveri_stevec(json.loads(rezultat.to_json(0)))
+        except Exception:  # noqa: BLE001 - neveljavno sporocilo strani
+            s = None
+        if not s:
+            return
+        c = self._config_spleta()
+        if s["action"] == "increment_ads":
+            c.increment_ads_blocked(s["count"])
+        else:
+            c.increment_threats_blocked(s["count"])
 
     def _medijska_plast_css(self) -> None:
         """Barve pasu plasti iz tokens.css (en vir barv), enkrat na proces."""

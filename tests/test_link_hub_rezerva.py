@@ -488,3 +488,27 @@ class TestSamodejnaRezerva(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_nova_prioriteta_res_v_zapisu_txt():
+    """Pomocnik (pregled 1.0.129): posodobi_prioriteto je spremenil samo slovar properties, zapis TXT (ServiceInfo.text)
+    je ostal star - izvolitev v rezervi je videla staro prioriteto. Pravi zeroconf.ServiceInfo, lazni Zeroconf."""
+    import pytest
+    zeroconf = pytest.importorskip("zeroconf")
+    from core import link_hub_streznik as h
+
+    class Zc:
+        def __init__(self):
+            self.posodobljeni = []
+
+        def update_service(self, info):
+            self.posodobljeni.append(info)
+    o = h.Oglas()
+    o._zc = Zc()
+    o._info = zeroconf.ServiceInfo(h.STORITEV_MDNS, "safeer-x." + h.STORITEV_MDNS, addresses=[b"\x7f\x00\x00\x01"],
+                                   port=4242, properties={b"id": b"x", b"prio": b"83"}, server="pc.local.")
+    o._prioriteta = 83
+    assert o.posodobi_prioriteto(13)
+    objavljen = o._zc.posodobljeni[-1]
+    assert b"prio=13" in objavljen.text and b"prio=83" not in objavljen.text
+    assert b"id=x" in objavljen.text and objavljen.port == 4242 and objavljen.name == "safeer-x." + h.STORITEV_MDNS

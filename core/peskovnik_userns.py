@@ -167,6 +167,20 @@ def ob_zagonu() -> dict:
     return dict(_ob_zagonu)
 
 
+def nas_izklop() -> bool:
+    """Ali je IZKLOP v okolje procesa dal ta modul (bwrap tu ne dela), ne uporabnik sam pred zagonom programa."""
+    return bool(_ob_zagonu and _ob_zagonu.get("izklopljen"))
+
+
+def okolje_brez_izklopa(okolje: dict) -> dict:
+    """Okolje za zunanji program (na mestu in vrne ga): brez nasega IZKLOP. Spremenljivko je dal ta proces zase - drug
+    program (npr. GNOME Web ali Evolution s svojim profilom AppArmor, ki jima peskovnik dela) bi jo podedoval in tekel
+    brez peskovnika. Okolje procesa ostane, kot je (AGENTS.md, Okolje procesa: podprocesu env=)."""
+    if nas_izklop() and okolje.get(IZKLOP) == "1":
+        del okolje[IZKLOP]
+    return okolje
+
+
 def besedilo(jezik: str, program: str, profil: str, mapa_profilov: str = "/etc/apparmor.d") -> tuple:
     """(naslov, besedilo) pojasnila v jeziku vmesnika (sl, en, de, es, fr, it; sicer anglesko). Brez nasega profila
     (AppImage, izvorna koda) ukaz apparmor_parser ne pomaga - takrat pojasnilo svetuje .deb ali Flatpak."""

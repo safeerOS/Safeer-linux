@@ -66,9 +66,12 @@ if [ -n "$WEBKIT_DEB" ]; then
     # (Conflicts), mapo prevzame postinst. Provides z razlicico: starejsi safeer-os, ki zahteva safeer-webkit, ostane
     # namescen; meja v Conflicts je stalna (1.0.128+vgrajen~: pod njo so samo izdani locen paketi), razlicica v Provides ima
     # pripono +vgrajen, zato je vedno nad mejo in se programa razlicnih izdaj (oba Provides) med sabo ne izkljucita.
+    # Replaces z isto mejo (pomocnik, pregled 1.0.129): dpkg -i star paket odstrani sam (prej: »conflicting packages -
+    # not installing«), in to sele PO razpakiranju - ce razpakiranje spodleti, star WebKit ostane.
     PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
 Provides: safeer-webkit (= $(dpkg-deb -f "$WEBKIT_DEB" Version)+vgrajen)
 Conflicts: safeer-webkit (<< 1.0.128+vgrajen~)
+Replaces: safeer-webkit (<< 1.0.128+vgrajen~)
 "
     OPIS_GTK=" specifically for Linux Mint 22+ and Ubuntu 24.04+. Built natively with GTK4 and
  its own WebKitGTK 6.0 and libsoup 3 (Clang ThinLTO build with Safeer fixes), it includes

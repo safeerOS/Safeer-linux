@@ -282,7 +282,7 @@ class Otrok:
         self.returncode: int | None = None
         if oom:
             try:
-                with open("/proc/%d/oom_score_adj" % self.pid, "w") as d:
+                with open("/proc/%d/oom_score_adj" % self.pid, "w", encoding="ascii") as d:
                     d.write(str(oom))
             except OSError:
                 pass
@@ -732,6 +732,13 @@ def lupina_mogoca(koren: str) -> bool:
     return PathFinder.find_spec("PySide6", [p for p in poti if os.path.isdir(p)]) is not None
 
 
+def _python(python: str) -> list:
+    """Ukaz Pythona za otroka: z -s, ce ga ima varuh (zaganjalnik paketa, packaging/safeer-os-launcher) - zastavica ni v
+    okolju, brez nje bi uporabnikov site-packages (pip install --user) zamenjal sistemske pakete. Kot
+    core/okolje_procesa.python_ukaz, a brez uvoza (varuh ostane majhen, tests/test_varuh_procesov.py)."""
+    return [python] + (["-s"] if sys.flags.no_user_site else [])
+
+
 def vticnici_scita() -> tuple | None:
     """UDP in TCP vticnica na 127.0.0.1 na prvih prostih vratih Scita (core/os_scit.VRATA - isti vrstni red), z
     opisnikoma nad 9 (Otrok ju da otroku kot 3 in 4). None, ce so vsa vrata zasedena (Scit takrat poisce sam)."""
@@ -799,7 +806,8 @@ class VrataScita:
         p.okolje.pop("SAFEER_SCIT_FDS", None)
         import subprocess
         try:
-            subprocess.run([self.python, os.path.join(self.koren, "core", "scit_proces.py"), "--pospravi"],
+            subprocess.run([*_python(self.python), os.path.join(self.koren, "core", "scit_proces.py"),
+                            "--pospravi"],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         except (OSError, subprocess.SubprocessError):
             pass
@@ -814,7 +822,7 @@ def sestavi(argumenti: list, koren: str, python: str, mapa: str) -> list:
         vtic_scita = os.path.join(mapa, "scit.sock")
         okolje_os["SAFEER_SCIT_VTIC"] = vtic_scita
         # Prvi na seznamu: zazene se pred Safeer OS, ki ga ob zagonu vprasa za stanje. Vrata odpre pred_zagonom.
-        scit = Proces("safeer-scit", [python, os.path.join(koren, "core", "scit_proces.py")],
+        scit = Proces("safeer-scit", [*_python(python), os.path.join(koren, "core", "scit_proces.py")],
                       {"SAFEER_SCIT_VTIC": vtic_scita}, zamrznitev_s=ZAMRZNITEV_SCIT_S, zagon_s=ZAGON_SCIT_S,
                       ustavi_s=USTAVI_SCIT_S, zacetni_zamik_s=0.2, storitev=True, ob_obupu=vrata.ob_obupu,
                       pred_zagonom=vrata.pred_zagonom, obup_premor_s=OBUP_SCIT_PREMOR_S)
@@ -823,12 +831,13 @@ def sestavi(argumenti: list, koren: str, python: str, mapa: str) -> list:
     if lupina_mogoca(koren):
         vtic = os.environ.get("SAFEER_LUPINA_VTIC") or os.path.join(mapa, "lupina.sock")
         okolje_os["SAFEER_LUPINA_VTIC"] = vtic
-        procesi.append(Proces("safeer-lupina", [python, os.path.join(koren, "core", "lupina_proces.py")],
+        procesi.append(Proces("safeer-lupina", [*_python(python), os.path.join(koren, "core", "lupina_proces.py")],
                               {"SAFEER_LUPINA_VTIC": vtic}, zamrznitev_s=ZAMRZNITEV_LUPINA_S, zagon_s=ZAGON_LUPINA_S,
                               prost_mib=PROST_LUPINA_MIB, meja_mib=MEJA_LUPINA_MIB, ustavi_s=USTAVI_LUPINA_S,
                               zacetni_zamik_s=0.5))
     meja_os = int(ves_pomnilnik_mib() * MEJA_OS_DELEZ)
-    procesi.append(Proces("safeer-os", [python, os.path.join(koren, "safeer_os.py")] + list(argumenti), okolje_os,
+    procesi.append(Proces("safeer-os", [*_python(python), os.path.join(koren, "safeer_os.py")] + list(argumenti),
+                          okolje_os,
                           zamrznitev_s=ZAMRZNITEV_OS_S, zagon_s=ZAGON_OS_S, prost_mib=PROST_OS_MIB, meja_mib=meja_os,
                           ustavi_s=USTAVI_OS_S, zacetni_zamik_s=1.0, oom=OOM_OS, glavni=True))
     return procesi
@@ -841,7 +850,8 @@ def _ob_obupu(koren: str, python: str):
             # Mint je varnostna mreza: pult mora biti viden, tudi ce ga je Safeer OS skril (kot zaganjalnik).
             import subprocess
             try:
-                subprocess.run([python, os.path.join(koren, "safeer_os.py"), "--vrni-mint"], stdin=subprocess.DEVNULL,
+                subprocess.run([*_python(python), os.path.join(koren, "safeer_os.py"), "--vrni-mint"],
+                               stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
             except (OSError, subprocess.SubprocessError):
                 pass
@@ -854,7 +864,7 @@ def _ob_obupu(koren: str, python: str):
 def _zakleni(mapa: str):
     """En varuh na sejo (flock; sprosti se sam, tudi ob sesutju). None, ce ze tece drug."""
     import fcntl
-    d = open(os.path.join(mapa, "varuh.zaklep"), "a")  # noqa: SIM115 - odprta ostane do konca varuha
+    d = open(os.path.join(mapa, "varuh.zaklep"), "ab")  # noqa: SIM115 - odprta ostane do konca varuha (samo flock)
     try:
         fcntl.flock(d, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return d
@@ -909,7 +919,7 @@ def main(argumenti: list | None = None) -> int:
         zaklep.close()
         if zaganjalnik and os.access(zaganjalnik, os.X_OK):
             os.execv(zaganjalnik, [zaganjalnik] + nacin)
-        os.execv(python, [python, os.path.abspath(__file__)] + nacin)
+        os.execv(python, _python(python) + [os.path.abspath(__file__)] + nacin)
     return koda
 
 

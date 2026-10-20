@@ -23,7 +23,10 @@ import sys
 if __name__ == "__main__" and not __package__:
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-import faulthandler
+#: Mapa programa (/usr/lib/safeer-os): od nje zasebni_webkit najde nas WebKit (skupni /usr/lib/safeer-webkit).
+KOREN_PROGRAMA = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+import faulthandler  # noqa: E402
 import json
 import signal
 import socket
@@ -211,6 +214,11 @@ def pospravi() -> int:
 def main(argumenti: Optional[list] = None) -> int:
     argumenti = list(sys.argv[1:] if argumenti is None else argumenti)
     faulthandler.enable()            # SIGABRT varuha ob zamrznitvi: sled vseh niti v sled.log
+    # Nas WebKitGTK/libsoup (GI_TYPELIB_PATH), kot v safeer_os.py, PRED prvim uvozom gi (DoH naprej: core/doh_proxy z
+    # Soup 3.0) in pred nitmi. Brez tega je Scit v svojem procesu ob manjkajocem gir1.2-soup-3.0 posiljal vsa imena
+    # nesifrirano usmerjevalniku, sicer pa tekel na sistemskem libsoup (pomocnik, pregled 1.0.129, 20. 10. 2026).
+    from core import zasebni_webkit
+    zasebni_webkit.nastavi(KOREN_PROGRAMA)
     if "--pospravi" in argumenti:
         return pospravi()
     from core import os_scit, shramba_json, varuh_procesov

@@ -23,6 +23,8 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-browser" && pwd)" || {
 
 # Safeer Browser na GTK4 (safeer_brskalnik.py, WebKitGTK 6.0).
 VSTOP="$APP_DIR/safeer_brskalnik.py"
+# -s: uporabnikov site-packages (pip install --user) ne sme zamenjati sistemskih paketov programa; otroci (varuh,
+# nova razlicica) ga dobijo prek core/okolje_procesa.python_ukaz.
 PY="${PYTHON:-python3}"
 
 # Flatpak (od 1.0.127): brez ovojev /app/host-bin in brez preusmeritve XDG_* v dom - brskalnik nima dostopa do
@@ -31,7 +33,7 @@ PY="${PYTHON:-python3}"
 # Enkratni zagoni (razlicica) brez preusmeritve v Flatpak in brez obsega systemd.
 for arg in "$@"; do
     case "$arg" in
-        --version|--help|-h) exec "$PY" "$VSTOP" "$@" ;;
+        --version|--help|-h) exec "$PY" -s "$VSTOP" "$@" ;;
     esac
 done
 
@@ -68,4 +70,4 @@ fi
 export PULSE_LATENCY_MSEC=120
 export GST_PULSE_BUFFER_MS=120
 
-exec "$PY" "$VSTOP" "$@"
+exec "$PY" -s "$VSTOP" "$@"

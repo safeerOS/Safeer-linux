@@ -419,7 +419,8 @@ def ukaz_zajema(seja: Seja, sirina: int, visina: int, fps: int, ffmpeg_ukaz: Lis
 
     Vrne (ukaz, dodatno za Popen): fd PipeWire podedujeta samo ta proces in ffmpeg ga ne vidi."""
     koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ukaz = [sys.executable, "-m", "core.zajem_pipewire", "--fd", str(seja.fd),
+    from core import okolje_procesa
+    ukaz = okolje_procesa.python_ukaz() + ["-m", "core.zajem_pipewire", "--fd", str(seja.fd),
             "--vozlisce", str(seja.tok["vozlisce"]), "--sirina", str(int(sirina)), "--visina", str(int(visina)),
             "--fps", str(int(fps)), "--"] + list(ffmpeg_ukaz)
     return ukaz, {"pass_fds": (seja.fd,), "cwd": koren}

@@ -7,6 +7,9 @@ if [ "${1:-}" = "configure" ] && [ -f /usr/lib/@PROGRAM@/webkit-vgrajen/share/we
     wk_vir=/usr/lib/@PROGRAM@/webkit-vgrajen
     wk_cilj=/usr/lib/safeer-webkit
     wk_podatki=share/webkitgtk-safeer
+    # Ostanki prekinjene namestitve (poln disk, napaka kopije): ime je stalno, ustvari jih samo root tu (dpkg drzi
+    # zaklep baze, zato hkrati ne tece drug postinst). Pomocnik, pregled 1.0.129: prej so se kopicili.
+    rm -rf "$wk_cilj".novo.* "$wk_cilj".staro.*
     if [ -f "$wk_cilj/$wk_podatki/odtis" ] && cmp -s "$wk_vir/$wk_podatki/odtis" "$wk_cilj/$wk_podatki/odtis"; then
         echo "Safeer WebKit je ze namescen (ista gradnja): ne namescam ga ponovno."
         # Enake datoteke vira -> trde povezave na namescene (vsebina ostane ista, dpkg --verify je zadovoljen).
@@ -22,7 +25,7 @@ if [ "${1:-}" = "configure" ] && [ -f /usr/lib/@PROGRAM@/webkit-vgrajen/share/we
         wk_novo="$wk_cilj.novo.$$"
         rm -rf "$wk_novo"
         # Trde povezave: brez druge kopije na disku; ce /usr/lib ni en datotecni sistem, kopija.
-        cp -al "$wk_vir" "$wk_novo" 2>/dev/null || { rm -rf "$wk_novo"; cp -a "$wk_vir" "$wk_novo"; }
+        cp -al "$wk_vir" "$wk_novo" 2>/dev/null || { rm -rf "$wk_novo"; cp -a "$wk_vir" "$wk_novo" || { rm -rf "$wk_novo"; exit 1; }; }
         if [ -e "$wk_cilj" ]; then
             # Tekoci programi obdrzijo stare knjiznice v pomnilniku (izbrisane datoteke ostanejo preslikane);
             # Safeer OS in Control ob novem odtisu zazeneta znova (core/nova_razlicica.py).

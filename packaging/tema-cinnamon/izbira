@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -s
 """Safeer Cinnamon: okno z izbiro postavitve in ozadja (safeer-cinnamon --izberi).
 
 Vklop je bil do razlicice 1.1 ena sama poteza: tema, pult na vrh, dock in delovna povrsina cez namizje. Kdor je zelel

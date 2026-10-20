@@ -425,7 +425,7 @@ class Zaganjalnik(unittest.TestCase):
     def test_delovna_gre_pod_varuha(self):
         with open(os.path.join(KOREN, "packaging", "safeer-os-launcher"), encoding="utf-8") as f:
             s = f.read()
-        self.assertIn('exec "$PY" "$APP_DIR/core/varuh_procesov.py" "$@"', s)
+        self.assertIn('exec "$PY" -s "$APP_DIR/core/varuh_procesov.py" "$@"', s)
         self.assertIn('export SAFEER_ZAGANJALNIK="$PRG"', s)
         # SAFEER_OS_BREZ_NADZORA (razvoj) ostane pred varuhom, Flatpak preusmeritev tudi.
         self.assertLess(s.index("SAFEER_OS_BREZ_NADZORA:-"), s.index("core/varuh_procesov.py"))

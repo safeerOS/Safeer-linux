@@ -4262,8 +4262,17 @@ class Oglas:
         if self._zc is None or self._info is None:
             return False
         try:
-            self._info.properties[b"prio"] = str(nova_prio).encode()
-            self._zc.update_service(self._info)
+            # ServiceInfo.text (zapis TXT) se izracuna samo v konstruktorju - sprememba slovarja properties ga ne
+            # spremeni (zeroconf 0.131, pomocnik 20. 10. 2026: v omrezju je ostala stara prioriteta). Nov oglas z istim
+            # imenom (tudi ce ga je register_service preimenoval), naslovi, vrati in strezniskim imenom.
+            from zeroconf import ServiceInfo   # type: ignore
+            star = self._info
+            lastnosti = dict(star.properties or {})
+            lastnosti[b"prio"] = str(nova_prio).encode()
+            nov = ServiceInfo(star.type, star.name, addresses=star.addresses, port=star.port, properties=lastnosti,
+                              server=star.server)
+            self._zc.update_service(nov)
+            self._info = nov
             return True
         except Exception as e:  # noqa: BLE001
             print("[SafeerLink] posodobitev prioritete mDNS ni uspela: %s: %s" % (type(e).__name__, e), flush=True)

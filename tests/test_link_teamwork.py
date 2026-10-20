@@ -633,9 +633,10 @@ class StreznikPopravkov(unittest.TestCase):
         self.d.streznik.sme = lambda naprava, zmoznost: True
         self.d.streznik.umaknjena = lambda naprava: False
         # Preizkus ne sme biti odvisen od prostega prostora na disku gostitelja (507 ni prostora).
-        rezerva = link_datoteke.REZERVA_DISKA
-        link_datoteke.REZERVA_DISKA = 0
-        self.addCleanup(setattr, link_datoteke, "REZERVA_DISKA", rezerva)
+        from core import link_viri
+        p = mock.patch.object(link_viri, "rezerva_diska", lambda _mapa: 0)
+        p.start()
+        self.addCleanup(p.stop)
         self.tw = tw.Teamwork(razresi=self.d.pot, ime_naprave=lambda i: i, obvesti=lambda k, p: None, ukaz=None,
                               okna=lambda: [], mapa=os.path.join(self.tmp, "tw"), procesi=None)
         self.d.teamwork = self.d.streznik.teamwork = self.tw

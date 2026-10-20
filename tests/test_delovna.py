@@ -1058,6 +1058,17 @@ class TestTemaCinnamon(unittest.TestCase):
                                      1 if namescen else 0)
                     self._ukaz(o, "--izklopi")
                     self._kot_na_zacetku(o)
+                    if namescen:
+                        # Premaknjen nas applet (pomocnik, pregled 1.0.129): --izklopi vrne Mintovega na NOVO mesto.
+                        self._ukaz(o, "--profil", "dock")
+                        with open(o["db"]) as f:
+                            db = f.read()
+                        with open(o["db"], "w") as f:
+                            f.write(db.replace("panel1:right:3:obvestila@safeer.si:7", "panel1:right:5:obvestila@safeer.si:7"))
+                        self._ukaz(o, "--izklopi")
+                        appleti = self._vrednost(o, "org.cinnamon", "enabled-applets")
+                        self.assertIn("panel1:right:5:notifications@cinnamon.org:7", appleti)
+                        self.assertNotIn("obvestila@safeer.si", appleti)
                 finally:
                     shutil.rmtree(tmp, ignore_errors=True)
         finally:

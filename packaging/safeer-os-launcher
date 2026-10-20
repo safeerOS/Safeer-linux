@@ -35,12 +35,14 @@ if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
     export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
 fi
 
+# -s: uporabnikov site-packages (pip install --user) ne sme zamenjati sistemskih paketov programa; otroci (varuh,
+# nova razlicica) ga dobijo prek core/okolje_procesa.python_ukaz.
 PY="${PYTHON:-python3}"
 
 # One-shot runs (version, screenshot) and an explicitly disabled supervisor run in the foreground.
 for arg in "$@"; do
     case "$arg" in
-        --version|--posnetek|--help|-h) exec "$PY" "$APP_DIR/safeer_os.py" "$@" ;;
+        --version|--posnetek|--help|-h) exec "$PY" -s "$APP_DIR/safeer_os.py" "$@" ;;
     esac
 done
 # Flatpak is the main way Safeer OS is delivered (owner, 12 Oct 2026): it runs on the GNOME runtime, so the
@@ -60,7 +62,7 @@ if [ -z "${FLATPAK_ID:-}" ] && [ -z "${SAFEER_OS_BREZ_FLATPAKA:-}" ] && [ "$APP_
     fi
 fi
 if [ -n "${SAFEER_OS_BREZ_NADZORA:-}" ]; then
-    exec "$PY" "$APP_DIR/safeer_os.py" "$@"
+    exec "$PY" -s "$APP_DIR/safeer_os.py" "$@"
 fi
 # Delovna povrsina (--delovna, ob prijavi): lupina namizja (core/lupina_proces.py) in Safeer OS tecejo vsak v svojem
 # procesu pod varuhom procesov (core/varuh_procesov.py; lastnik, 18. 10. 2026): sesutje ali zamrznitev Safeer OS ne podre
@@ -70,7 +72,7 @@ fi
 for arg in "$@"; do
     if [ "$arg" = "--delovna" ]; then
         export SAFEER_ZAGANJALNIK="$PRG"
-        exec "$PY" "$APP_DIR/core/varuh_procesov.py" "$@"
+        exec "$PY" -s "$APP_DIR/core/varuh_procesov.py" "$@"
     fi
 done
 
@@ -96,7 +98,7 @@ obrezi_sled() {
 # Puts the Cinnamon panel back if Safeer OS left it hidden. Idempotent: with nothing stored it is a
 # no-op, so it is safe to call on every non-clean exit.
 vrni_mint() {
-    "$PY" "$APP_DIR/safeer_os.py" --vrni-mint >> "$DNEVNIK" 2>&1 || true
+    "$PY" -s "$APP_DIR/safeer_os.py" --vrni-mint >> "$DNEVNIK" 2>&1 || true
 }
 
 NAJVEC_ZAGONOV=5          # more than this in the window below means restarting does not help
@@ -109,12 +111,12 @@ export SAFEER_OS_NADZOR=$$
 
 while :; do
     if [ -t 2 ]; then
-        "$PY" "$APP_DIR/safeer_os.py" "$@"
+        "$PY" -s "$APP_DIR/safeer_os.py" "$@"
     else
         obrezi_sled
         # Tudi stdout (g_print knjiznic C; print() Pythona preusmeri core/os_stabilnost.preusmeri_izpis): pri zagonu iz
         # menija ali ob prijavi je bil /dev/null in sporocila o napakah so se izgubila (lastnik, 18. 10. 2026).
-        "$PY" "$APP_DIR/safeer_os.py" "$@" >>"$SLED" 2>&1
+        "$PY" -s "$APP_DIR/safeer_os.py" "$@" >>"$SLED" 2>&1
     fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: Safeer OS already restored the panel
@@ -143,7 +145,7 @@ while :; do
     signal=$((koda - 128))
     echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: Safeer OS se je ustavil zaradi signala $signal (poskus $zagonov)" >> "$DNEVNIK"
     # Pot in koda kot argumenta, ne vstavljena v kodo Pythona (pot z ' bi jo pokvarila ali vanjo vrinila kodo).
-    "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje("safeer-os", int(sys.argv[2]))' "$APP_DIR" "$koda" 2>/dev/null
+    "$PY" -s -c 'import sys; sys.path.insert(0, sys.argv[1]); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje("safeer-os", int(sys.argv[2]))' "$APP_DIR" "$koda" 2>/dev/null
 
     if [ "$zagonov" -ge "$NAJVEC_ZAGONOV" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: prevec ponovnih zagonov, odneham (glej sled.log)" >> "$DNEVNIK"

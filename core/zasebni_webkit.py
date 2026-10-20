@@ -134,8 +134,9 @@ def okolje_za_zunanje(okolje: Optional[Mapping[str, str]] = None) -> dict:
     if okolje.get("APPIMAGE"):
         for ime in SAMO_APPIMAGE:
             okolje.pop(ime, None)
-    from core import okolje_procesa
-    return okolje_procesa.prazne_rezervacije(okolje)
+    # Izklop peskovnika WebKita, ki ga je ta proces dal sebi (core/peskovnik_userns.py), ne velja za druge programe.
+    from core import okolje_procesa, peskovnik_userns
+    return okolje_procesa.prazne_rezervacije(peskovnik_userns.okolje_brez_izklopa(okolje))
 
 
 def gio_v_procesu():

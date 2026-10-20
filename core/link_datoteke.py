@@ -903,8 +903,9 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
 
 #: Najvec toliko popravkov Teamworka hkrati (vsak gre v zacasno datoteko na disk tega racunalnika).
 _POPRAVKI_HKRATI = threading.BoundedSemaphore(2)
-#: Toliko prostora mora ostati na disku poleg popravka (in sestavljene datoteke).
-REZERVA_DISKA = 512 * 1024 * 1024
+#: Rezerva diska poleg popravka (in sestavljene datoteke) je ista kot drugod v Linku: link_viri.rezerva_diska (2 %
+#: diska, 1-10 GiB; tudi kopija razlicice v link_teamwork). Prej je bila tu REZERVA_DISKA = 512 MiB, ki jo je spodnja
+#: istoimenska meja pomoci (2 GiB) ob uvozu modula tiho povozila - komentar in delovanje se nista ujemala.
 #: Rok tisine med branjem popravka (kot ROK_BRANJA_S Huba): prek Huba povezava po glavah nima roka - naprava, ki je
 #: sredi oddaje izgubila omrezje, je za vedno drzala nit, eno od dveh mest za popravke in zacasno datoteko.
 ROK_BRANJA_POPRAVKA_S = 60.0
@@ -933,13 +934,16 @@ def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> Non
     if dolzina <= 0 or dolzina > link_teamwork.NAJVEC_POPRAVKA:
         _napaka_http(obravnava, 413, "napacna dolzina")
         return
+    from core import link_viri
     try:
         # Popravek in iz njega sestavljena datoteka: dvakratna velikost + rezerva, sicer 507 (naprava ne poskusa
         # vsakih nekaj sekund znova - core/link_teamwork.PREMOR_PO_NAPAKI_S).
-        prosto = shutil.disk_usage(tw._mapa_zacasnih()).free
+        mapa = tw._mapa_zacasnih()
+        prosto = shutil.disk_usage(mapa).free
+        rezerva = link_viri.rezerva_diska(mapa)
     except OSError:
-        prosto = 0
-    if prosto < 2 * dolzina + REZERVA_DISKA:
+        prosto, rezerva = 0, link_viri.NAJMANJ_REZERVE_DISKA
+    if prosto < 2 * dolzina + rezerva:
         _napaka_http(obravnava, 507, "ni prostora")
         return
     try:
@@ -1904,7 +1908,9 @@ def ze_preneseno(hash_: str, indeks: Optional[int], mape_stanja=None) -> Tuple[s
 #: Meje, nad katerimi racunalnik ne prevzame novega dela za druge naprave (ostane odziven za uporabnika).
 NAJVEC_OBREMENITVE_NA_JEDRO = 0.85
 NAJMANJ_PROSTEGA_RAM = 512 * 1024 * 1024
-REZERVA_DISKA = 2 * 1024 * 1024 * 1024
+#: Pomoc drugim napravam (pretvorba, sprotno) vzame prostor samo, ce ostane toliko (svoje ime: prej REZERVA_DISKA, isto
+#: ime kot rezerva popravkov Teamworka zgoraj, ki jo je povozilo).
+REZERVA_DISKA_POMOCI = 2 * 1024 * 1024 * 1024
 
 
 def prosti_pomnilnik() -> int:
@@ -1931,7 +1937,7 @@ def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
         os.makedirs(mapa, exist_ok=True)
         # shutil.disk_usage dela na Linuxu in na Windows (os.statvfs na Windows ne obstaja - brez tega bi
         # racunalnik z Windows sprejel film, ki nanj ne gre, in zapolnil disk).
-        if shutil.disk_usage(mapa).free < potrebno + REZERVA_DISKA:
+        if shutil.disk_usage(mapa).free < potrebno + REZERVA_DISKA_POMOCI:
             return "ni_prostora"
     except OSError:
         pass

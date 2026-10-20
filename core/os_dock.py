@@ -214,7 +214,9 @@ def _plank_pid() -> Optional[int]:
         if not ime.isdigit():
             continue
         try:
-            with open("/proc/%s/comm" % ime) as f:
+            # Ime procesa so bajti, jedro ga odreze na 15 bajtov tudi sredi znaka UTF-8 (izmerjeno 20. 10. 2026:
+            # UnicodeDecodeError je podrl iskanje Planka) - neveljavni bajti postanejo U+FFFD.
+            with open("/proc/%s/comm" % ime, encoding="utf-8", errors="replace") as f:
                 if f.read().strip() == "plank" and os.stat("/proc/" + ime).st_uid == os.getuid():
                     return int(ime)
         except OSError:
@@ -242,7 +244,7 @@ def plank_tece() -> bool:
     pid = _zadnji_plank["pid"]
     if pid:
         try:
-            with open("/proc/%d/comm" % pid) as f:
+            with open("/proc/%d/comm" % pid, encoding="utf-8", errors="replace") as f:
                 if f.read().strip() == "plank":
                     return True
         except OSError:

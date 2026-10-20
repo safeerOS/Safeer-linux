@@ -43,7 +43,7 @@ def launcher_command(app_dir):
     launcher = app_dir.parent.parent / 'bin' / 'safeer'
     if launcher.is_file() and os.access(launcher, os.X_OK):
         return _exec_argument(launcher)
-    return '/usr/bin/python3 ' + _exec_argument(_entry_script(app_dir))
+    return '/usr/bin/python3 -s ' + _exec_argument(_entry_script(app_dir))
 
 
 def _exec_program(exec_line):
@@ -181,7 +181,7 @@ def ensure_desktop_entry(app_dir):
             _back_up(path)
         fd, temporary = tempfile.mkstemp(prefix='.safeer-', suffix='.desktop', dir=directory)
         try:
-            with os.fdopen(fd, 'w') as stream:
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
                 stream.write(updated)
             os.chmod(temporary, 0o644)
             os.replace(temporary, path)

@@ -14,4 +14,5 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-control" && pwd)" || {
     echo "safeerctl: Safeer Control payload not found next to launcher." >&2
     exit 3
 }
-exec "${PYTHON:-python3}" "$APP_DIR/safeerctl.py" "$@"
+# -s: uporabnikov site-packages (pip install --user) ne vpliva na program.
+exec "${PYTHON:-python3}" -s "$APP_DIR/safeerctl.py" "$@"

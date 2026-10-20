@@ -13,7 +13,8 @@ brez spremembe obnasanja; programom, ki jih zazenemo, prazne ne damo (core/zaseb
 from __future__ import annotations
 
 import os
-from typing import Optional
+import sys
+from typing import List, Optional
 
 #: Qt jih bere ob ustvarjanju QApplication. V procesu Safeer OS se to zgodi na zahtevo (okno aplikacije, delovna
 #: povrsina brez varuha - core/os_lupina.pripravi), ko niti ze tecejo.
@@ -66,6 +67,18 @@ def povrni(ime: str, prej: Optional[str]) -> None:
         os.environ.pop(ime, None)
     else:
         os.environ[ime] = prej
+
+
+def python_ukaz(python: Optional[str] = None) -> List[str]:
+    """Ukaz za nov proces Pythona (otrok, ponovni zagon): z -s, ce ta proces tece z -s. Zaganjalniki paketov zazenejo
+    Python z -s (packaging/*-launcher): uporabnikov site-packages (pip install --user) ne sme zamenjati sistemskih
+    paketov (cryptography, zeroconf, gi ...). Zastavica -s ni v okolju, zato jo otrok dobi samo, ce mu jo damo."""
+    return [python or sys.executable or "/usr/bin/python3"] + (["-s"] if sys.flags.no_user_site else [])
+
+
+def python_niz(skripta: str, python: Optional[str] = None) -> str:
+    """Isto kot python_ukaz za vrstico Exec (samodejni zagon): '"python" -s "skripta"'."""
+    return " ".join('"%s"' % d if not d.startswith("-") else d for d in python_ukaz(python) + [skripta])
 
 
 def prazne_rezervacije(okolje: dict) -> dict:

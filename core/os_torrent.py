@@ -193,7 +193,7 @@ def _ustavi_sirote(mapa_stanja: str, program: str) -> None:
     """Ustavi rqbit iz prejšnjega zagona (datoteka rqbit.pid), a samo, če PID res pripada našemu programu."""
     pot = os.path.join(mapa_stanja, "rqbit.pid")
     try:
-        with open(pot) as d:
+        with open(pot, encoding="utf-8") as d:
             pid = int(d.read().strip())
     except (OSError, ValueError):
         return
@@ -582,7 +582,7 @@ class Torrenti:
             if sys.platform.startswith("win"):
                 _vezi_na_safeer(self._proces)
             try:
-                with open(os.path.join(self.mapa_stanja, "rqbit.pid"), "w") as d:
+                with open(os.path.join(self.mapa_stanja, "rqbit.pid"), "w", encoding="utf-8") as d:
                     d.write(str(self._proces.pid))
             except OSError:
                 pass

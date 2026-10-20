@@ -155,13 +155,17 @@ def _pot_poti() -> str:
 
 
 def _beri_json(pot: str) -> dict:
-    """Ni datoteke ali je pokvarjena: prazno (prvi zagon, prekinjeno pisanje). Druga napaka (pravice, disk) gre v
-    dnevnik, da se ne skrije (neodvisni pregled 19. 10. 2026); nastavitve so tudi takrat privzete."""
+    """Ni datoteke ali je pokvarjena: prazno (prvi zagon, prekinjeno pisanje). Pokvarjena je tudi vsebina, ob kateri
+    json vrze kaj drugega kot JSONDecodeError (pregled 2: ValueError pri stevilu z vec kot 4300 stevkami, RecursionError
+    pri globoko gnezdenem seznamu) - prej je to podrlo klicatelja. Druga napaka (pravice, disk) gre v dnevnik, da se ne
+    skrije (neodvisni pregled 19. 10. 2026); nastavitve so tudi takrat privzete."""
     try:
         with open(pot, encoding="utf-8") as d:
             v = json.load(d)
         return v if isinstance(v, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+    except FileNotFoundError:
+        return {}
+    except (ValueError, RecursionError):        # JSONDecodeError in UnicodeDecodeError sta ValueError
         return {}
     except OSError as e:
         print("[SafeerLink] neposredno: branje %s: %s" % (os.path.basename(pot), e), flush=True)
@@ -169,22 +173,24 @@ def _beri_json(pot: str) -> dict:
 
 
 def _pisi_json(pot: str, vsebina: dict) -> bool:
-    """Atomsko (zacasna datoteka + os.replace). False in zapis v dnevnik, ce ne uspe."""
-    zacasna = pot + ".tmp"
+    """Atomsko z edinstveno zacasno datoteko (shramba_json.zapisi_atomsko: 0600 ze ob nastanku, fsync). Prej stalno ime
+    <pot>.tmp: dve niti (dve poti do razlicnih sredisc pisejo isti spomin) sta pisali v isto zacasno datoteko, ta pa je
+    bila do chmod berljiva vsem. False in zapis v dnevnik, ce ne uspe."""
+    from core import shramba_json
     try:
-        os.makedirs(os.path.dirname(pot), exist_ok=True)
-        with open(zacasna, "w", encoding="utf-8") as d:
-            json.dump(vsebina, d)
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, pot)
+        shramba_json.zapisi_atomsko(pot, vsebina, indent=None, nacin=0o600)
         return True
-    except (OSError, TypeError, ValueError) as e:
+    except (OSError, TypeError, ValueError, RecursionError) as e:
         print("[SafeerLink] neposredno: pisanje %s: %s" % (os.path.basename(pot), e), flush=True)
-        try:
-            os.remove(zacasna)
-        except OSError:
-            pass
         return False
+
+
+def _cas(vrednost) -> float:
+    """Cas iz shranjenega stanja; neveljavna vrednost (rocno urejena ali pokvarjena datoteka) je 0, ne izjema."""
+    try:
+        return float(vrednost or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
 
 
 def nastavitve(pot: Optional[str] = None) -> dict:
@@ -1038,7 +1044,9 @@ class LokalniOdZunaj:
     def _nalozi_spomin(self) -> None:
         if not self._pot_spomina:
             return
-        z = _beri_json(self._pot_spomina).get(self.cilj) or {}
+        z = _beri_json(self._pot_spomina).get(self.cilj)
+        if not isinstance(z, dict):
+            z = {}
         niz = str(z.get("oglas") or "")
         if niz and self.kljuc():
             from core import link_kripto
@@ -1047,7 +1055,7 @@ class LokalniOdZunaj:
                 oglas["niz"] = niz
                 self._oglas = oglas
                 if z.get("pot") == POT_NEPOSREDNO:
-                    self._nas_uspeh[(oglas["ip"], oglas["vrata"])] = float(z.get("ob") or 0)
+                    self._nas_uspeh[(oglas["ip"], oglas["vrata"])] = _cas(z.get("ob"))
         self.zadnja_pot = str(z.get("pot") or "")
 
     def _zapomni(self) -> None:
@@ -1377,7 +1385,7 @@ class NeposrednoHuba:
     def _ob_zunanji(self, vir: str) -> None:
         zdaj = self.ura()
         with self._zaklep:
-            prej = float(self._stanje.get("preverjeno") or 0)
+            prej = _cas(self._stanje.get("preverjeno"))
             self._stanje["preverjeno"] = zdaj
             vhod = self.vhod
             if vhod is not None:
@@ -1393,7 +1401,7 @@ class NeposrednoHuba:
 
     def preverjeno(self) -> bool:
         with self._zaklep:
-            p = float(self._stanje.get("preverjeno") or 0)
+            p = _cas(self._stanje.get("preverjeno"))
             vhod = self.vhod
             ista_vrata = vhod is not None and self._stanje.get("vrata") == vhod.vrata_nastavljena
         return bool(p) and ista_vrata and self.ura() - p < PREVERJENO_VELJA_S
@@ -1410,7 +1418,7 @@ class NeposrednoHuba:
         if podpisi is None:
             def podpisi(p: bytes) -> bytes:
                 return base64.b64decode(link_krog.podpisi(p))
-        p = float(self._stanje.get("preverjeno") or 0) if self.preverjeno() else 0.0
+        p = _cas(self._stanje.get("preverjeno")) if self.preverjeno() else 0.0
         return [sestavi_oglas(id_iz_kljuca(kljuc_b64), ip, vhod.vrata_nastavljena, kljuc_b64, podpisi, preverjeno=p,
                               zdaj=self.ura())]
 
@@ -1420,7 +1428,7 @@ class NeposrednoHuba:
         with self._zaklep:
             vhod = self.vhod
             znan = je_javni_ipv4(str(self._stanje.get("ip") or ""))
-            p = float(self._stanje.get("preverjeno") or 0)
+            p = _cas(self._stanje.get("preverjeno"))
         return {"vklopljeno": n["vklopljeno"], "vrata": n["vrata"], "tece": vhod is not None and vhod.tece,
                 "javni_naslov": znan, "preverjeno": self.preverjeno(), "preverjeno_ob": int(p) if p else 0,
                 "napaka": self.napaka}

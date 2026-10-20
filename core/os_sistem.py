@@ -56,13 +56,13 @@ def _v_ozadju(ukaz: List[str]) -> bool:
 def baterija(koren: str = "/sys/class/power_supply") -> Optional[dict]:
     for pot in sorted(glob.glob(os.path.join(koren, "BAT*"))):
         try:
-            with open(os.path.join(pot, "capacity")) as f:
+            with open(os.path.join(pot, "capacity"), encoding="utf-8") as f:
                 odstotek = int(f.read().strip())
         except Exception:
             continue
         stanje = ""
         try:
-            with open(os.path.join(pot, "status")) as f:
+            with open(os.path.join(pot, "status"), encoding="utf-8") as f:
                 stanje = f.read().strip()
         except Exception:
             pass
@@ -170,9 +170,9 @@ def svetlost(koren: str = "/sys/class/backlight") -> Optional[int]:
             return int(m.group(1))
     for pot in sorted(glob.glob(os.path.join(koren, "*"))):
         try:
-            with open(os.path.join(pot, "brightness")) as f:
+            with open(os.path.join(pot, "brightness"), encoding="utf-8") as f:
                 zdaj = int(f.read().strip())
-            with open(os.path.join(pot, "max_brightness")) as f:
+            with open(os.path.join(pot, "max_brightness"), encoding="utf-8") as f:
                 najvec = int(f.read().strip())
             if najvec > 0:
                 return int(round(zdaj * 100 / najvec))

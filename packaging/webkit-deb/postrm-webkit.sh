@@ -11,6 +11,9 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
             ?[iUFHWt]*) wk_ostane="$wk_p" ;;
         esac
     done
+    if [ -z "$wk_ostane" ]; then
+        rm -rf /usr/lib/safeer-webkit.novo.* /usr/lib/safeer-webkit.staro.*
+    fi
     if [ -z "$wk_ostane" ] && [ -d /usr/lib/safeer-webkit ]; then
         rm -rf /usr/lib/safeer-webkit
         echo "Safeer WebKit odstranjen (noben program Safeer ga ne uporablja vec)."

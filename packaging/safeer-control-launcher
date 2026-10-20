@@ -23,16 +23,18 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-control" && pwd)" || {
     exit 1
 }
 
+# -s: uporabnikov site-packages (pip install --user) ne sme zamenjati sistemskih paketov programa; otroci (varuh,
+# nova razlicica) ga dobijo prek core/okolje_procesa.python_ukaz.
 PY="${PYTHON:-python3}"
 
 # One-shot runs and an explicitly disabled supervisor run in the foreground.
 for arg in "$@"; do
     case "$arg" in
-        --version|--help|-h) exec "$PY" "$APP_DIR/safeer_control.py" "$@" ;;
+        --version|--help|-h) exec "$PY" -s "$APP_DIR/safeer_control.py" "$@" ;;
     esac
 done
 if [ -n "${SAFEER_CONTROL_BREZ_NADZORA:-}" ]; then
-    exec "$PY" "$APP_DIR/safeer_control.py" "$@"
+    exec "$PY" -s "$APP_DIR/safeer_control.py" "$@"
 fi
 
 DNEVNIK="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-control/dnevnik.log"
@@ -60,10 +62,10 @@ export SAFEER_CONTROL_NADZOR=$$
 
 while :; do
     if [ -t 2 ]; then
-        "$PY" "$APP_DIR/safeer_control.py" "$@"
+        "$PY" -s "$APP_DIR/safeer_control.py" "$@"
     else
         obrezi_sled
-        "$PY" "$APP_DIR/safeer_control.py" "$@" >>"$SLED" 2>&1
+        "$PY" -s "$APP_DIR/safeer_control.py" "$@" >>"$SLED" 2>&1
     fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: the user quit Safeer Control
@@ -86,7 +88,7 @@ while :; do
     signal=$((koda - 128))
     echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: Safeer Control se je ustavil zaradi signala $signal (poskus $zagonov)" >> "$DNEVNIK"
     # Pot in koda kot argumenta, ne vstavljena v kodo Pythona (pot z ' bi jo pokvarila ali vanjo vrinila kodo).
-    "$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje("safeer-control", int(sys.argv[2]))' "$APP_DIR" "$koda" 2>/dev/null
+    "$PY" -s -c 'import sys; sys.path.insert(0, sys.argv[1]); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje("safeer-control", int(sys.argv[2]))' "$APP_DIR" "$koda" 2>/dev/null
 
     if [ "$zagonov" -ge "$NAJVEC_ZAGONOV" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: prevec ponovnih zagonov, odneham (glej sled.log)" >> "$DNEVNIK"

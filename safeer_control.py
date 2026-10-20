@@ -275,7 +275,7 @@ class Samozagon:
                 os.remove(pot + ".ni")      # izklop Safeer Cinnamon naj vnos vrne, ne izbrise
             ukaz = "safeer-control --ozadje"
             if not shutil_which("safeer-control"):
-                ukaz = f'"{sys.executable}" "{os.path.abspath(__file__)}" --ozadje'
+                ukaz = okolje_procesa.python_niz(os.path.abspath(__file__)) + " --ozadje"
             with open(pot, "w", encoding="utf-8") as d:
                 d.write("[Desktop Entry]\nType=Application\nName=Safeer Control\n"
                         "Comment=Safeer Link v ozadju (daljinec, deljenje) / Safeer Link in the background\n"
@@ -2104,7 +2104,7 @@ class SafeerControl(_OSNOVA):
         else:
             skripta = os.path.join(KOREN, "safeer_os.py")
             if os.path.isfile(skripta):
-                ukaz = [sys.executable, skripta]
+                ukaz = okolje_procesa.python_ukaz() + [skripta]
         if not ukaz:
             if self.link is not None:
                 self.link._odziv("brezPovezave", {"os": False})
@@ -2358,7 +2358,8 @@ class SafeerControl(_OSNOVA):
         # Pladenj ostane (--ozadje), okno pa se odpre takoj, ker ga je uporabnik pravkar zahteval.
         argv = [a for a in sys.argv if a != "--ozadje"] + ["--ozadje"]
         # Okolje novemu procesu damo sami (execve): okolja tega procesa ne spreminjamo, ker v njem tecejo niti.
-        os.execve(sys.executable, [sys.executable] + argv, dict(os.environ, SAFEER_CONTROL_ODPRI="1"))
+        py = okolje_procesa.python_ukaz()
+        os.execve(py[0], py + argv, dict(os.environ, SAFEER_CONTROL_ODPRI="1"))
 
     # ------------------------------------------------------------------
     # Odpiranje naslovov: gledalec zaslona s Huba v svojem oknu, vse drugo v sistemskem brskalniku

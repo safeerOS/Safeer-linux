@@ -233,8 +233,23 @@ def preklopi(vhod: str) -> bool:
     if vhod not in TIPKE or not n.get("vklop") or not ima_potrdilo():
         return False
     naslov = n.get("naslov", "")
-    # Vklop pred 1.0.128 si odtisa ni zapomnil: zapomni si ga prvi ukaz po posodobitvi (enako kot vklop).
     odtis = str(n.get("odtis") or "") or None
+    if odtis is None:
+        # Vklop pred 1.0.128 si odtisa ni zapomnil. Ukaz ne gre nobeni napravi pred preverjenim odtisom (AGENTS.md: TLS
+        # brez CA samo s pripetim odtisom PRED posiljanjem): najprej prvi stik brez ukaza kot ob vklopu (getStatusEx),
+        # naprava mora imeti zapomnjeni naslov Bluetooth; njen odtis si zapomnimo, ukaz gre nato s pripetim odtisom.
+        # Prej je ukaz sel nepreverjen - ob spremembi naslova (DHCP) celo prvi napravi z istim imenom v mDNS.
+        kandidati = [naslov] + [v["naslov"] for v in najdi() if v["ime"] == n.get("ime") and v["naslov"] != naslov]
+        for na in kandidati:
+            bt, prvi = bt_naslov(na) if na else ("", "")
+            if bt and prvi and bt == str(n.get("bt") or ""):
+                odtis, naslov = prvi, na
+                n.update({"odtis": prvi, "naslov": na})
+                n.pop("napaka", None)
+                _shrani(n)
+                break
+        else:
+            return False
 
     tuje_potrdilo = []
 
@@ -244,8 +259,7 @@ def preklopi(vhod: str) -> bool:
         except NapakaOdtisa:
             tuje_potrdilo.append(na)
             raise
-        if odtis is None or n.get("napaka"):
-            n["odtis"] = dejanski
+        if n.get("napaka"):
             n.pop("napaka", None)
             _shrani(n)
         return True

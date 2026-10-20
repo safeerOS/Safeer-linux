@@ -912,7 +912,7 @@ class DrugiZaslon:
                            # velja samo za programe na tem zaslonu, sistemske nastavitve ostanejo.
                            "ACCESSIBILITY_ENABLED": "1", "GNOME_ACCESSIBILITY": "1",
                            "QT_ACCESSIBILITY": "1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON": "1"})
-            dnevnik = open(os.path.join(self.mapa, "sway.log"), "w")
+            dnevnik = open(os.path.join(self.mapa, "sway.log"), "wb")     # samo za stdout/stderr programa sway
             self._sway = subprocess.Popen(["sway", "-c", konf], env=okolje, stdout=dnevnik, stderr=dnevnik,
                                           stdin=subprocess.DEVNULL, start_new_session=True)
             dnevnik.close()

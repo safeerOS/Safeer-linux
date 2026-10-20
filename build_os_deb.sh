@@ -143,7 +143,7 @@ fi
 if [ "$NAMIZJE" = 1 ]; then
     PRIPOROCA="mint-themes, cinnamon, "
     POLJA="Provides: safeer-control (= ${DEB_CONTROL_VERSION}), safeer-cinnamon (= ${DEB_CINNAMON_VERSION}), safeer-os-app (= ${DEB_VERSION})${WEBKIT_POLJA}
-Replaces: safeer-control, safeer-cinnamon, safeer-os-app
+Replaces: safeer-control, safeer-cinnamon, safeer-os-app${WEBKIT_POLJA:+, safeer-webkit (<< 1.0.128+vgrajen~)}
 Conflicts: safeer-control (<< ${DEB_CONTROL_VERSION}~), safeer-os-app${WEBKIT_POLJA:+, safeer-webkit (<< 1.0.128+vgrajen~)}"
     OPIS="Description: Safeer OS - the Safeer desktop environment on top of Linux Mint
  Safeer OS turns Linux Mint into a complete Safeer desktop: a workspace with
@@ -162,7 +162,7 @@ Conflicts: safeer-control (<< ${DEB_CONTROL_VERSION}~), safeer-os-app${WEBKIT_PO
 else
     PRIPOROCA=""
     POLJA="Provides: safeer-control (= ${DEB_CONTROL_VERSION})${WEBKIT_POLJA}
-Replaces: safeer-control, safeer-os
+Replaces: safeer-control, safeer-os${WEBKIT_POLJA:+, safeer-webkit (<< 1.0.128+vgrajen~)}
 Conflicts: safeer-control (<< ${DEB_CONTROL_VERSION}~), safeer-os${WEBKIT_POLJA:+, safeer-webkit (<< 1.0.128+vgrajen~)}"
     OPIS="Description: Safeer OS - the Safeer app in a window for any Linux desktop
  Safeer OS in a window next to the desktop you already use (GNOME, KDE,

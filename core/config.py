@@ -323,15 +323,33 @@ class ConfigManager:
             self.settings[key] = value
             return self.save_settings()
 
+    def _povecaj(self, kljuc: str, n: int) -> bool:
+        """Stevec povecaj na vrednosti z diska pod zaklepom (shramba_json.zdruzi_in_zapisi, pristej): stejeta ga
+        Safeer OS in Safeer Browser - povecanje iz stare kopije v pomnilniku bi prepisalo stetje drugega procesa."""
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            return False
+        if n <= 0:
+            return False
+        with shramba_json.ZAKLEP_NITI:
+            try:
+                os.makedirs(self.config_dir, exist_ok=True)
+                self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
+                                                               getattr(self, "_na_disku", {}), indent=4,
+                                                               pristej={kljuc: n})
+                return True
+            except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
+                print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
+                return False
+
     def increment_ads_blocked(self, count: int = 1):
         """Increments the cumulative blocked ads counter and saves settings."""
-        current = self.get("total_ads_blocked", 0)
-        self.set("total_ads_blocked", current + count)
+        self._povecaj("total_ads_blocked", count)
 
     def increment_threats_blocked(self, count: int = 1):
         """Increments the cumulative blocked threats counter and saves settings."""
-        current = self.get("total_threats_blocked", 0)
-        self.set("total_threats_blocked", current + count)
+        self._povecaj("total_threats_blocked", count)
 
     def toggle_virtual_keyboard(self) -> bool:
         new_state = not self.settings.get("virtual_keyboard_enabled", False)

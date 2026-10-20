@@ -132,7 +132,8 @@ def zakleni_primerek(ime: str):
     mapa = os.environ.get("XDG_RUNTIME_DIR") or os.path.join(os.path.expanduser("~"), ".cache", ime)
     try:
         os.makedirs(mapa, exist_ok=True)
-        datoteka = open(os.path.join(mapa, ime + ".zaklep"), "a")  # noqa: SIM115 - odprta ostane do konca programa
+        # Samo za flock (nic ne pise): binarno, brez kodiranja.
+        datoteka = open(os.path.join(mapa, ime + ".zaklep"), "ab")  # noqa: SIM115 - odprta ostane do konca programa
     except OSError:
         return False
     try:
