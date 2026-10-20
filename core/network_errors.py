@@ -1,5 +1,6 @@
 """Bounded recovery for interrupted search connections, with TLS validation intact."""
 import html
+import re
 import urllib.parse
 from gi.repository import Gio, GLib, GObject
 import gi
@@ -45,9 +46,19 @@ BESEDILA = {
 #: Prehodne napake povezave (lastnik, 20. 10. 2026: Google iskanje v Spletu je enkrat pokazalo »Strani trenutno ni
 #: mogoce odpreti«, ponovni poskus je delal - prej se je samodejno ponovilo samo iskanje DuckDuckGo). Brez napak
 #: potrdil: te nikoli ne ponavljamo.
-PREHODNE_TLS = ("EOF", "HANDSHAKE", "NOT_TLS")
-PREHODNE_IO = ("CONNECTION_CLOSED", "BROKEN_PIPE", "PARTIAL_INPUT", "TIMED_OUT", "CONNECTION_REFUSED",
-               "HOST_UNREACHABLE", "NETWORK_UNREACHABLE", "PROXY_FAILED", "NOT_CONNECTED")
+#: Zahteva streznika ZAGOTOVO ni dosegla (povezave ni bilo, posrednik jo je zavrnil, rokovanje TLS ni koncano):
+#: ponovitev GET je varna na vsaki strani.
+NI_POSLANO_TLS = ("HANDSHAKE",)
+NI_POSLANO_IO = ("CONNECTION_REFUSED", "HOST_UNREACHABLE", "NETWORK_UNREACHABLE", "PROXY_FAILED", "NOT_CONNECTED")
+#: Zahteva je morda ze prisla do streznika (povezava prekinjena med odgovorom, rok): Kimi pregled 20. 10. 2026 -
+#: povezava z enkratnim zetonom (potrditev prijave) bi se ponovila. Samodejno samo za strani rezultatov iskalnikov.
+DVOUMNO_TLS = ("EOF", "NOT_TLS")
+DVOUMNO_IO = ("CONNECTION_CLOSED", "BROKEN_PIPE", "PARTIAL_INPUT", "TIMED_OUT")
+#: Strani rezultatov iskalnikov (core/config.SEARCH_ENGINES, safeer_os.ISKALNIKI): (del gostitelja, poti).
+ISKANJA = ((r"(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?", ("/search",)),
+           (r"(www\.|html\.|lite\.)?duckduckgo\.com", ("", "/", "/html/", "/lite/")), (r"(www\.)?bing\.com", ("/search",)),
+           (r"search\.brave\.com", ("/search",)), (r"(www\.)?ecosia\.org", ("/search",)),
+           (r"(www\.)?startpage\.com", ("/do/search", "/sp/search")))
 #: Toliko zadnjih navigacij (naslov -> metoda) si zapomni decide_policy (glavni okvir in podokvirji).
 NAJVEC_ZAHTEV = 32
 #: Notranja napaka WebKita (WebCore::internalError): domena in koda, kot ju WebKitGTK 2.54 da v load-failed.
@@ -56,34 +67,55 @@ DOMENA_NOTRANJE, KODA_NOTRANJE = "WebKitErrorDomain", 300
 ZAMIKI_PONOVITVE = (0.4, 1.5)
 
 
-def je_prehodna(error) -> bool:
-    """Napaka povezave, ki jo ponovni poskus lahko odpravi (prekinjena povezava, posrednik, rok)."""
-    for imena, domena, enum in ((PREHODNE_TLS, Gio.tls_error_quark(), Gio.TlsError),
-                                (PREHODNE_IO, Gio.io_error_quark(), Gio.IOErrorEnum)):
+def _ujema(error, tls, io) -> bool:
+    for imena, domena, enum in ((tls, Gio.tls_error_quark(), Gio.TlsError), (io, Gio.io_error_quark(), Gio.IOErrorEnum)):
         for ime in imena:
             koda = getattr(enum, ime, None)
             if koda is not None and error.matches(domena, koda):
                 return True
+    return False
+
+
+def ni_poslano(error) -> bool:
+    """Napaka, pri kateri zahteva streznika ni dosegla (ponovitev GET varna povsod)."""
+    if _ujema(error, NI_POSLANO_TLS, NI_POSLANO_IO):
+        return True
     if error.matches(Gio.resolver_error_quark(), Gio.ResolverError.TEMPORARY_FAILURE):
         return True
     # »WebKit encountered an internal error« (WebLoaderStrategy::internallyFailedLoadTimerFired): spletni proces
     # zahteve ni mogel predati omreznemu procesu, ker se je ta ravno koncal - zahteva ni sla nikamor, ponovitev gre
     # novemu omreznemu procesu (izmerjeno 20. 10. 2026 na prenosniku lastnika: Google iz lupe -> ta napaka, takoj
     # zatem stran dela).
-    if error.matches(GLib.quark_from_string(DOMENA_NOTRANJE), KODA_NOTRANJE):
-        return True
-    return error.matches(WebKit2.network_error_quark(), WebKit2.NetworkError.TRANSPORT)
+    return error.matches(GLib.quark_from_string(DOMENA_NOTRANJE), KODA_NOTRANJE)
+
+
+def je_prehodna(error) -> bool:
+    """Napaka povezave, ki jo ponovni poskus lahko odpravi (prekinjena povezava, posrednik, rok)."""
+    return (ni_poslano(error) or _ujema(error, DVOUMNO_TLS, DVOUMNO_IO)
+            or error.matches(WebKit2.network_error_quark(), WebKit2.NetworkError.TRANSPORT))
+
+
+def je_iskanje(uri) -> bool:
+    """Stran rezultatov iskalnika (GET z nizom q): ponovitev je vedno varna (nicesar ne spremeni na strezniku)."""
+    deli = urllib.parse.urlsplit(uri)
+    gost = (deli.hostname or "").lower()
+    if deli.scheme != "https" or not urllib.parse.parse_qs(deli.query).get("q"):
+        return False
+    return any(re.fullmatch(g, gost) and deli.path in poti for g, poti in ISKANJA)
 
 
 def can_retry_search(uri, method, error, attempted):
-    """Samodejna ponovitev glavne navigacije: samo GET (nikoli obrazci), http(s), prehodna napaka povezave in
-    najvec len(ZAMIKI_PONOVITVE)-krat za isti naslov. Ponovitev je nov GET istega naslova - zahteva ni prispela do
-    strani ali odgovor ni prisel, zato je za GET varna."""
+    """Samodejna ponovitev glavne navigacije: samo GET (nikoli obrazci), http(s) in najvec len(ZAMIKI_PONOVITVE)-krat
+    za isti naslov. Napaka, pri kateri zahteva ni dosegla streznika - na vsaki strani; napaka, pri kateri je morda ze
+    prisla (prekinjen odgovor) - samo stran rezultatov iskalnika (sicer bi se lahko dvakrat porabila povezava z
+    enkratnim zetonom)."""
     if isinstance(attempted, bool):
         attempted = 1 if attempted else 0
     parsed = urllib.parse.urlsplit(uri)
-    return (attempted < len(ZAMIKI_PONOVITVE) and method == 'GET' and parsed.scheme in ('https', 'http')
-            and bool(parsed.hostname) and je_prehodna(error))
+    if not (attempted < len(ZAMIKI_PONOVITVE) and method == 'GET' and parsed.scheme in ('https', 'http')
+            and parsed.hostname):
+        return False
+    return ni_poslano(error) or (je_prehodna(error) and je_iskanje(uri))
 
 
 def opis_napake(error) -> str:
@@ -215,8 +247,8 @@ class NetworkErrorHandler:
         poskusov = self.retried.get(uri, 0)
         koda = opis_napake(error)
         # Dnevnik (sled.log): samo ime gostitelja, brez poti in poizvedbe (zasebnost).
-        print("[Splet] napaka nalaganja %s: %s (%s), ponovitev %d" % (urllib.parse.urlsplit(uri).hostname or "?", koda,
-              getattr(error, "message", ""), poskusov), flush=True)
+        print("[Splet] napaka nalaganja %s: %s, ponovitev %d" % (urllib.parse.urlsplit(uri).hostname or "?", koda,
+              poskusov), flush=True)
         if can_retry_search(uri, metoda, error, poskusov):
             self.retried[uri] = poskusov + 1
             generation = self.generation

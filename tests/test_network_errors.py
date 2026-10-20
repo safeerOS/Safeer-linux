@@ -144,3 +144,24 @@ def test_iframe_ne_prepise_post_glavne_navigacije():
         h.decide_policy(v, Odlocitev("https://a.si/%d" % i, "GET"), nav)
     assert len(h.requests) == ne.NAJVEC_ZAHTEV
     assert h._metoda("https://a.si/preusmerjen") == "GET"            # same GET: preusmerjen GET ostane GET
+
+
+def test_dvoumna_napaka_samo_na_iskanju():
+    """Kimi pregled 20. 10. 2026: prekinjen odgovor (zahteva je morda ze prisla do streznika) se na navadni strani ne
+    ponovi sam - povezava z enkratnim zetonom bi se porabila dvakrat. Napaka brez poslane zahteve se ponovi povsod."""
+    from core.network_errors import ni_poslano
+    zaprta = GLib.Error.new_literal(Gio.io_error_quark(), "Connection terminated unexpectedly", Gio.IOErrorEnum.PARTIAL_INPUT)
+    zavrnjena = GLib.Error.new_literal(Gio.io_error_quark(), "Connection refused", Gio.IOErrorEnum.CONNECTION_REFUSED)
+    notranja = GLib.Error.new_literal(GLib.quark_from_string("WebKitErrorDomain"), "internal error", 300)
+    potrditev = "https://trgovina.si/potrdi?zeton=abc"
+    assert not can_retry_search(potrditev, "GET", zaprta, 0)
+    assert can_retry_search(potrditev, "GET", zavrnjena, 0)
+    assert can_retry_search(potrditev, "GET", notranja, 0)
+    assert ni_poslano(notranja) and not ni_poslano(zaprta)
+    for iskanje in ("https://www.google.com/search?q=a", "https://www.google.si/search?q=a", "https://duckduckgo.com/?q=a",
+                    "https://www.bing.com/search?q=a", "https://search.brave.com/search?q=a",
+                    "https://www.ecosia.org/search?q=a", "https://www.startpage.com/do/search?q=a"):
+        assert can_retry_search(iskanje, "GET", zaprta, 0), iskanje
+    for ni in ("https://www.google.com/maps?q=a", "https://accounts.google.com/search?q=a&x=1&continue=", "http://www.google.com/search?q=a",
+               "https://www.google.com/search"):
+        assert not can_retry_search(ni, "GET", zaprta, 0), ni

@@ -62,6 +62,13 @@ class _Streznik:
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
 @unittest.skipUnless(_webkit() is not None, "potrebuje WebKitGTK")
 class PonovitevVZivo(unittest.TestCase):
+    """Lokalni streznik stoji namesto strani rezultatov iskalnika (je_iskanje): prekinjen odgovor se tam ponovi."""
+
+    def setUp(self):
+        from unittest import mock
+        zaplata = mock.patch("core.network_errors.je_iskanje", lambda _u: True)
+        zaplata.start()
+        self.addCleanup(zaplata.stop)
     def _nalozi(self, streznik, nalozi, cakaj_s=15):
         GLib, Gtk, WebKit = _webkit()
         from core.network_errors import NetworkErrorHandler
@@ -137,10 +144,31 @@ class PonovitevBrezVirov(PonovitevVZivo):
     navigacije pove decide-policy. Sistemski WebKit v CI ima signal se, zato ga tu skrijemo."""
 
     def setUp(self):
+        super().setUp()
         from unittest import mock
         zaplata = mock.patch("core.network_errors._ima_vire", lambda _v: False)
         zaplata.start()
         self.addCleanup(zaplata.stop)
+
+
+
+@unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
+@unittest.skipUnless(_webkit() is not None, "potrebuje WebKitGTK")
+class NavadnaStran(PonovitevVZivo):
+    """Kimi pregled 20. 10. 2026: na navadni strani se prekinjen odgovor NE ponovi sam (zahteva je morda ze prisla do
+    streznika - npr. povezava z enkratnim zetonom); uporabnik dobi stran napake z gumbom »Poskusi znova«."""
+    setUp = unittest.TestCase.setUp
+    test_prekinjen_get_se_sam_ponovi = test_dvakrat_prekinjen_get_se_vedno_nalozi = None
+    test_vztrajna_napaka_pokaze_stran_napake = test_post_obrazca_se_ne_ponovi = None
+
+    def test_prekinjen_odgovor_se_ne_ponovi(self):
+        s = _Streznik(prekini=1)
+        try:
+            naslovi = self._nalozi(s, lambda p: p.load_uri("http://127.0.0.1:%d/potrdi?zeton=abc" % s.vrata), cakaj_s=4)
+        finally:
+            s.zapri()
+        self.assertEqual(s.metode, ["GET"])
+        self.assertTrue(any("Strani trenutno ni mogoče odpreti" in n for n in naslovi), naslovi)
 
 
 if __name__ == "__main__":
