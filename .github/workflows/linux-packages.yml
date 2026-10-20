@@ -526,7 +526,10 @@ jobs:
           grep -Fx 'NoDisplay=true' /usr/share/applications/safeer-os.desktop
           # Aplikacija zamenja namizno okolje (Conflicts + Replaces): Cinnamon gre, WebKit ostane, Safeer OS in Control tecejo.
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$APP" 2>&1 | tee aplikacija.log
-          grep -F 'Safeer WebKit je ze namescen (ista gradnja)' aplikacija.log
+          # apt najprej odstrani namizno okolje (Conflicts), sele nato razpakira aplikacijo: brez drugega programa Safeer
+          # gre WebKit z namizjem in ga aplikacija namesti znova (CI 20. 10. 2026). Na koncu mora biti na mestu.
+          grep -F 'Safeer WebKit' aplikacija.log
+          test -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess
           dpkg-query -W -f '${db:Status-Abbrev}' safeer-os-app | grep -q '^ii'
           if dpkg-query -W -f '${db:Status-Abbrev}' safeer-os 2>/dev/null | grep -q '^ii'; then echo "namizno okolje je ostalo ob aplikaciji"; exit 1; fi
           [ ! -e /usr/lib/safeer-cinnamon ]
