@@ -921,6 +921,19 @@ class SpletnaAplikacija:
         self.splet.odpri_zunaj(cilj)
 
 
+def _metoda_odpiralca(nov, dejanje) -> None:
+    """Metodo prve zahteve novega pogleda (target=_blank, window.open) pove dejanje odpiralca: POST obrazca se ob
+    napaki ne sme ponoviti kot GET, GET pa ohrani samodejno ponovitev (OpenAI pregled 1.0.129). Brez podatka
+    NetworkErrorHandler ne ponavlja."""
+    try:
+        zahteva = dejanje.get_request()
+        naslov = zahteva.get_uri() or ""
+        if naslov and getattr(nov, "_safeer_napake", None) is not None:
+            nov._safeer_napake.requests[naslov] = zahteva.get_http_method() or "GET"
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class VdelaniSplet:
     """GTK4 gradnik z zavihki (WebKitGTK 6.0); namenoma ni okno in zato ne more zapustiti Safeer OS.
 
@@ -1735,6 +1748,7 @@ class VdelaniSplet:
         povezanim pogledom (opener ostane, prijava vrne rezultat strani), stran ga zapre z window.close()."""
         Gtk = self.Gtk
         nov = self._pogled_aplikacije(aplikacija, povezan=odpiralec)
+        _metoda_odpiralca(nov, dejanje)
         okno = Gtk.Window()
         vrh = odpiralec.get_root()
         if isinstance(vrh, Gtk.Window):
@@ -2470,14 +2484,7 @@ class VdelaniSplet:
         if aplikacija is not None:
             return self._okno_aplikacije(pogled, aplikacija, dejanje)
         nov = self.nov_zavihek(povezan=pogled)
-        # Metodo prve zahteve novega zavihka pove dejanje odpiralca: POST obrazca target=_blank se ob napaki ne sme
-        # ponoviti kot GET (OpenAI pregled 1.0.129); brez tega podatka zavihek samodejno ne ponavlja.
-        try:
-            metoda = dejanje.get_request().get_http_method() or "GET"
-            if naslov and getattr(nov, "_safeer_napake", None) is not None:
-                nov._safeer_napake.requests[naslov] = metoda
-        except Exception:  # noqa: BLE001
-            pass
+        _metoda_odpiralca(nov, dejanje)
         ref = weakref.ref(nov)
         izvor = weakref.ref(pogled)
         if not naslov.lower().startswith(("http://", "https://")):

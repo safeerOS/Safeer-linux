@@ -181,3 +181,19 @@ def test_brez_zapisa_metode_ni_ponovitve():
         assert h._metoda("https://trgovina.si/placaj") is None
     h.requests = {"https://trgovina.si/placaj": "POST"}       # kar poda os_splet._novo_okno
     assert h._metoda("https://trgovina.si/placaj") == "POST"
+
+
+def test_novo_okno_in_okno_aplikacije_dobita_metodo_odpiralca():
+    """OpenAI pregled 1.0.129: zavihek in pojavno okno vdelane aplikacije (target=_blank, window.open) dobita metodo
+    zahteve odpiralca - GET ohrani samodejno ponovitev, POST je nima."""
+    import types
+    import core.os_splet as os_splet
+    for metoda in ("GET", "POST"):
+        nov = types.SimpleNamespace(_safeer_napake=types.SimpleNamespace(requests={}))
+        zahteva = types.SimpleNamespace(get_uri=lambda: "https://a.si/x", get_http_method=lambda m=metoda: m)
+        os_splet._metoda_odpiralca(nov, types.SimpleNamespace(get_request=lambda z=zahteva: z))
+        assert nov._safeer_napake.requests == {"https://a.si/x": metoda}
+    os_splet._metoda_odpiralca(nov, None)                     # brez dejanja: nic, brez napake
+    import inspect
+    assert "_metoda_odpiralca(nov, dejanje)" in inspect.getsource(os_splet.VdelaniSplet._okno_aplikacije)
+    assert "_metoda_odpiralca(nov, dejanje)" in inspect.getsource(os_splet.VdelaniSplet._novo_okno)

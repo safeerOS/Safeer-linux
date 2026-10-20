@@ -459,6 +459,7 @@ def _omrezni(monkeypatch, s, sp, pss=500.0):
     import core.os_splet as os_splet
     monkeypatch.setattr(os_splet, "omrezni_procesi_shrambe", lambda _p: [4321])
     monkeypatch.setattr(os_splet, "pss_mb", lambda _pid: pss)
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)    # sistemski libsoup (pusca)
     monkeypatch.setattr(sp, "recikliraj_omrezni", lambda pid, v, ob_koncu=None: klici.append(pid))
     return klici
 
@@ -489,6 +490,23 @@ def test_omrezni_samo_med_mirovanjem(monkeypatch):
     assert sp._omrezni(s, 1400.0) and klici == [4321]
     s.gradnik = _okno(True)
     assert not sp._omrezni(s, 1500.0) and sp._okno_neaktivno_od is None
+
+
+def test_omrezni_ne_ob_nasem_libsoup_ali_skritem_pogledu(monkeypatch):
+    """Neodvisni pregled OpenAI 1.0.129: recikliranje je koncalo omrezni proces tudi z nasim libsoup (ne pusca, konec pa
+    pokvari prvo nalaganje v novem zavihku - lupa 20. 10. 2026) in pod skritim pogledom sprotnih zadetkov lupe."""
+    import core.os_splet as os_splet
+    s, sp = _sestavi()
+    klici = _omrezni(monkeypatch, s, sp)
+    s.gradnik = _okno(False)
+    sp._omrezni(s, 1000.0)
+    s._skriti = lambda: [object()]
+    assert not sp._omrezni(s, 1400.0) and klici == []       # skrit pogled lupe zivi
+    s._skriti = lambda: []
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: True)
+    assert not sp._omrezni(s, 1400.0) and klici == []       # nas libsoup: nikoli
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)
+    assert sp._omrezni(s, 1400.0) and klici == [4321]       # sistemski libsoup nad mejo: kot prej
 
 
 def test_omrezni_pod_mejo_ali_izklopljen(monkeypatch):

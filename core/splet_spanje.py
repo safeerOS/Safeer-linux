@@ -705,6 +705,14 @@ class SpanjeZavihkov:
             return False
         if s.aplikacije:
             return False          # vdelani klepeti tecejo v realnem casu na istem omreznem procesu (kot koncaj_omrezni_proces)
+        skriti = getattr(s, "_skriti", None)
+        if skriti is not None and len(skriti()):
+            return False          # skrit pogled sprotnih zadetkov lupe nalaga na istem procesu (OpenAI pregled 1.0.129)
+        from core.os_splet import libsoup_brez_puscanja
+        if libsoup_brez_puscanja():
+            # Recikliranje je le zdravilo za puscanje sistemskega libsoup. Z nasim libsoup proces ne raste, konec pa ni
+            # neskodljiv (spletni procesi za nove zavihke odpovejo z notranjo napako - kot lupa 20. 10. 2026).
+            return False
         prenosi = any(zp.get("stanje") == "tece" for zp in s.prenosi)
         nalaganje = zvok = False
         for z in s.zavihki:
