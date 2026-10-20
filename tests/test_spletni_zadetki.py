@@ -192,11 +192,13 @@ def test_stari_finished_ne_vrne_zadetkov_prejsnjega_niza():
     p._pogled = lambda: types.SimpleNamespace(load_uri=nalozeni.append)
     p._preberi = lambda rod, poskus: branja.append(rod)
     p.isci("https://duckduckgo.com/?q=vreme+lj", lambda r: None, motor="duckduckgo")
+    p._nalozeno(None, LoadEvent.STARTED)
     p._nalozeno(None, LoadEvent.COMMITTED)
     p.isci("https://duckduckgo.com/?q=vreme+ljubljana", lambda r: None, motor="duckduckgo")
     p._nalozeno(None, LoadEvent.FINISHED)          # prekinjeno staro nalaganje: stran prejsnjega niza
     assert branja == []
-    p._nalozeno(None, LoadEvent.COMMITTED)         # nalaganje novega niza
+    p._nalozeno(None, LoadEvent.STARTED)           # nalaganje novega niza
+    p._nalozeno(None, LoadEvent.COMMITTED)
     p._nalozeno(None, LoadEvent.FINISHED)
     assert branja == [2]
 
@@ -251,6 +253,26 @@ def test_zakasnjen_committed_starega_niza_ne_potrdi_novega():
     p._nalozeno(star, LoadEvent.COMMITTED)          # zakasnjen COMMITTED prejsnjega niza
     p._nalozeno(star, LoadEvent.FINISHED)
     assert branja == []
+    p._nalozeno(nov, LoadEvent.STARTED)
     p._nalozeno(nov, LoadEvent.COMMITTED)
     p._nalozeno(nov, LoadEvent.FINISHED)
     assert branja == [2]
+
+
+def test_zakasnjen_committed_strani_brez_q_ne_potrdi_novega():
+    """Ponovni pregled OpenAI F: stran prejsnjega niza brez parametra q (preusmeritev, soglasje) ne potrdi novega iskanja."""
+    import types
+    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
+    WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
+    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
+    p = sz.PredogledIskanja(None, WebKit, GLib)
+    branja = []
+    p._pogled = lambda: types.SimpleNamespace(load_uri=lambda _u: None)
+    p._preberi = lambda rod, poskus: branja.append(rod)
+    p.isci("https://www.google.com/search?q=a", lambda r: None, motor="google")
+    p._nalozeno(None, LoadEvent.STARTED)
+    p.isci("https://www.google.com/search?q=ab", lambda r: None, motor="google")
+    brez_q = types.SimpleNamespace(get_uri=lambda: "https://www.google.com/sorry/index")
+    p._nalozeno(brez_q, LoadEvent.COMMITTED)        # zakasnjen COMMITTED starega nalaganja, stran brez q
+    p._nalozeno(brez_q, LoadEvent.FINISHED)
+    assert branja == []

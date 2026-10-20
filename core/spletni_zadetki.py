@@ -248,8 +248,13 @@ class PredogledIskanja:
         # (tudi po load-failed CANCELLED) - takrat je v pogledu se stran PREJSNJEGA niza in njeni zadetki bi se
         # pokazali (in 10 min ostali v predpomnilniku) pod novim nizom. Beremo sele po COMMITTED nalaganja tega iskanja.
         # OpenAI pregled 1.0.129 (E): zakasnjen COMMITTED prejsnjega niza ne sme potrditi novega iskanja.
-        if dogodek == self.WebKit.LoadEvent.COMMITTED:
-            if isti_niz(self._url, (pogled.get_uri() if pogled is not None else "") or ""):
+        # Ponovni pregled F: potrdi samo nalaganje, ki se je ZACELO po tem iskanju (STARTED za tem rodom) - tudi stran
+        # brez parametra q (preusmeritev, soglasje) prejsnjega niza ga ne more potrditi.
+        if dogodek == self.WebKit.LoadEvent.STARTED:
+            self._zacet = self._rod
+        elif dogodek == self.WebKit.LoadEvent.COMMITTED:
+            if getattr(self, "_zacet", 0) == self._rod and \
+                    isti_niz(self._url, (pogled.get_uri() if pogled is not None else "") or ""):
                 self._potrjen = self._rod
         elif dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None \
                 and getattr(self, "_potrjen", 0) == self._rod:

@@ -340,6 +340,11 @@ class SpanjeZivo(unittest.TestCase):
         self.assertTrue(_cakaj(lambda: nov.get_uri() == "safeer://procesi" and not nov.is_loading(), 10))
 
     def test_4_omrezni_proces_po_obnovi_obdrzi_piskotke_seje(self):
+        from unittest import mock
+        from core import splet_spanje
+        zaplata = mock.patch.object(splet_spanje, "RECIKLIRANJE_OMREZNEGA", True)   # v 1.0.129 izklopljeno
+        zaplata.start()
+        self.addCleanup(zaplata.stop)
         p = self._odpri("/piskotek")
         piskotki = os.path.join(self.s.config.config_dir, "cookies.sqlite")
         self.assertTrue(_cakaj(lambda: bool(omrezni_procesi_shrambe(piskotki)), 5))

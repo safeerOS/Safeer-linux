@@ -205,11 +205,19 @@ def _tiki_vseh() -> dict:
 
 
 
+#: Recikliranje omreznega procesa med mirovanjem. IZKLOPLJENO v 1.0.129 (ponovni pregled OpenAI F, 21. 10. 2026):
+#: Safeer OS ima dva Spleta z isto shrambo piskotkov - varuh enega bi lahko koncal omrezni proces drugega, aktivnega,
+#: in ob napaki branja piskotkov bi se vseeno koncal. AGENTS.md (napake 1.0.129): omreznega procesa WebKit nikoli ne
+#: koncaj od zunaj, dokler zivijo spletni procesi. Z nasim libsoup ne raste; s sistemskim (AppImage) do 1.0.130, ko bo
+#: tudi AppImage nosil nas libsoup, pomnilnik raste namesto odjav. Logika ostane preizkusena (preizkusi jo vklopijo).
+RECIKLIRANJE_OMREZNEGA = False
+
+
 def _sme_koncati_omrezni(s) -> bool:
     """Ali se omrezni proces Spleta sme koncati (recikliranje): samo s sistemskim libsoup, ki pusca, in ko na njem ne
     tecejo vdelane aplikacije (klepeti v realnem casu) ne skriti pogledi sprotnih zadetkov lupe. Z nasim libsoup proces
     ne raste, konec pa pokvari prvo nalaganje v odprtih zavihkih (WebKitErrorDomain 300 - lupa 20. 10. 2026)."""
-    if s.aplikacije:
+    if not RECIKLIRANJE_OMREZNEGA or s.aplikacije:
         return False
     skriti = getattr(s, "_skriti", None)
     if skriti is not None and len(skriti()):

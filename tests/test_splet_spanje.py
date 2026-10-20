@@ -457,6 +457,7 @@ def test_stran_procesov_v_jeziku_spleta():
 def _omrezni(monkeypatch, s, sp, pss=500.0):
     klici = []
     import core.os_splet as os_splet
+    monkeypatch.setattr(splet_spanje, "RECIKLIRANJE_OMREZNEGA", True)   # v 1.0.129 izklopljeno; logika ostane preizkusena
     monkeypatch.setattr(os_splet, "omrezni_procesi_shrambe", lambda _p: [4321])
     monkeypatch.setattr(os_splet, "pss_mb", lambda _pid: pss)
     monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)    # sistemski libsoup (pusca)
@@ -523,6 +524,7 @@ def test_omrezni_pod_mejo_ali_izklopljen(monkeypatch):
 
 
 def test_piskotki_seje_se_vrnejo(monkeypatch):
+    monkeypatch.setattr(splet_spanje, "RECIKLIRANJE_OMREZNEGA", True)
     s, sp = _sestavi()
     seja_c = types.SimpleNamespace(get_expires=lambda: None)
     trajen = types.SimpleNamespace(get_expires=lambda: object())
@@ -546,6 +548,7 @@ def test_piskotki_seje_se_vrnejo(monkeypatch):
 
 
 def test_recikliranje_preveri_znova_po_branju_piskotkov(monkeypatch):
+    monkeypatch.setattr(splet_spanje, "RECIKLIRANJE_OMREZNEGA", True)
     """Ponovni pregled OpenAI 1.0.129 (C): kill je sledil asinhronemu branju piskotkov brez ponovne preverbe - medtem
     je lupa lahko odprla skrit pogled (ali se je zagnala vdelana aplikacija) in proces bi se koncal pod njim."""
     import core.os_splet as os_splet
@@ -566,6 +569,21 @@ def test_recikliranje_preveri_znova_po_branju_piskotkov(monkeypatch):
             s.aplikacije[object()] = object()
         cakajo[0](None, "rezultat")
         assert ubiti == [] and sp._recikliranje is False, zamenjaj
+
+
+def test_v_129_varuh_ne_konca_omreznega_procesa(monkeypatch):
+    """Ponovni pregled OpenAI F: v 1.0.129 nobena pot ne konca omreznega procesa (dva Spleta z isto shrambo piskotkov)."""
+    import core.os_splet as os_splet
+    assert splet_spanje.RECIKLIRANJE_OMREZNEGA is False
+    s, sp = _sestavi()
+    monkeypatch.setattr(os_splet, "omrezni_procesi_shrambe", lambda _p: [4321])
+    monkeypatch.setattr(os_splet, "pss_mb", lambda _pid: 5000.0)
+    monkeypatch.setattr(os_splet, "libsoup_brez_puscanja", lambda: False)
+    klici = []
+    monkeypatch.setattr(sp, "recikliraj_omrezni", lambda pid, v, ob_koncu=None: klici.append(pid))
+    s.gradnik = _okno(False)
+    sp._omrezni(s, 0.0)
+    assert not sp._omrezni(s, 10000.0) and klici == []
 
 
 def test_novi_moduli_v_tovoru_safeer_os():
