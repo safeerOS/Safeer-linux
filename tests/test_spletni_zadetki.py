@@ -180,29 +180,6 @@ def test_isti_niz():
     assert sz.isti_niz("https://www.google.com/search?q=a", "https://www.google.com/sorry/index")   # ne vemo
 
 
-def test_stari_finished_ne_vrne_zadetkov_prejsnjega_niza():
-    """Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in takoj javi FINISHED -
-    v pogledu je se stran prejsnjega niza. Brati se sme sele po COMMITTED novega nalaganja."""
-    import types
-    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
-    WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
-    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
-    p = sz.PredogledIskanja(None, WebKit, GLib)
-    nalozeni, branja = [], []
-    p._pogled = lambda: types.SimpleNamespace(load_uri=nalozeni.append)
-    p._preberi = lambda rod, poskus: branja.append(rod)
-    p.isci("https://duckduckgo.com/?q=vreme+lj", lambda r: None, motor="duckduckgo")
-    p._nalozeno(None, LoadEvent.STARTED)
-    p._nalozeno(None, LoadEvent.COMMITTED)
-    p.isci("https://duckduckgo.com/?q=vreme+ljubljana", lambda r: None, motor="duckduckgo")
-    p._nalozeno(None, LoadEvent.FINISHED)          # prekinjeno staro nalaganje: stran prejsnjega niza
-    assert branja == []
-    p._nalozeno(None, LoadEvent.STARTED)           # nalaganje novega niza
-    p._nalozeno(None, LoadEvent.COMMITTED)
-    p._nalozeno(None, LoadEvent.FINISHED)
-    assert branja == [2]
-
-
 def test_lupa_ne_poslje_poti_in_imen_datotek():
     """Webmaster pregled pomocnika 1.0.129: poti in imena datotek isce uporabnik na racunalniku - ne v sprotne zadetke."""
     import json
@@ -236,43 +213,52 @@ def test_vsak_iskalnik_ima_ime_za_oznako():
     assert "dict(z, iskalnik=ime)" in vir
 
 
-def test_zakasnjen_committed_starega_niza_ne_potrdi_novega():
-    """OpenAI pregled 1.0.129 (E): COMMITTED prejsnjega niza po novem isci() ne sme potrditi novega iskanja."""
+def _lazni_predogled(dokument):
+    """PredogledIskanja z laznim pogledom: izvlecni skript vrne zadetke iz dokumenta dokument[0] = (naslov, zadetki)."""
+    import json as _json
     import types
     LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
     WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
-    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
+    casovniki = []
+    GLib = types.SimpleNamespace(timeout_add=lambda ms, f: (casovniki.append(f) if ms == 250 else None) or 1,  # brez roka
+                                 timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
     p = sz.PredogledIskanja(None, WebKit, GLib)
-    branja = []
-    p._pogled = lambda: types.SimpleNamespace(load_uri=lambda _u: None)
-    p._preberi = lambda rod, poskus: branja.append(rod)
-    p.isci("https://duckduckgo.com/?q=vreme+lj", lambda r: None, motor="duckduckgo")
-    p.isci("https://duckduckgo.com/?q=vreme+ljubljana", lambda r: None, motor="duckduckgo")
-    star = types.SimpleNamespace(get_uri=lambda: "https://duckduckgo.com/?q=vreme+lj")
-    nov = types.SimpleNamespace(get_uri=lambda: "https://duckduckgo.com/?q=vreme+ljubljana&ia=web")
-    p._nalozeno(star, LoadEvent.COMMITTED)          # zakasnjen COMMITTED prejsnjega niza
-    p._nalozeno(star, LoadEvent.FINISHED)
-    assert branja == []
-    p._nalozeno(nov, LoadEvent.STARTED)
-    p._nalozeno(nov, LoadEvent.COMMITTED)
-    p._nalozeno(nov, LoadEvent.FINISHED)
-    assert branja == [2]
+    rezultat = types.SimpleNamespace(to_string=lambda: _json.dumps({"naslov": dokument[0][0], "zadetki": dokument[0][1]}))
+    pogled = types.SimpleNamespace(load_uri=lambda _u: None, get_uri=lambda: "", stop_loading=lambda: None,
+                                   evaluate_javascript=lambda js, _d, _s, _a, _b, cb: cb(pogled, "r"),
+                                   evaluate_javascript_finish=lambda r: rezultat)
+    p._pogled = lambda: (setattr(p, "pogled", pogled), pogled)[1]
+    return p, LoadEvent, casovniki
 
 
-def test_zakasnjen_committed_strani_brez_q_ne_potrdi_novega():
-    """Ponovni pregled OpenAI F: stran prejsnjega niza brez parametra q (preusmeritev, soglasje) ne potrdi novega iskanja."""
-    import types
-    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
-    WebKit = types.SimpleNamespace(LoadEvent=LoadEvent)
-    GLib = types.SimpleNamespace(timeout_add=lambda *_a: 1, timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
-    p = sz.PredogledIskanja(None, WebKit, GLib)
-    branja = []
-    p._pogled = lambda: types.SimpleNamespace(load_uri=lambda _u: None)
-    p._preberi = lambda rod, poskus: branja.append(rod)
-    p.isci("https://www.google.com/search?q=a", lambda r: None, motor="google")
-    p._nalozeno(None, LoadEvent.STARTED)
-    p.isci("https://www.google.com/search?q=ab", lambda r: None, motor="google")
-    brez_q = types.SimpleNamespace(get_uri=lambda: "https://www.google.com/sorry/index")
-    p._nalozeno(brez_q, LoadEvent.COMMITTED)        # zakasnjen COMMITTED starega nalaganja, stran brez q
-    p._nalozeno(brez_q, LoadEvent.FINISHED)
-    assert branja == []
+ZADETEK = [{"t": "Vreme", "u": "https://vreme.si/", "p": "vreme.si", "s": "x"}]   # oblika izvlecnega skripta
+
+
+def test_stari_dokument_ne_da_zadetkov_novemu_nizu():
+    """Webmaster pregled pomocnika 1.0.129 + CI 21. 10.: ob novem nizu pride FINISHED prekinjenega starega nalaganja,
+    v pogledu je stran PREJSNJEGA niza. Ali zadetki veljajo, pove dokument (location.href), ne vrstni red dogodkov."""
+    dokument = [("https://duckduckgo.com/?q=vreme+lj", ZADETEK)]
+    p, LoadEvent, casovniki = _lazni_predogled(dokument)
+    prvo, drugo = [], []
+    p.isci("https://duckduckgo.com/?q=vreme+lj", prvo.append, motor="duckduckgo")
+    p.isci("https://duckduckgo.com/?q=vreme+ljubljana", drugo.append, motor="duckduckgo")
+    p._nalozeno(p.pogled, LoadEvent.FINISHED)            # stari dokument
+    assert drugo == [] and casovniki                      # ne kaze, caka (poskus znova)
+    assert "https://duckduckgo.com/?q=vreme+ljubljana" not in p._shramba
+    dokument[0] = ("https://duckduckgo.com/?q=vreme+ljubljana&ia=web", ZADETEK)
+    casovniki.pop(0)()                                    # naslednji poskus: zdaj je v pogledu nov dokument
+    assert len(drugo) == 1 and drugo[0][0]["naslov"] == "Vreme"
+
+
+def test_stran_brez_niza_ne_da_zadetkov():
+    """OpenAI pregled F: stran brez parametra q (soglasje, preusmeritev) ne potrdi iskanja z nizom."""
+    dokument = [("https://www.google.com/sorry/index", ZADETEK)]
+    p, LoadEvent, casovniki = _lazni_predogled(dokument)
+    izid = []
+    p.isci("https://www.google.com/search?q=ab", izid.append, motor="google")
+    p._nalozeno(p.pogled, LoadEvent.FINISHED)
+    for _ in range(sz.POSKUSOV + 2):
+        if casovniki:
+            casovniki.pop(0)()
+    assert izid == [] and not p._shramba                  # brez zadetkov, nic shranjeno (rok konca prazno)
+    assert sz.ta_niz("https://a/?q=x", "https://a/?q=x&ia=web") and not sz.ta_niz("https://a/?q=x", "https://a/sorry")

@@ -73,7 +73,8 @@ IZVLECI_JS = r"""
   } else if (motor === "startpage") {
     vsi(".w-gl .result, .result", function (r) { var a = r.querySelector("a.result-title, a.result-link"); dodaj(a, r.querySelector("h2, .wgl-title") || a, r.querySelector("p.description"), null); });
   }
-  return JSON.stringify(izid);
+  // Naslov dokumenta, iz katerega so zadetki prebrani (ne naslov pogleda - ta se zamenja ze ob zacetku nalaganja).
+  return JSON.stringify({naslov: String(location.href), zadetki: izid});
 })(%s)
 """
 
@@ -133,6 +134,18 @@ def isti_niz(zahtevan: str, stran: str) -> bool:
         return " ".join(v[0].split()).lower() if v else None
     a, b = q(zahtevan), q(stran)
     return a is None or b is None or a == b
+
+
+def ta_niz(zahtevan: str, dokument: str) -> bool:
+    """Strogo: dokument je stran rezultatov ISTEGA niza (ce iskanje nosi q, ga mora nositi tudi dokument)."""
+    def q(url: str) -> Optional[str]:
+        try:
+            v = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("q")
+        except Exception:  # noqa: BLE001
+            return None
+        return " ".join(v[0].split()).lower() if v else None
+    a = q(zahtevan)
+    return a is None or a == q(dokument)
 
 
 class PredogledIskanja:
@@ -244,20 +257,11 @@ class PredogledIskanja:
         return False
 
     def _nalozeno(self, pogled, dogodek) -> None:
-        # Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in TAKOJ javi FINISHED
-        # (tudi po load-failed CANCELLED) - takrat je v pogledu se stran PREJSNJEGA niza in njeni zadetki bi se
-        # pokazali (in 10 min ostali v predpomnilniku) pod novim nizom. Beremo sele po COMMITTED nalaganja tega iskanja.
-        # OpenAI pregled 1.0.129 (E): zakasnjen COMMITTED prejsnjega niza ne sme potrditi novega iskanja.
-        # Ponovni pregled F: potrdi samo nalaganje, ki se je ZACELO po tem iskanju (STARTED za tem rodom) - tudi stran
-        # brez parametra q (preusmeritev, soglasje) prejsnjega niza ga ne more potrditi.
-        if dogodek == self.WebKit.LoadEvent.STARTED:
-            self._zacet = self._rod
-        elif dogodek == self.WebKit.LoadEvent.COMMITTED:
-            if getattr(self, "_zacet", 0) == self._rod and \
-                    isti_niz(self._url, (pogled.get_uri() if pogled is not None else "") or ""):
-                self._potrjen = self._rod
-        elif dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None \
-                and getattr(self, "_potrjen", 0) == self._rod:
+        # Webmaster pregled pomocnika 1.0.129: ob novem nizu WebKit prekine staro nalaganje in TAKOJ javi FINISHED -
+        # v pogledu je se stran PREJSNJEGA niza. Ali so zadetki za ta niz, pove sele dokument sam (location.href v
+        # izvlecnem skriptu, _preberi): vrstni red dogodkov STARTED/COMMITTED se med razlicicami WebKita razlikuje
+        # (CI 21. 10. 2026, Ubuntu 24.04: varovalo po dogodkih je zavrnilo tudi pravo stran).
+        if dogodek == self.WebKit.LoadEvent.FINISHED and self._povratni is not None:
             self._preberi(self._rod, 0)
 
     def _napaka(self, _p, _d, uri, napaka) -> bool:
@@ -279,9 +283,14 @@ class PredogledIskanja:
                 surovo = json.loads(pogled.evaluate_javascript_finish(rezultat).to_string())
             except Exception:  # noqa: BLE001
                 surovo = []
-            zadetki = ocisti(surovo)
-            if not isti_niz(self._url, pogled.get_uri() or ""):
-                zadetki = []                               # v pogledu je stran drugega niza: ne kazi in ne shrani
+            naslov = surovo.get("naslov", "") if isinstance(surovo, dict) else ""
+            zadetki = ocisti(surovo.get("zadetki") if isinstance(surovo, dict) else surovo)
+            if not ta_niz(self._url, naslov):
+                # V pogledu je (se) dokument drugega niza ali stran brez niza (soglasje, preusmeritev): ne kazi in ne
+                # shrani; pocakaj na naslednje nalaganje ali rok (OpenAI pregled F: tudi stran brez q ne potrdi).
+                if poskus < POSKUSOV:
+                    self.GLib.timeout_add(250, lambda: (self._preberi(rod, poskus + 1), False)[1])
+                return
             if zadetki or poskus >= POSKUSOV:
                 self._shrani(self._url, zadetki)
                 self._koncaj(zadetki)
