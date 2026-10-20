@@ -69,9 +69,9 @@ class QtXcb(unittest.TestCase):
         qt = posli["qt-xcb"]
         self.assertEqual(qt["container"]["image"], "ubuntu:24.04")
         koraki = "\n".join(k.get("run", "") for k in qt["steps"])
-        # Z nasim WebKitom (paket safeer-webkit, od 19. 10. 2026), ki ga safeer-os zahteva.
-        self.assertIn("apt-get install -y -q --no-install-recommends ./paketi/safeer-webkit_*_amd64.deb ./paketi/safeer-os_*_amd64.deb",
-                      koraki)
+        # Z vgrajenim WebKitom (od 20. 10. 2026 ena datoteka, prej loceni paket safeer-webkit).
+        self.assertIn("apt-get install -y -q --no-install-recommends ./paketi/safeer-os_*_amd64.deb\n", koraki)
+        self.assertNotIn("safeer-webkit_", koraki)
         self.assertIn("bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor", koraki)
         # Najmanjsi vsebnik: pred paketom se ne namesti nobena knjiznica.
         self.assertNotIn("libxcb", koraki)

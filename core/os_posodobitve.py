@@ -304,9 +304,15 @@ def nacin_namestitve() -> str:
         return "flatpak+deb" if gostitelj_ima_deb() else "flatpak"
     if os.environ.get("APPIMAGE"):
         return "appimage"
-    if shutil.which("dpkg") and os.path.exists("/var/lib/dpkg/info/safeer-os.list"):
+    if shutil.which("dpkg") and (os.path.exists("/var/lib/dpkg/info/safeer-os.list") or je_aplikacija_deb()):
         return "deb"
     return "neznano"
+
+
+def je_aplikacija_deb() -> bool:
+    """Ali je namescen paket safeer-os-app (aplikacija v oknu, od 20. 10. 2026) namesto namiznega okolja safeer-os.
+    Posodobitev mora prenesti isti paket - namizno okolje bi aplikacijo zamenjalo z namizjem (in obratno)."""
+    return os.path.exists("/var/lib/dpkg/info/safeer-os-app.list")
 
 
 def gostitelj_ima_deb() -> bool:
@@ -326,7 +332,11 @@ def _vnos_datoteke(paket: dict, nacin: str) -> Optional[dict]:
     if nacin == "windows":
         d = {k: paket.get(k) for k in ("url", "sha256", "velikost")}
     else:
-        d = paket.get({"deb": "deb", "flatpak": "flatpak", "flatpak+deb": "flatpak", "appimage": "appimage"}.get(nacin, ""))
+        kljuc = {"deb": "deb", "flatpak": "flatpak", "flatpak+deb": "flatpak", "appimage": "appimage"}.get(nacin, "")
+        # Aplikacija (safeer-os-app) dobi svoj paket "deb_app"; brez njega nic (stran), ne namizno okolje namesto nje.
+        if kljuc == "deb" and je_aplikacija_deb():
+            kljuc = "deb_app"
+        d = paket.get(kljuc)
     return d if veljavna_datoteka(d) else None
 
 

@@ -329,18 +329,25 @@ jobs:
         # Lastnik, 18. 10. 2026: Safeer DRM je del paketa kot vse drugo in se med delovanjem ne prenasa (pin v
         # packaging/safeer-drm.json). Widevine CDM ni v paketu: ECS ga ob prvi zasciteni vsebini sam namesti z Googla.
         run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm
-      - name: Debian package on our WebKitGTK (safeer-webkit), and launch smoke of the payload
+      - name: Debian package with our WebKitGTK built in (one file), and launch smoke of the payload
         run: |
           WEBKIT="build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb"
           SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_WEBKIT_DEB="$WEBKIT" bash build_deb.sh
           DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
           dpkg-deb -f "$DEB" Package Version Architecture Depends Recommends
-          # Nas WebKit je v paketu safeer-webkit (ta zahteva peskovnik): sistemskega WebKitGTK/libsoup paket ne zahteva.
+          # Nas WebKit je vgrajen (lastnik, 20. 10. 2026: ena datoteka): sistemskega WebKitGTK/libsoup in paketa safeer-webkit
+          # paket ne zahteva, zahteva pa odvisnosti WebKita (peskovnik, TLS).
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
+          if dpkg-deb -f "$DEB" Depends | grep -E '(^|, )safeer-webkit\b'; then echo "::error::paket zahteva loceni safeer-webkit"; exit 1; fi
           # Vsak pogoj v svoji vrstici: bash -e ne ustavi koraka ob napaki ukaza pred zadnjim && (pregled 18. 10. 2026).
-          dpkg-deb -f "$DEB" Depends | grep -F "safeer-webkit (>= $(dpkg-deb -f "$WEBKIT" Version))"
-          # Lastne kopije WebKita paket nima vec (do 1.0.127~pred /usr/lib/safeer-browser/webkit).
-          if dpkg-deb -c "$DEB" | grep -E '\./usr/lib/safeer-browser/webkit/|/libwebkitgtk-6\.0\.so|/libjavascriptcoregtk-6\.0\.so|/libsoup-3\.0\.so'; then echo "::error::paket ima svojo kopijo WebKita"; exit 1; fi
+          dpkg-deb -f "$DEB" Depends | grep -F 'bubblewrap'
+          dpkg-deb -f "$DEB" Provides | grep -F "safeer-webkit (= $(dpkg-deb -f "$WEBKIT" Version)+vgrajen)"
+          dpkg-deb -f "$DEB" Conflicts | grep -F 'safeer-webkit (<< 1.0.128+vgrajen~)'
+          dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit-vgrajen/libexec/webkitgtk-6.0/WebKitWebProcess'
+          dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit-vgrajen/share/webkitgtk-safeer/odtis'
+          # Knjiznice WebKita samo v viru (webkit-vgrajen), ne kot stara lastna kopija (/usr/lib/safeer-browser/webkit).
+          if dpkg-deb -c "$DEB" | grep -E '\./usr/lib/safeer-browser/webkit/|\./usr/lib/safeer-webkit/' ; then echo "::error::WebKit izven vira webkit-vgrajen"; exit 1; fi
+          if dpkg-deb -c "$DEB" | grep -E '/lib(webkitgtk|javascriptcoregtk|soup)-[0-9.]+\.so' | grep -v '/webkit-vgrajen/'; then echo "::error::knjiznica WebKita izven vira"; exit 1; fi
           # Safeer DRM je v paketu (ne prenasa se med delovanjem), z obvestili o licencah; Widevine CDM ni v paketu.
           dpkg-deb -c "$DEB" | grep -E '\./usr/lib/safeer-browser/safeer-drm/safeer-drm$'
           dpkg-deb -c "$DEB" | grep -F './usr/share/doc/safeer-browser/safeer-drm/OBVESTILO.txt'
@@ -350,9 +357,13 @@ jobs:
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py build/stage/usr/lib/safeer-browser
       - name: Install, launch and remove the Debian package (system WebKitGTK 6.0 installed too)
         # gir1.2-webkit-6.0 in gir1.2-soup-3.0 sistema sta namescena (prvi korak): paket mora kljub temu teci na nasih.
-        # Oba paketa v enem ukazu, kot ju namesti Safeer OS sam in kot pise na safeer.si.
+        # En paket (vgrajen WebKit), kot ga uporabnik namesti z dvoklikom in kot pise na safeer.si.
         run: |
-          sudo apt-get install -y --no-install-recommends "./build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb" "./safeer-browser_$(cat packaging/VERSION)_amd64.deb"
+          sudo apt-get install -y --no-install-recommends "./safeer-browser_$(cat packaging/VERSION)_amd64.deb" 2>&1 | tee namestitev.log
+          grep -F 'Safeer WebKit' namestitev.log
+          test -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess
+          # Ena kopija na disku: skupna mapa in vir paketa sta ista datoteka (trda povezava).
+          [ "$(stat -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)" = "$(stat -c %i /usr/lib/safeer-browser/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" ]
           xvfb-run -a safeer --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
           desktop-file-validate /usr/share/applications/safeer-browser.desktop
           grep -Fx 'StartupWMClass=io.github.memelandfaner.SafeerBrowser' /usr/share/applications/safeer-browser.desktop
@@ -364,7 +375,7 @@ jobs:
           dpkg -s libwebkitgtk-6.0-4 | grep -E '^(Status|Version)'
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-browser
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py /usr/lib/safeer-browser
-          sudo apt-get remove -y safeer-browser safeer-webkit
+          sudo apt-get remove -y safeer-browser
           [ ! -e /usr/lib/safeer-browser ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-browser"; find /usr/lib/safeer-browser | head; exit 1; }
           [ ! -e /usr/lib/safeer-webkit ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-webkit"; find /usr/lib/safeer-webkit | head; exit 1; }
           # Sistemski WebKitGTK ostane nedotaknjen.
@@ -422,21 +433,35 @@ jobs:
       - name: Safeer DRM for the packages (pinned castLabs ECS, SHA-256)
         # Kot v poslu brskalnik: Safeer DRM je del paketa (packaging/safeer-drm.json); Widevine CDM namesti ECS sam.
         run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm
-      - name: Safeer OS package (one package - Safeer OS, Safeer Control and Safeer Cinnamon)
-        # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
+      - name: Safeer OS packages (desktop environment safeer-os and app safeer-os-app, WebKit and Safeer Control built in)
+        # Od 20. 10. 2026 (lastnik) sta za Linux dva paketa .deb, vsak ena datoteka (tudi z dvoklikom v GDebi): namizno
+        # okolje (Safeer OS, Safeer Control, Safeer Cinnamon) in aplikacija v oknu (brez Cinnamona); se zamenjata.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
         run: |
           # Artefakt ne ohrani pravic datotek: program rqbit spet izvrsljiv (namesti ga preveri pred vgradnjo).
           chmod 755 build/rqbit/rqbit
           WEBKIT="./build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb"
+          SAFEER_OS_PAKET=safeer-os-app SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_WEBKIT_DEB="$WEBKIT" bash build_os_deb.sh
+          APP="./safeer-os-app_$(cat packaging/VERSION_OS)_amd64.deb"
           SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_WEBKIT_DEB="$WEBKIT" bash build_os_deb.sh
           OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
+          dpkg-deb -f "$APP" Package Version Architecture Depends Provides Conflicts Replaces
+          dpkg-deb -f "$APP" Conflicts | grep -E '(^|, )safeer-os(,|$)'
+          dpkg-deb -f "$OS" Conflicts | grep -E '(^|, )safeer-os-app(,|$)'
+          if dpkg-deb -c "$APP" | grep -F 'safeer-cinnamon'; then echo "::error::aplikacija ima Safeer Cinnamon"; exit 1; fi
+          echo "::notice::$(stat -c '%n %s B' "$APP") | namesceno $(dpkg-deb -f "$APP" Installed-Size) KiB"
           dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
           DEB="$OS"
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
-          # Nas WebKit (z dav1ddec, peskovnikom in TLS) je paket safeer-webkit iz istega teka; lastne kopije paket nima vec.
-          dpkg-deb -f "$OS" Depends | grep -F "safeer-webkit (>= $(dpkg-deb -f "$WEBKIT" Version))"
-          if dpkg-deb -c "$OS" | grep -E '\./usr/lib/safeer-(os|control)/webkit/|/libwebkitgtk-6\.0\.so|/libjavascriptcoregtk-6\.0\.so|/libsoup-3\.0\.so'; then echo "::error::paket ima svojo kopijo WebKita"; exit 1; fi
+          # Nas WebKit (z dav1ddec, peskovnikom in TLS) je vgrajen iz safeer-webkit istega teka (v viru webkit-vgrajen).
+          for P in "$OS" "$APP"; do
+            if dpkg-deb -f "$P" Depends | grep -E '(^|, )safeer-webkit\b'; then echo "::error::$P zahteva loceni safeer-webkit"; exit 1; fi
+            dpkg-deb -f "$P" Depends | grep -F 'bubblewrap'
+            dpkg-deb -f "$P" Provides | grep -F "safeer-webkit (= $(dpkg-deb -f "$WEBKIT" Version)+vgrajen)"
+            dpkg-deb -c "$P" | grep -E '\./usr/lib/safeer-os(-app)?/webkit-vgrajen/libexec/webkitgtk-6\.0/WebKitWebProcess$'
+            if dpkg-deb -c "$P" | grep -E '\./usr/lib/safeer-(os|control)/webkit/|\./usr/lib/safeer-webkit/'; then echo "::error::WebKit izven vira"; exit 1; fi
+            if dpkg-deb -c "$P" | grep -E '/lib(webkitgtk|javascriptcoregtk|soup)-[0-9.]+\.so' | grep -v '/webkit-vgrajen/'; then echo "::error::knjiznica WebKita izven vira"; exit 1; fi
+          done
           # Safeer DRM je v paketu (ne prenasa se med delovanjem), z obvestili o licencah; Widevine CDM ni v paketu.
           dpkg-deb -c "$OS" | grep -E '\./usr/lib/safeer-os/safeer-drm/safeer-drm$'
           dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/safeer-drm/OBVESTILO.txt'
@@ -458,7 +483,7 @@ jobs:
           # Profila AppArmor (Ubuntu 24.04+: peskovnik WebKita) kot conffile.
           dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | tee /dev/stderr | grep -Fx /etc/apparmor.d/safeer-os
           dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | grep -Fx /etc/apparmor.d/safeer-control
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$WEBKIT" "$OS"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$OS"
           # Namesceni rqbit je program iz posla rqbit-deb (SHA-256 iz zapisa gradnje); Safeer OS in Safeer Control ga
           # uporabita namesto prenosa z GitHuba.
           RQBIT_SHA="$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')"
@@ -497,7 +522,19 @@ jobs:
           for i in safeer-os.splet safeer-os.sporocila safeer-os.zapiski safeer-os.nastavitve safeer-control; do
             test -f /usr/share/icons/hicolor/scalable/apps/$i.svg
           done
-          sudo apt-get remove -y safeer-os safeer-webkit
+          # Namizno okolje ne kaze aplikacije v oknu v meniju (lastnik, 20. 10. 2026: namizje nudi vse, kar aplikacija).
+          grep -Fx 'NoDisplay=true' /usr/share/applications/safeer-os.desktop
+          # Aplikacija zamenja namizno okolje (Conflicts + Replaces): Cinnamon gre, WebKit ostane, Safeer OS in Control tecejo.
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$APP" 2>&1 | tee aplikacija.log
+          grep -F 'Safeer WebKit je ze namescen (ista gradnja)' aplikacija.log
+          dpkg-query -W -f '${db:Status-Abbrev}' safeer-os-app | grep -q '^ii'
+          if dpkg-query -W -f '${db:Status-Abbrev}' safeer-os 2>/dev/null | grep -q '^ii'; then echo "namizno okolje je ostalo ob aplikaciji"; exit 1; fi
+          [ ! -e /usr/lib/safeer-cinnamon ]
+          if grep -Fx 'NoDisplay=true' /usr/share/applications/safeer-os.desktop; then echo "aplikacija v meniju ni vidna"; exit 1; fi
+          xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          xvfb-run -a safeer-control --version | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-os
+          sudo apt-get remove -y safeer-os-app
           dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
           for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-cinnamon /usr/lib/safeer-webkit /usr/bin/safeer-control /usr/bin/safeer-cinnamon; do
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }
@@ -531,6 +568,7 @@ jobs:
           name: safeer-os
           path: |
             safeer-os_*.deb
+            safeer-os-app_*.deb
             dist/Safeer-OS-*.AppImage
   qt-xcb:
     # Vticnik Qt xcb lupine QML (PySide6 iz paketa) nalozi libxcb-* neposredno. Posel safeer-os pred tem namesti cel
@@ -549,15 +587,11 @@ jobs:
         with:
           name: safeer-os
           path: paketi
-      - uses: actions/download-artifact@v8
-        with:
-          name: safeer-webkit
-          path: paketi
       - name: Safeer OS package in a minimal Ubuntu 24.04 (no recommended packages)
-        # Z njim safeer-webkit (nas WebKit): ta zahteva svoje knjiznice, ki jih noble namesti brez priporocenih paketov.
+        # Z vgrajenim WebKitom: paket zahteva njegove knjiznice, ki jih noble namesti brez priporocenih paketov.
         run: |
           apt-get update -q
-          apt-get install -y -q --no-install-recommends ./paketi/safeer-webkit_*_amd64.deb ./paketi/safeer-os_*_amd64.deb
+          apt-get install -y -q --no-install-recommends ./paketi/safeer-os_*_amd64.deb
       - name: PySide6 xcb plugin finds every library (ldd, no "not found")
         run: bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor
   mint:
@@ -580,10 +614,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: safeer-os
-          path: paketi
-      - uses: actions/download-artifact@v8
-        with:
-          name: safeer-webkit
           path: paketi
       - name: Unprivileged user namespaces as on Linux Mint
         # Linux Mint turns Ubuntu's restriction off (/etc/sysctl.d/20-apparmor-mint.conf). The container shares the
@@ -1155,9 +1185,10 @@ jobs:
         # Zgradila in preverila (USE_PGO_PROFILE, -fprofile-use, profil) sta ju posla flatpak in flatpak-brskalnik; brez
         # katerega od njiju izdaja ne nastane.
         run: ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak
-      - name: The shared WebKit package is present
-        # safeer-os in safeer-browser zahtevata safeer-webkit (posel webkit-deb): brez njega se noben .deb ne namesti.
-        run: ls -l artifacts/safeer-webkit/safeer-webkit_*_amd64.deb
+      - name: Every Linux .deb is present (WebKit built in)
+        # Od 20. 10. 2026 je WebKit vgrajen v safeer-browser, safeer-os (namizno okolje) in safeer-os-app (aplikacija);
+        # paketa safeer-webkit (artefakt posla webkit-deb) uporabniki ne prenesejo vec, zato ne gre v izdajo.
+        run: ls -l artifacts/brskalnik/safeer-browser_*_amd64.deb artifacts/safeer-os/safeer-os_*_amd64.deb artifacts/safeer-os/safeer-os-app_*_amd64.deb
       - name: Attach packages to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1166,7 +1197,7 @@ jobs:
         run: |
           mkdir -p release
           # Vsak artefakt je v svoji mapi.
-          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) -exec mv -t release {} +
+          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           # A tag push gets a draft with the packages attached. A published release is final: its files
           # are the ones that were tested and whose checksums are in the update manifest, so a re-run of
@@ -1204,8 +1235,8 @@ jobs:
           path: artifacts
       - name: Both Flatpaks (WebKitGTK with PGO) are present
         run: ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak
-      - name: The shared WebKit package is present
-        run: ls -l artifacts/safeer-webkit/safeer-webkit_*_amd64.deb
+      - name: Every Linux .deb is present (WebKit built in)
+        run: ls -l artifacts/brskalnik/safeer-browser_*_amd64.deb artifacts/safeer-os/safeer-os_*_amd64.deb artifacts/safeer-os/safeer-os-app_*_amd64.deb
       - name: Attach packages to the beta pre-release draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1213,7 +1244,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) -exec mv -t release {} +
+          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --prerelease --verify-tag --title "Safeer $TAG (beta)" \

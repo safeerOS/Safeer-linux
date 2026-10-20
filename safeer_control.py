@@ -2138,9 +2138,15 @@ class SafeerControl(_OSNOVA):
         """Kar Control lahko posodobi sam: sebe in - ce je Safeer OS namescen kot paket - tudi njega (isti pkexec apt-get)."""
         r = {"safeer-control": APP_VERSION} if APP_VERSION else {}
         try:
-            v = subprocess.run(["dpkg-query", "-W", "-f=${Version}", "safeer-os"], capture_output=True, text=True, timeout=10).stdout.strip()
-            if v:
-                r["safeer-os"] = v
+            # Namizno okolje (safeer-os) ali aplikacija (safeer-os-app, od 20. 10. 2026): ista razlicica Safeer OS, paket za
+            # posodobitev izbere os_posodobitve (aplikacija dobi "deb_app"). Namescen je kvecjemu eden.
+            izpis = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Abbrev} ${Version}\n", "safeer-os", "safeer-os-app"],
+                                   capture_output=True, text=True, timeout=10).stdout
+            for vrstica in izpis.splitlines():
+                stanje, _, v = vrstica.partition(" ")
+                if stanje.startswith("ii") and v.strip():
+                    r["safeer-os"] = v.strip()
+                    break
         except Exception:
             pass
         return r

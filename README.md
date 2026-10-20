@@ -111,8 +111,8 @@ sudo apt install ./safeer-webkit_1.0.128_amd64.deb ./safeer-browser_1.0.128_amd6
 Download from [Releases](../../releases/latest). Three formats are built for every release:
 
 ```bash
-# Debian / Ubuntu / Linux Mint (the browser and its web engine, safeer-webkit, in one command)
-sudo apt install ./safeer-webkit_<version>_amd64.deb ./safeer-browser_<version>_amd64.deb
+# Debian / Ubuntu / Linux Mint (one file: our web engine is built in, from 1.0.129)
+sudo apt install ./safeer-browser_<version>_amd64.deb
 
 # AppImage — no installation, just make it executable
 chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-x86_64.AppImage
@@ -121,11 +121,12 @@ chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-
 flatpak install ./Safeer-Browser-<version>-x86_64.flatpak
 ```
 
-Or double-click the `.deb` files in your file manager: `safeer-webkit` first, then `safeer-browser`.
+Or double-click the `.deb` file in your file manager (1.0.128 still had a separate `safeer-webkit` package: install it first).
 
 The `.deb` and the **Flatpak** both carry our own WebKitGTK 2.54 and libsoup 3.8 (Clang ThinLTO build
 with Safeer's fixes, `packaging/webkit`, `packaging/webkit-deb`); the `.deb` keeps them in
-the package `safeer-webkit` (`/usr/lib/safeer-webkit`, shared with Safeer OS) and never replaces the system's WebKitGTK. The
+`/usr/lib/safeer-webkit` (built into every Safeer `.deb`; installed once and shared with Safeer OS: a second Safeer
+package detects the same build and does not install it again) and never replaces the system's WebKitGTK. The
 AppImage uses the WebKitGTK of the build system. When both the `.deb` and the Flatpak are installed, the
 `safeer` command starts the Flatpak (same settings, sign-ins and bookmarks). All packages are built for
 x86_64 (amd64) only.
@@ -140,8 +141,9 @@ The checksums catch a damaged download. They are not signed yet, so they do not 
 against someone who can replace files in the release itself.
 
 **Safeer Control** — pairs this computer with a Safeer phone or television over your own network —
-is part of the single Safeer OS package `safeer-os_<version>_amd64.deb` in the same release (one
-install for Safeer OS, Control and the Safeer Cinnamon look) and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
+is part of both Safeer OS packages in the same release: the desktop environment `safeer-os_<version>_amd64.deb`
+(Safeer OS, Control and the Safeer Cinnamon look) and the app in a window for any desktop
+`safeer-os-app_<version>_amd64.deb` (Safeer OS and Control); one replaces the other and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
 line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scripts): see
 [docs/SAFEERCTL.md](docs/SAFEERCTL.md). With a phone running Safeer OS Mobile it can also send this
 computer's internet through the phone while the home connection is down — no hotspot needed: see

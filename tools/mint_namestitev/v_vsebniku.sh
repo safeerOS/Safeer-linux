@@ -16,12 +16,13 @@ paket() { local p; p="$(ls /paketi/$1 2>/dev/null | head -1)"; [ -f "$p" ] || { 
 # 1.0.128-beta.1 (packaging/deb_razlicica.sh); stabilna je enaka.
 v_program() { sed -E 's/~((alpha|beta|rc)(\.[0-9]+)?)$/-\1/'; }
 razlicica() { dpkg-deb -f "$1" Version | v_program; }
-# Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK in libsoup, packaging/webkit-deb); od 19. 10. 2026 je WebKit v skupnem
-# paketu safeer-webkit (/usr/lib/safeer-webkit), ki ga zahtevata oba.
+# Od 15. 10. 2026 so paketi amd64 (nas WebKitGTK in libsoup, packaging/webkit-deb); od 20. 10. 2026 je WebKit vgrajen v
+# vsak program (/usr/lib/<paket>/webkit-vgrajen -> skupni /usr/lib/safeer-webkit, ki ga namesti postinst samo enkrat).
 BRSKALNIK="$(paket 'safeer-browser_*_amd64.deb')"
-WEBKIT="$(paket 'safeer-webkit_*_amd64.deb')"
-# Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh).
+# Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh); od
+# 20. 10. 2026 je to namizno okolje, aplikacija v oknu je svoj paket safeer-os-app (se z namizjem zamenjata).
 OS="$(paket 'safeer-os_*_amd64.deb')"
+APP="$(paket 'safeer-os-app_*_amd64.deb')"
 VSEBNIK_OS="$(dpkg-deb -c "$OS" | awk '{print $6}' | sed -n 's|^\./||p')"
 razlicica_v() { dpkg-deb -f "$OS" Provides | tr ',' '\n' | sed -n "s/^ *$1 (= \(.*\))\$/\1/p" | v_program; }
 
@@ -61,9 +62,23 @@ if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
   echo "   nato posodobitev z ukazom, s katerim jo namesti Safeer OS (apt-get install --allow-downgrades)"
 fi
 # --reinstall: tudi kadar ima prejsnja izdaja isto stevilko (veja pred novo stevilko razlicice), se namestijo novi paketi.
-apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$WEBKIT" "$BRSKALNIK" "$OS" >"$ZACASNO/namestitev.log" 2>&1 \
-  || { tail -40 "$ZACASNO/namestitev.log"; echo "NAPAKA: namestitev"; exit 1; }
-for p in safeer-webkit safeer-browser safeer-os; do
+# Najprej brskalnik, nato namizno okolje (kot uporabnik, ki ima ze enega): drugi WebKita ne sme namestiti ponovno.
+apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" >"$ZACASNO/namestitev.log" 2>&1 \
+  || { tail -40 "$ZACASNO/namestitev.log"; echo "NAPAKA: namestitev brskalnika"; exit 1; }
+WK_INODE="$(stat -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)"
+apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$OS" >"$ZACASNO/namestitev-os.log" 2>&1 \
+  || { tail -40 "$ZACASNO/namestitev-os.log"; echo "NAPAKA: namestitev namiznega okolja"; exit 1; }
+grep -F "Safeer WebKit je ze namescen (ista gradnja)" "$ZACASNO/namestitev-os.log" \
+  || { tail -20 "$ZACASNO/namestitev-os.log"; echo "NAPAKA: namizno okolje je WebKit namestilo ponovno"; exit 1; }
+[ "$(stat -c %i /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+  && [ "$(stat -c %i /usr/lib/safeer-os/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+  && [ "$(stat -c %i /usr/lib/safeer-browser/webkit-vgrajen/lib/libwebkitgtk-6.0.so.4)" = "$WK_INODE" ] \
+  || { echo "NAPAKA: WebKit je na disku vec kot enkrat (ni trdih povezav)"; exit 1; }
+echo "   WebKit enkrat na disku (en inode za brskalnik, namizje in /usr/lib/safeer-webkit)"
+# Star loceni paket safeer-webkit (1.0.128) je odstranjen (Conflicts); mapa ni datoteka nobenega paketa.
+if dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-webkit 2>/dev/null | grep -q '^ii'; then echo "NAPAKA: star paket safeer-webkit je se namescen"; exit 1; fi
+if dpkg -S /usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4 >/dev/null 2>&1; then echo "NAPAKA: /usr/lib/safeer-webkit je datoteka paketa"; exit 1; fi
+for p in safeer-browser safeer-os; do
   dpkg-query -W -f '${Package} ${Version} ${db:Status-Abbrev}\n' "$p" | tee /dev/stderr | grep -q " ii " || { echo "NAPAKA: $p ni namescen"; exit 1; }
 done
 for p in safeer-control safeer-cinnamon; do
@@ -81,7 +96,7 @@ for mapa in /usr/lib/safeer-browser /usr/lib/safeer-control /usr/lib/safeer-os; 
     || { echo "NAPAKA: $mapa nima bajtne kode za vse module (postinst je ni prevedel)"; exit 1; }
 done
 
-for p in safeer-webkit safeer-browser safeer-os; do
+for p in safeer-browser safeer-os; do
   [ "$(dpkg-query -W -f '${Architecture}' "$p")" = amd64 ] || { echo "NAPAKA: $p ni amd64 (ni nasega WebKita)"; exit 1; }
 done
 # Posodobitev s paketov z lastno kopijo WebKita (do 1.0.127~pred): dpkg odstrani datoteke, ki jih novi paket nima - ena
@@ -92,9 +107,8 @@ done
 for star in safeer-os safeer-browser; do
   if dpkg -L "$star" | grep -E '^/usr/lib/safeer-(os|browser|control)/webkit(/|$)'; then echo "NAPAKA: $star ima svojo kopijo WebKita"; exit 1; fi
 done
-# grep brez -q: s pipefail bi -q zaprl cev in dpkg -L bi dobil SIGPIPE (glej zgoraj).
-dpkg -L safeer-webkit | grep -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess >/dev/null \
-  || { echo "NAPAKA: safeer-webkit nima WebKitWebProcess v /usr/lib/safeer-webkit"; exit 1; }
+[ -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess ] \
+  || { echo "NAPAKA: v /usr/lib/safeer-webkit ni WebKitWebProcess"; exit 1; }
 
 echo "== 1a. nas WebKitGTK in libsoup (navaden uporabnik, peskovnik bubblewrap)"
 # Brez sistemskega WebKitGTK 6.0 (paketa ga ne zahtevata) in nato z njim: paketa morata teci na svojem.
@@ -178,10 +192,23 @@ bash -n /usr/bin/safeer-cinnamon
 test -f /usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
 safeer-cinnamon --help >/dev/null
 
+echo "== 5b. aplikacija (safeer-os-app) zamenja namizno okolje; namizje vrne prejsnji videz, WebKit ostane"
+apt-get install -y -q --no-install-recommends "$APP" >"$ZACASNO/aplikacija.log" 2>&1 \
+  || { tail -40 "$ZACASNO/aplikacija.log"; echo "NAPAKA: namestitev aplikacije"; exit 1; }
+dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-os-app | grep -q '^ii' || { echo "NAPAKA: aplikacija ni namescena"; exit 1; }
+if dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-os 2>/dev/null | grep -q '^ii'; then echo "NAPAKA: namizno okolje je ostalo ob aplikaciji"; exit 1; fi
+[ ! -e /usr/lib/safeer-cinnamon ] && [ ! -e /usr/bin/safeer-cinnamon ] || { echo "NAPAKA: aplikacija ima Safeer Cinnamon"; exit 1; }
+[ -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess ] || { echo "NAPAKA: WebKit je izginil z namizjem"; exit 1; }
+xvfb-run -a safeer-os --version | grep -Fxq "Safeer OS $(razlicica "$APP")" || { echo "NAPAKA: aplikacija se ne zazene"; exit 1; }
+xvfb-run -a safeer-control --version >/dev/null || { echo "NAPAKA: Safeer Control v aplikaciji"; exit 1; }
+desktop-file-validate /usr/share/applications/safeer-os.desktop
+grep -qx 'NoDisplay=true' /usr/share/applications/safeer-os.desktop && { echo "NAPAKA: aplikacija v meniju ni vidna"; exit 1; }
+echo "   aplikacija namescena, namizje odstranjeno, WebKit ostal"
+
 echo "== 6. odstranitev ne pusti nicesar"
 # safeer-os-tema (staro celozaslonsko namizje) ni vec v izdaji; ce ga je namestila prejsnja izdaja, gre tudi on.
 dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-os-tema 2>/dev/null | grep -q "^ii" && TEMA_STARA=safeer-os-tema || TEMA_STARA=""
-apt-get remove -y -q $TEMA_STARA safeer-os safeer-browser safeer-webkit >"$ZACASNO/odstranitev.log" 2>&1 \
+apt-get remove -y -q $TEMA_STARA safeer-os-app safeer-browser >"$ZACASNO/odstranitev.log" 2>&1 \
   || { tail -30 "$ZACASNO/odstranitev.log"; echo "NAPAKA: odstranitev"; exit 1; }
 for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-browser /usr/lib/safeer-cinnamon /usr/lib/safeer-webkit \
                /usr/bin/safeer /usr/bin/safeer-os /usr/bin/safeer-control /usr/bin/safeerctl /usr/bin/safeer-cinnamon \

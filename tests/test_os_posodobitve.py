@@ -147,6 +147,21 @@ class Razlicice(unittest.TestCase):
         self.assertIsNone(n["datoteka"])
         self.assertNotIn("tema", n)
 
+    def test_aplikacija_dobi_svoj_paket(self):
+        """Od 20. 10. 2026 sta namizno okolje (safeer-os) in aplikacija (safeer-os-app) loceni paketi, ki se med sabo
+        zamenjata: posodobitev aplikacije mora prenesti "deb_app", nikoli namiznega okolja (to bi aplikacijo zamenjalo z
+        namizjem); brez "deb_app" nic (stran). Namizno okolje ostane pri "deb"."""
+        m = json.loads(json.dumps(MANIFEST))
+        app = {"url": "https://github.com/x/safeer-os-app_0.4.23_amd64.deb", "sha256": "3" * 64, "velikost": 9}
+        with mock.patch.object(op, "je_aplikacija_deb", return_value=True):
+            self.assertIsNone(op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]["datoteka"])
+            m["linux"]["safeer-os"]["deb_app"] = app
+            n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]
+            self.assertEqual(n["datoteka"], app)
+        with mock.patch.object(op, "je_aplikacija_deb", return_value=False):
+            n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]
+            self.assertTrue(n["datoteka"]["url"].endswith("safeer-os_0.4.23_all.deb"))
+
     def test_skupni_webkit_v_istem_apt_get(self):
         """safeer-os in safeer-browser (.deb) zahtevata safeer-webkit iz iste izdaje (od 19. 10. 2026): program ga prenese
         in namesti v istem apt-get, sicer posodobitev pade (apt-get odvisnosti ne razresi). Seznam za razlicice do 1.0.126

@@ -107,8 +107,8 @@ sudo apt install ./safeer-browser_1.0.108_all.deb
 Prenesi iz [Izdaj](../../releases/latest). Za vsako izdajo nastanejo trije paketi:
 
 ```bash
-# Debian / Ubuntu / Linux Mint (brskalnik in njegov spletni pogon safeer-webkit v enem ukazu)
-sudo apt install ./safeer-webkit_<verzija>_amd64.deb ./safeer-browser_<verzija>_amd64.deb
+# Debian / Ubuntu / Linux Mint (ena datoteka: spletni pogon je vgrajen, od 1.0.129)
+sudo apt install ./safeer-browser_<verzija>_amd64.deb
 
 # AppImage — brez namestitve, samo izvršljiv
 chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-x86_64.AppImage
@@ -117,11 +117,11 @@ chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-
 flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
 ```
 
-Ali pa v upravitelju datotek dvoklikni datoteki `.deb`: najprej `safeer-webkit`, nato `safeer-browser`.
+Ali pa v upravitelju datotek dvoklikni datoteko `.deb` (1.0.128 je imela še ločen paket `safeer-webkit`: najprej tega).
 
 `.deb` in **Flatpak** imata naš WebKitGTK 2.54 in libsoup 3.8 (gradnja s Clangom in ThinLTO, s popravki
-Safeerja); `.deb` ju hrani v paketu `safeer-webkit` (`/usr/lib/safeer-webkit`, skupen s Safeer OS) in WebKitGTK sistema ne
-zamenja. AppImage uporablja WebKitGTK sistema, na katerem je zgrajen. Če sta nameščena `.deb` in
+Safeerja); `.deb` ju hrani v `/usr/lib/safeer-webkit` (vgrajen v vsak paket Safeer; namesti se enkrat in je skupen s
+Safeer OS: drugi paket Safeer isto gradnjo zazna in je ne namesti ponovno) in WebKitGTK sistema ne zamenja. AppImage uporablja WebKitGTK sistema, na katerem je zgrajen. Če sta nameščena `.deb` in
 Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in zaznamki). Vsi paketi so narejeni
 samo za x86_64 (amd64).
 
@@ -135,8 +135,9 @@ Vsote ujamejo poškodovan prenos. Še niso podpisane, zato ne varujejo pred neko
 zamenjal datoteke v sami izdaji.
 
 **Safeer Control** — ta računalnik poveže s telefonom ali televizorjem Safeer prek tvojega omrežja — je
-del enega paketa Safeer OS `safeer-os_<verzija>_amd64.deb` v isti izdaji (ena namestitev za Safeer OS,
-Control in videz Safeer Cinnamon) in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
+del obeh paketov Safeer OS v isti izdaji: namiznega okolja `safeer-os_<verzija>_amd64.deb` (Safeer OS,
+Control in videz Safeer Cinnamon) in aplikacije v oknu za vsako namizje `safeer-os-app_<verzija>_amd64.deb`
+(Safeer OS in Control); eden zamenja drugega, in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
 iz ukazne vrstice (`safeerctl devices`, `safeerctl send datoteka --to NAPRAVA`, `--json` za skripte):
 glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md). S telefonom s Safeer OS Mobile lahko internet tega računalnika
 ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej

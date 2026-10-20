@@ -1092,10 +1092,14 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertNotEqual(r.returncode,0)
                 self.assertIn('predpona: /usr/lib/safeer-webkit',r.stderr)
 
-    def test_programa_zahtevata_safeer_webkit_iz_iste_izdaje(self):
-        """build_deb.sh in build_os_deb.sh s SAFEER_WEBKIT_DEB: paket je amd64, zahteva safeer-webkit (>= razlicica izdaje),
-        nima svoje kopije WebKita in ne zahteva WebKitGTK sistema. safeer-webkit druge izdaje ali drug paket se zavrne;
-        star SAFEER_WEBKIT_TAR tudi (tiho bi zgradil paket na WebKitu sistema)."""
+    def test_programi_imajo_vgrajen_webkit(self):
+        """build_deb.sh in build_os_deb.sh (namizno okolje safeer-os in aplikacija safeer-os-app) s SAFEER_WEBKIT_DEB
+        (lastnik, 20. 10. 2026: vsak prenos je ena datoteka): paket je amd64, WebKit iz safeer-webkit iste izdaje nosi v
+        /usr/lib/<paket>/webkit-vgrajen, zahteva njegove odvisnosti (peskovnik), ne zahteva paketa safeer-webkit in ne
+        WebKitGTK sistema; star loceni safeer-webkit odstrani (Conflicts s stalno mejo), Provides +vgrajen je nad njo.
+        postinst ga namesti v /usr/lib/safeer-webkit, postrm ga odstrani z zadnjim programom. Namizno okolje in aplikacija
+        se zamenjata (Conflicts + Replaces). safeer-webkit druge izdaje ali drug paket se zavrne; star SAFEER_WEBKIT_TAR
+        tudi (tiho bi zgradil paket na WebKitu sistema)."""
         for orodje in ('dpkg-shlibdeps','dpkg-deb','zstd','file'):
             if not shutil.which(orodje):
                 self.skipTest('ni %s'%orodje)
@@ -1122,26 +1126,61 @@ class DebWebkitTests(unittest.TestCase):
                     r=subprocess.run(['bash',str(self.WEBKIT_DEB/'razlicica_odvisnosti.sh'),str(tuj)],capture_output=True,text=True)
                     self.assertNotEqual(r.returncode,0)
                     self.assertEqual(r.stdout,'')
-            for skripta,deb,lib in (('build_deb.sh','safeer-browser_%s_amd64.deb'%verzija,'safeer-browser'),
-                                    ('build_os_deb.sh',None,'safeer-os')):
-                with self.subTest(skripta=skripta):
-                    if deb is None:
-                        deb='safeer-os_%s_amd64.deb'%(ROOT/'packaging/VERSION_OS').read_text().strip()
+            os_v=(ROOT/'packaging/VERSION_OS').read_text().strip()
+            for skripta,deb,lib,paket in (('build_deb.sh','safeer-browser_%s_amd64.deb'%verzija,'safeer-browser','safeer-browser'),
+                                          ('build_os_deb.sh','safeer-os_%s_amd64.deb'%os_v,'safeer-os','safeer-os'),
+                                          ('build_os_deb.sh','safeer-os-app_%s_amd64.deb'%os_v,'safeer-os','safeer-os-app')):
+                with self.subTest(paket=paket):
                     deb=ROOT/deb
-                    okolje=dict(os.environ,SAFEER_WEBKIT_DEB=webkit,SAFEER_DEB_BREZ_QT='1')
+                    okolje=dict(os.environ,SAFEER_WEBKIT_DEB=webkit,SAFEER_DEB_BREZ_QT='1',SAFEER_OS_PAKET=paket)
                     try:
                         r=subprocess.run(['bash',str(ROOT/skripta)],cwd=ROOT,env=okolje,capture_output=True,text=True)
                         self.assertEqual(r.returncode,0,r.stdout[-2000:]+r.stderr[-2000:])
-                        polja=subprocess.run(['dpkg-deb','-f',str(deb),'Architecture','Depends'],capture_output=True,
-                                             text=True,check=True).stdout
+                        polja=subprocess.run(['dpkg-deb','-f',str(deb),'Package','Architecture','Depends','Provides',
+                                              'Conflicts','Replaces'],capture_output=True,text=True,check=True).stdout
+                        self.assertIn('Package: %s\n'%paket,polja)
                         self.assertIn('Architecture: amd64',polja)
-                        self.assertRegex(polja,r'(: |, )safeer-webkit \(>= %s\)(,|\n)'%re.escape(deb_verzija))
-                        for tuje in ('gir1.2-webkit-6.0','gir1.2-soup-3.0','libwebkitgtk','libsoup-3.0','bubblewrap'):
-                            self.assertNotIn(tuje,polja)    # peskovnik in knjiznice zahteva safeer-webkit
+                        odv=polja.split('Depends: ',1)[1].split('\n',1)[0]
+                        self.assertNotRegex(odv,r'(^|, )safeer-webkit\b')
+                        for tuje in ('gir1.2-webkit-6.0','gir1.2-soup-3.0','libwebkitgtk','libsoup-3.0'):
+                            self.assertNotIn(tuje,odv)
+                        for nujno in ('bubblewrap','xdg-dbus-proxy','glib-networking'):
+                            self.assertIn(nujno,odv)    # odvisnosti vgrajenega WebKita
+                        self.assertIn('safeer-webkit (= %s+vgrajen)'%deb_verzija,polja)
+                        self.assertIn('safeer-webkit (<< 1.0.128+vgrajen~)',polja)
                         vsebina=subprocess.run(['dpkg-deb','-c',str(deb)],capture_output=True,text=True,check=True).stdout
-                        self.assertNotIn('/webkit/',vsebina)
-                        self.assertNotIn('/safeer-webkit/',vsebina)
+                        vir='./usr/lib/%s/webkit-vgrajen/'%paket
+                        for f in ('share/webkitgtk-safeer/odtis','share/webkitgtk-safeer/razlicica',
+                                  'lib/girepository-1.0/WebKit-6.0.typelib','libexec/webkitgtk-6.0/WebKitWebProcess'):
+                            self.assertIn(vir+f,vsebina)
+                        self.assertIn('./usr/share/doc/%s/safeer-webkit.copyright'%paket,vsebina)
+                        self.assertNotIn(' ./usr/lib/safeer-webkit/',vsebina)   # skupna mapa ni datoteka paketa
+                        self.assertNotIn('/%s/webkit/'%paket,vsebina)            # ne lastna kopija iz 1.0.127~pred
                         self.assertIn('./usr/lib/%s/core/zasebni_webkit.py'%lib,vsebina)
+                        with tempfile.TemporaryDirectory() as k:
+                            subprocess.run(['dpkg-deb','-e',str(deb),k],check=True)
+                            postinst=(Path(k)/'postinst').read_text()
+                            postrm=(Path(k)/'postrm').read_text()
+                        self.assertIn('wk_vir=/usr/lib/%s/webkit-vgrajen'%paket,postinst)
+                        self.assertIn('cp -al "$wk_vir" "$wk_novo"',postinst)
+                        self.assertIn('[ "$wk_p" = "%s" ] && continue'%paket,postrm)
+                        self.assertIn('rm -rf /usr/lib/safeer-webkit',postrm)
+                        self.assertNotIn('@safeer-webkit',postinst+postrm)
+                        if lib=='safeer-os':
+                            # Vnos »Safeer OS« (aplikacija v oknu): namizno okolje ga v meniju ne kaze, aplikacija ga.
+                            okno=subprocess.run('dpkg-deb --fsys-tarfile "%s" | tar -xO ./usr/share/applications/safeer-os.desktop'%deb,
+                                                shell=True,capture_output=True,text=True,check=True).stdout
+                            self.assertIn('Exec=/usr/bin/safeer-os --okno',okno)
+                            self.assertEqual('\nNoDisplay=true' in okno,paket=='safeer-os')
+                        if paket=='safeer-os':
+                            self.assertIn('safeer-os-app (= ',polja)
+                            self.assertRegex(polja,r'Conflicts: .*\bsafeer-os-app\b')
+                            self.assertRegex(polja,r'Replaces: .*\bsafeer-os-app\b')
+                            self.assertIn('./usr/bin/safeer-cinnamon',vsebina)
+                        if paket=='safeer-os-app':
+                            self.assertRegex(polja,r'Conflicts: .*\bsafeer-os\b(?!-)')
+                            self.assertRegex(polja,r'Replaces: .*\bsafeer-os\b(?!-)')
+                            self.assertNotIn('safeer-cinnamon',vsebina)
                         # Stari nacin (lastna kopija iz arhiva) se zavrne, preden karkoli zgradi.
                         r=subprocess.run(['bash',str(ROOT/skripta)],cwd=ROOT,capture_output=True,text=True,
                                          env=dict(okolje,SAFEER_WEBKIT_TAR='webkit.tar.zst'))
@@ -1298,7 +1337,7 @@ class DebWebkitTests(unittest.TestCase):
 
     def test_ci_gradi_webkit_enkrat_in_preizkusi_oba_programa(self):
         """En posel webkit-deb (brez matrike) zgradi WebKit s PGO in BOLT za /usr/lib/safeer-webkit in paket safeer-webkit;
-        brskalnik in safeer-os ga prenesta, zgradita program z odvisnostjo in ga namestita skupaj z njim."""
+        brskalnik in safeer-os ga prenesta in vgradita v svoje pakete (od 20. 10. 2026), izdaja ga ne objavi."""
         potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
         profil=potek.split('\n  webkit-deb-profil:\n',1)[1].split('\n  webkit-deb:\n',1)[0]
         posel=potek.split('\n  webkit-deb:\n',1)[1].split('\n  brskalnik:\n',1)[0]
@@ -1334,6 +1373,8 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',(self.WEBKIT_DEB/'ucni_tek.sh').read_text())
         # Pripeta kopija Flatpaka je od gtk4-integracija v packaging/webkit/pgo.py (vir PGO kot type: file s sha256).
         self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',(ROOT/'packaging/webkit/pgo.py').read_text())
+        # Od 20. 10. 2026 je WebKit vgrajen (lastnik: ena datoteka): brskalnik in safeer-os artefakt safeer-webkit prenesta,
+        # WebKit vgradita (Provides +vgrajen), namestita samo svoj paket in preverita eno kopijo na disku.
         for ime,paket,skripta,naslednji in (('brskalnik','safeer-browser','build_deb.sh','safeer-os'),
                                             ('safeer-os','safeer-os','build_os_deb.sh','qt-xcb')):
             with self.subTest(posel=ime):
@@ -1342,30 +1383,30 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertIn('name: safeer-webkit\n          path: build/safeer-webkit',del_)
                 self.assertNotIn('knjiznice.sh',del_)
                 self.assertRegex(del_,r'SAFEER_WEBKIT_DEB="\$WEBKIT" bash %s\n'%skripta)
-                self.assertIn('WEBKIT="./build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb"' if ime=='safeer-os'
-                              else 'WEBKIT="build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb"',del_)
-                self.assertIn('Depends | grep -F "safeer-webkit (>= $(dpkg-deb -f "$WEBKIT" Version))"',del_)
+                self.assertIn('Provides | grep -F "safeer-webkit (= $(dpkg-deb -f "$WEBKIT" Version)+vgrajen)"',del_)
+                self.assertIn("::error::",del_)
+                self.assertNotIn('Depends | grep -F "safeer-webkit (>=',del_)
                 self.assertIn('packaging/smoke_webkit_deb.py /usr/lib/%s'%paket,del_)
-                self.assertIn('apt-get remove -y %s safeer-webkit'%paket,del_)
+                self.assertNotIn('apt-get remove -y %s safeer-webkit'%paket,del_)
+                self.assertNotIn('"$WEBKIT" "$OS"',del_)
                 self.assertRegex(del_,r'/usr/lib/safeer-webkit[; ]')
                 self.assertIn('_amd64.deb',del_)
-        brskalnik=potek.split('\n  brskalnik:\n',1)[1].split('\n  safeer-os:\n',1)[0]
-        self.assertIn('apt-get install -y --no-install-recommends "./build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb" '
-                      '"./safeer-browser_$(cat packaging/VERSION)_amd64.deb"',brskalnik)
         os_=potek.split('\n  safeer-os:\n',1)[1].split('\n  qt-xcb:\n',1)[0]
-        self.assertIn('apt-get install -y --no-install-recommends "$WEBKIT" "$OS"',os_)
-        # Paket z namestitvijo brez priporocenih (qt-xcb), Mint in izdaja imajo safeer-webkit.
+        self.assertIn('SAFEER_OS_PAKET=safeer-os-app ',os_)
+        self.assertIn('apt-get install -y --no-install-recommends "$APP"',os_)
+        self.assertIn('safeer-os-app_*.deb',os_)
         qt=potek.split('\n  qt-xcb:\n',1)[1].split('\n  mint:\n',1)[0]
-        self.assertIn('./paketi/safeer-webkit_*_amd64.deb ./paketi/safeer-os_*_amd64.deb',qt)
         mint=potek.split('\n  mint:\n',1)[1].split('\n  webkit-pgo-profil:\n',1)[0]
-        self.assertIn('name: safeer-webkit\n          path: paketi',mint)
+        for del_ in (qt,mint):
+            self.assertNotIn('name: safeer-webkit',del_)
         for izdaja in ('release','beta-izdaja'):
-            del_=potek.split('\n  %s:\n'%izdaja,1)[1]
-            self.assertIn('ls -l artifacts/safeer-webkit/safeer-webkit_*_amd64.deb',del_.split('\n  beta-izdaja:\n',1)[0])
+            del_=potek.split('\n  %s:\n'%izdaja,1)[1].split('\n  beta-izdaja:\n',1)[0]
+            self.assertIn('artifacts/safeer-os/safeer-os-app_*_amd64.deb',del_)
+            self.assertIn("! -name 'safeer-webkit_*'",del_)
         self.assertIn('/smoke_webkit_deb.py',(ROOT/'tools/mint_namestitev/preizkus.sh').read_text())
         mint_skripta=(ROOT/'tools/mint_namestitev/v_vsebniku.sh').read_text()
         self.assertIn('webkit_preizkus "s sistemskim WebKitGTK',mint_skripta)
-        self.assertIn('"$WEBKIT" "$BRSKALNIK" "$OS"',mint_skripta)
+        self.assertIn('"$BRSKALNIK" >"$ZACASNO/namestitev.log"',mint_skripta)
         self.assertIn('NAPAKA: po posodobitvi je ostala stara kopija WebKita',mint_skripta)
         # Preizkus WebKita v namescenem paketu zahteva skupno predpono (ne ostanka stare kopije).
         self.assertIn('PREDPONA != "/usr/lib/safeer-webkit"',(ROOT/'packaging/smoke_webkit_deb.py').read_text())
@@ -1618,17 +1659,30 @@ class MintInstallTests(unittest.TestCase):
     def test_every_deb_we_build_is_installed_and_removed_on_mint(self):
         """Nov paket .deb ne sme mimo preizkusa: vsak `Package:` iz skript build_*deb.sh mora biti v njem."""
         zgrajeni=set()
-        for skripta in list(ROOT.glob('build_*deb.sh'))+[ROOT/'packaging/webkit-deb/paket.sh']:
-            zgrajeni|=set(re.findall(r'^Package: (\S+)$',skripta.read_text(),re.M))
-        self.assertGreaterEqual(len(zgrajeni),3,zgrajeni)
-        self.assertIn('safeer-webkit',zgrajeni)
+        for skripta in ROOT.glob('build_*deb.sh'):
+            besedilo=skripta.read_text()
+            imena=set(re.findall(r'^Package: (\S+)$',besedilo,re.M))
+            if '${PKG_NAME}' in imena:      # build_os_deb.sh: namizno okolje in aplikacija (SAFEER_OS_PAKET)
+                imena.discard('${PKG_NAME}')
+                imena|=set(re.search(r'\n    (safeer-os\) NAMIZJE=1 ;;\n    safeer-os-app)\) NAMIZJE=0 ;;',besedilo).group(1)
+                           .replace(') NAMIZJE=1 ;;\n    ',' ').split())
+            zgrajeni|=imena
+        self.assertEqual(zgrajeni,{'safeer-browser','safeer-os','safeer-os-app'})
+        # safeer-webkit je od 20. 10. 2026 vgrajen v programe: preizkus ga ne namesti posebej in preveri, da ga ni.
         preizkus=(self.MAPA/'v_vsebniku.sh').read_text()
+        self.assertNotIn("paket 'safeer-webkit_",preizkus)
+        self.assertIn('NAPAKA: star paket safeer-webkit je se namescen',preizkus)
+        self.assertIn('NAPAKA: namizno okolje je WebKit namestilo ponovno',preizkus)
         odstranjeni=set(re.search(r'apt-get remove ([^>\n]*)',preizkus).group(1).split())
         for paket in sorted(zgrajeni):
             with self.subTest(paket=paket):
                 # Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK, packaging/webkit-deb).
                 self.assertRegex(preizkus,r"paket '%s_\*_(all|amd64)\.deb'"%re.escape(paket))
-                self.assertIn(paket,odstranjeni)
+                if paket=='safeer-os':
+                    # Namizno okolje odstrani namestitev aplikacije (Conflicts + Replaces), preizkus to preveri.
+                    self.assertIn('NAPAKA: namizno okolje je ostalo ob aplikaciji',preizkus)
+                else:
+                    self.assertIn(paket,odstranjeni)
 
     def test_release_waits_for_the_mint_job(self):
         """Izdaja (posel release) ne sme nastati, ce namestitev na Linux Mintu pade."""

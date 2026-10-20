@@ -12,18 +12,15 @@ PKG_NAME="safeer-browser"
 VERSION="$(cat "$DIR/packaging/VERSION")"
 # Polje Version: beta 1.0.128-beta.1 kot 1.0.128~beta.1, da jo koncna 1.0.128 posodobi (packaging/deb_razlicica.sh).
 DEB_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$VERSION")"
-# Do 19. 10. 2026 je vsak paket nosil svoj WebKit (SAFEER_WEBKIT_TAR); zdaj je v paketu safeer-webkit. Star klic bi tiho
-# zgradil paket na WebKitu sistema - zato ga zavrnemo.
+# Do 19. 10. 2026 je vsak paket nosil svoj WebKit (SAFEER_WEBKIT_TAR). Star klic bi tiho zgradil paket na WebKitu
+# sistema - zato ga zavrnemo.
 [ -z "${SAFEER_WEBKIT_TAR:-}" ] || { echo "SAFEER_WEBKIT_TAR ni vec: SAFEER_WEBKIT_DEB=safeer-webkit_*.deb (packaging/webkit-deb/paket.sh)" >&2; exit 2; }
-# Nas WebKitGTK 6.0 in libsoup 3.8 (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka) je od 19. 10. 2026 v
-# skupnem paketu safeer-webkit (/usr/lib/safeer-webkit, packaging/webkit-deb/paket.sh; CI: posel webkit-deb), ki ga
-# zahtevata safeer-browser in safeer-os - ena kopija namesto dveh. SAFEER_WEBKIT_DEB=pot do safeer-webkit_*.deb iz istega
-# teka: paket ga zahteva v razlicici te gradnje ali novejsi in je amd64 (packaging/webkit-deb/razlicica_odvisnosti.sh).
+# Nas WebKitGTK 6.0 in libsoup 3.8 (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka) je od 20. 10. 2026 VGRAJEN
+# v paket (lastnik: »namestitev mora biti zelo enostavna« - ena datoteka, dvoklik): SAFEER_WEBKIT_DEB=pot do
+# safeer-webkit_*.deb iz istega teka (CI: posel webkit-deb). packaging/webkit-deb/vgradi_v_program.sh ga da v
+# /usr/lib/safeer-browser/webkit-vgrajen, postinst ga namesti v skupno /usr/lib/safeer-webkit - samo ce te gradnje se ni
+# (npr. od Safeer OS); od 19. 10. do 20. 10. 2026 je bil to locen paket safeer-webkit, ki ga je bilo treba prenesti posebej.
 WEBKIT_DEB="${SAFEER_WEBKIT_DEB:-}"
-WEBKIT_ODVISNOST=""
-if [ -n "$WEBKIT_DEB" ]; then
-    WEBKIT_ODVISNOST="$(bash "$DIR/packaging/webkit-deb/razlicica_odvisnosti.sh" "$WEBKIT_DEB")"
-fi
 # Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
 if [ -n "$WEBKIT_DEB" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
@@ -44,6 +41,10 @@ cp -a "$DIR/build/stage/usr" "$BUILD_ROOT/"
 sed -i 's|^Exec=safeer|Exec=/usr/bin/safeer|' "$BUILD_ROOT/usr/share/applications/safeer-browser.desktop"
 # Profil AppArmor (Ubuntu 24.04+: peskovnik WebKita potrebuje uporabniske imenske prostore) - core/peskovnik_userns.py.
 bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-browser
+WEBKIT_ODVISNOST=""
+if [ -n "$WEBKIT_DEB" ]; then
+    WEBKIT_ODVISNOST="$(bash "$DIR/packaging/webkit-deb/vgradi_v_program.sh" "$BUILD_ROOT" safeer-browser "$WEBKIT_DEB")"
+fi
 if [ -n "$WEBKIT_DEB" ]; then
     # Nas WebKit po prijavi v predpomnilnik strani (packaging/prednalozi.py: hladen prvi zagon je bil izmerjeno
     # pocasnejsi od toplega, 18. 10. 2026). Samo z nasim WebKitom: sistemski si deli predpomnilnik z drugimi programi.
@@ -55,13 +56,19 @@ fi
 # 6. Create DEBIAN/control
 echo "📝 Generiranje DEBIAN/control..."
 # GTK4 brskalnik (privzeto) potrebuje WebKitGTK 6.0 in GTK4: Linux Mint 22 / Ubuntu 24.04 naprej. Paket izdaje (amd64)
-# tece na nasem WebKitGTK in libsoup iz paketa safeer-webkit (/usr/lib/safeer-webkit, core/zasebni_webkit.py); ta sam
-# zahteva knjiznice (dpkg-shlibdeps), peskovnik (bwrap, xdg-dbus-proxy) in TLS za libsoup (glib-networking). Brez njega
+# tece na nasem vgrajenem WebKitGTK in libsoup (/usr/lib/safeer-webkit, core/zasebni_webkit.py); zahteva njegove
+# knjiznice (dpkg-shlibdeps), peskovnik (bwrap, xdg-dbus-proxy) in TLS za libsoup (glib-networking). Brez njega
 # (lokalna gradnja) paket uporabi WebKitGTK sistema. GDebi ne namesti priporocenih paketov: kar mora delovati takoj, je v
 # Depends (kodeki GStreamer za video na straneh - isti kot v paketu safeer-os).
 if [ -n "$WEBKIT_DEB" ]; then
     ODVISNOSTI="python3 (>= 3.10), python3-gi (>= 3.42), python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-glib-2.0, ${WEBKIT_ODVISNOST}, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl"
+    # Star loceni paket safeer-webkit (19.-20. 10. 2026, izdaja 1.0.128) ima /usr/lib/safeer-webkit v lasti: odstrani se
+    # (Conflicts), mapo prevzame postinst. Provides z razlicico: starejsi safeer-os, ki zahteva safeer-webkit, ostane
+    # namescen; meja v Conflicts je stalna (1.0.128+vgrajen~: pod njo so samo izdani locen paketi), razlicica v Provides ima
+    # pripono +vgrajen, zato je vedno nad mejo in se programa razlicnih izdaj (oba Provides) med sabo ne izkljucita.
     PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
+Provides: safeer-webkit (= $(dpkg-deb -f "$WEBKIT_DEB" Version)+vgrajen)
+Conflicts: safeer-webkit (<< 1.0.128+vgrajen~)
 "
     OPIS_GTK=" specifically for Linux Mint 22+ and Ubuntu 24.04+. Built natively with GTK4 and
  its own WebKitGTK 6.0 and libsoup 3 (Clang ThinLTO build with Safeer fixes), it includes
@@ -108,6 +115,8 @@ if [ -x /usr/bin/gtk-update-icon-cache ]; then
     /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
 
+# @safeer-webkit-postinst@
+
 # Register Safeer Browser into Debian alternatives system for default browser
 if [ -x /usr/sbin/update-alternatives ] || [ -x /usr/bin/update-alternatives ]; then
     update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/safeer 40 || true
@@ -152,6 +161,7 @@ cat << 'EOF' > "$BUILD_ROOT/DEBIAN/postrm"
 #!/bin/sh
 # dpkg runs maintainer scripts with /bin/sh (dash): POSIX options only.
 set -eu
+# @safeer-webkit-postrm@
 
 if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
     if [ -x /usr/bin/update-desktop-database ]; then
@@ -178,6 +188,9 @@ exit 0
 EOF
 chmod 755 "$BUILD_ROOT/DEBIAN/postrm"
 
+# Vgrajeni WebKit: namestitev v skupno mapo in odstranitev z zadnjim programom (packaging/webkit-deb). Odstranitev je v
+# vsakem paketu (tudi brez vgrajenega), ker mapo lahko pusti drug program Safeer.
+bash "$DIR/packaging/webkit-deb/vstavi_skripte.sh" "$BUILD_ROOT" safeer-browser
 # Fix directory and control permissions strictly for dpkg-deb
 find "$BUILD_ROOT" -type d -exec chmod 755 {} +
 chmod 755 "$BUILD_ROOT/DEBIAN"
@@ -196,7 +209,7 @@ done
 # 8. Build Debian package (amd64 with our WebKitGTK, otherwise all)
 echo "🔨 Izdelava paketa z dpkg-deb..."
 # Installed-Size (KiB): namestitveni programi (GDebi, Captain, apt) uporabniku pokazejo, koliko prostora paket zasede
-# (nas WebKit, ~135 MiB, steje paket safeer-webkit); dpkg-deb ga sam ne izracuna.
+# (z vgrajenim WebKitom, ~135 MiB); dpkg-deb ga sam ne izracuna.
 echo "Installed-Size: $(du -sk --exclude=DEBIAN "$BUILD_ROOT" | cut -f1)" >> "$BUILD_ROOT/DEBIAN/control"
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 

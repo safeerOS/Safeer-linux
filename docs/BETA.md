@@ -44,8 +44,9 @@ Pravila Ščita (`core/scit_pravila.py`, `intel.safeer.si`) so svoj podpisan vir
        --novo-sl "…" --novo-en "…"
    ```
 
-   V seznam gre tudi skupni WebKit `safeer-webkit_<različica brskalnika>_amd64.deb` (polje `webkit_deb` pri
-   `safeer-os` in `safeer-browser`): oba paketa .deb ga zahtevata, Safeer OS ga namesti v istem `apt-get`.
+   WebKit je od 20. 10. 2026 vgrajen v vsak paket .deb (polja `webkit_deb` ni več); v seznam gre tudi aplikacija
+   Safeer OS `safeer-os-app_<različica>_amd64.deb` (polje `deb_app` pri `safeer-os`), da posodobitev aplikacije ne
+   prenese namiznega okolja.
    Orodje samo izračuna SHA-256 in jih primerja s `SHA256SUMS`, preveri, da je predizdaja objavljena in ima iste
    velikosti datotek, in podpis preveri z javnim ključem v programu. `razlicice-beta.json` in `.sig` gresta na
    `https://safeer.si/os/` ob `razlicice.json` (z gradnjo strani, kot stabilni seznam). Seznam velja 30 dni (`--dni`).

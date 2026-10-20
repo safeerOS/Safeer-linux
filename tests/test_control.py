@@ -361,6 +361,13 @@ class ControlPredaja(unittest.TestCase):
         app = types.SimpleNamespace(posodobitve_izid=None)
         r = sc.SafeerControl._posodobitve_razlicice(app)
         self.assertEqual(r.get("safeer-control"), sc.APP_VERSION)
+        # Aplikacija (safeer-os-app, od 20. 10. 2026) je tudi Safeer OS: njena razlicica gre pod "safeer-os".
+        from unittest import mock
+        izpis = "un 0.4.85\nii 0.4.87\n"
+        with mock.patch.object(sc.subprocess, "run", return_value=types.SimpleNamespace(stdout=izpis)) as run:
+            r = sc.SafeerControl._posodobitve_razlicice(app)
+        self.assertEqual(r.get("safeer-os"), "0.4.87")
+        self.assertEqual(run.call_args[0][0][-2:], ["safeer-os", "safeer-os-app"])
         prikazi = []
         pladenj = types.SimpleNamespace(app=app, jezik="sl",
                                         posodobi=types.SimpleNamespace(set_label=lambda b: prikazi.append(b), show=lambda: prikazi.append("show"),
