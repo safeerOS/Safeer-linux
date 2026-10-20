@@ -174,53 +174,25 @@ class OmrezniProcesSpleta(unittest.TestCase):
         s.config = Config()
         return s, os_splet
 
-    def test_konca_samo_proces_s_piskotki_spleta(self):
+    def test_omrezni_proces_spleta_po_shrambi_piskotkov(self):
+        """Omrezni proces Spleta prepoznamo po odprti shrambi piskotkov Spleta (12. 10.: po casu zagona je zgresilo)."""
         from unittest import mock
+        from core import os_splet
         with tempfile.TemporaryDirectory() as d:
-            s, os_splet = self._splet(d)
             piskotki = os.path.realpath(os.path.join(d, "cookies.sqlite"))
             odprte = {11: {"/x/namizje"}, 22: {piskotki, "/x/cache"}, 33: set()}
             with mock.patch.object(os_splet, "omrezni_procesi", return_value={11, 22, 33}), \
-                    mock.patch.object(os_splet, "odprte_datoteke", side_effect=lambda pid: odprte[pid]), \
-                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
-                    mock.patch.object(os_splet.os, "kill") as kill:
-                self.assertTrue(s.koncaj_omrezni_proces())
-            kill.assert_called_once_with(22, 15)
+                    mock.patch.object(os_splet, "odprte_datoteke", side_effect=lambda pid: odprte[pid]):
+                self.assertEqual(os_splet.omrezni_procesi_shrambe(piskotki), [22])
 
-    def test_nas_libsoup_omreznega_procesa_ne_konca(self):
-        """Lastnik 20. 10. 2026: konec omreznega procesa je pokvaril prvo nalaganje v novem zavihku (WebKitErrorDomain
-        300); nas libsoup ne pusca, zato ga ne koncamo."""
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d:
-            s, os_splet = self._splet(d)
-            piskotki = os.path.realpath(os.path.join(d, "cookies.sqlite"))
-            with mock.patch.object(os_splet, "omrezni_procesi", return_value={22}), \
-                    mock.patch.object(os_splet, "odprte_datoteke", return_value={piskotki}), \
-                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=True), \
-                    mock.patch.object(os_splet.os, "kill") as kill:
-                self.assertFalse(s.koncaj_omrezni_proces())
-            kill.assert_not_called()
-
-    def test_skrit_pogled_lupe_zadrzi_omrezni_proces(self):
-        """OpenAI pregled 1.0.129 (20. 10. 2026): sprostitev Spleta (60 s po skritju) je s sistemskim libsoup koncala
-        omrezni proces tudi pod skritim pogledom sprotnih zadetkov lupe, ki je se nalagal."""
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d:
-            s, os_splet = self._splet(d)
-            s.aplikacije = {}
-
-            class Pogled:
-                pass
-            skrit = Pogled()
-            s._skriti().add(skrit)
-            with mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[22]), \
-                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
-                    mock.patch.object(os_splet.os, "kill") as kill:
-                self.assertFalse(s.koncaj_omrezni_proces())
-                kill.assert_not_called()
-                s.pozabi_skriti_pogled(skrit)
-                self.assertTrue(s.koncaj_omrezni_proces())
-            kill.assert_called_once_with(22, 15)
+    def test_splet_omreznega_procesa_ne_konca_nikjer(self):
+        """Lastnik 20. 10. 2026 (lupa -> »Strani trenutno ni mogoce odpreti«) in neodvisni pregled OpenAI (krogi A-G):
+        konec omreznega procesa pod zivimi spletnimi procesi pokvari nalaganje in odjavi uporabnika. V 1.0.129 ga ne
+        konca nobena pot - ne sprostitev, ne zaklep, ne varuh mirovanja."""
+        from core import os_splet, splet_spanje
+        self.assertFalse(hasattr(os_splet.VdelaniSplet, "koncaj_omrezni_proces"))
+        self.assertNotIn("os.kill(pid, 15)", open(os_splet.__file__, encoding="utf-8").read())
+        self.assertFalse(splet_spanje.RECIKLIRANJE_OMREZNEGA)
 
     def test_libsoup_iz_poti(self):
         from core import os_splet
@@ -241,27 +213,16 @@ class OmrezniProcesSpleta(unittest.TestCase):
             with mock.patch.dict(os.environ, {"APPDIR": "/tmp/.mount_SafeerX"}):
                 self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/tmp/.mount_SafeerX/usr/lib/x86_64-linux-gnu/libsoup-3.0.so.0")))
 
-    def test_brez_procesa_spleta_nic(self):
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as d:
-            s, os_splet = self._splet(d)
-            with mock.patch.object(os_splet, "omrezni_procesi", return_value={11}), \
-                    mock.patch.object(os_splet, "odprte_datoteke", return_value={"/x/namizje"}), \
-                    mock.patch.object(os_splet.os, "kill") as kill:
-                self.assertFalse(s.koncaj_omrezni_proces())
-            kill.assert_not_called()
-
     def test_sprostitev_ne_konca_omreznega(self):
         """Webmaster pregled pomocnika 1.0.129: sprostitev Spleta (60 s po skritju) je s sistemskim libsoup (AppImage)
         koncala omrezni proces pod spletnimi procesi, ki jih WebKit hrani - napaka lupe in izguba piskotkov seje."""
         from unittest import mock
         with tempfile.TemporaryDirectory() as d:
             s, os_splet = self._splet(d)
-            with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k, \
-                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
+            with mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
+                    mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[22]), \
                     mock.patch.object(os_splet.os, "kill") as kill:
                 s.sprosti_zavihke()
-            k.assert_not_called()
             kill.assert_not_called()
 
     def test_odprte_datoteke_tega_procesa(self):

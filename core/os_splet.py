@@ -2217,35 +2217,9 @@ class VdelaniSplet:
         self._pokazi_vprasanje()
         # Omreznega procesa tu ne koncamo vec (webmaster pregled pomocnika 1.0.129): WebKit po zaprtju zavihkov hrani
         # spletne procese s povezavo nanj in prvo nalaganje bi odpovedalo (napaka lupe 20. 10. 2026), izgubili bi se
-        # piskotki seje (odjava iz banke, poste). Z nasim libsoup ne raste; s sistemskim (AppImage) ga obnovi samo se
-        # varuh nad 300 MB med mirovanjem ali zaklepom (s ponovnim vnosom piskotkov seje) - redko, uporabnik pa ostane
-        # prijavljen. Prava resitev za AppImage: nas libsoup tudi v AppImage (1.0.130).
-
-    def koncaj_omrezni_proces(self) -> bool:
-        """Konca omrezni proces Spleta, ko Splet nima zavihkov; ob naslednjem zavihku WebKit zazene novega.
-
-        12. 10. 2026: libsoup 3.4.4-5ubuntu0.9 (in upstream) pri vsaki povezavi prek posrednika (nas DoH) pusti
-        SoupConnection - omrezni proces je rasel ~6 MiB/min (krog147/libsoup-prispevek). Do popravka v distribucijah
-        tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Proces Spleta prepoznamo po tem, da ima
-        odprto shrambo piskotkov Spleta (zanesljivo, ne glede na cas zagona; namizje in Control je nimata)."""
-        konec = False
-        if self.aplikacije:
-            return False      # vdelani klepeti (Sporocila) tecejo v realnem casu na istem omreznem procesu
-        if len(self._skriti()):
-            return False      # skrit pogled sprotnih zadetkov lupe nalaga na istem omreznem procesu
-        if libsoup_brez_puscanja():
-            # Nas libsoup ne pusca, konec omreznega procesa pa ni neskodljiv (lastnik 20. 10. 2026: lupa -> Google ->
-            # »Strani trenutno ni mogoce odpreti«): spletni procesi, ki jih WebKit hrani za nove zavihke, imajo se
-            # povezavo s koncanim procesom in prvo nalaganje odpove z notranjo napako (WebKitErrorDomain 300), ob tem
-            # se izgubijo piskotki seje. Zato ga koncamo samo se s sistemskim libsoup, ki pusca.
-            return False
-        for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
-            try:
-                os.kill(pid, 15)
-                konec = True
-            except OSError:
-                pass
-        return konec
+        # piskotki seje (odjava iz banke, poste). V 1.0.129 ga ne konca nobena pot (neodvisni pregled OpenAI: tudi ne
+        # zaklep ne varuh mirovanja); z nasim libsoup ne raste, s sistemskim (AppImage) pomnilnik raste do 1.0.130, ko
+        # bo tudi AppImage nosil nas libsoup.
 
     def ob_zaklepu(self, meja_mb: float = 300.0) -> bool:
         """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik; prevelik omrezni proces (libsoup pusca prek
