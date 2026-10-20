@@ -204,6 +204,25 @@ def pss_mb(pid: int) -> float:
     return 0.0
 
 
+def libsoup_brez_puscanja(maps: str = "/proc/self/maps") -> bool:
+    """Ali proces uporablja nas libsoup (popravek puscanja SoupConnection prek posrednika, packaging/libsoup,
+    12. 10. 2026) - v paketih .deb (vgrajeni WebKit), Flatpaku (/app) in AppImage ($APPDIR). Sistemski libsoup
+    (Ubuntu 3.4.4) puscanje se ima."""
+    try:
+        with open(maps, encoding="utf-8", errors="replace") as f:
+            poti = {v.split()[-1] for v in f if "libsoup-3.0.so" in v and len(v.split()) >= 6}
+    except OSError:
+        return False
+    if not poti:
+        return False
+    from core import zasebni_webkit
+    nase = tuple(m.rstrip("/") + "/" for m in zasebni_webkit.PREDPONE_PAKETOV) + ("/app/",)
+    appdir = os.environ.get("APPDIR", "")
+    if appdir:
+        nase += (appdir.rstrip("/") + "/",)
+    return all(pot.startswith(nase) for pot in poti)
+
+
 def omrezni_procesi_shrambe(piskotki: str, starsevski: int | None = None) -> list:
     """Omrezni procesi WebKita (otroci tega procesa), ki imajo odprto dano shrambo piskotkov.
 
@@ -2152,6 +2171,12 @@ class VdelaniSplet:
         konec = False
         if self.aplikacije:
             return False      # vdelani klepeti (Sporocila) tecejo v realnem casu na istem omreznem procesu
+        if libsoup_brez_puscanja():
+            # Nas libsoup ne pusca, konec omreznega procesa pa ni neskodljiv (lastnik 20. 10. 2026: lupa -> Google ->
+            # »Strani trenutno ni mogoce odpreti«): spletni procesi, ki jih WebKit hrani za nove zavihke, imajo se
+            # povezavo s koncanim procesom in prvo nalaganje odpove z notranjo napako (WebKitErrorDomain 300), ob tem
+            # se izgubijo piskotki seje. Zato ga koncamo samo se s sistemskim libsoup, ki pusca.
+            return False
         for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
             try:
                 os.kill(pid, 15)

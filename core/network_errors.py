@@ -48,6 +48,8 @@ BESEDILA = {
 PREHODNE_TLS = ("EOF", "HANDSHAKE", "NOT_TLS")
 PREHODNE_IO = ("CONNECTION_CLOSED", "BROKEN_PIPE", "PARTIAL_INPUT", "TIMED_OUT", "CONNECTION_REFUSED",
                "HOST_UNREACHABLE", "NETWORK_UNREACHABLE", "PROXY_FAILED", "NOT_CONNECTED")
+#: Notranja napaka WebKita (WebCore::internalError): domena in koda, kot ju WebKitGTK 2.54 da v load-failed.
+DOMENA_NOTRANJE, KODA_NOTRANJE = "WebKitErrorDomain", 300
 #: Zamiki samodejnih ponovitev (s): DoH posrednik ali Scit po kratkem izpadu (omrezje, prebujenje) potrebuje do ~1 s.
 ZAMIKI_PONOVITVE = (0.4, 1.5)
 
@@ -61,6 +63,12 @@ def je_prehodna(error) -> bool:
             if koda is not None and error.matches(domena, koda):
                 return True
     if error.matches(Gio.resolver_error_quark(), Gio.ResolverError.TEMPORARY_FAILURE):
+        return True
+    # »WebKit encountered an internal error« (WebLoaderStrategy::internallyFailedLoadTimerFired): spletni proces
+    # zahteve ni mogel predati omreznemu procesu, ker se je ta ravno koncal - zahteva ni sla nikamor, ponovitev gre
+    # novemu omreznemu procesu (izmerjeno 20. 10. 2026 na prenosniku lastnika: Google iz lupe -> ta napaka, takoj
+    # zatem stran dela).
+    if error.matches(GLib.quark_from_string(DOMENA_NOTRANJE), KODA_NOTRANJE):
         return True
     return error.matches(WebKit2.network_error_quark(), WebKit2.NetworkError.TRANSPORT)
 

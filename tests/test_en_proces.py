@@ -182,9 +182,39 @@ class OmrezniProcesSpleta(unittest.TestCase):
             odprte = {11: {"/x/namizje"}, 22: {piskotki, "/x/cache"}, 33: set()}
             with mock.patch.object(os_splet, "omrezni_procesi", return_value={11, 22, 33}), \
                     mock.patch.object(os_splet, "odprte_datoteke", side_effect=lambda pid: odprte[pid]), \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
                     mock.patch.object(os_splet.os, "kill") as kill:
                 self.assertTrue(s.koncaj_omrezni_proces())
             kill.assert_called_once_with(22, 15)
+
+    def test_nas_libsoup_omreznega_procesa_ne_konca(self):
+        """Lastnik 20. 10. 2026: konec omreznega procesa je pokvaril prvo nalaganje v novem zavihku (WebKitErrorDomain
+        300); nas libsoup ne pusca, zato ga ne koncamo."""
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            piskotki = os.path.realpath(os.path.join(d, "cookies.sqlite"))
+            with mock.patch.object(os_splet, "omrezni_procesi", return_value={22}), \
+                    mock.patch.object(os_splet, "odprte_datoteke", return_value={piskotki}), \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=True), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
+                self.assertFalse(s.koncaj_omrezni_proces())
+            kill.assert_not_called()
+
+    def test_libsoup_iz_poti(self):
+        from core import os_splet
+        with tempfile.TemporaryDirectory() as d:
+            def maps(*poti):
+                f = os.path.join(d, "maps")
+                with open(f, "w", encoding="utf-8") as m:
+                    for x in poti:
+                        m.write("7f00-7f10 r-xp 00000000 08:01 123 %s\n" % x)
+                return f
+            self.assertTrue(os_splet.libsoup_brez_puscanja(maps("/usr/lib/safeer-webkit/lib/libsoup-3.0.so.0.8.0")))
+            self.assertTrue(os_splet.libsoup_brez_puscanja(maps("/app/lib/libsoup-3.0.so.0")))
+            self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/usr/lib/x86_64-linux-gnu/libsoup-3.0.so.0.4.4")))
+            self.assertFalse(os_splet.libsoup_brez_puscanja(maps("/usr/lib/x86_64-linux-gnu/libc.so.6")))
+            self.assertFalse(os_splet.libsoup_brez_puscanja(os.path.join(d, "ni")))
 
     def test_brez_procesa_spleta_nic(self):
         from unittest import mock
