@@ -1533,8 +1533,39 @@ class VdelaniSplet:
             print("[Safeer OS Splet] prevajanje filtra:", napaka)
 
     def _vsi_pogledi(self) -> list:
-        """Zavihki in vdelane aplikacije (z njihovimi pojavnimi okni)."""
-        return [z["pogled"] for z in self.zavihki] + list(self.aplikacije)
+        """Zavihki, vdelane aplikacije (z njihovimi pojavnimi okni) in skriti pogledi (sprotni zadetki lupe)."""
+        return [z["pogled"] for z in self.zavihki] + list(self.aplikacije) + list(self._skriti())
+
+    def _skriti(self):
+        s = getattr(self, "_skriti_pogledi", None)
+        if s is None:
+            s = self._skriti_pogledi = weakref.WeakSet()
+        return s
+
+    def pripravi_skriti_pogled(self, pogled) -> None:
+        """Skrit pogled v seji Spleta (sprotni zadetki lupe, core/spletni_zadetki.py) dobi iste zascite kot zavihek
+        (EasyList, sledilci, GPC/DNT, nastavitve proti prstnim odtisom), omrezni proces pa se ne konca, dokler zivi.
+        OpenAI pregled 1.0.129 (20. 10. 2026): surov WebView je stran rezultatov nalagal brez filtrov, sprostitev
+        Spleta pa bi s sistemskim libsoup lahko koncala omrezni proces pod njim (notranja napaka WebKit 300)."""
+        W = self.WebKit2
+        nastavitve = pogled.get_settings()
+        scit_pravila.zasebnost_pogleda(W, nastavitve)
+        scit_pravila.funkcije_spleta(W, nastavitve)
+        for ime in ("enable_hyperlink_auditing", "enable_dns_prefetching"):
+            nastavi = getattr(nastavitve, "set_" + ime, None)
+            if nastavi is not None:
+                try:
+                    nastavi(False)
+                except Exception:  # noqa: BLE001
+                    pass
+        if self.config.get("gpc_dnt_enabled", True):
+            self._skripta(pogled.get_user_content_manager(), adblock.GPC_AND_DNT_SCRIPT,
+                          izloceni=adblock.AUTH_SCRIPT_EXCLUSIONS)
+        self._skriti().add(pogled)
+        self._uporabi_filter(pogled)
+
+    def pozabi_skriti_pogled(self, pogled) -> None:
+        self._skriti().discard(pogled)
 
     def _uporabi_filter(self, pogled):
         self._filter_za(pogled, pogled.get_uri() or "")
@@ -2182,6 +2213,8 @@ class VdelaniSplet:
         konec = False
         if self.aplikacije:
             return False      # vdelani klepeti (Sporocila) tecejo v realnem casu na istem omreznem procesu
+        if len(self._skriti()):
+            return False      # skrit pogled sprotnih zadetkov lupe nalaga na istem omreznem procesu
         if libsoup_brez_puscanja():
             # Nas libsoup ne pusca, konec omreznega procesa pa ni neskodljiv (lastnik 20. 10. 2026: lupa -> Google ->
             # »Strani trenutno ni mogoce odpreti«): spletni procesi, ki jih WebKit hrani za nove zavihke, imajo se
@@ -2200,8 +2233,8 @@ class VdelaniSplet:
         """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik; prevelik omrezni proces (libsoup pusca prek
         DoH posrednika) obnovimo, ce se nobena stran ne nalaga. Vrne True, ce je bil omrezni proces obnovljen."""
         self.sprazni_predpomnilnik()
-        if self.aplikacije:
-            return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov
+        if self.aplikacije or len(self._skriti()):
+            return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov / lupe
         try:
             if any(z["pogled"].is_loading() for z in self.zavihki):
                 return False
@@ -2437,6 +2470,14 @@ class VdelaniSplet:
         if aplikacija is not None:
             return self._okno_aplikacije(pogled, aplikacija, dejanje)
         nov = self.nov_zavihek(povezan=pogled)
+        # Metodo prve zahteve novega zavihka pove dejanje odpiralca: POST obrazca target=_blank se ob napaki ne sme
+        # ponoviti kot GET (OpenAI pregled 1.0.129); brez tega podatka zavihek samodejno ne ponavlja.
+        try:
+            metoda = dejanje.get_request().get_http_method() or "GET"
+            if naslov and getattr(nov, "_safeer_napake", None) is not None:
+                nov._safeer_napake.requests[naslov] = metoda
+        except Exception:  # noqa: BLE001
+            pass
         ref = weakref.ref(nov)
         izvor = weakref.ref(pogled)
         if not naslov.lower().startswith(("http://", "https://")):

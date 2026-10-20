@@ -201,6 +201,27 @@ class OmrezniProcesSpleta(unittest.TestCase):
                 self.assertFalse(s.koncaj_omrezni_proces())
             kill.assert_not_called()
 
+    def test_skrit_pogled_lupe_zadrzi_omrezni_proces(self):
+        """OpenAI pregled 1.0.129 (20. 10. 2026): sprostitev Spleta (60 s po skritju) je s sistemskim libsoup koncala
+        omrezni proces tudi pod skritim pogledom sprotnih zadetkov lupe, ki je se nalagal."""
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            s.aplikacije = {}
+
+            class Pogled:
+                pass
+            skrit = Pogled()
+            s._skriti().add(skrit)
+            with mock.patch.object(os_splet, "omrezni_procesi_shrambe", return_value=[22]), \
+                    mock.patch.object(os_splet, "libsoup_brez_puscanja", return_value=False), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
+                self.assertFalse(s.koncaj_omrezni_proces())
+                kill.assert_not_called()
+                s.pozabi_skriti_pogled(skrit)
+                self.assertTrue(s.koncaj_omrezni_proces())
+            kill.assert_called_once_with(22, 15)
+
     def test_libsoup_iz_poti(self):
         from core import os_splet
         with tempfile.TemporaryDirectory() as d:

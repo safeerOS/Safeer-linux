@@ -126,9 +126,13 @@ def ocisti(surovo, najvec: int = NAJVEC) -> List[dict]:
 class PredogledIskanja:
     """Skrit pogled WebKit, ki nalozi stran rezultatov in vrne prve zadetke (glej opis modula)."""
 
-    def __init__(self, Gtk, WebKit, GLib, seja=None, kontekst=None, zdaj: Callable[[], float] = time.monotonic):
+    def __init__(self, Gtk, WebKit, GLib, seja=None, kontekst=None, zdaj: Callable[[], float] = time.monotonic,
+                 pripravi: Optional[Callable] = None, pozabi: Optional[Callable] = None):
+        """pripravi/pozabi: Splet (os_splet.VdelaniSplet.pripravi_skriti_pogled) da pogledu iste zascite kot zavihku
+        in ve, da pogled zivi (omreznega procesa takrat ne konca)."""
         self.Gtk, self.WebKit, self.GLib = Gtk, WebKit, GLib
         self.seja, self.kontekst = seja, kontekst
+        self._pripravi, self._pozabi = pripravi, pozabi
         self.zdaj = zdaj
         self.pogled = None
         self.okno = None
@@ -166,6 +170,11 @@ class PredogledIskanja:
             self._zapri = 0
         p, o = self.pogled, self.okno
         self.pogled = self.okno = None
+        if p is not None and self._pozabi is not None:
+            try:
+                self._pozabi(p)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             if o is not None:
                 o.set_child(None)              # najprej iz okna, sicer GTK ob dispose opozori (Gtk-CRITICAL)
@@ -204,6 +213,8 @@ class PredogledIskanja:
         p.connect("load-failed", self._napaka)
         p.connect("create", lambda *_a: None)             # stran ne odpre novih oken
         p.connect("permission-request", lambda _p, z: (z.deny(), True)[1])
+        if self._pripravi is not None:
+            self._pripravi(p)                              # Scit: EasyList, sledilci, GPC/DNT, zasebnost
         # Okno se nikoli ne prikaze: pogled potrebuje starsa, da WebKit nalaga in izvaja skripte.
         self.okno = self.Gtk.Window()
         self.okno.set_child(p)

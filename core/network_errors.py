@@ -215,13 +215,15 @@ class NetworkErrorHandler:
 
     def _metoda(self, uri):
         """Metoda glavne zahteve (resource-load-started ali, kjer ga ni, decide-policy). Naslov napake je lahko ze
-        preusmerjen (Google iskanje 302): preusmerjen GET ostane GET, POST ne velja za GET. Brez podatka v WebKitu
-        brez resource-load-started GET kot prej."""
+        preusmerjen (Google iskanje 302): preusmerjen GET ostane GET, POST ne velja za GET. Brez podatka None: nov
+        zavihek iz obrazca POST target=_blank ima prazen zapis (odlocitev je dobil odpiralec) - prej je to veljalo
+        za GET in neuspel POST bi se ponovil kot GET (OpenAI pregled 1.0.129, 20. 10. 2026). Metodo novemu zavihku
+        poda os_splet._novo_okno."""
         if uri in self.requests:
             return self.requests[uri]
         if self.requests:
             return 'GET' if all(m == 'GET' for m in self.requests.values()) else None
-        return 'GET' if self._brez_virov() else None
+        return None
 
     def show_error(self, uri, certificate=False, koda=""):
         self.view._safeer_load_failed = True

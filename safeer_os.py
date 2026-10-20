@@ -3089,8 +3089,10 @@ class SafeerOS(Gtk.Application):
             self._ustvari_splet_namizja(prvi_zavihek=False)
             if getattr(self, "_predogled_iskanja", None) is None:
                 from core.spletni_zadetki import PredogledIskanja
-                self._predogled_iskanja = PredogledIskanja(Gtk, WebKit2, GLib, self._spletni_namizje.seja,
-                                                           self._spletni_namizje.kontekst)
+                splet = self._spletni_namizje
+                self._predogled_iskanja = PredogledIskanja(Gtk, WebKit2, GLib, splet.seja, splet.kontekst,
+                                                           pripravi=splet.pripravi_skriti_pogled,
+                                                           pozabi=splet.pozabi_skriti_pogled)
             self._predogled_iskanja.isci(_iskalnik() + GLib.uri_escape_string(niz, None, False), povratni)
         except Exception as e:  # noqa: BLE001 - lupa brez sprotnih zadetkov dela naprej
             print("[SafeerOS] sprotni zadetki:", e, flush=True)

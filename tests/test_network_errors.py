@@ -165,3 +165,19 @@ def test_dvoumna_napaka_samo_na_iskanju():
     for ni in ("https://www.google.com/maps?q=a", "https://accounts.google.com/search?q=a&x=1&continue=", "http://www.google.com/search?q=a",
                "https://www.google.com/search"):
         assert not can_retry_search(ni, "GET", zaprta, 0), ni
+
+
+def test_brez_zapisa_metode_ni_ponovitve():
+    """OpenAI pregled 1.0.129 (20. 10. 2026): nov zavihek iz obrazca POST target=_blank nima zapisa metode (odlocitev
+    je dobil odpiralec). Prazen zapis je prej veljal za GET in neuspel POST bi se ponovil kot GET - zdaj None."""
+    from core.network_errors import NetworkErrorHandler
+    class Pogled:
+        def connect(self, *a): pass
+        def load_uri(self, uri): pass
+    h = NetworkErrorHandler(Pogled())
+    for brez_virov in (True, False):
+        h._brez_virov = lambda: brez_virov
+        h.requests = {}
+        assert h._metoda("https://trgovina.si/placaj") is None
+    h.requests = {"https://trgovina.si/placaj": "POST"}       # kar poda os_splet._novo_okno
+    assert h._metoda("https://trgovina.si/placaj") == "POST"

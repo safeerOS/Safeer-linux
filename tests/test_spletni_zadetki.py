@@ -150,5 +150,25 @@ class PredogledVZivo(unittest.TestCase):
         self.assertEqual(len(drugo[0]), 2)
 
 
+    def test_pogled_dobi_zascito_spleta_in_se_odjavi(self):
+        """OpenAI pregled 1.0.129: skriti pogled je bil surov WebView (brez EasyList, sledilcev, GPC). Splet ga zdaj
+        pripravi kot zavihek (pripravi) in ve, kdaj ga ni vec (pozabi)."""
+        GLib, Gtk, WebKit = _webkit()
+        s = _Streznik({"/search": GOOGLE})
+        pripravljeni, pozabljeni = [], []
+        p = sz.PredogledIskanja(Gtk, WebKit, GLib, WebKit.NetworkSession.new_ephemeral(),
+                                pripravi=pripravljeni.append, pozabi=pozabljeni.append)
+        izid = []
+        zanka = GLib.MainLoop()
+        p.isci("http://127.0.0.1:%d/search?q=a" % s.vrata, lambda r: (izid.append(r), zanka.quit()), motor="google")
+        GLib.timeout_add(10000, lambda: (zanka.quit(), False)[1])
+        zanka.run()
+        self.assertEqual(len(pripravljeni), 1)
+        self.assertIs(pripravljeni[0], p.pogled)          # pripravljen PRED prvim nalaganjem
+        self.assertEqual(len(izid[0]), 2)
+        pogled = p.pogled
+        p.zapri()
+        self.assertEqual(pozabljeni, [pogled])
+
 if __name__ == "__main__":
     unittest.main()
