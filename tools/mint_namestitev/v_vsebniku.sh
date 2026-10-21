@@ -50,7 +50,16 @@ if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
       grep -qxF -- "$d" <<<"$VSEBNIK_OS" || echo "$d"; done)"
     [ -z "$manjka" ] || { echo "$manjka" | head -20; echo "NAPAKA: safeer-os nima vseh datotek paketa $(basename "$star")"; exit 1; }
   done
-  apt-get install -y -q --no-install-recommends /prejsnji/safeer-*.deb >"$ZACASNO/prejsnja.log" 2>&1 \
+  # Od 1.0.129 ima izdaja namizno okolje (safeer-os) IN aplikacijo (safeer-os-app), ki se izkljucujeta (Conflicts) -
+  # skupaj se ne namestita (CI 21. 10. 2026: »held broken packages«). Prejsnja izdaja kot pri uporabniku namizja:
+  # brez aplikacije; prehod na aplikacijo preizkusi korak 5b.
+  PREJ=()
+  for p in /prejsnji/safeer-*.deb; do
+    case "$(basename "$p")" in safeer-os-app_*) ls /prejsnji/safeer-os_*.deb >/dev/null 2>&1 && continue ;; esac
+    PREJ+=("$p")
+  done
+  echo "   namescam: ${PREJ[*]##*/}"
+  apt-get install -y -q --no-install-recommends "${PREJ[@]}" >"$ZACASNO/prejsnja.log" 2>&1 \
     || { tail -40 "$ZACASNO/prejsnja.log"; echo "NAPAKA: namestitev prejsnje izdaje"; exit 1; }
   # Najslabsi primer za posodobitev: programi so ze tekli kot root in v mapah programov pustili svojo bajtno kodo.
   xvfb-run -a safeer --version >/dev/null
