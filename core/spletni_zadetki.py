@@ -339,7 +339,8 @@ class PredogledIskanja:
             zadetki = ocisti(surovo.get("zadetki") if isinstance(surovo, dict) else surovo, motor=self._motor)
             # Pregled pomocnika 6670a91: veriga ponovnih poskusov lahko bere nov dokument ze med razclenjevanjem -
             # delni seznam (1-2 namesto 3) bi ostal 10 min v predpomnilniku. Potrdi sele razclenjen dokument.
-            nalaga = isinstance(surovo, dict) and surovo.get("stanje") == "loading"
+            # Neodvisni pregled OpenAI 1.0.130: tudi »interactive« je lahko se nepopoln (zadetki z JS) - samo »complete«.
+            nalaga = isinstance(surovo, dict) and "stanje" in surovo and surovo.get("stanje") != "complete"
             if nalaga or not ta_niz(self._url, naslov):
                 # V pogledu je (se) dokument drugega niza ali stran brez niza (soglasje, preusmeritev): ne kazi in ne
                 # shrani; pocakaj na naslednje nalaganje ali rok (OpenAI pregled F: tudi stran brez q ne potrdi).

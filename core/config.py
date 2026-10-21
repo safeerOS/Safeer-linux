@@ -115,8 +115,14 @@ def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
     if not s:
         return ""
     if je_spletni_naslov(s):
-        # [IPv6]:vrata: normalize_web_url deli pri prvem dvopicju in ga ne pozna
-        naslov = ("http://" + s) if s.startswith("[") else normalize_web_url(s)
+        # Naslov sestavimo sami (kot ui/splet.js vNaslov): normalize_web_url je »router.lan:8443?token=x« zavrnil in cel niz
+        # z zetonom poslal iskalniku (neodvisni pregled OpenAI 1.0.130). Vrata ali [IPv6] -> http, sicer https.
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", s):
+            naslov = normalize_web_url(s)
+        elif s.startswith("[") or re.match(r"^[^/?#]*:\d+(?:[/?#]|$)", s):
+            naslov = "http://" + s
+        else:
+            naslov = "https://" + s
         if naslov:
             return naslov
     return iskalnik_url + urllib.parse.quote_plus(s[1:].strip() if s.startswith("?") else s)

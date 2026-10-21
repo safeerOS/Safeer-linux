@@ -282,7 +282,11 @@ def test_dokument_med_razclenjevanjem_ne_potrdi_zadetkov():
     p.isci("https://www.google.com/search?q=vreme", izid.append, motor="google")
     p._nalozeno(p.pogled, LoadEvent.FINISHED)
     assert izid == [] and not p._shramba and casovniki       # caka
-    dokument[0] = ("https://www.google.com/search?q=vreme", ZADETEK * 1 + [dict(ZADETEK[0], u="https://b.si/")], "interactive")
+    # Neodvisni pregled OpenAI 1.0.130: tudi »interactive« se caka (zadetki, ki jih doda JS strani, se manjkajo)
+    dokument[0] = ("https://www.google.com/search?q=vreme", ZADETEK, "interactive")
+    casovniki.pop(0)()
+    assert izid == [] and not p._shramba and casovniki
+    dokument[0] = ("https://www.google.com/search?q=vreme", ZADETEK * 1 + [dict(ZADETEK[0], u="https://b.si/")], "complete")
     casovniki.pop(0)()
     assert len(izid) == 1 and len(izid[0]) == 2 and p._shramba
 

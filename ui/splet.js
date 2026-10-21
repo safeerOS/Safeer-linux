@@ -165,7 +165,10 @@
     for (var i = 0; i < 4; i++) { if (!/^\d{1,3}$/.test(d[i]) || +d[i] > 255 || (d[i].length > 1 && d[i][0] === "0")) return false; }
     return true;
   }
-  function jeIPv6(s) { return /^[0-9a-f:.]+$/i.test(s) && s.indexOf(":") >= 0 && (s.match(/::/g) || []).length <= 1; }
+  function jeIPv6(s) {
+    if (!/^[0-9a-f:.]+$/i.test(s) || s.indexOf(":") < 0) return false;
+    try { return new URL("http://[" + s + "]/").hostname.length > 2; } catch (e) { return false; }   // pravi razclenjevalnik
+  }
   function jeSpletniNaslov(vnos) {
     var s = String(vnos || "").trim();
     if (!s || s.charAt(0) === "?" || /\s/.test(s)) return false;
@@ -181,7 +184,7 @@
     if (dv >= 0) return dv > 0 && /^\d+$/.test(gost.slice(dv + 1));
     if (gost.toLowerCase() === "localhost" || jeIPv4(gost)) return true;
     if (gost.indexOf(".") < 0) return pot === "/";
-    var deli = gost.replace(/\.$/, "").split(".");
+    var deli = gost.replace(/\.+$/, "").split(".");
     for (var i = 0; i < deli.length; i++) if (!deli[i]) return false;
     if (deli.length < 2) return false;
     var vrh = deli[deli.length - 1].toLowerCase();

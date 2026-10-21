@@ -80,6 +80,24 @@ class TestNaslovnaVrstica(unittest.TestCase):
             with self.subTest(niz=niz):
                 self.assertEqual(js_odlocitev, je_spletni_naslov(niz), niz)
         self.assertIsNotNone(re.search(r"function vNaslov[\s\S]*?jeSpletniNaslov\(q\)", js[b:]))
+        # Neodvisni pregled OpenAI 1.0.130: primerjaj tudi KONCNI naslov (ne le odlocitve) in robne primere.
+        c = js.index("function crka(")
+        naslovi = ["router.lan:8443?token=x", "router.lan:8443#x", "safeer.si", "localhost:8080", "192.168.0.1",
+                   "[::1]:8080", "[::1]", "nas/", "github.com/safeerOS", "https://test/", "lanacion.com.py",
+                   "safeer.si..", "[::::]", "[1:2:3:4:5:6:7:8:9]", "10.0.0.1:8006/admin?x=1"]
+        skripta2 = ("var S = {iskalnik: 'duckduckgo'}; var ISKALNIKI = {duckduckgo: " + json.dumps(DDG) + "};\n"
+                    + js[a:c] + "\nconsole.log(JSON.stringify(" + json.dumps(naslovi) + ".map(vNaslov)));")
+        izid2 = json.loads(subprocess.run([node, "-e", skripta2], capture_output=True, text=True, check=True).stdout)
+        from urllib.parse import unquote_plus
+        for niz, js_naslov in zip(naslovi, izid2):
+            with self.subTest(koncni=niz):
+                py_naslov = naslov_ali_iskanje(niz, DDG)
+                if py_naslov.startswith(DDG):      # iskanje: kodiranje presledkov se lahko razlikuje (+ / %20)
+                    self.assertTrue(js_naslov.startswith(DDG), (niz, js_naslov))
+                    self.assertEqual(unquote_plus(js_naslov[len(DDG):]), unquote_plus(py_naslov[len(DDG):]))
+                else:
+                    self.assertEqual(js_naslov, py_naslov, niz)
+        self.assertEqual(naslov_ali_iskanje("router.lan:8443?token=x", DDG), "http://router.lan:8443?token=x")
 
 
 if __name__ == "__main__":
