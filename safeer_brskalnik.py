@@ -28,8 +28,6 @@ if os.environ.get("FLATPAK_ID"):
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
 zasebni_webkit.nastavi(KOREN)
-from core import okolje_procesa  # noqa: E402
-okolje_procesa.pred_nitmi()
 from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
@@ -38,10 +36,11 @@ pomnilnik.omeji_arene(2)
 # glavni program (ob uvozu v drug proces, npr. lupino, niti ze tecejo - AGENTS.md, core/okolje_procesa.py).
 from core import profil_naprave  # noqa: E402
 if __name__ == "__main__":
+    from core import okolje_procesa  # noqa: E402
+    okolje_procesa.pred_nitmi()
+if __name__ == "__main__":
     profil_naprave.okolje_pred_nitmi()
 if __name__ == "__main__":
-    # Ubuntu 24.04+ brez nasega profila AppArmor: ce bwrap ne more teci, WebKitov peskovnik izklopi (spremenljivka v
-    # okolju) - tu, pred prvo nitjo; v main() so niti ze tekle (core/okolje_procesa.py). Uvoz modula okolja ne spremeni.
     from core import peskovnik_userns  # noqa: E402
     peskovnik_userns.pred_nitmi()
 
@@ -196,9 +195,17 @@ class SafeerBrskalnik(Gtk.Application):
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Browser")
         okno.set_icon_name("safeer-browser")
         okno.set_default_size(1280, 820)
-        self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno,
-                                  config=self.config, avtomatizacija=self.avtomatizacija,
-                                  prvi_zavihek=not self.avtomatizacija)
+        try:
+            self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno,
+                                      config=self.config, avtomatizacija=self.avtomatizacija,
+                                      prvi_zavihek=not self.avtomatizacija)
+        except Exception as e:
+            if self.avtomatizacija:
+                sys.stderr.write(f"[Safeer Browser] Napaka avtomatizacije pri zagonu: {e}\n")
+                self._pospravi_avtomatizacijo()
+                self.quit()
+                sys.exit(1)
+            raise
         self.splet.privzeti = (je_privzet, nastavi_privzetega, besedila_privzetega)   # gumb v nastavitvah Spleta
         # Safeer DRM je od 1.0.127 v paketu: nekoc preneseno kopijo pospravimo v ozadju (profili s prijavami ostanejo).
         from core import safeer_drm
@@ -331,11 +338,13 @@ class SafeerBrskalnik(Gtk.Application):
                 except Exception as e:
                     print("[Safeer Browser] pospravi splet:", e)
         if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
-            import shutil
-            try:
-                shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-            except Exception as e:
-                print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
+            from core.os_splet import _je_zacasna_mapa_avtomatizacije
+            if _je_zacasna_mapa_avtomatizacije(self._zacasna_mapa):
+                import shutil
+                try:
+                    shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
+                except Exception as e:
+                    print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
             self._zacasna_mapa = None
 
     def _ob_zaprtju(self, *_a) -> bool:
@@ -410,7 +419,7 @@ def main() -> int:
     from core import peskovnik_userns
     peskovnik = peskovnik_userns.ob_zagonu()
     avtomatizacija = "--automation" in sys.argv[1:]
-    app = SafeerBrskalnik(avtomatizacija=avtomatizacija)
+    app = SafeerBrskalnik(avtomatizacija=True) if avtomatizacija else SafeerBrskalnik()
     if peskovnik.get("izklopljen"):
         peskovnik_userns.pojasni_kasneje(GLib, CONFIG_DIR, jezik(), "Safeer Browser", "safeer-browser", app)
     argumenti = [sys.argv[0]] + [a for a in naslovi_iz_argumentov(sys.argv[1:]) if a != "--automation"]

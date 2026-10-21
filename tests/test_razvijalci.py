@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -111,6 +114,65 @@ class TestBrowserAutomationK1Izolacija(unittest.TestCase):
         self.assertNotEqual(splet.config.config_dir, CONFIG_DIR)
         # Pospravi zacasno mapo
         splet.pospravi()
+
+    def test_pospravi_z_navadnim_configom_ne_izbrise_nicesar(self):
+        """S1: VdelaniSplet(avtomatizacija=True) z zunanjim configom ob pospravi() NE izbrise zunanjega config_dir."""
+        from core import os_splet
+        from core.config import ConfigManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nastavitev = os.path.join(tmpdir, "settings.json")
+            with open(nastavitev, "w", encoding="utf-8") as f:
+                f.write('{"uporabnik": "vrednost"}')
+
+            config = ConfigManager(config_dir=tmpdir)
+            kontekst = mock.MagicMock()
+            WebKit2 = mock.MagicMock()
+            WebKit2.WebContext.get_default.return_value = kontekst
+            ephemeral_session = mock.MagicMock()
+            ephemeral_session.is_ephemeral.return_value = True
+            WebKit2.NetworkSession.new_ephemeral.return_value = ephemeral_session
+
+            with mock.patch("core.pomnilnik.kontekst", return_value=kontekst):
+                splet = os_splet.VdelaniSplet(
+                    mock.MagicMock(), mock.MagicMock(), mock.MagicMock(), mock.MagicMock(),
+                    WebKit2, str(ROOT), "sl", None, prvi_zavihek=False,
+                    config=config, avtomatizacija=True
+                )
+
+            self.assertFalse(getattr(splet, "_ustvaril_zacasno", False))
+            self.assertIsNone(getattr(splet, "_zacasna_mapa", None))
+
+            # Pospravi ne sme izbrisati mape nastavitev
+            splet.pospravi()
+            self.assertTrue(os.path.isdir(tmpdir), "Zunanji config_dir ne sme biti izbrisan!")
+            self.assertTrue(os.path.isfile(nastavitev), "Datoteke v zunanjem config_dir morajo ostati!")
+
+    def test_pospravi_lastno_zacasno_mapo_jo_izbrise(self):
+        """S1: VdelaniSplet(avtomatizacija=True, config=None) ustvari svojo mapo in jo pospravi()."""
+        from core import os_splet
+
+        kontekst = mock.MagicMock()
+        WebKit2 = mock.MagicMock()
+        WebKit2.WebContext.get_default.return_value = kontekst
+        ephemeral_session = mock.MagicMock()
+        ephemeral_session.is_ephemeral.return_value = True
+        WebKit2.NetworkSession.new_ephemeral.return_value = ephemeral_session
+
+        with mock.patch("core.pomnilnik.kontekst", return_value=kontekst):
+            splet = os_splet.VdelaniSplet(
+                mock.MagicMock(), mock.MagicMock(), mock.MagicMock(), mock.MagicMock(),
+                WebKit2, str(ROOT), "sl", None, prvi_zavihek=False,
+                config=None, avtomatizacija=True
+            )
+
+        self.assertTrue(splet._ustvaril_zacasno)
+        zacasna = splet._zacasna_mapa
+        self.assertIsNotNone(zacasna)
+        self.assertTrue(os.path.isdir(zacasna))
+
+        splet.pospravi()
+        self.assertFalse(os.path.exists(zacasna), "Lastna zacasna mapa mora biti izbrisana")
 
     def test_avtomatizacija_ustvari_locen_zacasni_config_in_ga_pospravi(self):
         """K1: SafeerBrskalnik(avtomatizacija=True) ima ločeno začasno mapo (ne ~/.config/safeer-mint)."""
@@ -372,20 +434,19 @@ class TestBrowserAutomationS1ZacasnaMapa(unittest.TestCase):
     """S1: Začasna mapa v $XDG_RUNTIME_DIR, čiščenje starih map brez živega PID in SIGTERM pospravljanje."""
 
     def test_zacasna_mapa_v_xdg_runtime_dir(self):
-        """S1: ustvari_zacasno_mapo_avtomatizacije ustvari mapo v $XDG_RUNTIME_DIR, če je na voljo."""
+        """S1 & S3: ustvari_zacasno_mapo_avtomatizacije ustvari mapo v $XDG_RUNTIME_DIR (podan v okolju brez spreminjanja os.environ)."""
         from core import os_splet
         with tempfile.TemporaryDirectory() as tmpdir:
-            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": tmpdir}):
-                pot = os_splet.ustvari_zacasno_mapo_avtomatizacije()
-                self.addCleanup(lambda: shutil.rmtree(pot, ignore_errors=True))
-                self.assertTrue(pot.startswith(tmpdir), f"Mapa {pot} mora biti v {tmpdir}")
-                self.assertTrue(os.path.isdir(pot))
-                self.assertTrue(os.path.isfile(os.path.join(pot, ".pid")))
-                with open(os.path.join(pot, ".pid"), encoding="utf-8") as f:
-                    self.assertEqual(f.read().strip(), str(os.getpid()))
+            pot = os_splet.ustvari_zacasno_mapo_avtomatizacije(okolje={"XDG_RUNTIME_DIR": tmpdir})
+            self.addCleanup(lambda: shutil.rmtree(pot, ignore_errors=True))
+            self.assertTrue(pot.startswith(tmpdir), f"Mapa {pot} mora biti v {tmpdir}")
+            self.assertTrue(os.path.isdir(pot))
+            self.assertTrue(os.path.isfile(os.path.join(pot, ".pid")))
+            with open(os.path.join(pot, ".pid"), encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), str(os.getpid()))
 
     def test_ciscenje_starih_zacasnih_map_brez_zivega_pid(self):
-        """S1: pocisti_stare_zacasne_avtomatizacije pobriše mape brez živega PID."""
+        """S1 & S3: pocisti_stare_zacasne_avtomatizacije pobriše mape brez živega PID brez spreminjanja os.environ."""
         from core import os_splet
         with tempfile.TemporaryDirectory() as tmpdir:
             stara_mapa = os.path.join(tmpdir, "safeer-avtomatizacija-999999-stara")
@@ -398,12 +459,37 @@ class TestBrowserAutomationS1ZacasnaMapa(unittest.TestCase):
             with open(os.path.join(ziva_mapa, ".pid"), "w", encoding="utf-8") as f:
                 f.write(str(os.getpid()))
 
-            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": tmpdir}):
-                os_splet.pocisti_stare_zacasne_avtomatizacije()
+            os_splet.pocisti_stare_zacasne_avtomatizacije(okolje={"XDG_RUNTIME_DIR": tmpdir})
 
             self.assertFalse(os.path.exists(stara_mapa), "Stara mapa mrtvega PID mora biti izbrisana")
             self.assertTrue(os.path.exists(ziva_mapa), "Mapa živega PID mora ostati")
             shutil.rmtree(ziva_mapa, ignore_errors=True)
+
+    def test_ciscenje_ne_brise_tujih_uporabnikov_ali_simlinkov(self):
+        """N3: Čiščenje začasnih map ne pregleduje in ne brise map tujih uporabnikov ali simbolnih povezav."""
+        from core import os_splet
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tuja_mapa = os.path.join(tmpdir, "safeer-avtomatizacija-888888-tuja")
+            os.makedirs(tuja_mapa, exist_ok=True)
+            with open(os.path.join(tuja_mapa, ".pid"), "w", encoding="utf-8") as f:
+                f.write("888888")
+
+            # Simuliraj mapo drugega uporabnika (drug st_uid)
+            prava_lstat = os.lstat
+            def fake_lstat(pot):
+                res = prava_lstat(pot)
+                if pot == tuja_mapa:
+                    class FakeStat:
+                        st_uid = res.st_uid + 1000
+                        st_mode = res.st_mode
+                    return FakeStat()
+                return res
+
+            with mock.patch("os.lstat", side_effect=fake_lstat):
+                os_splet.pocisti_stare_zacasne_avtomatizacije(okolje={"XDG_RUNTIME_DIR": tmpdir})
+
+            self.assertTrue(os.path.exists(tuja_mapa), "Tuja mapa drugega uporabnika ne sme biti izbrisana")
+            shutil.rmtree(tuja_mapa, ignore_errors=True)
 
     def test_sigterm_pospravi_in_koncaj(self):
         """S1: Ob klicu _ob_sigterm se začasna mapa pospravi in pokliče quit()."""
@@ -459,14 +545,15 @@ class TestBrowserAutomationS4InspektorOkolje(unittest.TestCase):
     """S4: WEBKIT_INSPECTOR_SERVER / HTTP_SERVER, ki nista loopback, se odstranita iz okolja."""
 
     def test_oddaljeni_inspektor_ne_loopback_se_odstrani(self):
+        """S4 & S3: preveri_oddaljeni_inspektor odstrani ne-loopback naslove iz podanega okolja brez setenv."""
         from core import okolje_procesa
-        with mock.patch.dict(os.environ, {
+        okolje = {
             "WEBKIT_INSPECTOR_SERVER": "0.0.0.0:9222",
             "WEBKIT_INSPECTOR_HTTP_SERVER": "127.0.0.1:9223"
-        }):
-            okolje_procesa.preveri_oddaljeni_inspektor()
-            self.assertNotIn("WEBKIT_INSPECTOR_SERVER", os.environ, "0.0.0.0 mora biti odstranjen")
-            self.assertIn("WEBKIT_INSPECTOR_HTTP_SERVER", os.environ, "127.0.0.1 mora ostati")
+        }
+        okolje_procesa.preveri_oddaljeni_inspektor(okolje=okolje)
+        self.assertNotIn("WEBKIT_INSPECTOR_SERVER", okolje, "0.0.0.0 mora biti odstranjen")
+        self.assertIn("WEBKIT_INSPECTOR_HTTP_SERVER", okolje, "127.0.0.1 mora ostati")
 
     def test_oddaljeni_inspektor_razlicne_oblike(self):
         from core.okolje_procesa import je_loopback_naslov
@@ -481,78 +568,146 @@ class TestBrowserAutomationS4InspektorOkolje(unittest.TestCase):
         self.assertFalse(je_loopback_naslov("all:9222"))
 
 
+class TestBrowserAutomationS2UvozOkolje(unittest.TestCase):
+    """S2: Uvoz safeer_brskalnik ne sme klicati pred_nitmi() ali spreminjati os.environ."""
+
+    def test_uvoz_safeer_brskalnik_ne_spreminja_okolja(self):
+        """S2: okolje_procesa.pred_nitmi() se klice samo v __main__, uvoz modula ne spremeni okolja."""
+        koda = (
+            "import os, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "kljuci_prej = set(os.environ.keys())\n"
+            "import safeer_brskalnik\n"
+            "kljuci_potem = set(os.environ.keys())\n"
+            "razlika = kljuci_potem - kljuci_prej\n"
+            "assert not razlika, f'Okolje spremenjeno ob uvozu: {razlika}'\n"
+            "from core import okolje_procesa\n"
+            "for k in okolje_procesa.QT:\n"
+            "    assert k not in os.environ or os.environ[k] != '', f'{k} je bil nastavljen!'\n"
+            "print('UVOZ_OK')\n"
+        )
+        r = subprocess.run([sys.executable, "-c", koda, str(ROOT)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, f"Uvoz safeer_brskalnik je spodletel:\n{r.stderr}")
+        self.assertIn("UVOZ_OK", r.stdout)
+
+
+class TestBrowserAutomationN2NapakaIzhod(unittest.TestCase):
+    """N2: Ob napaki seje v avtomatizaciji se proces zaključi takoj z izhodno kodo."""
+
+    def test_avtomatizacija_napaka_zapre_aplikacijo(self):
+        import safeer_brskalnik as sb
+        app = sb.SafeerBrskalnik(avtomatizacija=True)
+        app._pospravi_avtomatizacijo = mock.MagicMock()
+        app.quit = mock.MagicMock()
+        with mock.patch("core.os_splet.VdelaniSplet", side_effect=RuntimeError("Napaka seje")):
+            with self.assertRaises(SystemExit) as cm:
+                app._ustvari()
+            self.assertEqual(cm.exception.code, 1)
+            app._pospravi_avtomatizacijo.assert_called_once()
+            app.quit.assert_called_once()
+
+
 class TestRealGTKPasicaVidnost(unittest.TestCase):
-    """S5: Preizkus vidnosti pasice s pravim GTK (tools/nas_webkit.sh + xvfb-run): pasica.get_mapped()."""
+    """V1: Preizkus vidnosti pasice s pravim GTK v podprocesu (tools/nas_webkit.sh + xvfb-run): pasica.get_mapped()."""
 
     def test_pasica_get_mapped_po_create_web_view_in_window_open(self):
-        """S5 & N3: pasica.get_mapped() je True po create-web-view, po window.open in v fullscreen."""
-        os.environ["WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"] = "1"
-        from core import okolje_procesa
-        okolje_procesa.pred_nitmi()
-
-        import gi
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Gdk", "4.0")
-        gi.require_version("WebKit", "6.0")
-        from gi.repository import Gdk, Gio, GLib, Gtk, WebKit as WebKit2
-        from core import os_splet
-        from core.config import ConfigManager
-
-        if not Gtk.init_check() or Gdk.Display.get_default() is None:
+        """V1: pasica.get_mapped() je True po create-web-view, po window.open in v fullscreen v podprocesu brez izklopa peskovnika."""
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
             self.skipTest("GTK zaslon ni na voljo (zaženite z xvfb-run)")
-        zacasna = os_splet.ustvari_zacasno_mapo_avtomatizacije()
-        self.addCleanup(lambda: shutil.rmtree(zacasna, ignore_errors=True))
 
-        config = ConfigManager(config_dir=zacasna)
-        okno = Gtk.Window(title="Test Avtomatizacija Vidnost")
-        okno.set_default_size(800, 600)
-        self.addCleanup(okno.destroy)
+        skripta = textwrap.dedent(r"""
+            import os, sys, shutil
+            koren = sys.argv[1]
+            sys.path.insert(0, koren)
 
-        splet = os_splet.VdelaniSplet(
-            Gtk, Gdk, Gio, GLib, WebKit2,
-            str(ROOT), "sl", None, stars=okno, config=config, avtomatizacija=True,
-            prvi_zavihek=False
+            import gi
+            gi.require_version("Gtk", "4.0")
+            gi.require_version("Gdk", "4.0")
+            gi.require_version("WebKit", "6.0")
+            from gi.repository import Gdk, Gio, GLib, Gtk, WebKit as WebKit2
+            from core import os_splet
+            from core.config import ConfigManager
+
+            if not Gtk.init_check() or Gdk.Display.get_default() is None:
+                print("SKIP_NO_DISPLAY")
+                sys.exit(0)
+
+            zacasna = os_splet.ustvari_zacasno_mapo_avtomatizacije()
+            try:
+                config = ConfigManager(config_dir=zacasna)
+                okno = Gtk.Window(title="Test Avtomatizacija Vidnost")
+                okno.set_default_size(800, 600)
+
+                splet = os_splet.VdelaniSplet(
+                    Gtk, Gdk, Gio, GLib, WebKit2,
+                    koren, "sl", None, stars=okno, config=config, avtomatizacija=True,
+                    prvi_zavihek=False
+                )
+                okno.set_child(splet.gradnik)
+                okno.present()
+
+                # 1. create-web-view (avtomatizacija ustvari pogled)
+                p1 = splet._avtomatizacija_ustvari_pogled()
+                assert p1 is not None, "pogled p1 ni bil ustvarjen"
+
+                ctx = GLib.MainContext.default()
+                for _ in range(50):
+                    ctx.iteration(False)
+
+                assert hasattr(splet, "pasica_avtomatizacija"), "splet nima pasica_avtomatizacija"
+                assert splet.pasica_avtomatizacija.get_mapped(), "pasica ni preslikana (get_mapped)"
+                assert splet.pasica_avtomatizacija.is_visible(), "pasica ni vidna (is_visible)"
+
+                # 2. window.open (_novo_okno s povezan=pogled)
+                class Action:
+                    def get_request(self):
+                        class Req:
+                            def get_uri(self):
+                                return "about:blank"
+                        return Req()
+                    def get_navigation_type(self):
+                        return None
+
+                p2 = splet._novo_okno(p1, Action())
+                assert p2 is not None, "pogled p2 ni bil ustvarjen"
+
+                for _ in range(50):
+                    ctx.iteration(False)
+
+                assert splet.pasica_avtomatizacija.get_mapped(), "pasica ni get_mapped po window.open"
+
+                # 3. Celozaslonski nacin
+                okno.fullscreen()
+                for _ in range(50):
+                    ctx.iteration(False)
+
+                assert splet.pasica_avtomatizacija.get_mapped(), "pasica ni get_mapped v fullscreen"
+
+                splet.pospravi()
+                okno.destroy()
+                print("PASICA_VIDNA_OK")
+            finally:
+                shutil.rmtree(zacasna, ignore_errors=True)
+        """)
+
+        okolje = dict(os.environ)
+        # Preveri, da v okolju NI izklopa peskovnika
+        okolje.pop("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", None)
+
+        r = subprocess.run([sys.executable, "-c", skripta, str(ROOT)],
+                           capture_output=True, text=True, timeout=60, env=okolje)
+        if "SKIP_NO_DISPLAY" in r.stdout:
+            self.skipTest("GTK zaslon ni na voljo")
+        self.assertEqual(r.returncode, 0, f"Podproces se je sesul ali vrnil napako:\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}")
+        self.assertIn("PASICA_VIDNA_OK", r.stdout)
+
+    def test_preizkus_v1_ne_spremeni_okolja_in_ne_izklopi_peskovnika(self):
+        """V1: Preveri, da preizkus V1 ni pustil os.environ spremenjenega in peskovnika izklopljenega."""
+        self.assertNotIn(
+            "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS",
+            os.environ,
+            "os.environ ne sme imeti izklopa peskovnika v procesu pytest!"
         )
-        self.addCleanup(splet.pospravi)
-        okno.set_child(splet.gradnik)
-        okno.present()
-
-        # 1. create-web-view (avtomatizacija ustvari pogled)
-        p1 = splet._avtomatizacija_ustvari_pogled()
-        self.assertIsNotNone(p1)
-
-        ctx = GLib.MainContext.default()
-        for _ in range(50):
-            ctx.iteration(False)
-
-        self.assertTrue(hasattr(splet, "pasica_avtomatizacija"), "splet mora imeti pasica_avtomatizacija")
-        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora biti preslikana (get_mapped == True)")
-        self.assertTrue(splet.pasica_avtomatizacija.is_visible(), "Pasica mora biti vidna")
-
-        # 2. window.open (_novo_okno s povezan=pogled)
-        class Action:
-            def get_request(self):
-                class Req:
-                    def get_uri(self):
-                        return "about:blank"
-                return Req()
-            def get_navigation_type(self):
-                return None
-
-        p2 = splet._novo_okno(p1, Action())
-        self.assertIsNotNone(p2)
-
-        for _ in range(50):
-            ctx.iteration(False)
-
-        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora ostati get_mapped po window.open")
-
-        # 3. N3: Celozaslonski nacin
-        okno.fullscreen()
-        for _ in range(50):
-            ctx.iteration(False)
-
-        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora ostati get_mapped v fullscreen")
 
 
 class TestPrevodS6(unittest.TestCase):

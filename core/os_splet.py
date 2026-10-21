@@ -991,27 +991,57 @@ def _pid_ziv(pid: int) -> bool:
         return e.errno == errno.EPERM
 
 
-def _zacasna_baza_avtomatizacije() -> str:
+def _zacasna_baza_avtomatizacije(okolje=None) -> str:
     """Izbere $XDG_RUNTIME_DIR, ce obstaja in je pisljiv, sicer sistemsko zacasno mapo."""
     import tempfile
-    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    env = os.environ if okolje is None else okolje
+    xdg = env.get("XDG_RUNTIME_DIR")
     if xdg and os.path.isdir(xdg) and os.access(xdg, os.W_OK):
         return xdg
     return tempfile.gettempdir()
 
 
-def pocisti_stare_zacasne_avtomatizacije() -> None:
+def _je_zacasna_mapa_avtomatizacije(pot: Optional[str], okolje=None) -> bool:
+    """S1: Preveri, ali je pot veljavna zacasna mapa avtomatizacije (safeer-avtomatizacija-* pod bazo)."""
+    if not pot or not isinstance(pot, str):
+        return False
+    try:
+        norm_pot = os.path.abspath(os.path.realpath(pot))
+        ime = os.path.basename(norm_pot)
+        if not ime.startswith("safeer-avtomatizacija-"):
+            return False
+        from core.config import CONFIG_DIR
+        if norm_pot == os.path.abspath(os.path.realpath(CONFIG_DIR)):
+            return False
+        import tempfile
+        veljavne_baze = {
+            os.path.abspath(os.path.realpath(_zacasna_baza_avtomatizacije(okolje))),
+            os.path.abspath(os.path.realpath(tempfile.gettempdir())),
+        }
+        env = os.environ if okolje is None else okolje
+        xdg = env.get("XDG_RUNTIME_DIR")
+        if xdg and os.path.isdir(xdg):
+            veljavne_baze.add(os.path.abspath(os.path.realpath(xdg)))
+        starsek = os.path.dirname(norm_pot)
+        return starsek in veljavne_baze
+    except Exception:
+        return False
+
+
+def pocisti_stare_zacasne_avtomatizacije(okolje=None) -> None:
     """Pobrise zacasne mape safeer-avtomatizacija-*, ki nimajo zivega procesa (PID)."""
     import shutil
     import tempfile
+    env = os.environ if okolje is None else okolje
     baze = []
-    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    xdg = env.get("XDG_RUNTIME_DIR")
     if xdg and os.path.isdir(xdg):
         baze.append(xdg)
     tmp = tempfile.gettempdir()
     if tmp not in baze and os.path.isdir(tmp):
         baze.append(tmp)
 
+    moj_uid = os.getuid() if hasattr(os, "getuid") else None
     for baza in baze:
         try:
             imena = os.listdir(baza)
@@ -1021,7 +1051,14 @@ def pocisti_stare_zacasne_avtomatizacije() -> None:
             if not ime.startswith("safeer-avtomatizacija-"):
                 continue
             pot = os.path.join(baza, ime)
-            if not os.path.isdir(pot):
+            try:
+                st = os.lstat(pot)
+            except OSError:
+                continue
+            # N3: Preveri, da je mapa nasega uporabnika in ni simlink
+            if os.path.islink(pot) or not os.path.isdir(pot):
+                continue
+            if moj_uid is not None and st.st_uid != moj_uid:
                 continue
             pid = None
             pid_dat = os.path.join(pot, ".pid")
@@ -1043,10 +1080,10 @@ def pocisti_stare_zacasne_avtomatizacije() -> None:
                 print(f"[Safeer Splet] ciscenje zacasne mape {pot}:", e)
 
 
-def ustvari_zacasno_mapo_avtomatizacije() -> str:
+def ustvari_zacasno_mapo_avtomatizacije(okolje=None) -> str:
     """Ustvari novo zacasno mapo v $XDG_RUNTIME_DIR (ali /tmp) z zascitnim zapisom PID."""
     import tempfile
-    baza = _zacasna_baza_avtomatizacije()
+    baza = _zacasna_baza_avtomatizacije(okolje)
     pid = os.getpid()
     pot = tempfile.mkdtemp(prefix=f"safeer-avtomatizacija-{pid}-", dir=baza)
     try:
@@ -1095,14 +1132,14 @@ class VdelaniSplet:
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
         self._zacasna_mapa = None
+        self._ustvaril_zacasno = False
         if self.avtomatizacija and config is None:
             pocisti_stare_zacasne_avtomatizacije()
             self._zacasna_mapa = ustvari_zacasno_mapo_avtomatizacije()
+            self._ustvaril_zacasno = True
             self.config = ConfigManager(config_dir=self._zacasna_mapa)
         else:
             self.config = config if config is not None else ConfigManager()
-            if self.avtomatizacija and self.config is not None:
-                self._zacasna_mapa = getattr(self.config, "config_dir", None)
         ucene_brez_pospesevanja(self.config)   # ob novi razlicici kompozitorja pozabi stari uceni seznam
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
@@ -1279,7 +1316,11 @@ class VdelaniSplet:
     def mapa_prenosov(self) -> str:
         """Sistemska mapa za prenose ali <zacasna mapa>/prenosi v nacinu avtomatizacije."""
         if getattr(self, "avtomatizacija", False):
-            zacasna = getattr(self, "_zacasna_mapa", None) or getattr(getattr(self, "config", None), "config_dir", None)
+            zacasna = getattr(self, "_zacasna_mapa", None)
+            if not zacasna and hasattr(self, "config"):
+                cdir = getattr(self.config, "config_dir", None)
+                if cdir and _je_zacasna_mapa_avtomatizacije(cdir):
+                    zacasna = cdir
             if zacasna:
                 cilj = os.path.join(zacasna, "prenosi")
                 os.makedirs(cilj, exist_ok=True)
@@ -1287,14 +1328,23 @@ class VdelaniSplet:
         return splet_prenosi.mapa_prenosov(self.GLib)
 
     def pospravi(self) -> None:
-        """Pospravi zacasne datoteke ob izhodu (nacin avtomatizacije)."""
-        if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
+        """Pospravi zacasne datoteke ob izhodu (nacin avtomatizacije).
+
+        S1: Brise samo mapo, ki jo je ustvaril sam (self._ustvaril_zacasno) in
+        ki ustreza zacasni mapi avtomatizacije (safeer-avtomatizacija-* pod bazo).
+        NIKOLI config_dir, ki ga je dobil od zunaj."""
+        if (
+            getattr(self, "_ustvaril_zacasno", False)
+            and getattr(self, "_zacasna_mapa", None)
+            and os.path.isdir(self._zacasna_mapa)
+            and _je_zacasna_mapa_avtomatizacije(self._zacasna_mapa)
+        ):
             import shutil
             try:
                 shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
             except Exception as e:
                 print("[Safeer Splet] pospravi zacasno:", e)
-            self._zacasna_mapa = None
+        self._zacasna_mapa = None
 
     def _dovoljenja_obvestil(self, kontekst, *_a) -> None:
         dovoljeni, zavrnjeni = dovoljenja_strani.izvori_obvestil(self.config)
@@ -2104,7 +2154,8 @@ class VdelaniSplet:
         self.spanje.nov(zavihek, povezan if povezan is not None else deli_z)
         self.izberi(pogled)
         if povezan is None:
-            self.odpri(naslov, pogled, lokalno)      # okno strani nalozi WebKit sam (zahteva iz window.open)
+            if not (nadzorovan_avtomatizacija or getattr(self, "avtomatizacija", False)) or naslov:
+                self.odpri(naslov, pogled, lokalno)      # okno strani nalozi WebKit sam (zahteva iz window.open)
         return pogled
 
     def _deli_proces_z(self, naslov: str):

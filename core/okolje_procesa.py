@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import List, Optional
+from typing import List, MutableMapping, Optional
 
 #: Qt jih bere ob ustvarjanju QApplication. V procesu Safeer OS se to zgodi na zahtevo (okno aplikacije, delovna
 #: povrsina brez varuha - core/os_lupina.pripravi), ko niti ze tecejo.
@@ -61,33 +61,35 @@ def je_loopback_naslov(vrednost: str) -> bool:
         return False
 
 
-def preveri_oddaljeni_inspektor() -> None:
+def preveri_oddaljeni_inspektor(okolje: Optional[MutableMapping[str, str]] = None) -> None:
     """Odstrani ne-loopback WEBKIT_INSPECTOR_SERVER / WEBKIT_INSPECTOR_HTTP_SERVER iz okolja z opozorilom."""
+    env = os.environ if okolje is None else okolje
     for ime in ODDALJENI_INSPEKTOR:
-        if ime in os.environ:
-            vrednost = os.environ[ime]
+        if ime in env:
+            vrednost = env[ime]
             if not je_loopback_naslov(vrednost):
                 sys.stderr.write(
                     f"[Safeer] Opozorilo: {ime}={vrednost!r} ni loopback (127.0.0.1 ali ::1) - "
                     "odstranjeno iz okolja pred zagonom.\n"
                 )
-                del os.environ[ime]
+                del env[ime]
 
 
 _pripravljeno = False
 _prevzeto: dict = {}
 
 
-def pred_nitmi() -> None:
+def pred_nitmi(okolje: Optional[MutableMapping[str, str]] = None) -> None:
     """Rezervira mesta za spremenljivke, ki jih bomo med tekom zamenjevali, in prevzame PREVZETE. Klicati samo, dokler
     tece ena nit."""
     global _pripravljeno
-    preveri_oddaljeni_inspektor()
+    preveri_oddaljeni_inspektor(okolje=okolje)
+    env = os.environ if okolje is None else okolje
     for ime in QT:
-        os.environ.setdefault(ime, "")
+        env.setdefault(ime, "")
     for ime in PREVZETE:
-        if ime in os.environ:
-            _prevzeto[ime] = os.environ.pop(ime)
+        if ime in env:
+            _prevzeto[ime] = env.pop(ime)
     _pripravljeno = True
 
 
