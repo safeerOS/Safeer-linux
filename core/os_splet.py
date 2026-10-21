@@ -2644,7 +2644,7 @@ class VdelaniSplet:
         if seja is None:
             from core import https_nadgradnja
             mapa = getattr(self.config, "config_dir", None)
-            seja = self._seja_https = https_nadgradnja.Seja(mapa)
+            seja = self._seja_https = https_nadgradnja.seja_za(mapa)     # ena na mapo v procesu (S4)
         return seja
 
     @staticmethod
@@ -3537,7 +3537,7 @@ class VdelaniSplet:
         if vrste & {"zgodovina", "piskotki"}:
             # Gostitelji brez https (core/https_nadgradnja) so sled obiskanih strani, kot HSTS - izbrisejo se z njimi.
             from core import https_nadgradnja
-            (getattr(self, "_seja_https", None) or https_nadgradnja.Seja(self.config.config_dir)).pocisti()
+            https_nadgradnja.seja_za(self.config.config_dir).pocisti()     # skupna vsem Spletom procesa (S4)
         if "prenosi" in vrste:
             self.prenosi[:] = [z for z in self.prenosi if z.get("stanje") == "tece"]
             self._osvezi_prenose()

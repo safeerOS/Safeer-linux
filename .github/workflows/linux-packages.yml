@@ -232,7 +232,7 @@ jobs:
               exit 1
             fi
           done
-          # libwebkitgtk ne izvaza xml*/xslt* simbolov (staticna povezava z -Wl,--exclude-libs,ALL in -fvisibility=hidden)
+          # libwebkitgtk ne izvaza xml*/xslt* simbolov (staticna povezava z -Wl,--exclude-libs,libxml2.a:libxslt.a:libexslt.a in -fvisibility=hidden)
           if nm -D "$X"/usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4 | grep -E ' [TRDBCGS] (xml|xslt|exslt)'; then
             echo "::error::libwebkitgtk izvaza xml/xslt simbole"
             exit 1

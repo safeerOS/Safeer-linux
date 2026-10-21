@@ -71,7 +71,9 @@ def nastavi(koren: str) -> Optional[str]:
     if os.environ.get("FLATPAK_ID") or os.environ.get("APPIMAGE") or os.environ.get("SAFEER_SISTEMSKI_WEBKIT"):
         return None
     mapa = predpona(koren)
-    if mapa is None and os.environ.get("SAFEER_WEBKIT_PREDPONA"):
+    # Rocna predpona samo za izvorno kodo (tools/nas_webkit.sh): namesceni program ne sme vzeti WebKita iz poljubne mape
+    # okolja (pregled izdaje 1.0.132, N2).
+    if mapa is None and os.environ.get("SAFEER_WEBKIT_PREDPONA") and not _namescen():
         kand = os.environ["SAFEER_WEBKIT_PREDPONA"]
         if os.path.isfile(os.path.join(kand, TYPELIB)):
             mapa = kand
@@ -94,7 +96,7 @@ def nastavi(koren: str) -> Optional[str]:
 
 #: Elementi GStreamer, katerih vticniki so povezani s sistemskim libxml2 (Linux Mint 23 / Ubuntu 26.04: libxml2.so.16;
 #: izmerjeno 21. 10. 2026: adaptivedemux2, dash, smoothstreaming, ttmlsubs).
-#: Od 1.0.132 sta libxml2 in libxslt staticno povezana v nas WebKit (zgradi.sh, -fvisibility=hidden, -Wl,--exclude-libs,ALL),
+#: Od 1.0.132 sta libxml2 in libxslt staticno povezana v nas WebKit (zgradi.sh, -fvisibility=hidden, --exclude-libs za libxml2/libxslt/libexslt),
 #: zato novi paketi safeer-webkit nimajo vec libxml2.so.2 in rangi_brez_xml() vrne None (vticniki kot hlsdemux2 ostanejo
 #: vklopljeni). Za starejse pakete (1.0.131), ki imajo svoj libxml2.so.2 (vgradi.sh), se ohranja preverba razlicice:
 #: ce sistemski NI ISTE RAZLICICE (ali ga ni), bi vticnik simbole razresil na nasega (drug ABI) - zato z rangom NONE
@@ -209,7 +211,7 @@ def poisci_nas_webkit(koren: Optional[str] = None) -> Optional[str]:
         if p:
             return p
     env_p = os.environ.get("SAFEER_WEBKIT_PREDPONA")
-    if env_p and os.path.isfile(os.path.join(env_p, TYPELIB)):
+    if env_p and not _namescen() and os.path.isfile(os.path.join(env_p, TYPELIB)):
         return env_p
     for mapa in PREDPONE_PAKETOV:
         if os.path.isfile(os.path.join(mapa, TYPELIB)):
@@ -223,6 +225,49 @@ def _namescen() -> bool:
         return True
     glavni = getattr(sys.modules.get("__main__"), "__file__", "") or ""
     return os.path.abspath(glavni).startswith("/usr/lib/safeer-")
+
+
+#: Knjiznice, ki morajo biti vse iz naSe gradnje (WebKit, JavaScriptCore, libsoup s popravkom puscanja).
+NASE_KNJIZNICE = ("libwebkitgtk-6.0", "libjavascriptcoregtk-6.0", "libsoup-3.0")
+
+
+def nalozene_knjiznice(maps: str) -> dict:
+    """{ime iz NASE_KNJIZNICE: mnozica poti} iz vsebine /proc/<pid>/maps."""
+    izid: dict = {}
+    for vrstica in maps.splitlines():
+        deli = vrstica.split(None, 5)
+        if len(deli) < 6 or not deli[5].startswith("/"):
+            continue
+        pot = deli[5].strip()
+        if pot.endswith(" (deleted)"):
+            pot = pot[: -len(" (deleted)")]
+        ime = os.path.basename(pot)
+        for k in NASE_KNJIZNICE:
+            if ime.startswith(k + ".so"):
+                izid.setdefault(k, set()).add(pot)
+    return izid
+
+
+def _koren_nasega(predpona: Optional[str] = None) -> Optional[str]:
+    """Mapa, pod katero mora biti nas WebKit: Flatpak /app, AppImage $APPDIR, sicer predpona iz nastavi()."""
+    if os.environ.get("FLATPAK_ID"):
+        return "/app"
+    if os.environ.get("APPDIR"):
+        return os.environ["APPDIR"]
+    return predpona if predpona is not None else _nastavljena
+
+
+def _pod(pot: str, koren: str) -> bool:
+    """Ali je pot pod korenom - obe strani razresimo (realpath): v maps je razresena pot, predpona pa je lahko simbolna
+    povezava (/usr/lib64 -> lib, povezana mapa programa) - prej lazni alarm in izhod (pregled 1.0.132, S3)."""
+    p = os.path.realpath(pot)
+    k = os.path.realpath(koren)
+    return p == k or p.startswith(k.rstrip(os.sep) + os.sep)
+
+
+def tuje_knjiznice(nalozene: dict, koren: Optional[str]) -> list:
+    """Urejen seznam preslikanih knjiznic iz NASE_KNJIZNICE, ki NISO pod korenom (brez korena: vse)."""
+    return sorted(p for poti in nalozene.values() for p in poti if not koren or not _pod(p, koren))
 
 
 def preveri_nas_webkit(
@@ -259,37 +304,26 @@ def preveri_nas_webkit(
             pass
 
     pot: Optional[str] = None
+    nalozene: dict = {}
     try:
         if maps_vsebina is not None:
             vsebina = maps_vsebina
         else:
             with open(maps_pot or "/proc/self/maps", "r", encoding="utf-8", errors="replace") as f:
                 vsebina = f.read()
-        knjiznice = sorted({l.split()[-1] for l in vsebina.splitlines() if "libwebkitgtk-6.0" in l and l.split()[-1].startswith("/")})
-        if knjiznice:
-            pot = knjiznice[0]
+        nalozene = nalozene_knjiznice(vsebina)
+        if nalozene.get("libwebkitgtk-6.0"):
+            pot = sorted(nalozene["libwebkitgtk-6.0"])[0]
     except OSError:
         pot = None
 
-    je_nas = False
-    if pot:
-        if pot.startswith("/app/"):
-            # Flatpak: mora biti iz /app/, nikoli iz /usr runtime-a
-            je_nas = True
-        elif os.environ.get("APPDIR"):
-            # AppImage: mora biti pod $APPDIR
-            appdir = os.path.normpath(os.environ["APPDIR"])
-            norm_pot = os.path.normpath(pot)
-            if norm_pot == appdir or norm_pot.startswith(appdir + os.sep):
-                je_nas = True
-        else:
-            # deb / krajevna namestitev: pod predpono iz nastavi()
-            ciljna_predpona = predpona if predpona is not None else _nastavljena
-            if ciljna_predpona:
-                norm_pred = os.path.normpath(ciljna_predpona)
-                norm_pot = os.path.normpath(pot)
-                if norm_pot == norm_pred or norm_pot.startswith(norm_pred + os.sep):
-                    je_nas = True
+    koren = _koren_nasega(predpona)
+    tuje = tuje_knjiznice(nalozene, koren)
+    # Nas je samo, ce je nalozen libwebkitgtk in so VSE preslikane knjiznice WebKita, JSC in libsoup pod korenom - prej se
+    # je preverila le prva pot po abecedi, mesano nalaganje in sistemski libsoup sta ostala neopazena (pregled 1.0.132, S2).
+    je_nas = bool(pot) and koren is not None and not tuje
+    if tuje:
+        pot = tuje[0]       # v sporocilu tuja knjiznica, ne nasa
 
     if uveljavi and not je_nas:
         # Zagon iz izvorne kode (razvoj, CI s sistemskim gir1.2-webkit-6.0, preizkusi tovora v zacasni mapi) samo opozori;

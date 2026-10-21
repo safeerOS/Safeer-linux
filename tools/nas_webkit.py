@@ -84,6 +84,17 @@ def main(argv: list[str]) -> int:
             return 1
         oznaka = "nas WebKit" if je_nas else "SISTEMSKI WebKit (opozorilo: ni nas!)"
         print(f"WebKitGTK {razlicica} ({pot}) [{oznaka}]")
+        # Vse tri knjiznice (WebKit, JSC, libsoup): meritev s sistemskim libsoup ali mesanim nalaganjem ni veljavna
+        # (pregled izdaje 1.0.132, S2).
+        try:
+            with open("/proc/self/maps", encoding="utf-8", errors="replace") as f:
+                nalozene = zw.nalozene_knjiznice(f.read())
+        except OSError:
+            nalozene = {}
+        koren = zw._koren_nasega(predpona)
+        for ime in zw.NASE_KNJIZNICE:
+            for pot_k in sorted(nalozene.get(ime, ())):
+                print(f"  {ime}: {pot_k}" + ("" if koren and zw._pod(pot_k, koren) else "  <- NI NASA"))
         return 0 if je_nas else 2
 
     # Izvedi ukaz z novim okoljem

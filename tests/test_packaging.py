@@ -1077,7 +1077,7 @@ class DebWebkitTests(unittest.TestCase):
             r=self._paket_webkit(d,self._lazni_arhiv(d))
             self.assertEqual((r.returncode,beri_odtis(deb)),(0,prvi))
             drevo=Path(d)/'drevo'/'usr/lib/safeer-webkit'
-            (drevo/'lib/libjavascriptcoregtk-6.0.so.1').write_bytes(b'\x7fELF nova gradnja')
+            nova=drevo/'lib/libjavascriptcoregtk-6.0.so.1'; nova.write_bytes(nova.read_bytes()+b'nova gradnja')  # veljaven ELF (vgradi.sh preveri PT_GNU_STACK), druga vsebina
             arhiv=Path(d)/'webkit.tar.zst'
             arhiv.unlink()
             subprocess.run(['tar','-C',str(Path(d)/'drevo'),'-I','zstd','-cf',str(arhiv),'usr'],check=True)

@@ -576,14 +576,12 @@ class TestBrowserAutomationS2UvozOkolje(unittest.TestCase):
         koda = (
             "import os, sys\n"
             "sys.path.insert(0, sys.argv[1])\n"
-            "kljuci_prej = set(os.environ.keys())\n"
+            "prej = dict(os.environ)\n"
             "import safeer_brskalnik\n"
-            "kljuci_potem = set(os.environ.keys())\n"
-            "razlika = kljuci_potem - kljuci_prej\n"
+            "razlika = {k for k in set(prej) | set(os.environ) if prej.get(k) != os.environ.get(k)}\n"
+            # zasebni_webkit ob uvozu (pred nitmi in pred nalaganjem knjiznic) NAMENOMA uskladi rang GStreamer elementov
+            "razlika -= {'GST_PLUGIN_FEATURE_RANK'}\n"
             "assert not razlika, f'Okolje spremenjeno ob uvozu: {razlika}'\n"
-            "from core import okolje_procesa\n"
-            "for k in okolje_procesa.QT:\n"
-            "    assert k not in os.environ or os.environ[k] != '', f'{k} je bil nastavljen!'\n"
             "print('UVOZ_OK')\n"
         )
         r = subprocess.run([sys.executable, "-c", koda, str(ROOT)], capture_output=True, text=True, timeout=30)

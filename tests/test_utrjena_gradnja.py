@@ -32,7 +32,7 @@ class UtrjenaGradnja(unittest.TestCase):
         s = beri("packaging/webkit-deb/zgradi.sh")
         self.assertNotIn('CFLAGS="-O2" meson', s)
         self.assertIn('CFLAGS="$(polje cflags <<< "$WK_JSON")" meson setup', s)
-        self.assertIn('export LDFLAGS="$(polje ldflags <<< "$WK_JSON") -Wl,--exclude-libs,ALL"', s)
+        self.assertIn('export LDFLAGS="$WK_LDFLAGS -Wl,--exclude-libs,libxml2.a:libxslt.a:libexslt.a"', s)
         self.assertIn('-DCMAKE_SHARED_LINKER_FLAGS=$LDFLAGS -Wl,--emit-relocs', s)
 
     def test_ci_preveri_vsako_knjiznico(self):

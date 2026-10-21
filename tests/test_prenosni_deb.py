@@ -44,10 +44,10 @@ class PrenosniDeb(unittest.TestCase):
         self.assertIn("'packaging/libxml2/**'", s)
 
     def test_staticni_libxml2_in_xslt_zgradi_in_paket(self):
-        # zgradi.sh: staticna gradnja v $DELO/xml, -Wl,--exclude-libs,ALL, CMake definicije in zapis v gradnja.txt
+        # zgradi.sh: staticna gradnja v $DELO/xml, --exclude-libs samo za tri arhive, CMake definicije in zapis v gradnja.txt
         z = beri("packaging/webkit-deb/zgradi.sh")
         self.assertIn('XML_PREFIX="$DELO/xml"', z)
-        self.assertIn("-Wl,--exclude-libs,ALL", z)
+        self.assertIn("-Wl,--exclude-libs,libxml2.a:libxslt.a:libexslt.a", z)
         self.assertIn('-DLIBXML2_LIBRARY="$XML_PREFIX/lib/libxml2.a"', z)
         self.assertIn('-DLIBXSLT_LIBRARY="$XML_PREFIX/lib/libxslt.a"', z)
         self.assertIn('echo "libxml2:', z)

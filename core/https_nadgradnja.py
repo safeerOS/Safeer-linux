@@ -121,9 +121,13 @@ class Seja:
         g = (gostitelj or "").lower().strip()
         if not g:
             return False
+        pot = self._pot_diska()
+        if pot and self.povratki and not os.path.exists(pot):
+            # Datoteke ni: brisanje podatkov brskanja v drugem procesu (Safeer OS / Browser z isto mapo) - seznam v
+            # pomnilniku je sled obiskanih strani in mora iti z njo (pregled izdaje 1.0.132, S4).
+            self.povratki.clear()
         if g in self.povratki:
             return True
-        pot = self._pot_diska()
         if pot and os.path.exists(pot):
             from core import shramba_json
             podatki = shramba_json.preberi_slovar(pot)
@@ -181,6 +185,22 @@ class Seja:
             shramba_json.zapisi_atomsko(pot, ocisceni)
         except OSError:
             pass
+
+
+#: En primerek Seja na mapo nastavitev v procesu: oba Spleta v Safeer OS (okno in namizje) si delita seznam, zato ga
+#: brisanje podatkov brskanja v enem izbrise tudi za drugega (pregled izdaje 1.0.132, S4).
+_SEJE: dict = {}
+
+
+def seja_za(config_dir: Optional[str]) -> "Seja":
+    """Skupna Seja za mapo nastavitev (brez mape: nova, samo v pomnilniku)."""
+    if not config_dir:
+        return Seja(None)
+    kljuc = os.path.realpath(config_dir)
+    seja = _SEJE.get(kljuc)
+    if seja is None:
+        seja = _SEJE[kljuc] = Seja(config_dir)
+    return seja
 
 
 class Poskus:

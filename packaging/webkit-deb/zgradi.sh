@@ -104,9 +104,12 @@ mapfile -t SOUP_MOZNOSTI < <(polje moznosti <<< "$SOUP_JSON")
 rm -rf "$DELO/soup"
 # Utrjena gradnja (AGENTS.md): iste zastavice kot WebKit (modul), libsoup jih prej ni imel (izmerjeno 21. 10. 2026:
 # brez __stack_chk_fail). LDFLAGS velja tudi za CMake WebKita (CMAKE_*_LINKER_FLAGS_INIT).
-# -Wl,--exclude-libs,ALL poskrbi, da se noben simbol iz staticnih knjiznic (libxml2, libxslt) ne izvozi v .dynsym.
-export LDFLAGS="$(polje ldflags <<< "$WK_JSON") -Wl,--exclude-libs,ALL"
-[ -n "$LDFLAGS" ] || { echo "modul WebKita nima ldflags (utrjena gradnja)" >&2; exit 1; }
+# Simboli staticnih libxml2/libxslt/libexslt se ne izvozijo v .dynsym. Samo ti trije arhivi: »ALL« bi skril tudi simbole
+# notranjih arhivov WebKita (WTF, bmalloc, PAL), ki jih ena knjiznica morda potrebuje od druge (pregled izdaje 1.0.132, S1).
+# Preverba praznih ldflags iz modula PRED dodatkom (prej je bil LDFLAGS zaradi dodatka vedno neprazen - N1).
+WK_LDFLAGS="$(polje ldflags <<< "$WK_JSON")"
+[ -n "$WK_LDFLAGS" ] || { echo "modul WebKita nima ldflags (utrjena gradnja)" >&2; exit 1; }
+export LDFLAGS="$WK_LDFLAGS -Wl,--exclude-libs,libxml2.a:libxslt.a:libexslt.a"
 CFLAGS="$(polje cflags <<< "$WK_JSON")" meson setup "$DELO/soup" "$SOUP_IZVOR" --prefix="$PREDPONA" --buildtype=release \
     -Dintrospection=enabled "${SOUP_MOZNOSTI[@]}"
 ninja -C "$DELO/soup" -j "$JEDRA"
@@ -114,7 +117,7 @@ ninja -C "$DELO/soup" install
 
 # --- libxml2 in libxslt staticno (pred WebKitom: WebKit se poveze staticno, brez dinamicnih odvisnosti) -----------
 # Zasebna mapa $DELO/xml (ne v PREDPONO). Utrjena gradnja (-fPIC, -fvisibility=hidden, cflags iz modula WebKita),
-# brez ICU, brez python. WebKit se poveze staticno in z -Wl,--exclude-libs,ALL (simboli se ne izvozijo).
+# brez ICU, brez python. WebKit se poveze staticno, simboli treh arhivov se ne izvozijo (--exclude-libs zgoraj).
 XML_PREFIX="$DELO/xml"
 rm -rf "$XML_PREFIX" "$DELO/libxml2" "$DELO/libxslt"
 mkdir -p "$XML_PREFIX"
