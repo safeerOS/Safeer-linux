@@ -153,6 +153,13 @@ def je_obcutljiva(gostitelj: str, banke: Iterable[str] = ()) -> bool:
     return any(g.startswith(o) or g == o or g.endswith("." + o) for o in OBCUTLJIVI)
 
 
+#: Deljenje spletnega procesa med zavihki (varcni profil) je IZKLOPLJENO (neodvisni pregled 1.0.132, 3 VISOKE):
+#: registrirana_domena brez celotnega seznama Public Suffix (uporabnik1.pages.dev in napadalec.pages.dev = isti proces),
+#: povezava za spanje ni tranzitivna (zaspali zavihek konca proces, ki ga uporablja odprt zavihek) in navigacija na drugo
+#: domeno ostane v deljenem procesu. Varnost in stabilnost pred pomnilnikom - vklop sele s PSL in skupino procesa.
+DELJENJE_PROCESOV = False
+
+
 def deli_proces(profil: Profil, st_procesov: int, nov_gostitelj: str, zavihki: Iterable[tuple],
                 banke: Iterable[str] = ()):
     """Pogled, s katerim nov zavihek deli spletni proces (related-view), ali None.
@@ -160,6 +167,8 @@ def deli_proces(profil: Profil, st_procesov: int, nov_gostitelj: str, zavihki: I
     zavihki: (pogled, gostitelj, sme_deliti) odprtih zavihkov. Samo varcni profil, samo nad mehko mejo procesov, samo
     ista registrirana domena; obcutljive strani (banka, e-posta, prijava) in zavihki, ki ne smejo deliti (zaspali,
     povezano okno, obrazec), nikoli."""
+    if not DELJENJE_PROCESOV:
+        return None
     if profil.meja_procesov is None or st_procesov < profil.meja_procesov or not nov_gostitelj:
         return None
     banke = tuple(banke)

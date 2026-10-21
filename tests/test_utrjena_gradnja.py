@@ -41,6 +41,12 @@ class UtrjenaGradnja(unittest.TestCase):
                     "libsoup-3.0.so.0", "libexec/webkitgtk-6.0/WebKitWebProcess", "libexec/webkitgtk-6.0/WebKitNetworkProcess"):
             self.assertIn(niz, s)
 
+    def test_vse_elf_datoteke_in_dav1d(self):
+        """Pregled 1.0.132: CI je preveril samo 5 datotek; dav1ddec (Rust) brez BIND_NOW."""
+        s = beri(".github/workflows/linux-packages.yml")
+        self.assertIn('done < <(find "$W" -type f -print0)', s)
+        self.assertIn('RUSTFLAGS="-C link-arg=-Wl,-z,relro,-z,now"', beri("packaging/webkit-deb/dav1d.sh"))
+
     def test_agents_pravilo(self):
         self.assertIn("## Utrjena gradnja", beri("AGENTS.md"))
 

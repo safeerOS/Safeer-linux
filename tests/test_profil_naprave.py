@@ -103,6 +103,7 @@ class TestDeljenjeProcesa(unittest.TestCase):
             with self.subTest(g=g):
                 self.assertEqual(P.registrirana_domena(g), d)
 
+    @mock.patch.object(P, "DELJENJE_PROCESOV", True)
     def test_deli_samo_varcni_nad_mejo_ista_domena(self):
         v = _profil(2.8)
         meja = v.meja_procesov
@@ -114,6 +115,15 @@ class TestDeljenjeProcesa(unittest.TestCase):
         self.assertIsNone(P.deli_proces(_profil(16), 99, "sport.rtvslo.si", zavihki))    # polni: nikoli
         self.assertIsNone(P.deli_proces(v, meja, "sport.rtvslo.si", [("A", "www.rtvslo.si", False)]))  # ne sme
 
+    def test_deljenje_izklopljeno(self):
+        """Pregled 1.0.132 (3 VISOKE): brez PSL bi uporabnik1.pages.dev in napadalec.pages.dev delila proces - izklopljeno."""
+        self.assertFalse(P.DELJENJE_PROCESOV)
+        v = _profil(2.8)
+        meja = v.meja_procesov
+        self.assertIsNone(P.deli_proces(v, meja + 5, "napadalec.pages.dev", [("A", "uporabnik1.pages.dev", True)]))
+        self.assertIsNone(P.deli_proces(v, meja + 5, "sport.rtvslo.si", [("A", "www.rtvslo.si", True)]))
+
+    @mock.patch.object(P, "DELJENJE_PROCESOV", True)
     def test_obcutljive_strani_nikoli(self):
         v = _profil(2.8)
         meja = v.meja_procesov

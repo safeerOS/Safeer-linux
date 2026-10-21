@@ -239,6 +239,17 @@ jobs:
             readelf -nW "$f" | grep -q 'x86 feature: IBT, SHSTK' || echo "::warning::$f brez CET (IBT, SHSTK)"
             echo "utrjeno: $f _chk=$(nm -D "$f" | grep -cE ' U __[a-z0-9_]+_chk(@|$)')"
           done
+          # Vse ostale datoteke ELF v paketu (vgrajene knjiznice Ubuntuja, dav1ddec, vticniki ...): vsaj BIND_NOW, RELRO,
+          # GNU_STACK RW (pregled 1.0.132: preverba samo 5 datotek je spregledala libgstdav1d.so brez BIND_NOW).
+          while IFS= read -r -d '' f; do
+            file -b "$f" | grep -q '^ELF' || continue
+            # Vgrajene knjiznice Ubuntuja (vgradi.sh) so nespremenjeni binarni paketi distribucije - Ubuntujev libjxl0.7
+            # nima BIND_NOW (izmerjeno 21. 10.); zanje veljata RELRO in GNU_STACK, BIND_NOW samo za nase gradnje.
+            case "$(basename "$f")" in libicu*|libjxl*|libhwy*|libjpeg*|libxml2*|libxslt*|libexslt*) ;;
+              *) readelf -dW "$f" | grep -qE 'BIND_NOW|FLAGS_1.*NOW' || { echo "::error::$f brez BIND_NOW"; exit 1; } ;; esac
+            readelf -lW "$f" | grep -q GNU_RELRO || { echo "::error::$f brez GNU_RELRO"; exit 1; }
+            readelf -lW "$f" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$f nima GNU_STACK RW"; exit 1; }
+          done < <(find "$W" -type f -print0)
           rm -rf "$X"
           # Samo /usr/lib/safeer-webkit in doc: nic v sistemskih mapah knjiznic in brez skript vzdrzevalca.
           if dpkg-deb -c "$DEB" | awk '{print $6}' | grep -vE '^\./($|usr/$|usr/lib/$|usr/lib/safeer-webkit/|usr/share/$|usr/share/doc/$|usr/share/doc/safeer-webkit/)'; then echo "::error::datoteke izven /usr/lib/safeer-webkit"; exit 1; fi

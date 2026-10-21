@@ -27,7 +27,8 @@ echo "$SHA256  $DELO/crate.tar.gz" | sha256sum -c --quiet -
 tar -C "$DELO" -xzf "$DELO/crate.tar.gz"
 IZVOR="$DELO/gst-plugin-dav1d-$RAZLICICA"
 [ -f "$IZVOR/Cargo.lock" ] || { echo "dav1d.sh: crate nima Cargo.lock" >&2; exit 1; }
-CARGO_TARGET_DIR="$DELO/target" cargo +"$RUST" build --release --locked --manifest-path "$IZVOR/Cargo.toml" >&2
+# Utrjena gradnja (AGENTS.md; pregled 1.0.132: vticnik brez BIND_NOW): polni RELRO in BIND_NOW, kot paketi distribucije.
+RUSTFLAGS="-C link-arg=-Wl,-z,relro,-z,now" CARGO_TARGET_DIR="$DELO/target" cargo +"$RUST" build --release --locked --manifest-path "$IZVOR/Cargo.toml" >&2
 
 mkdir -p "$IZHOD"
 IZHOD="$(cd "$IZHOD" && pwd)"
