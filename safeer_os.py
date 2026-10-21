@@ -3281,6 +3281,15 @@ class SafeerOS(Gtk.Application):
             return False
         url = niz if niz.startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
+        from core import varuh_procesov
+        for ukaz in (["gio", "open", url], ["xdg-open", url]):
+            if shutil.which(ukaz[0]) is not None:
+                try:
+                    pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                    if pid:
+                        return True
+                except Exception:
+                    pass
         try:
             return bool(Gio.AppInfo.launch_default_for_uri(url, zasebni_webkit.kontekst_za_zunanje(Gio)))
         except Exception as e:  # noqa: BLE001
@@ -5258,9 +5267,12 @@ class SafeerOS(Gtk.Application):
             try:
                 subprocess.run(["gsettings", "set", "org.nemo.desktop", "show-desktop-icons", "true"],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-                subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True,
-                                 env=zasebni_webkit.okolje_za_zunanje())
+                from core import varuh_procesov
+                pid = varuh_procesov.zazeni_program(["nemo-desktop"], zasebni_webkit.okolje_za_zunanje())
+                if not pid:
+                    subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True,
+                                     env=zasebni_webkit.okolje_za_zunanje())
             except Exception as e:  # noqa: BLE001 - Safeer OS se zapre v vsakem primeru
                 print("[SafeerOS] nazaj v Mint:", e)
         GLib.timeout_add(250, lambda: (self._koncaj(), False)[1])
@@ -5302,6 +5314,16 @@ class SafeerOS(Gtk.Application):
         # Flatpak: program tece na racunalniku, ne v peskovniku (core/gostitelj.py).
         if gostitelj.v_flatpaku():
             return gostitelj.zazeni_vnos(pot, datoteke)
+        from core import varuh_procesov
+        for ukaz in (["gio", "launch", pot] + [str(d) for d in datoteke],
+                     ["gtk-launch", os.path.basename(pot)] + [str(d) for d in datoteke]):
+            if shutil.which(ukaz[0]) is not None:
+                try:
+                    pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                    if pid:
+                        return True
+                except Exception:
+                    pass
         info = Gio.DesktopAppInfo.new_from_filename(pot)
         if info is None:
             return False

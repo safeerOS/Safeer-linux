@@ -270,12 +270,21 @@ def odpri_z(poti, oznaka: str, vedno: bool = False, zaganjalnik: Optional[Callab
         except Exception:
             ok = False
     if not ok and shutil.which("gio") is not None:
+        ukaz = ["gio", "launch", vnos] + datoteke
+        from core import varuh_procesov
         try:
-            subprocess.Popen(["gio", "launch", vnos] + datoteke, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
-            ok = True
+            pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+            if pid:
+                ok = True
         except Exception:
-            ok = False
+            pass
+        if not ok:
+            try:
+                subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
+                ok = True
+            except Exception:
+                ok = False
     if not ok:
         return {"ok": False, "koda": "zagon"}
     privzet = False

@@ -83,6 +83,72 @@ def pod_varuhom() -> bool:
     return pripravi_obvestila()
 
 
+def zazeni_program(ukaz, okolje=None) -> int | None:
+    """Zazene uporabnikov program prek varuha, tako da dobi oom_score_adj=0 in svojo sejo.
+    Ce varuh ni na voljo ali odpove, vrne None (klicatelj zazene po starem in zabelezi v dnevnik)."""
+    if not pod_varuhom():
+        return None
+    pot_vtic = _obvestila.get("naslov")
+    vtic = _obvestila.get("vtic")
+    if not pot_vtic or vtic is None:
+        return None
+    import array
+    import json
+    try:
+        c1, c2 = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM | socket.SOCK_CLOEXEC)
+    except OSError as e:
+        _dnevnik("zagon prek varuha ni uspel (socketpair): %s" % e)
+        return None
+    try:
+        c1.settimeout(2.0)
+        c2.settimeout(2.0)
+        anc = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [c2.fileno()]))]
+        poslano = False
+        try:
+            vtic.sendmsg([b"SAFEER_ZAZENI=1\n"], anc, 0, pot_vtic)
+            poslano = True
+        except OSError as e:
+            _dnevnik("zagon prek varuha ni uspel (sendmsg): %s" % e)
+            return None
+        finally:
+            c2.close()
+
+        telo = json.dumps({"ukaz": list(ukaz), "okolje": dict(okolje) if okolje else None},
+                          ensure_ascii=False).encode("utf-8")
+        c1.sendall(struct.pack(">I", len(telo)) + telo)
+
+        glava = c1.recv(4)
+        if len(glava) != 4:
+            _dnevnik("zagon prek varuha ni uspel: prazen odgovor")
+            return None
+        dolzina = struct.unpack(">I", glava)[0]
+        if dolzina <= 0 or dolzina > 1024 * 1024:
+            _dnevnik("zagon prek varuha ni uspel: neveljavna dolzina odgovora %d" % dolzina)
+            return None
+        odg_bajti = bytearray()
+        while len(odg_bajti) < dolzina:
+            delcek = c1.recv(min(4096, dolzina - len(odg_bajti)))
+            if not delcek:
+                break
+            odg_bajti += delcek
+        if len(odg_bajti) < dolzina:
+            _dnevnik("zagon prek varuha ni uspel: nepopoln odgovor")
+            return None
+        odgovor = json.loads(odg_bajti.decode("utf-8"))
+        if odgovor.get("ok"):
+            return int(odgovor.get("pid") or 0)
+        _dnevnik("zagon prek varuha zavrnjen: %s" % odgovor.get("napaka"))
+        return None
+    except Exception as e:
+        _dnevnik("zagon prek varuha izjema: %s" % e)
+        return None
+    finally:
+        try:
+            c1.close()
+        except OSError:
+            pass
+
+
 def utrip_glib(GLib, vsakih_s: int = UTRIP_S) -> int:
     """Utrip iz glavne zanke GLib (Safeer OS), enkrat na proces: ce se zanka zatakne, utripa ni in varuh to vidi."""
     if not pripravi_obvestila() or _obvestila["utrip"]:
@@ -393,6 +459,7 @@ class Varuh:
         finally:
             os.umask(stara)
         self._budilka_r, self._budilka_w = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+        self._zunanji_pidi: set[int] = set()
 
     # ------------------------------------------------------------------ signali
     def namesti_signale(self) -> None:
@@ -472,39 +539,119 @@ class Varuh:
     def _beri_obvestila(self) -> None:
         while True:
             try:
-                podatki, pomozni, _z, _n = self.vtic.recvmsg(4096, socket.CMSG_SPACE(struct.calcsize("3i")))
+                podatki, pomozni, _z, _n = self.vtic.recvmsg(
+                    4096, socket.CMSG_SPACE(struct.calcsize("3i")) + socket.CMSG_SPACE(struct.calcsize("i")))
             except (BlockingIOError, InterruptedError):
                 return
             except OSError:
                 return
             pid = 0
+            prejeti_fd = None
             for raven, vrsta, vsebina in pomozni:
                 if raven == socket.SOL_SOCKET and vrsta == socket.SCM_CREDENTIALS:
                     pid, uid, _gid = struct.unpack("3i", vsebina[:12])
                     if uid != os.getuid():
                         pid = 0
+                elif raven == socket.SOL_SOCKET and vrsta == socket.SCM_RIGHTS:
+                    if len(vsebina) >= struct.calcsize("i"):
+                        prejeti_fd = struct.unpack("i", vsebina[:struct.calcsize("i")])[0]
             p = next((x for x in self.procesi if x.tece() and x.pid == pid), None) if pid else None
-            if p is None:
+            if p is None and not (getattr(self, "_dovoli_vse_otroke", False) and pid):
+                if prejeti_fd is not None:
+                    try:
+                        os.close(prejeti_fd)
+                    except OSError:
+                        pass
                 continue
             for vrstica in podatki.decode("utf-8", "replace").split("\n"):
                 kljuc, _, vrednost = vrstica.partition("=")
                 if kljuc == "READY" and vrednost == "1":
-                    if not p.pripravljen:
+                    if p is not None and not p.pripravljen:
                         self.dnevnik("%s pripravljen v %.1f s" % (p.ime, self.ura() - p.zacetek))
-                    p.pripravljen = True
-                    p.zadnji_utrip = self.ura()
+                    if p is not None:
+                        p.pripravljen = True
+                        p.zadnji_utrip = self.ura()
                 elif kljuc == "WATCHDOG" and vrednost == "1":
-                    p.zadnji_utrip = self.ura()
+                    if p is not None:
+                        p.zadnji_utrip = self.ura()
                 elif kljuc == "SAFEER_ZNOVA" and vrednost == "1":
                     # Gumb »Zazeni znova« na namizju (lupina): Safeer OS, ki ga je varuh opustil, poskusi znova.
                     self._ponovi = True
-                elif kljuc == "SAFEER_BREZ_LUPINE" and vrednost == "1" and p.glavni:
+                elif kljuc == "SAFEER_BREZ_LUPINE" and vrednost == "1" and p is not None and p.glavni:
                     # Safeer OS lupine ne more streci (vticnica) in je odprl svojo delovno povrsino: lupino ugasnemo.
                     for drug in self.procesi:
                         if drug is not p and not drug.storitev:
                             drug.izkljucen = True
                             self._ustavi(drug, "konec")
                     self.dnevnik("Safeer OS ne streze lupine: lupina izkljucena")
+                elif kljuc == "SAFEER_ZAZENI" and prejeti_fd is not None:
+                    self._obdelaj_zagon(prejeti_fd)
+                    prejeti_fd = None
+            if prejeti_fd is not None:
+                try:
+                    os.close(prejeti_fd)
+                except OSError:
+                    pass
+
+    def _obdelaj_zagon(self, fd: int) -> None:
+        """Zahteva za zagon uporabnikovega programa prek varuha (oom_score_adj 0)."""
+        import json
+        try:
+            with socket.socket(fileno=fd) as srv:
+                srv.settimeout(2.0)
+                glava = srv.recv(4)
+                if len(glava) != 4:
+                    return
+                dolzina = struct.unpack(">I", glava)[0]
+                if dolzina <= 0 or dolzina > 1024 * 1024:
+                    return
+                vsebina = bytearray()
+                while len(vsebina) < dolzina:
+                    delcek = srv.recv(min(4096, dolzina - len(vsebina)))
+                    if not delcek:
+                        break
+                    vsebina += delcek
+                if len(vsebina) < dolzina:
+                    return
+                zahteva = json.loads(vsebina.decode("utf-8"))
+                ukaz = zahteva.get("ukaz") or []
+                okolje = zahteva.get("okolje")
+                izid = self._zazeni_uporabnikov(ukaz, okolje)
+                odg = json.dumps(izid, ensure_ascii=False).encode("utf-8")
+                srv.sendall(struct.pack(">I", len(odg)) + odg)
+        except Exception as e:
+            self.dnevnik("zagon programa napaka: %s" % e)
+
+    def _zazeni_uporabnikov(self, ukaz: list, okolje: dict | None = None) -> dict:
+        """Zazene zunanji program v svoji seji (start_new_session=True), z oom_score_adj=0 (podeduje od varuha)."""
+        import shutil
+        import subprocess
+        if not ukaz or not ukaz[0] or any("\0" in str(d) for d in ukaz):
+            return {"ok": False, "napaka": "neveljaven ukaz"}
+        ukaz = [str(d) for d in ukaz]
+
+        from core import zasebni_webkit
+        cisto = zasebni_webkit.okolje_za_zunanje(os.environ if okolje is None else okolje)
+        cisto.pop("NOTIFY_SOCKET", None)
+        cisto.pop("SAFEER_OBNOVA", None)
+        for k in list(cisto):
+            if k.startswith("SAFEER_") and k != "SAFEER_DEBUG":
+                cisto.pop(k, None)
+
+        try:
+            proc = subprocess.Popen(
+                ukaz,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env=cisto,
+            )
+            self._zunanji_pidi.add(proc.pid)
+            self.dnevnik("uporabnikov program zagnan: %s (pid %d)" % (ukaz[0], proc.pid))
+            return {"ok": True, "pid": proc.pid}
+        except Exception as e:
+            return {"ok": False, "napaka": str(e)}
 
     # ------------------------------------------------------------------ korak zanke
     def _napaka(self, p: Proces, razlog: str) -> None:
@@ -564,6 +711,14 @@ class Varuh:
     def korak(self) -> int | None:
         """En obhod: obvestila, izhodi, zamrznitve, pomnilnik, zagoni. Vrne izhodno kodo, ko se mora varuh koncati."""
         self._beri_obvestila()
+        # Poberi koncane zunanje procese (preprecevanje zombijev)
+        for zpid in list(self._zunanji_pidi):
+            try:
+                rpid, _ = os.waitpid(zpid, os.WNOHANG)
+                if rpid == zpid:
+                    self._zunanji_pidi.discard(zpid)
+            except ChildProcessError:
+                self._zunanji_pidi.discard(zpid)
         zdaj = self.ura()
         if self._ponovi:
             self._ponovi = False

@@ -283,9 +283,17 @@ class Programi:
         if not ok and gostitelj.v_flatpaku():
             ok = gostitelj.zazeni_vnos(pot)
         if not ok:
+            from core import varuh_procesov
             for ukaz in (["gio", "launch", pot], ["gtk-launch", oznaka]):
                 if shutil.which(ukaz[0]) is None:
                     continue
+                try:
+                    pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                    if pid:
+                        ok = True
+                        break
+                except Exception:
+                    pass
                 try:
                     # Brez nasih zasebnih poti (WebKit, AppImage): program dobi sistemske knjiznice in typelibe.
                     subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

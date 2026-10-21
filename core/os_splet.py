@@ -3864,7 +3864,16 @@ class VdelaniSplet:
                         self._okno_za_dialog(), None,
                         lambda vir, izid: self._zunanji_program_izid(vir, izid, gostitelj, shema, portal), None)
                 else:
-                    # .deb in AppImage: privzeti program kot Gtk.UriLauncher, a brez nasih zasebnih poti v okolju
+                    # .deb in AppImage: najprej prek varuha za oom_score_adj=0
+                    from core import varuh_procesov, zasebni_webkit
+                    for cmd in (["gio", "open", uri], ["xdg-open", uri]):
+                        if shutil.which(cmd[0]) is not None:
+                            try:
+                                if varuh_procesov.zazeni_program(cmd, zasebni_webkit.okolje_za_zunanje()):
+                                    return
+                            except Exception:
+                                pass
+                    # Privzeti program kot Gtk.UriLauncher, a brez nasih zasebnih poti v okolju
                     # (GI_TYPELIB_PATH, GST_PLUGIN_PATH, LD_LIBRARY_PATH - core/zasebni_webkit.py).
                     vir = SimpleNamespace(launch_finish=self.Gio.AppInfo.launch_default_for_uri_finish)
                     self.Gio.AppInfo.launch_default_for_uri_async(
@@ -4140,6 +4149,14 @@ class VdelaniSplet:
             if os.environ.get("FLATPAK_ID"):
                 self.Gtk.FileLauncher.new(self.Gio.File.new_for_path(pot)).launch(self._okno_za_dialog(), None, None, None)
             else:
+                from core import varuh_procesov, zasebni_webkit
+                for cmd in (["gio", "open", pot], ["xdg-open", pot]):
+                    if shutil.which(cmd[0]) is not None:
+                        try:
+                            if varuh_procesov.zazeni_program(cmd, zasebni_webkit.okolje_za_zunanje()):
+                                return
+                        except Exception:
+                            pass
                 self.Gio.AppInfo.launch_default_for_uri_async(self.Gio.File.new_for_path(pot).get_uri(),
                                                               self._kontekst_zunanjega(), None, None, None)
         except Exception as napaka:  # noqa: BLE001

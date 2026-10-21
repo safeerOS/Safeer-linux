@@ -1525,16 +1525,24 @@ class Datoteke:
         pot = r[1]
         if not os.path.exists(pot) or nevarna_za_odpiranje(pot):
             return False                      # programov in skript na daljavo ne zaganjamo (nevarna_za_odpiranje)
-        from core import zasebni_webkit
+        from core import varuh_procesov, zasebni_webkit
+        odpiralnik = shutil.which("gio") or shutil.which("xdg-open")
+        if odpiralnik:
+            ukaz = [odpiralnik, "open", pot] if odpiralnik.endswith("gio") else [odpiralnik, pot]
+            try:
+                pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                if pid:
+                    return True
+            except Exception:
+                pass
         if zasebni_webkit.odpri_privzeto(pot):        # v procesu (Gio), xdg-open/gio sta rezerva
             return True
-        odpiralnik = shutil.which("xdg-open") or shutil.which("gio")
         if not odpiralnik:
             return False
         ukaz = [odpiralnik, pot] if odpiralnik.endswith("xdg-open") else [odpiralnik, "open", pot]
         try:
             subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
             return True
         except Exception:
             return False
