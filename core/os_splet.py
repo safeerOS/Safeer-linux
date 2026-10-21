@@ -3240,6 +3240,10 @@ class VdelaniSplet:
         if "zgodovina" in vrste:
             od = datetime.datetime.now() - datetime.timedelta(seconds=sekund) if sekund else None
             zgodovina.pocisti(os.path.join(self.config.config_dir, "history.json"), od)
+        if vrste & {"zgodovina", "piskotki"}:
+            # Gostitelji brez https (core/https_nadgradnja) so sled obiskanih strani, kot HSTS - izbrisejo se z njimi.
+            from core import https_nadgradnja
+            (getattr(self, "_seja_https", None) or https_nadgradnja.Seja(self.config.config_dir)).pocisti()
         if "prenosi" in vrste:
             self.prenosi[:] = [z for z in self.prenosi if z.get("stanje") == "tece"]
             self._osvezi_prenose()

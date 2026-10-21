@@ -103,6 +103,19 @@ class Seja:
             except OSError:
                 pass
 
+    def pocisti(self) -> None:
+        """Brisanje podatkov brskanja (zgodovina, piskotki/HSTS): seznam gostiteljev je sled obiskanih strani - izbrise se
+        z njimi (v pomnilniku in na disku)."""
+        self.povratki.clear()
+        pot = self._pot_diska()
+        if pot:
+            try:
+                os.remove(pot)
+            except FileNotFoundError:
+                pass
+            except OSError as napaka:
+                print("[Splet] https_brez:", napaka, flush=True)
+
     def je_brez_https(self, gostitelj: str) -> bool:
         """Ali je gostitelj v povratkih (v pomnilniku ali na disku znotraj 30 dni)."""
         g = (gostitelj or "").lower().strip()

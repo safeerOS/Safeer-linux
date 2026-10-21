@@ -289,3 +289,22 @@ class TestSplet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrisanjePodatkov(unittest.TestCase):
+    def test_pocisti_izbrise_disk_in_pomnilnik(self):
+        """Seznam gostiteljev brez https je sled obiskanih strani: brisanje podatkov ga izbrise (Claude 21. 10. 2026)."""
+        import tempfile
+        from core import https_nadgradnja as H
+        with tempfile.TemporaryDirectory() as mapa:
+            s = H.Seja(mapa)
+            s.povratek("primer.si")
+            self.assertTrue(os.path.exists(os.path.join(mapa, H.DATOTEKA_POVRATKOV)))
+            s.pocisti()
+            self.assertFalse(os.path.exists(os.path.join(mapa, H.DATOTEKA_POVRATKOV)))
+            self.assertFalse(H.Seja(mapa).je_brez_https("primer.si"))
+            self.assertFalse(s.je_brez_https("primer.si"))
+
+    def test_izbrisi_v_spletu_klice_pocisti(self):
+        with open(os.path.join(os.path.dirname(__file__), "..", "core", "os_splet.py"), encoding="utf-8") as f:
+            self.assertIn('if vrste & {"zgodovina", "piskotki"}:', f.read())
