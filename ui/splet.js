@@ -192,14 +192,31 @@
     if (vrh.length < 2 || !/^\p{L}+$/u.test(vrh)) return false;
     return !(deli.length === 2 && !pot && KONCNICE_NE_DOMENE[vrh] === 1);
   }
+  // localhost ali zasebni/loopback/link-local IP (enako kot core/config._lokalni_gostitelj; pregled OpenAI 1.0.130 B)
+  function lokalniGostitelj(q) {
+    var gost = q.split(/[\/?#]/)[0], ime;
+    if (gost.charAt(0) === "[") ime = gost.indexOf("]") > 0 ? gost.slice(1, gost.indexOf("]")) : "";
+    else ime = /:\d+$/.test(gost) ? gost.replace(/:\d+$/, "") : gost;
+    ime = ime.toLowerCase();
+    if (ime === "localhost") return true;
+    if (jeIPv4(ime)) {
+      var d = ime.split(".").map(Number);
+      return d[0] === 10 || d[0] === 127 || (d[0] === 172 && d[1] >= 16 && d[1] <= 31) || (d[0] === 192 && d[1] === 168) ||
+             (d[0] === 169 && d[1] === 254);
+    }
+    if (jeIPv6(ime)) {
+      var n = new URL("http://[" + ime + "]/").hostname.replace(/^\[|\]$/g, "");
+      return n === "::1" || /^f[cd][0-9a-f]{0,2}:/.test(n) || /^fe[89ab][0-9a-f]?:/.test(n);
+    }
+    return false;
+  }
   function vNaslov(vnos) {
     var q = (vnos || "").trim();
     if (!q) return "";
     if (/^file:/i.test(q)) return q;                       // lokalna datoteka (gostitelj jo preveri)
     if (jeSpletniNaslov(q)) {
       if (/^https?:\/\//i.test(q)) return q;
-      if (q.charAt(0) === "[" || /^[^\/?#]*:\d+([\/?#]|$)/.test(q)) return "http://" + q;   // vrata ali IPv6
-      return "https://" + q;
+      return (lokalniGostitelj(q) ? "http://" : "https://") + q;   // privzeto https; http samo dokazljivo lokalno
     }
     if (q.charAt(0) === "?") q = q.slice(1).trim();
     return (ISKALNIKI[S.iskalnik] || ISKALNIKI.duckduckgo) + encodeURIComponent(q);

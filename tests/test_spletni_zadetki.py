@@ -320,3 +320,31 @@ def test_oznaka_iskalnika_tudi_brez_zadetkov():
     with open(os.path.join(koren, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8") as f:
         qml = f.read()
     assert "(d.splet || []).filter(function (z) { return !!z.url }).forEach" in qml
+
+
+def test_stran_ostane_interactive_do_roka():
+    """Neodvisni pregled OpenAI 1.0.130 (krog B, NIZKA): stran, ki ostane »interactive«, se ne potrdi; ob roku (ROK_S)
+    lupa dobi en sam prazen odgovor in nic ni shranjeno."""
+    import json as _json
+    import types
+    LoadEvent = types.SimpleNamespace(STARTED=0, COMMITTED=2, FINISHED=3)
+    casovniki, roki = [], []
+    GLib = types.SimpleNamespace(timeout_add=lambda ms, f: ((casovniki if ms == 250 else roki).append(f)) or 1,
+                                 timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
+    p = sz.PredogledIskanja(None, types.SimpleNamespace(LoadEvent=LoadEvent), GLib)
+    rezultat = types.SimpleNamespace(to_string=lambda: _json.dumps(
+        {"naslov": "https://www.google.com/search?q=vreme", "zadetki": ZADETEK, "stanje": "interactive"}))
+    pogled = types.SimpleNamespace(load_uri=lambda _u: None, get_uri=lambda: "", stop_loading=lambda: None,
+                                   evaluate_javascript=lambda js, _d, _s, _a, _b, cb: cb(pogled, "r"),
+                                   evaluate_javascript_finish=lambda r: rezultat)
+    p._pogled = lambda: (setattr(p, "pogled", pogled), pogled)[1]
+    izid = []
+    p.isci("https://www.google.com/search?q=vreme", izid.append, motor="google")
+    p._nalozeno(p.pogled, LoadEvent.FINISHED)
+    for _ in range(sz.POSKUSOV + 3):
+        if casovniki:
+            casovniki.pop(0)()
+    assert izid == [] and not p._shramba
+    assert len(roki) == 1
+    roki[0]()                                              # rok 6 s
+    assert izid == [[]] and not p._shramba

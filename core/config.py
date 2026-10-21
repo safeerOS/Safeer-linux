@@ -67,6 +67,27 @@ def _je_ip(ime: str) -> bool:
         return False
 
 
+#: Izrecno (ne ipaddress.is_private, ta steje tudi dokumentacijska omrezja): isti seznam kot ui/splet.js lokalniGostitelj.
+_LOKALNA_OMREZJA = tuple(ipaddress.ip_network(m) for m in (
+    "10.0.0.0/8", "127.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"))
+
+
+def _lokalni_gostitelj(s: str) -> bool:
+    """localhost ali zasebni/loopback/link-local naslov IP (tudi [IPv6]) - tam je http obicajen in ostane v omrezju."""
+    gost = re.split(r"[/?#]", s, 1)[0]
+    if gost.startswith("["):
+        ime = gost[1:gost.find("]")] if "]" in gost else ""
+    else:
+        ime = gost.rsplit(":", 1)[0] if re.search(r":\d+$", gost) else gost
+    if ime.lower() == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(ime)
+    except ValueError:
+        return False
+    return any(ip in m for m in _LOKALNA_OMREZJA if m.version == ip.version)
+
+
 def je_spletni_naslov(besedilo: str) -> bool:
     """Ali je vpis v naslovno vrstico spletni naslov (True) ali iskanje (False) - kot v sodobnih brskalnikih.
 
@@ -116,13 +137,12 @@ def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
         return ""
     if je_spletni_naslov(s):
         # Naslov sestavimo sami (kot ui/splet.js vNaslov): normalize_web_url je »router.lan:8443?token=x« zavrnil in cel niz
-        # z zetonom poslal iskalniku (neodvisni pregled OpenAI 1.0.130). Vrata ali [IPv6] -> http, sicer https.
+        # z zetonom poslal iskalniku (neodvisni pregled OpenAI 1.0.130, krog A). Privzeto https; http samo za dokazljivo
+        # lokalne naslove (localhost, zasebni/loopback/link-local IP) - vrata ne dokazujejo domacega omrezja (krog B).
         if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", s):
             naslov = normalize_web_url(s)
-        elif s.startswith("[") or re.match(r"^[^/?#]*:\d+(?:[/?#]|$)", s):
-            naslov = "http://" + s
         else:
-            naslov = "https://" + s
+            naslov = ("http://" if _lokalni_gostitelj(s) else "https://") + s
         if naslov:
             return naslov
     return iskalnik_url + urllib.parse.quote_plus(s[1:].strip() if s.startswith("?") else s)

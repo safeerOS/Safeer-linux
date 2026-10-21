@@ -24,11 +24,11 @@ class TestNaslovnaVrstica(unittest.TestCase):
     def test_naslov(self):
         for niz, pricakovano in (("safeer.si", "https://safeer.si"), ("github.com/safeerOS", "https://github.com/safeerOS"),
                                  ("https://test/", "https://test/"), ("http://192.168.0.1/", "http://192.168.0.1/"),
-                                 ("localhost:8080", "http://localhost:8080"), ("192.168.0.1", "https://192.168.0.1"),
-                                 ("test:3000/pot", "http://test:3000/pot"), ("www.google.si/search?q=a b",
+                                 ("localhost:8080", "http://localhost:8080"), ("192.168.0.1", "http://192.168.0.1"),
+                                 ("test:3000/pot", "https://test:3000/pot"), ("www.google.si/search?q=a b",
                                                                               None),
                                  ("xn--d1acufc.xn--p1ai", "https://xn--d1acufc.xn--p1ai"), ("šola.si", "https://šola.si"),
-                                 ("example.zip", "https://example.zip"), ("localhost", "https://localhost"),
+                                 ("example.zip", "https://example.zip"), ("localhost", "http://localhost"),
                                  ("[::1]:8080", "http://[::1]:8080"), ("lanacion.com.py", "https://lanacion.com.py"),
                                  ("safeer.si/navodila.md", "https://safeer.si/navodila.md"), ("nas/", "https://nas/"),
                                  ("10.0.0.1:8006", "http://10.0.0.1:8006"), ("printer.lan", "https://printer.lan")):
@@ -82,7 +82,9 @@ class TestNaslovnaVrstica(unittest.TestCase):
         self.assertIsNotNone(re.search(r"function vNaslov[\s\S]*?jeSpletniNaslov\(q\)", js[b:]))
         # Neodvisni pregled OpenAI 1.0.130: primerjaj tudi KONCNI naslov (ne le odlocitve) in robne primere.
         c = js.index("function crka(")
-        naslovi = ["router.lan:8443?token=x", "router.lan:8443#x", "safeer.si", "localhost:8080", "192.168.0.1",
+        naslovi = ["router.lan:8443?token=x", "router.lan:8443#x", "public.example:8443?token=s", "[2001:db8::1]:8443",
+                   "[fe80::1]:80", "[fd00::5]", "172.20.1.1", "172.40.1.1", "8.8.8.8:53", "169.254.1.1",
+                   "safeer.si", "localhost:8080", "192.168.0.1",
                    "[::1]:8080", "[::1]", "nas/", "github.com/safeerOS", "https://test/", "lanacion.com.py",
                    "safeer.si..", "[::::]", "[1:2:3:4:5:6:7:8:9]", "10.0.0.1:8006/admin?x=1"]
         skripta2 = ("var S = {iskalnik: 'duckduckgo'}; var ISKALNIKI = {duckduckgo: " + json.dumps(DDG) + "};\n"
@@ -97,7 +99,13 @@ class TestNaslovnaVrstica(unittest.TestCase):
                     self.assertEqual(unquote_plus(js_naslov[len(DDG):]), unquote_plus(py_naslov[len(DDG):]))
                 else:
                     self.assertEqual(js_naslov, py_naslov, niz)
-        self.assertEqual(naslov_ali_iskanje("router.lan:8443?token=x", DDG), "http://router.lan:8443?token=x")
+        # Neodvisni pregled OpenAI 1.0.130 (krog B, VISOKA): vrata ne dokazujejo domacega omrezja - brez sheme privzeto https
+        # (zeton ne gre nesifriran), http samo za localhost in zasebne/loopback/link-local naslove IP.
+        self.assertEqual(naslov_ali_iskanje("router.lan:8443?token=x", DDG), "https://router.lan:8443?token=x")
+        self.assertEqual(naslov_ali_iskanje("public.example:8443?token=s", DDG), "https://public.example:8443?token=s")
+        self.assertEqual(naslov_ali_iskanje("[2001:db8::1]:8443", DDG), "https://[2001:db8::1]:8443")
+        self.assertEqual(naslov_ali_iskanje("192.168.0.1", DDG), "http://192.168.0.1")
+        self.assertEqual(naslov_ali_iskanje("localhost:8080", DDG), "http://localhost:8080")
 
 
 if __name__ == "__main__":
