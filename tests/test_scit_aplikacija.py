@@ -132,7 +132,7 @@ class ZasebnostPovsod(unittest.TestCase):
                     mock.patch.object(safeer_drm, "mapa_sej", return_value=pathlib.Path(d, "seje")), \
                     mock.patch.object(safeer_drm, "v_peskovniku", return_value=False), \
                     mock.patch.object(safeer_drm, "v_flatpaku", return_value=False), \
-                    mock.patch.object(safeer_drm.subprocess, "Popen", side_effect=lambda a, **k: zagnano.append(a) or object()):
+                    mock.patch.object(safeer_drm.subprocess, "Popen", side_effect=lambda a, **k: zagnano.append(a) or SimpleNamespace(pid=999999)):
                 g = SimpleNamespace(ustavi=lambda: None, _xid_starsa=lambda: 7, GLib=mock.MagicMock(),
                                     gradnik=mock.MagicMock(), proces=None, _beri=lambda: True)
                 self.assertTrue(safeer_drm.Gostitelj.zacni(g, "https://www.netflix.com/", storitev=True))

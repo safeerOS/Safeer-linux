@@ -584,7 +584,9 @@ class Varuh:
                             drug.izkljucen = True
                             self._ustavi(drug, "konec")
                     self.dnevnik("Safeer OS ne streze lupine: lupina izkljucena")
-                elif kljuc == "SAFEER_ZAZENI" and prejeti_fd is not None:
+                elif kljuc == "SAFEER_ZAZENI" and prejeti_fd is not None and p is not None and p.glavni:
+                    # Samo Safeer OS (glavni proces pod varuhom) sme zahtevati zagon uporabnikovega programa - ne Scit,
+                    # ne lupina (pregled 21. 10. 2026: najmanjsa pravica, Scit je izpostavljen omrezju).
                     self._obdelaj_zagon(prejeti_fd)
                     prejeti_fd = None
             if prejeti_fd is not None:
