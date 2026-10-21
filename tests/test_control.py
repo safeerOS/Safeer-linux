@@ -86,7 +86,7 @@ class ControlPaket(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(mapa, "usr", "share", "applications", "safeer-control.desktop")))
         # Control se predstavi s svojo razlicico, tudi brez GTK (izpis pred uvozom okna ni potreben: --version).
         v = open(os.path.join(KOREN, "packaging", "VERSION_CONTROL"), encoding="utf-8").read().strip()
-        self.assertRegex(v, r"^\d+\.\d+\.\d+$")
+        self.assertRegex(v, r"^\d+\.\d+\.\d+(-beta\.\d+)?$")   # beta kanal (docs/BETA.md)
 
     def test_stran_pozna_nacin_control(self):
         js = open(os.path.join(KOREN, "assets", "link", "link.js"), encoding="utf-8").read()
