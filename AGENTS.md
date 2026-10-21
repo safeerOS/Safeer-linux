@@ -25,6 +25,16 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
   procesi strani v bubblewrap; Android WebView: sandboxed_process tudi na TV) - »en proces« velja za vmesnik Safeer.
 
 ## Razvoj Spleta (WebKit)
+- Vedno nas WebKit (lastnik, 21. 10. 2026): program, meritev ali preizkus s sistemskim WebKitGTK ni veljaven - pred
+  meritvijo preveri razlicico in pot nalozene knjiznice (21. 10. je LD_LIBRARY_PATH na napacno mapo tiho nalozil 2.52.6).
+
+## Utrjena gradnja (lastnik, 21. 10. 2026: »ce imamo te ranljivosti, nismo zares Safeer«)
+- Vsaka knjiznica in program, ki ga gradimo sami (WebKit, JavaScriptCore, libsoup, dav1d, rqbit, Qt, nase .so), je vsaj
+  tako utrjen kot paket distribucije: -fstack-protector-strong, -D_FORTIFY_SOURCE=3, -fstack-clash-protection,
+  -fcf-protection=full (CET: IBT+SHSTK), PIE, -Wl,-z,relro,-z,now (BIND_NOW), GNU_STACK RW (brez E).
+- Izmerjeno 21. 10.: nas WebKit 2.54.1 brez BIND_NOW, 2 namesto 10 funkcij _chk, brez CET; libsoup brez zascite sklada
+  (Ubuntujev libwebkitgtk vse ima). Vsaka nova gradnja: readelf -dlnW + nm -D v CI za VSAKO datoteko .so/program v paketu;
+  manjkajoca zascita ustavi gradnjo. Hitrost ni razlog za manj zascite; ce zastavica ne gre z BOLT/PGO, izmeri in zapisi.
 - Pred vsakim delom na Spletu, Safeer Browserju ali WebKitu preberi docs/SMERNICE-SPLET.md (izmerjena arhitektura,
   merjenje PSS in A/B, funkcije WebKita, profil naprave, pomnilnik, varnost, ustreznice tehnik drugih brskalnikov).
 
