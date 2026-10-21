@@ -23,7 +23,7 @@ from types import MappingProxyType, SimpleNamespace
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
                   safeer_drm, scit_pravila, splet_prenosi, splet_skripte, splet_spanje, splet_temno, zascita,
                   zasebni_webkit)
-from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
+from core.config import ConfigManager, SEARCH_ENGINES, naslov_ali_iskanje, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
                              naprej_iz, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, shrani_naprej,
@@ -2328,10 +2328,13 @@ class VdelaniSplet:
         spanje = getattr(self, "spanje", None)
         if spanje is not None and spanje.odpri_procese(besedilo):
             return                          # »procesi« ali safeer://procesi
-        naslov = lokalni_naslov(besedilo) or normalize_web_url(besedilo)
+        # Naslovna vrstica je tudi iskalno polje (lastnik 21. 10. 2026): »test« ali »vreme ljubljana« gre iskalniku,
+        # »safeer.si« ali »localhost:8080« se odpre (core/config.je_spletni_naslov).
+        motor = self.config.get("search_engine", "duckduckgo")
+        iskalnik = SEARCH_ENGINES.get(motor, SEARCH_ENGINES["duckduckgo"])["url"]
+        naslov = lokalni_naslov(besedilo) or naslov_ali_iskanje(besedilo, iskalnik)
         if not naslov:
-            motor = self.config.get("search_engine", "duckduckgo")
-            naslov = SEARCH_ENGINES.get(motor, SEARCH_ENGINES["duckduckgo"])["url"] + urllib.parse.quote_plus(besedilo)
+            return
         self.odpri(naslov, lokalno=True)        # uporabnik je naslov vpisal sam
 
     def _politika(self, pogled, odlocitev, vrsta):

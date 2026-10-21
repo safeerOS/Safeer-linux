@@ -52,6 +52,60 @@ def normalize_web_url(url: str) -> str:
         return ""
 
 
+#: Koncnice datotek, ki niso vrhnje domene: »racun.pdf« v naslovni vrstici je iskanje, ne https://racun.pdf
+#: (.zip, .mov in .app SO vrhnje domene, zato jih ni na seznamu).
+_KONCNICE_NE_DOMENE = frozenset(("pdf", "doc", "docx", "odt", "ods", "odp", "xls", "xlsx", "ppt", "pptx", "txt", "rtf",
+                                 "csv", "jpg", "jpeg", "png", "gif", "webp", "svg", "mp3", "mp4", "mkv", "avi", "flac",
+                                 "wav", "ogg", "7z", "rar", "tar", "gz", "deb", "rpm", "exe", "apk", "iso", "py", "js",
+                                 "json", "md", "html", "htm"))
+_IPV4 = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
+def je_spletni_naslov(besedilo: str) -> bool:
+    """Ali je vpis v naslovno vrstico spletni naslov (True) ali iskanje (False) - kot v sodobnih brskalnikih.
+
+    Lastnik 21. 10. 2026: v Spletu je »test« odprl https://test/ (»Strani trenutno ni mogoče odpreti«) namesto iskanja;
+    normalize_web_url iz vsake besede brez dvopicja naredi naslov, tudi iz »vreme ljubljana«. Naslov je: shema http(s),
+    localhost, IP, gostitelj z vrati ali gostitelj s piko in vrhnjo domeno iz crk (ne stevilka, ne koncnica datoteke).
+    Iskanje je: ena beseda brez pike, vse s presledkom, »python 3.12«, »racun.pdf«, vpis, ki se zacne z »?«."""
+    s = (besedilo or "").strip()
+    if not s or s.startswith("?") or any(c.isspace() for c in s):
+        return False
+    m = re.match(r"^([a-zA-Z][a-zA-Z0-9+.-]*):(//)?", s)
+    if m and m.group(2):
+        return m.group(1).lower() in ("http", "https")
+    gostitelj = re.split(r"[/?#]", s, 1)[0]
+    if "@" in gostitelj:
+        return False                                   # »ime@posta.si« ni naslov strani
+    if gostitelj.startswith("["):                      # [IPv6]:vrata
+        return gostitelj.find("]") > 1
+    ime, _, vrata = gostitelj.partition(":")
+    if vrata:
+        return vrata.isdigit() and bool(ime)           # localhost:8080, test:3000, 192.168.0.1:8080
+    if ime.lower() == "localhost" or _IPV4.match(ime):
+        return True
+    deli = ime.rstrip(".").split(".")
+    if len(deli) < 2 or not all(deli):
+        return False
+    vrh = deli[-1].lower()
+    if vrh.startswith("xn--"):
+        return len(vrh) > 4
+    return len(vrh) >= 2 and vrh.isalpha() and vrh not in _KONCNICE_NE_DOMENE
+
+
+def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
+    """Naslov za vpis v naslovno vrstico: spletni naslov ali stran rezultatov izbranega iskalnika."""
+    s = (besedilo or "").strip()
+    if not s:
+        return ""
+    if je_spletni_naslov(s):
+        # [IPv6]:vrata: normalize_web_url deli pri prvem dvopicju in ga ne pozna
+        naslov = ("http://" + s) if s.startswith("[") else normalize_web_url(s)
+        if naslov:
+            return naslov
+    return iskalnik_url + urllib.parse.quote_plus(s[1:].strip() if s.startswith("?") else s)
+
+
 # SAFEER_MINT_CONFIG_DIR: Safeer Browser v Flatpaku (safeer_brskalnik.py) - ista mapa kot .deb (~/.config/safeer-mint),
 # ki jo manifest pokaze kot edino mapo v ~/.config; XDG_CONFIG_HOME ostane zasebna mapa peskovnika.
 CONFIG_DIR = os.environ.get("SAFEER_MINT_CONFIG_DIR") or os.path.join(
