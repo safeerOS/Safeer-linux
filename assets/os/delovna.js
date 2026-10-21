@@ -2850,6 +2850,7 @@
   function kljucZadetka(v) {
     switch (v && v.vrsta) {
       case "splet": return "splet";
+      case "spletNaslov": return "spletNaslov";
       case "program": return "program:" + v.p.id;
       case "prgNaprave": return "prgNaprave:" + (v.p.imeNaprave || "") + ":" + v.p.id;
       case "safeer": return "safeer:" + v.cilj;
@@ -2894,6 +2895,7 @@
     var nauceni = N ? najboljNauceni(vnosi, N) : -1;
     if (nauceni >= 0) return nauceni;
     var I_ = typeof SafeerIskanje !== "undefined" ? SafeerIskanje : null;
+    for (var n = 0; n < vnosi.length; n++) if (vnosi[n].vrsta === "spletNaslov") return n;   // vpisan naslov: Enter ga odpre
     if (I_ && q && I_.jeNaslov(q)) return 0;
     var prvi = 0, rang = 0;
     vnosi.forEach(function (v, i) {
@@ -2987,7 +2989,11 @@
         var poNaslovu = s.filter(function (x) { return ujemaZadetek((x.naslov || "") + " " + (x.izvajalec || ""), besede); });
         return (poNaslovu.length ? poNaslovu : s).slice(0, 5);
       }).catch(function () { return []; }) : Promise.resolve([]),
-      I.cilj ? klic("napraveZaMedij").catch(function () { return []; }) : Promise.resolve([])
+      I.cilj ? klic("napraveZaMedij").catch(function () { return []; }) : Promise.resolve([]),
+      // Vpis, ki je spletni naslov (core/config.naslov_za_lupo, isto pravilo kot naslovna vrstica Spleta): prvi zadetek
+      // »Odpri safeer.si«, pod njim »Isci v spletu« (kot omnibox Chrome in Safari; lastnik 21. 10. 2026).
+      !I.cilj ? klic("naslovLupe", [q]).then(function (s) { return typeof s === "string" ? s : ""; })
+        .catch(function () { return ""; }) : Promise.resolve("")
     ];
     // Enter, pritisnjen pred prihodom zadetkov (I.poEnter): odlocimo, ko pridejo VSI zadetki - enako kot po prikazu
     // (privzetiZadetek: datoteka, slika ali zapisek z ujemajocim imenom pred spletom). Ce iskanje po disku traja
@@ -2996,15 +3002,18 @@
       // »Prikazi na …« odloci izris vseh zadetkov (naprave za cilj), ne programi.
       if (st !== I.st || !I.poEnter || I.cilj) return;
       I.poEnter = false;
-      cakaj[0].then(function (programi) {
+      Promise.all([cakaj[0], cakaj[6]]).then(function (r0) {
         if (st !== I.st) return;
+        var programi = r0[0], naslov = r0[1];
         var napravaPoImenu = naprave.filter(function (v) { return v.poImenu; })[0];
         var nast = programi.nastavitve || [];
         // Enter brez izbire: program, sicer nastavitev, katere ime se z nizom zacne, sicer Safeer OS ali naprava.
         var nastPoImenu = nast.filter(function (p) { return ocenaPrograma(p, ql) >= 2; })[0];
         var kandidati = programi.concat(nast).map(function (p) { return { vrsta: "program", p: p }; }).concat(safeer, naprave);
+        if (naslov) kandidati.unshift({ vrsta: "spletNaslov", url: naslov, q: q });
         var nauceni = najboljNauceni(kandidati, nauceno);
         if (nauceni >= 0) { I.privzetiV = kandidati[nauceni]; izberiZadetek(kandidati[nauceni]); return; }
+        if (naslov) { I.privzetiV = kandidati[0]; izberiZadetek(kandidati[0]); return; }     // vpisan naslov: Enter ga odpre
         I.privzetiV = programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } : null;
         izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :
           safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q });
@@ -3021,7 +3030,7 @@
         });
         skupine.push({ naslov: t("skPrikaziNa"), vnosi: naCilj.length ? naCilj : [{ vrsta: "naCilj", n: null, naslov: q }] });
       }
-      skupine.push({ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] });
+      skupine.push({ naslov: t("skSplet"), vnosi: (r[6] ? [{ vrsta: "spletNaslov", url: r[6], q: q }] : []).concat([{ vrsta: "splet", q: q }]) });
       if (r[0].length) skupine.push({ naslov: t("skProgrami"), vnosi: r[0].map(function (p) { return { vrsta: "program", p: p }; }) });
       if ((r[0].nastavitve || []).length) skupine.push({ naslov: t("skNastavitve"), vnosi: r[0].nastavitve.map(function (p) { return { vrsta: "program", p: p }; }) });
       if (safeer.length) skupine.push({ naslov: t("skSafeer"), vnosi: safeer });
@@ -3051,7 +3060,9 @@
       s.vnosi.forEach(function (v) {
         var b = el("button", "zadetek"); b.type = "button"; b.setAttribute("role", "option"); b.tabIndex = -1;
         var ime, pod = "", vir = "";
-        if (v.vrsta === "splet") {
+        if (v.vrsta === "spletNaslov") {
+          b.appendChild(ikonaVrste("splet")); ime = t("odpriNaslov", { naslov: v.q }); pod = v.url;
+        } else if (v.vrsta === "splet") {
           b.appendChild(ikonaVrste("splet")); ime = t("isciVSpletu", { q: v.q }); pod = t("odpreVBrskalniku");
         } else if (v.vrsta === "program") {
           appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; pod = v.p.opis || ""; vir = t("taRacunalnik");
@@ -3199,6 +3210,7 @@
     zapomniIzbiro(v);
     skrijZadetke();
     if (v.vrsta === "splet") odpriSplet(v.q);
+    else if (v.vrsta === "spletNaslov") odpriSplet(v.url);     // naslov http(s): plosca Spleta ga odpre, ne isce
     else if (v.vrsta === "program") klic("zazeni", [v.p.id]);
     else if (v.vrsta === "prgNaprave") { var r = $("iskalnoPolje").getBoundingClientRect(); meniPrograma(v.p, r.left, r.bottom + 6); }
     else if (v.vrsta === "safeer") klic("odpriRazdelek", [v.cilj]);

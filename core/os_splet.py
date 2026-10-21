@@ -1715,6 +1715,12 @@ class VdelaniSplet:
         # Napaka omrezja ali potrdila: nasa stran v jeziku vmesnika (prej WebKitova v anglescini; kot Safeer Browser).
         # PRED _politika: ta odlocitve obravnava sama (vrne True) in ustavi signal, NetworkErrorHandler pa mora videti
         # metodo vsake glavne navigacije (POST obrazca se nikoli ne ponovi samodejno).
+        # Samodejni https s povratkom (lastnik 21. 10. 2026, kot Safari): PRED NetworkErrorHandler, da neuspel poskus
+        # https ne pokaze strani napake, ampak odpre prvotni http (core/https_nadgradnja.py).
+        from core import https_nadgradnja
+        pogled._safeer_https = https_nadgradnja.Pogled(
+            pogled, self._https_seja(), W, self.GLib,
+            lambda uri, p=pogled: p._safeer_napake._metoda(uri) if getattr(p, "_safeer_napake", None) else None)
         from core.network_errors import NetworkErrorHandler
         pogled._safeer_napake = NetworkErrorHandler(pogled, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"))
         pogled.connect("decide-policy", self._politika)
@@ -1915,7 +1921,7 @@ class VdelaniSplet:
             naslov = ""
         if naslov.startswith(("http://", "https://")):
             zaprti = getattr(self, "_zaprti", [])
-            zaprti.append(naslov)
+            zaprti.append(prikazni_naslov(naslov))
             self._zaprti = zaprti[-20:]
 
     def tipka(self, dogodek) -> bool:
@@ -2350,6 +2356,22 @@ class VdelaniSplet:
     def odpri_domov(self):
         if self.trenutni(): self.trenutni().load_uri(self.domaci_uri())
 
+    def _https_seja(self):
+        """Gostitelji, kjer https ni uspel - trajno na disku in za cas seje (core/https_nadgradnja.Seja)."""
+        seja = getattr(self, "_seja_https", None)
+        if seja is None:
+            from core import https_nadgradnja
+            mapa = getattr(self.config, "config_dir", None)
+            seja = self._seja_https = https_nadgradnja.Seja(mapa)
+        return seja
+
+    @staticmethod
+    def _https_pred(pogled, naslov: str) -> str:
+        """Naslov od uporabnika (vrstica, zaznamek, povezava od drugod): https poskus ze pred zahtevo, ne sele ob zacetku
+        nalaganja - zahteva na http tako sploh ne odide (core/https_nadgradnja.Pogled.pred_nalaganjem)."""
+        https = getattr(pogled, "_safeer_https", None)
+        return https.pred_nalaganjem(naslov) if https is not None else naslov
+
     def odpri(self, naslov: str = "", pogled=None, lokalno: bool = False):
         """lokalno=True: tudi datoteka z diska (file://) - samo za naslove od uporabnika (naslovna vrstica, »Odpri z«,
         ukazna vrstica), nikoli iz sporocil strani ali drugih naprav."""
@@ -2364,7 +2386,7 @@ class VdelaniSplet:
         if not naslov: pogled.load_uri(self.domaci_uri()); return True
         normalen = (lokalni_naslov(naslov) if lokalno else "") or normalize_web_url(naslov)
         if not normalen: return False
-        pogled.load_uri(normalen); return True
+        pogled.load_uri(self._https_pred(pogled, normalen)); return True
 
     def odpri_povezavo(self, naslov: str, lokalno: bool = False) -> bool:
         """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
@@ -2374,7 +2396,7 @@ class VdelaniSplet:
         if not normalen: return False
         pogled = self.trenutni()
         if pogled is not None and ozadje_strani.nasa_stran(pogled.get_uri() or "", os.path.join(self.koren, "ui")):
-            pogled.load_uri(normalen); return True
+            pogled.load_uri(self._https_pred(pogled, normalen)); return True
         if lokalno:
             self.nov_zavihek(normalen, lokalno=True); return True
         self.nov_zavihek(normalen); return True
@@ -2669,7 +2691,7 @@ class VdelaniSplet:
         else:
             self._preveri_bank_stran(pogled, naslov)
             from core import zgodovina
-            zgodovina.dodaj(os.path.join(self.config.config_dir, "history.json"), naslov, pogled.get_title() or "")
+            zgodovina.dodaj(os.path.join(self.config.config_dir, "history.json"), prikazni_naslov(naslov), pogled.get_title() or "")
         self._osvezi_orodja()
 
     def _poslji_stanje(self, pogled, prenesi=True):
@@ -2961,11 +2983,12 @@ class VdelaniSplet:
         """Zvezdica: doda zaznamek, ce ga stran se nima, sicer ga odstrani (kot Firefox; prej se je dodal vsakic znova)."""
         p = self.trenutni(); uri = p.get_uri() if p else ""
         if not uri or je_domaca_stran(uri, self.koren): return
-        obstojeci = self._zaznamek_za(uri)
+        cist_uri = prikazni_naslov(uri)
+        obstojeci = self._zaznamek_za(cist_uri)
         if obstojeci is not None and obstojeci.get("id"):
             self.config.delete_portal(obstojeci["id"])
         else:
-            self.config.add_portal(p.get_title() or urllib.parse.urlparse(uri).hostname or uri, uri)
+            self.config.add_portal(p.get_title() or urllib.parse.urlparse(cist_uri).hostname or cist_uri, cist_uri)
         self._osvezi_zvezdico()
 
     def _osvezi_zvezdico(self):

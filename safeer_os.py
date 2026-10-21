@@ -4557,6 +4557,9 @@ class SafeerOS(Gtk.Application):
                                                         self._medijski_predvajalnik.izberi_podnapise(str(a[0]) if a else "")),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
+            # Lupa: »Odpri safeer.si« nad »Isci v spletu« - naslov po istem pravilu kot naslovna vrstica Spleta.
+            "naslovLupe": lambda: __import__("core.config", fromlist=["naslov_za_lupo"]).naslov_za_lupo(
+                str(a[0]) if a else ""),
             "privzetiBrskalnik": privzeti_brskalnik,
             "sistemskeNastavitve": lambda: sistemske_nastavitve(str(a[0]) if a else ""),
             "skrijPloscoSporocil": lambda: self._skrij_plosco_sporocil(),

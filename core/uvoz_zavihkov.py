@@ -80,8 +80,11 @@ def preberi_sejo(podatki: bytes) -> list[str]:
             continue
         nav = navigacije[tab]
         url = nav.get(izbran.get(tab, max(nav)), nav[max(nav)])
-        if url.startswith(("http://", "https://")) and url not in izid:
-            izid.append(url)
+        if url.startswith(("http://", "https://")):
+            from core.config import prikazni_naslov
+            url = prikazni_naslov(url)
+            if url not in izid:
+                izid.append(url)
     return izid
 
 

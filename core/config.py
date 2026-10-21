@@ -200,6 +200,20 @@ def prikazni_naslov(uri: str) -> str:
     return m.group(1) + m.group(2).rsplit("@", 1)[1] + m.group(3)
 
 
+def gostitelj_bliznjice(url: str) -> str:
+    """Pravi gostitelj za ploscico bliznjice (kot ui/splet.js narisiBliznjice): brez uporabniskega dela (userinfo)
+    in brez »www.«. Za »http://x@evil.com/« vrne »evil.com« (ne »x« ali »x@evil.com«)."""
+    try:
+        parsed = urllib.parse.urlsplit(url or "")
+        gost = parsed.hostname or (parsed.netloc.rsplit("@", 1)[-1] if "@" in parsed.netloc else parsed.netloc)
+        gost = (gost or "").lower()
+        if gost.startswith("www."):
+            gost = gost[4:]
+        return gost
+    except Exception:
+        return ""
+
+
 def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
     """Naslov za vpis v naslovno vrstico: spletni naslov ali stran rezultatov izbranega iskalnika."""
     s = (besedilo or "").strip()
@@ -218,6 +232,13 @@ def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
         if naslov:
             return naslov
     return iskalnik_url + urllib.parse.quote_plus(s[1:].strip() if s.startswith("?") else s)
+
+
+def naslov_za_lupo(besedilo: str) -> str:
+    """Naslov za prvi zadetek lupe »Odpri safeer.si« (kot omnibox Chrome/Safari; lastnik 21. 10. 2026) ali "", ce
+    vpis ni spletni naslov. Isto pravilo kot naslovna vrstica Spleta, zato lupa in Splet odpreta isti naslov."""
+    s = (besedilo or "").strip()
+    return naslov_ali_iskanje(s, "") if je_spletni_naslov(s) else ""
 
 
 # SAFEER_MINT_CONFIG_DIR: Safeer Browser v Flatpaku (safeer_brskalnik.py) - ista mapa kot .deb (~/.config/safeer-mint),
@@ -712,12 +733,8 @@ class ConfigManager:
                     p["title"] = p.get("name").strip()
                     modified = True
                 elif not curr_title:
-                    try:
-                        parsed = urllib.parse.urlparse(p_url)
-                        netloc = parsed.netloc.replace("www.", "")
-                        p["title"] = netloc if netloc else p_url
-                    except Exception:
-                        p["title"] = p_url or "Priljubljena stran"
+                    gost = gostitelj_bliznjice(p_url)
+                    p["title"] = gost if gost else (prikazni_naslov(p_url) or "Priljubljena stran")
                     modified = True
 
         if modified:
@@ -734,16 +751,18 @@ class ConfigManager:
         return [p for p in self.get_portals() if "folder" not in p and not p.get("uvozen")]
 
     def add_portal(self, title: str, url: str, mark: str = "🌐", bg: str = "", color: str = "#00d2ff") -> str:
-        """Doda novo priljubljeno stran."""
+        """Doda novo priljubljeno stran. Uporabnisko ime in geslo se odstranita (neodvisni pregled 1.0.131)."""
         norm_url = normalize_web_url(url)
         if not norm_url:
             return ""
+        norm_url = prikazni_naslov(norm_url)
+        cist_title = prikazni_naslov(title) if title.startswith(("http://", "https://")) else title
         p_id = "p_" + str(uuid.uuid4())[:8]
         if not bg:
             bg = f"linear-gradient(145deg, #091a28, {color})"
         new_portal = {
             "id": p_id,
-            "title": title.strip() or "Priljubljena stran",
+            "title": cist_title.strip() or gostitelj_bliznjice(norm_url) or "Priljubljena stran",
             "url": norm_url,
             "mark": mark.strip() or "🌐",
             "bg": bg,
@@ -755,14 +774,16 @@ class ConfigManager:
         return p_id
 
     def update_portal(self, portal_id: str, title: str, url: str, mark: str, bg: str = "", color: str = "") -> bool:
-        """Posodobi obstoječo priljubljeno stran."""
+        """Posodobi obstoječo priljubljeno stran. Uporabnisko ime in geslo se odstranita."""
         norm_url = normalize_web_url(url)
         if not norm_url:
             return False
+        norm_url = prikazni_naslov(norm_url)
+        cist_title = prikazni_naslov(title) if title.startswith(("http://", "https://")) else title
         portals = self.get_portals()
         for p in portals:
             if p.get("id") == portal_id:
-                p["title"] = title.strip()
+                p["title"] = cist_title.strip() or gostitelj_bliznjice(norm_url) or "Priljubljena stran"
                 p["url"] = norm_url
                 p["mark"] = mark.strip()
                 if color:

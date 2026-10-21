@@ -428,7 +428,7 @@ Item {
         onTrenutniChanged: if (trenutni >= 0 && trenutni < zadetkiModel.count) seznamZadetkov.positionViewAtIndex(trenutni, ListView.Contain)
         function nizUcenja(q) { return Iskanje.SafeerIskanje.brezNaglasa(q).replace(/\s+/g, " ").trim() }
         function kljucZadetka(z) {
-            if (z.vrsta === "splet" || z.vrsta === "mediji" || z.vrsta === "agent") return z.vrsta
+            if (z.vrsta === "splet" || z.vrsta === "spletNaslov" || z.vrsta === "mediji" || z.vrsta === "agent") return z.vrsta
             return (z.vrsta === "mapa" ? "datoteka" : z.vrsta) + ":" + z.kljuc
         }
         function ocene(ql) {
@@ -545,7 +545,7 @@ Item {
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],
-                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: [], splet: prejSplet
+                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: [], splet: prejSplet, naslov: ""
             }
             if (!prejSplet.length) spletNiz = ""
             deli = d
@@ -556,6 +556,9 @@ Item {
                     var dd = zadetki.deli; dd[kam] = obdelaj(r || []); zadetki.deli = dd; zadetki.caka--; zadetki.sestavi()
                 }, function () { if (st !== zahteva) return; zadetki.caka--; zadetki.sestavi() })
             }
+            // Vpis, ki je spletni naslov (core/config.naslov_za_lupo - isto pravilo kot naslovna vrstica Spleta): prvi zadetek
+            // »Odpri safeer.si«, pod njim »Isci v spletu« (kot omnibox Chrome in Safari; lastnik 21. 10. 2026).
+            if (!cilj) pocakaj("naslovLupe", [q], "naslov", function (r) { return typeof r === "string" ? r : "" })
             if (q.length >= 2) pocakaj("isciDatoteke", [q, 6], "datoteke", function (r) { return r.slice(0, 6) })
             // Sporocila: osebe in pogovori (ime, naslov, zadeva, zadnje sporocilo) kot iskanje v aplikaciji Safeer OS (popis 3.1).
             // Seznam iz Safeer OS najvec vsakih 30 s (in po novem sporocilu), ne ob vsaki crki.
@@ -602,6 +605,9 @@ Item {
             // Sprotni zadetki: uporabnik vidi, kateri iskalnik je dobil niz in kje jih izklopi (lastnik 20. 10. 2026).
             // Oznaka tudi brez zadetkov: vnos {iskalnik} brez naslova (spletni_zadetki.z_iskalnikom) pove, da je niz odsel.
             var spletOpis = (d.splet && d.splet.length && d.splet[0].iskalnik) ? koren.t("spletniOznaka", { ime: d.splet[0].iskalnik }) : koren.t("odpreVBrskalniku")
+            if (d.naslov && !cilj)
+                v.push({ vrsta: "spletNaslov", skupina: koren.t("skSplet"), ime: koren.t("odpriNaslov", { naslov: q }), opis: d.naslov,
+                         kljuc: d.naslov, ikona: "", podatki: "{}" })
             v.push({ vrsta: "splet", skupina: koren.t("skSplet"), ime: koren.t("isciVSpletu", { q: q }), opis: spletOpis, kljuc: q, ikona: "", podatki: "{}" })
             ;(d.splet || []).filter(function (z) { return !!z.url }).forEach(function (z) {
                 v.push({ vrsta: "spletZadetek", skupina: koren.t("skSplet"), ime: z.naslov || "", opis: [z.stran || "", z.odlomek || ""].filter(function (x) { return !!x }).join(" · "),
@@ -647,6 +653,7 @@ Item {
             var naj = najMesto(v.map(kljucZadetka))
             if (naj >= 0) return naj
             var I = Iskanje.SafeerIskanje
+            for (var n = 0; n < v.length; n++) if (v[n].vrsta === "spletNaslov") return n      // vpisan naslov: Enter ga odpre
             if (q && I.jeNaslov(q)) { for (var s = 0; s < v.length; s++) if (v[s].vrsta === "splet") return s }
             var RANG = { naCilj: 4, program: 3, safeer: 2, naprava: 1 }, prvi = 0, rang = 0
             for (var i = 0; i < v.length; i++) {
@@ -788,7 +795,7 @@ Item {
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "spletZadetek" ? "↗" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
+                    Text { text: (model.vrsta === "splet" || model.vrsta === "spletNaslov") ? "🌐" : model.vrsta === "spletZadetek" ? "↗" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
                                : (model.vrsta === "medij" || model.vrsta === "katalog" || model.vrsta === "mediji") ? "🎵"
                                : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : (model.vrsta === "safeer" || model.vrsta === "agent") ? "✦"
                                : model.vrsta === "program" ? "▣" : "📄"

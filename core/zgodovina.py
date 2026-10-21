@@ -19,10 +19,14 @@ def nalozi(pot: str) -> list:
 
 
 def dodaj(pot: str, naslov: str, ime: str = "") -> bool:
-    """Doda obisk na vrh (zaporedni obisk iste strani le posodobi). Zapis je atomaren (dva programa)."""
+    """Doda obisk na vrh (zaporedni obisk iste strani le posodobi). Zapis je atomaren (dva programa).
+    Uporabnisko ime in geslo (userinfo) se odstranita (neodvisni pregled 1.0.131)."""
     if not naslov.startswith(("http://", "https://")):
         return False
-    vnos = {"title": ime or naslov, "url": naslov, "time": datetime.now().strftime("%d.%m.%Y %H:%M")}
+    from core.config import prikazni_naslov
+    naslov = prikazni_naslov(naslov)
+    naslov_ime = prikazni_naslov(ime) if ime.startswith(("http://", "https://")) else (ime or naslov)
+    vnos = {"title": naslov_ime or naslov, "url": naslov, "time": datetime.now().strftime("%d.%m.%Y %H:%M")}
     zgodovina = nalozi(pot)
     if zgodovina and zgodovina[0].get("url") == naslov:
         zgodovina[0].update(vnos)

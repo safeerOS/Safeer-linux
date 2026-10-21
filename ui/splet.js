@@ -272,6 +272,16 @@
     return { c: c, barva: "hsl(" + h + " 45% 32%)" };
   }
 
+  function gostiteljBliznjice(u) {
+    try {
+      var h = new URL(u).hostname;
+      if (h) return h.replace(/^www\./i, "");
+    } catch (e) {}
+    var m = String(u || "").replace(/^https?:\/\//i, "").split(/[\/?#]/)[0];
+    m = m.slice(m.lastIndexOf("@") + 1);
+    return m.replace(/^www\./i, "");
+  }
+
   function narisiBliznjice() {
     var cilj = $("bliznjice"); cilj.innerHTML = ""; cilj.setAttribute("aria-label", t("bliz"));
     document.body.classList.toggle("ureja", S.ureja);
@@ -280,7 +290,15 @@
     var seznam = osnova.filter(function (p) { return !jeSkrita(p.url); }).slice(0, 11);
     seznam.forEach(function (p) {
       var url = p.url || ""; if (!/^https?:/i.test(url)) return;
-      var ime = (p.title || p.name || "").trim() || url.replace(/^https?:\/\/(www\.)?/i, "").split("/")[0];
+      var praviGostitelj = gostiteljBliznjice(url);
+      var privzetoIme = praviGostitelj || url.replace(/^https?:\/\/(www\.)?/i, "").split(/[\/?#]/)[0].slice(url.lastIndexOf("@") + 1);
+      var naslov = (p.title || p.name || "").trim();
+      if (/^https?:\/\//i.test(naslov)) {
+        naslov = gostiteljBliznjice(naslov);
+      } else if (naslov.indexOf("@") >= 0 && (naslov === url || naslov === url.replace(/^https?:\/\/(www\.)?/i, "").split("/")[0])) {
+        naslov = praviGostitelj;
+      }
+      var ime = naslov || privzetoIme;
       var a = document.createElement("a"); a.className = "bliznjica"; a.href = url; a.title = S.ureja ? t("odstrani") : url;
       var znak = document.createElement("span"); znak.className = "znak";
       var ikona = typeof p.favicon === "string" ? p.favicon.trim() : "";
