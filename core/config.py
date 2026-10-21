@@ -60,11 +60,58 @@ _KONCNICE_NE_DOMENE = frozenset(("pdf", "doc", "docx", "odt", "ods", "odp", "xls
                                  "wav", "ogg", "7z", "rar", "tar", "gz", "deb", "rpm", "exe", "apk", "iso", "py", "js",
                                  "json", "md", "html", "htm"))
 def _je_ip(ime: str) -> bool:
+    """Naslov IP, ki je lahko cilj: brez obmocja (»fe80::1%eth0«) in brez »0.0.0.0« / »::«.
+
+    Obmocja (zone ID) standard URL WHATWG ne pozna (ui/splet.js new URL ga zavrne), zato bi Python in JS odlocala razlicno.
+    0.0.0.0 ni ciljni naslov (RFC 1122); brskalniki ga zapirajo (»0.0.0.0 day«, 2024), zato je iskanje (pregled 1.0.130)."""
+    if "%" in ime:
+        return False
     try:
-        ipaddress.ip_address(ime)
-        return True
+        return not ipaddress.ip_address(ime).is_unspecified
     except ValueError:
         return False
+
+
+#: Ne-spletne sheme, ki so brez »//« videti kot gostitelj:vrata (»tel:123« je bil http://tel:123) - vedno iskanje.
+_NE_SPLETNE_SHEME = frozenset(("tel", "sms", "smsto", "mms", "mmsto", "fax", "callto", "sip", "sips", "mailto", "geo",
+                               "xmpp", "skype", "facetime", "magnet", "news", "nntp", "urn", "data", "javascript",
+                               "vbscript", "about", "blob", "file", "intent", "market", "content", "chrome"))
+
+
+def _veljavna_vrata(vrata: str) -> bool:
+    """1-65535 (»primer.si:99999« in »:0« nista naslova - pregled pomocnika 1.0.130, S5)."""
+    return bool(re.fullmatch(r"[0-9]{1,5}", vrata)) and 1 <= int(vrata) <= 65535
+
+
+def _veljavne_oznake(ime: str) -> bool:
+    """Oznake domene niso prazne in se ne zacnejo ali koncajo z »-« (»-primer.si« je iskanje; S5)."""
+    deli = ime.rstrip(".").split(".")
+    return all(d and not d.startswith("-") and not d.endswith("-") for d in deli)
+
+
+def _ipv6_v_oklepajih(gostitelj: str) -> bool:
+    """»[IPv6]« ali »[IPv6]:vrata« z veljavnim naslovom in vrati."""
+    konec = gostitelj.find("]")
+    if konec <= 1:
+        return False
+    notranje, ostanek = gostitelj[1:konec], gostitelj[konec + 1:]
+    return ":" in notranje and _je_ip(notranje) and (ostanek == "" or (ostanek.startswith(":") and
+                                                                      _veljavna_vrata(ostanek[1:])))
+
+
+def _izrecna_avtoriteta(avtoriteta: str) -> bool:
+    """Gostitelj za izrecnim »http(s)://«: brez uporabniskega dela (»https://safeer.si@evil.com« pokaze safeer.si, odpre
+    evil.com - zato iskanje), brez presledka, z veljavnimi vrati in oznakami. Vrhnja domena ni potrebna (»https://test/«)."""
+    if not avtoriteta or "@" in avtoriteta or any(c.isspace() for c in avtoriteta):
+        return False
+    if avtoriteta.startswith("["):
+        return _ipv6_v_oklepajih(avtoriteta)
+    ime, dvopicje, vrata = avtoriteta.partition(":")
+    if dvopicje and not _veljavna_vrata(vrata):
+        return False
+    if ime.lower() == "localhost" or _je_ip(ime):
+        return True
+    return bool(ime) and _veljavne_oznake(ime) and not re.fullmatch(r"[0-9.]+", ime)
 
 
 #: Izrecno (ne ipaddress.is_private, ta steje tudi dokumentacijska omrezja): isti seznam kot ui/splet.js lokalniGostitelj.
@@ -85,6 +132,8 @@ def _lokalni_gostitelj(s: str) -> bool:
         ip = ipaddress.ip_address(ime)
     except ValueError:
         return False
+    if ip.version == 6 and ip.ipv4_mapped:      # [::ffff:192.168.0.1] je IPv4 - lokalen samo, ce je lokalen IPv4
+        ip = ip.ipv4_mapped
     return any(ip in m for m in _LOKALNA_OMREZJA if m.version == ip.version)
 
 
@@ -97,29 +146,31 @@ def je_spletni_naslov(besedilo: str) -> bool:
     Iskanje je: ena beseda brez pike, vse s presledkom, »python 3.12«, »racun.pdf«, vpis, ki se zacne z »?«.
     Isto pravilo ima zacetna stran Spleta (ui/splet.js jeSpletniNaslov) - preizkus tests/test_naslovna_vrstica.py."""
     s = (besedilo or "").strip()
-    if not s or s.startswith("?") or any(c.isspace() for c in s):
+    if not s or s.startswith("?"):
         return False
     m = re.match(r"^([a-zA-Z][a-zA-Z0-9+.-]*):(//)?", s)
     if m and m.group(2):
-        return m.group(1).lower() in ("http", "https")
+        # Izrecen http(s):// z veljavnim gostiteljem je naslov tudi s presledkom za gostiteljem (naslov_ali_iskanje ga
+        # zakodira v %20): sicer bi cel naslov z zetonom odsel iskalniku (pregled pomocnika 1.0.130, S3).
+        return m.group(1).lower() in ("http", "https") and _izrecna_avtoriteta(re.split(r"[/?#]", s[m.end():], 1)[0])
+    if any(c.isspace() for c in s):
+        return False
     gostitelj = re.split(r"[/?#]", s, 1)[0]
     pot = s[len(gostitelj):]
     if not gostitelj or "@" in gostitelj:
         return False                                   # »ime@posta.si« ni naslov strani
     if gostitelj.startswith("["):                      # [IPv6] ali [IPv6]:vrata
-        konec = gostitelj.find("]")
-        ostanek = gostitelj[konec + 1:]
-        return konec > 1 and ":" in gostitelj[1:konec] and _je_ip(gostitelj[1:konec]) and \
-            (ostanek == "" or (ostanek.startswith(":") and ostanek[1:].isdigit()))
+        return _ipv6_v_oklepajih(gostitelj)
     ime, dvopicje, vrata = gostitelj.partition(":")
-    if dvopicje:
-        return vrata.isdigit() and bool(ime)           # localhost:8080, test:3000, 192.168.0.1:8080 (»localhost:« ne)
+    if dvopicje:                                       # localhost:8080, test:3000 (»localhost:«, »tel:123« ne)
+        return bool(ime) and _veljavna_vrata(vrata) and ime.lower() not in _NE_SPLETNE_SHEME and \
+            (ime.lower() == "localhost" or _je_ip(ime) or (_veljavne_oznake(ime) and not re.fullmatch(r"[0-9.]+", ime)))
     if ime.lower() == "localhost" or _je_ip(ime):
         return True
     if "." not in ime:
-        return pot == "/"                              # »nas/« (gostitelj v domacem omrezju, kot Chrome)
+        return pot == "/" and _veljavne_oznake(ime)    # »nas/« (gostitelj v domacem omrezju, kot Chrome)
     deli = ime.rstrip(".").split(".")
-    if len(deli) < 2 or not all(deli):
+    if len(deli) < 2 or not all(deli) or not _veljavne_oznake(ime):
         return False
     vrh = deli[-1].lower()
     if vrh.startswith("xn--"):
@@ -140,7 +191,7 @@ def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
         # z zetonom poslal iskalniku (neodvisni pregled OpenAI 1.0.130, krog A). Privzeto https; http samo za dokazljivo
         # lokalne naslove (localhost, zasebni/loopback/link-local IP) - vrata ne dokazujejo domacega omrezja (krog B).
         if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", s):
-            naslov = normalize_web_url(s)
+            naslov = re.sub(r"\s", "%20", s)          # presledek za gostiteljem (S3): »?token=abc 123« -> abc%20123
         else:
             naslov = ("http://" if _lokalni_gostitelj(s) else "https://") + s
         if naslov:

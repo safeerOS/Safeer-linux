@@ -165,28 +165,57 @@
     for (var i = 0; i < 4; i++) { if (!/^\d{1,3}$/.test(d[i]) || +d[i] > 255 || (d[i].length > 1 && d[i][0] === "0")) return false; }
     return true;
   }
+  // Brez obmocja (»fe80::1%eth0« URL ne pozna) in brez »::« (ni ciljni naslov) - enako kot core/config._je_ip.
   function jeIPv6(s) {
     if (!/^[0-9a-f:.]+$/i.test(s) || s.indexOf(":") < 0) return false;
-    try { return new URL("http://[" + s + "]/").hostname.length > 2; } catch (e) { return false; }   // pravi razclenjevalnik
+    try { var h = new URL("http://[" + s + "]/").hostname; return h.length > 2 && h !== "[::]"; }   // pravi razclenjevalnik
+    catch (e) { return false; }
+  }
+  function jeIP(s) { return jeIPv4(s) && s !== "0.0.0.0"; }     // 0.0.0.0 ni ciljni naslov (RFC 1122) - iskanje
+  // Ne-spletne sheme, ki so brez »//« videti kot gostitelj:vrata (»tel:123«) - vedno iskanje (core/config._NE_SPLETNE_SHEME).
+  var NE_SPLETNE_SHEME = {tel:1, sms:1, smsto:1, mms:1, mmsto:1, fax:1, callto:1, sip:1, sips:1, mailto:1, geo:1, xmpp:1,
+    skype:1, facetime:1, magnet:1, news:1, nntp:1, urn:1, data:1, javascript:1, vbscript:1, about:1, blob:1, file:1,
+    intent:1, market:1, content:1, chrome:1};
+  function veljavnaVrata(v) { return /^[0-9]{1,5}$/.test(v) && +v >= 1 && +v <= 65535; }
+  function veljavneOznake(ime) {                                  // oznaka ni prazna in se ne zacne/konca z »-«
+    var d = ime.replace(/\.+$/, "").split(".");
+    for (var i = 0; i < d.length; i++) if (!d[i] || d[i].charAt(0) === "-" || d[i].slice(-1) === "-") return false;
+    return true;
+  }
+  function ipv6VOklepajih(gost) {
+    var k = gost.indexOf("]"), ost = gost.slice(k + 1);
+    return k > 1 && jeIPv6(gost.slice(1, k)) && (ost === "" || (ost.charAt(0) === ":" && veljavnaVrata(ost.slice(1))));
+  }
+  // Gostitelj za izrecnim http(s)://: brez uporabniskega dela (»https://safeer.si@evil.com« odpre evil.com), brez presledka.
+  function izrecnaAvtoriteta(avt) {
+    if (!avt || avt.indexOf("@") >= 0 || /\s/.test(avt)) return false;
+    if (avt.charAt(0) === "[") return ipv6VOklepajih(avt);
+    var dv = avt.indexOf(":"), ime = dv >= 0 ? avt.slice(0, dv) : avt;
+    if (dv >= 0 && !veljavnaVrata(avt.slice(dv + 1))) return false;
+    if (ime.toLowerCase() === "localhost" || jeIP(ime)) return true;
+    return !!ime && veljavneOznake(ime) && !/^[0-9.]+$/.test(ime);
   }
   function jeSpletniNaslov(vnos) {
     var s = String(vnos || "").trim();
-    if (!s || s.charAt(0) === "?" || /\s/.test(s)) return false;
+    if (!s || s.charAt(0) === "?") return false;
     var m = /^([a-z][a-z0-9+.-]*):(\/\/)?/i.exec(s);
-    if (m && m[2]) return /^https?$/i.test(m[1]);
+    // Izrecen http(s):// je naslov tudi s presledkom za gostiteljem (vNaslov ga zakodira) - zeton ne gre iskalniku.
+    if (m && m[2]) return /^https?$/i.test(m[1]) && izrecnaAvtoriteta(s.slice(m[0].length).split(/[\/?#]/)[0]);
+    if (/\s/.test(s)) return false;
     var gost = s.split(/[\/?#]/)[0], pot = s.slice(gost.length);
     if (!gost || gost.indexOf("@") >= 0) return false;
-    if (gost.charAt(0) === "[") {
-      var k = gost.indexOf("]"), ost = gost.slice(k + 1);
-      return k > 1 && jeIPv6(gost.slice(1, k)) && (ost === "" || /^:\d+$/.test(ost));
-    }
+    if (gost.charAt(0) === "[") return ipv6VOklepajih(gost);
     var dv = gost.indexOf(":");
-    if (dv >= 0) return dv > 0 && /^\d+$/.test(gost.slice(dv + 1));
-    if (gost.toLowerCase() === "localhost" || jeIPv4(gost)) return true;
-    if (gost.indexOf(".") < 0) return pot === "/";
+    if (dv >= 0) {
+      var ime = gost.slice(0, dv);
+      return dv > 0 && veljavnaVrata(gost.slice(dv + 1)) && NE_SPLETNE_SHEME[ime.toLowerCase()] !== 1 &&
+        (ime.toLowerCase() === "localhost" || jeIP(ime) || (veljavneOznake(ime) && !/^[0-9.]+$/.test(ime)));
+    }
+    if (gost.toLowerCase() === "localhost" || jeIP(gost)) return true;
+    if (gost.indexOf(".") < 0) return pot === "/" && veljavneOznake(gost);
     var deli = gost.replace(/\.+$/, "").split(".");
     for (var i = 0; i < deli.length; i++) if (!deli[i]) return false;
-    if (deli.length < 2) return false;
+    if (deli.length < 2 || !veljavneOznake(gost)) return false;
     var vrh = deli[deli.length - 1].toLowerCase();
     if (vrh.indexOf("xn--") === 0) return vrh.length > 4;
     if (vrh.length < 2 || !/^\p{L}+$/u.test(vrh)) return false;
@@ -206,6 +235,11 @@
     }
     if (jeIPv6(ime)) {
       var n = new URL("http://[" + ime + "]/").hostname.replace(/^\[|\]$/g, "");
+      var v4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(n);     // [::ffff:192.168.0.1] je IPv4 (URL: ::ffff:c0a8:1)
+      if (v4) {
+        var a = parseInt(v4[1], 16), b = parseInt(v4[2], 16);
+        return lokalniGostitelj([a >> 8, a & 255, b >> 8, b & 255].join("."));
+      }
       return n === "::1" || /^f[cd][0-9a-f]{0,2}:/.test(n) || /^fe[89ab][0-9a-f]?:/.test(n);
     }
     return false;
@@ -215,7 +249,7 @@
     if (!q) return "";
     if (/^file:/i.test(q)) return q;                       // lokalna datoteka (gostitelj jo preveri)
     if (jeSpletniNaslov(q)) {
-      if (/^https?:\/\//i.test(q)) return q;
+      if (/^https?:\/\//i.test(q)) return q.replace(/\s/g, "%20");   // presledek za gostiteljem -> %20 (kot Python)
       return (lokalniGostitelj(q) ? "http://" : "https://") + q;   // privzeto https; http samo dokazljivo lokalno
     }
     if (q.charAt(0) === "?") q = q.slice(1).trim();

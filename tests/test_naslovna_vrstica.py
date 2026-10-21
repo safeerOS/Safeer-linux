@@ -16,7 +16,13 @@ class TestNaslovnaVrstica(unittest.TestCase):
         for niz in ("test", "vreme", "vreme ljubljana", "python 3.12", "3.12", "racun.pdf", "izvid krvi.pdf",
                     "slika.JPG", "?safeer.si", "ime@posta.si", "kaj je safeer", "c++", "about:blank", "javascript:alert(1)",
                     "a..b", ".si", "test.", "1.2.3", "router", "safeer os linux", "point.md", "readme.md",
-                    "999.999.999.999", "localhost:", "[TODO]", "010.0.0.1"):
+                    "999.999.999.999", "localhost:", "[TODO]", "010.0.0.1",
+                    # 1.0.131 (pregled pomocnika S5, NIZKO; OpenAI krog C): vrata 1-65535, oznake brez »-« na robu,
+                    # ne-spletne sheme, 0.0.0.0 in »::«, obmocje IPv6, uporabniski del pri izrecni shemi
+                    "primer.si:99999", "primer.si:0", "-primer.si", "primer-.si", "nas-/", "tel:123", "sms:123",
+                    "mailto:a@b.si", "0.0.0.0", "0.0.0.0:8000", "[::]", "[fe80::1%eth0]", "[fe80::1%eth0]:80",
+                    "https://safeer.si@evil.com", "http://user:pass@a.si", "https://primer.si:99999/", "https://-primer.si/",
+                    "http://a b.si", "https:// safeer.si"):
             with self.subTest(niz=niz):
                 self.assertFalse(je_spletni_naslov(niz))
                 self.assertTrue(naslov_ali_iskanje(niz, DDG).startswith(DDG), niz)
@@ -31,7 +37,15 @@ class TestNaslovnaVrstica(unittest.TestCase):
                                  ("example.zip", "https://example.zip"), ("localhost", "http://localhost"),
                                  ("[::1]:8080", "http://[::1]:8080"), ("lanacion.com.py", "https://lanacion.com.py"),
                                  ("safeer.si/navodila.md", "https://safeer.si/navodila.md"), ("nas/", "https://nas/"),
-                                 ("10.0.0.1:8006", "http://10.0.0.1:8006"), ("printer.lan", "https://printer.lan")):
+                                 ("10.0.0.1:8006", "http://10.0.0.1:8006"), ("printer.lan", "https://printer.lan"),
+                                 # 1.0.131: izrecen naslov s presledkom za gostiteljem je naslov, presledek -> %20 (S3)
+                                 ("https://safeer.si/reset?token=abc 123", "https://safeer.si/reset?token=abc%20123"),
+                                 ("https://primer.si/a b", "https://primer.si/a%20b"),
+                                 # IPv4, preslikan v IPv6: http samo za lokalni IPv4 (OpenAI krog C)
+                                 ("[::ffff:192.168.0.1]", "http://[::ffff:192.168.0.1]"),
+                                 ("[::ffff:8.8.8.8]", "https://[::ffff:8.8.8.8]"),
+                                 ("primer.si:65535", "https://primer.si:65535"), ("a-b.si", "https://a-b.si"),
+                                 ("https://test:8443/", "https://test:8443/")):
             with self.subTest(niz=niz):
                 if pricakovano is None:            # presledek: vedno iskanje, tudi ce je spredaj domena
                     self.assertFalse(je_spletni_naslov(niz))
@@ -73,7 +87,13 @@ class TestNaslovnaVrstica(unittest.TestCase):
                    "localhost:", "localhost", "192.168.0.1", "999.999.999.999", "010.0.0.1", "10.0.0.1:8006",
                    "[::1]", "[::1]:8080", "[TODO]", "nas/", "intranet:8080", "?safeer.si", "ime@posta.si",
                    "javascript:alert(1)", "about:blank", "šola.si", "xn--d1acufc.xn--p1ai", "example.zip", "c++",
-                   "a..b", "test.", "printer.lan", "http://192.168.0.1/"]
+                   "a..b", "test.", "printer.lan", "http://192.168.0.1/",
+                   # 1.0.131
+                   "primer.si:99999", "primer.si:0", "primer.si:65535", "-primer.si", "primer-.si", "a-b.si", "nas-/",
+                   "tel:123", "sms:123", "mailto:a@b.si", "test:3000/pot", "0.0.0.0", "0.0.0.0:8000", "[::]",
+                   "[fe80::1%eth0]", "[fe80::1%eth0]:80", "[::ffff:192.168.0.1]", "https://safeer.si@evil.com",
+                   "http://user:pass@a.si", "https://safeer.si/reset?token=abc 123", "http://a b.si",
+                   "https://primer.si:99999/", "https://-primer.si/", "https:// safeer.si"]
         skripta = js[a:b] + "\nconsole.log(JSON.stringify(" + json.dumps(primeri) + ".map(jeSpletniNaslov)));"
         izid = json.loads(subprocess.run([node, "-e", skripta], capture_output=True, text=True, check=True).stdout)
         for niz, js_odlocitev in zip(primeri, izid):
@@ -86,7 +106,11 @@ class TestNaslovnaVrstica(unittest.TestCase):
                    "[fe80::1]:80", "[fd00::5]", "172.20.1.1", "172.40.1.1", "8.8.8.8:53", "169.254.1.1",
                    "safeer.si", "localhost:8080", "192.168.0.1",
                    "[::1]:8080", "[::1]", "nas/", "github.com/safeerOS", "https://test/", "lanacion.com.py",
-                   "safeer.si..", "[::::]", "[1:2:3:4:5:6:7:8:9]", "10.0.0.1:8006/admin?x=1"]
+                   "safeer.si..", "[::::]", "[1:2:3:4:5:6:7:8:9]", "10.0.0.1:8006/admin?x=1",
+                   # 1.0.131
+                   "https://safeer.si/reset?token=abc 123", "https://primer.si/a  b", "[::ffff:192.168.0.1]",
+                   "[::ffff:10.1.2.3]:8080", "[::ffff:8.8.8.8]", "tel:123", "0.0.0.0", "primer.si:99999",
+                   "https://safeer.si@evil.com", "[fe80::1%eth0]"]
         skripta2 = ("var S = {iskalnik: 'duckduckgo'}; var ISKALNIKI = {duckduckgo: " + json.dumps(DDG) + "};\n"
                     + js[a:c] + "\nconsole.log(JSON.stringify(" + json.dumps(naslovi) + ".map(vNaslov)));")
         izid2 = json.loads(subprocess.run([node, "-e", skripta2], capture_output=True, text=True, check=True).stdout)
@@ -106,6 +130,11 @@ class TestNaslovnaVrstica(unittest.TestCase):
         self.assertEqual(naslov_ali_iskanje("[2001:db8::1]:8443", DDG), "https://[2001:db8::1]:8443")
         self.assertEqual(naslov_ali_iskanje("192.168.0.1", DDG), "http://192.168.0.1")
         self.assertEqual(naslov_ali_iskanje("localhost:8080", DDG), "http://localhost:8080")
+        # 1.0.131: zeton iz izrecnega naslova s presledkom ne gre iskalniku (S3); IPv4 v IPv6 kot IPv4 (krog C)
+        self.assertEqual(naslov_ali_iskanje("https://safeer.si/reset?token=abc 123", DDG),
+                         "https://safeer.si/reset?token=abc%20123")
+        self.assertEqual(naslov_ali_iskanje("[::ffff:10.1.2.3]:8080", DDG), "http://[::ffff:10.1.2.3]:8080")
+        self.assertEqual(naslov_ali_iskanje("tel:123", DDG), DDG + "tel%3A123")
 
 
 if __name__ == "__main__":
