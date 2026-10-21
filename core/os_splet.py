@@ -64,7 +64,7 @@ BESEDILA = {
     "es": {"nov": "Nueva pestaña", "naslov": "Busca o escribe una dirección web …", "nazaj": "Atrás",
            "naprej": "Adelante", "osvezi": "Recargar", "domov": "Inicio", "povezan": "Conectado",
            "nepovezan": "Sin conexión", "scit": "Escudo Safeer", "meni": "Menú", "prenosi": "Descargas",
-           "najdi": "Buscar en la page", "povecaj": "Ampliar", "pomanjsaj": "Reducir",
+           "najdi": "Buscar en la página", "povecaj": "Ampliar", "pomanjsaj": "Reducir",
            "nastavitve": "Ajustes del navegador", "zapisek": "Añadir a una nota …", "dodaj": "Añadir acceso",
            "ime": "Nombre", "url": "Dirección", "preklici": "Cancelar", "shrani": "Guardar",
            "blokirano": "Anuncios y amenazas bloqueados: {count}", "isci": "Buscar …",
@@ -979,6 +979,84 @@ def _metoda_odpiralca(nov, dejanje) -> None:
         pass
 
 
+def _pid_ziv(pid: int) -> bool:
+    """Preveri, ali proces s podanim PID se obstaja."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as e:
+        import errno
+        return e.errno == errno.EPERM
+
+
+def _zacasna_baza_avtomatizacije() -> str:
+    """Izbere $XDG_RUNTIME_DIR, ce obstaja in je pisljiv, sicer sistemsko zacasno mapo."""
+    import tempfile
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg and os.path.isdir(xdg) and os.access(xdg, os.W_OK):
+        return xdg
+    return tempfile.gettempdir()
+
+
+def pocisti_stare_zacasne_avtomatizacije() -> None:
+    """Pobrise zacasne mape safeer-avtomatizacija-*, ki nimajo zivega procesa (PID)."""
+    import shutil
+    import tempfile
+    baze = []
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg and os.path.isdir(xdg):
+        baze.append(xdg)
+    tmp = tempfile.gettempdir()
+    if tmp not in baze and os.path.isdir(tmp):
+        baze.append(tmp)
+
+    for baza in baze:
+        try:
+            imena = os.listdir(baza)
+        except OSError:
+            continue
+        for ime in imena:
+            if not ime.startswith("safeer-avtomatizacija-"):
+                continue
+            pot = os.path.join(baza, ime)
+            if not os.path.isdir(pot):
+                continue
+            pid = None
+            pid_dat = os.path.join(pot, ".pid")
+            if os.path.isfile(pid_dat):
+                try:
+                    with open(pid_dat, "r", encoding="utf-8") as f:
+                        pid = int(f.read().strip())
+                except (ValueError, OSError):
+                    pass
+            if pid is None:
+                delcki = ime.split("-")
+                if len(delcki) >= 3 and delcki[2].isdigit():
+                    pid = int(delcki[2])
+            if pid is not None and _pid_ziv(pid):
+                continue
+            try:
+                shutil.rmtree(pot, ignore_errors=True)
+            except Exception as e:
+                print(f"[Safeer Splet] ciscenje zacasne mape {pot}:", e)
+
+
+def ustvari_zacasno_mapo_avtomatizacije() -> str:
+    """Ustvari novo zacasno mapo v $XDG_RUNTIME_DIR (ali /tmp) z zascitnim zapisom PID."""
+    import tempfile
+    baza = _zacasna_baza_avtomatizacije()
+    pid = os.getpid()
+    pot = tempfile.mkdtemp(prefix=f"safeer-avtomatizacija-{pid}-", dir=baza)
+    try:
+        with open(os.path.join(pot, ".pid"), "w", encoding="utf-8") as f:
+            f.write(str(pid))
+    except OSError:
+        pass
+    return pot
+
+
 class VdelaniSplet:
     """GTK4 gradnik z zavihki (WebKitGTK 6.0); namenoma ni okno in zato ne more zapustiti Safeer OS.
 
@@ -1018,11 +1096,13 @@ class VdelaniSplet:
         self.stremio_dodatek = stremio_dodatek
         self._zacasna_mapa = None
         if self.avtomatizacija and config is None:
-            import tempfile
-            self._zacasna_mapa = tempfile.mkdtemp(prefix="safeer-avtomatizacija-")
+            pocisti_stare_zacasne_avtomatizacije()
+            self._zacasna_mapa = ustvari_zacasno_mapo_avtomatizacije()
             self.config = ConfigManager(config_dir=self._zacasna_mapa)
         else:
             self.config = config if config is not None else ConfigManager()
+            if self.avtomatizacija and self.config is not None:
+                self._zacasna_mapa = getattr(self.config, "config_dir", None)
         ucene_brez_pospesevanja(self.config)   # ob novi razlicici kompozitorja pozabi stari uceni seznam
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
@@ -1087,12 +1167,13 @@ class VdelaniSplet:
         self.profil = profil_naprave.trenutni()
         profil_naprave.nastavi_model(WebKit2, profil=self.profil)
         if self.avtomatizacija:
-            # K1: Nacin avtomatizacije tece v cisti efemerni seji brez piskotkov ali podatkov uporabnika
+            # K1/S3: Nacin avtomatizacije tece v cisti efemerni seji brez piskotkov ali podatkov uporabnika.
+            # Ce ustvarjanje efemerne seje ne uspe, se avtomatizacija zavrne (brez stalne seje).
             try:
                 self.seja = WebKit2.NetworkSession.new_ephemeral()
             except Exception as napaka:
-                print("[Safeer OS Splet] efemerna seja:", napaka)
-                self.seja = WebKit2.NetworkSession.get_default()
+                print("[Safeer OS Splet] efemerna seja ni uspela:", napaka)
+                raise RuntimeError(f"Ustvarjanje efemerne seje za avtomatizacijo ni uspelo: {napaka}") from napaka
         else:
             mapa = os.path.join(self.config.config_dir, "web-data")
             os.makedirs(mapa, exist_ok=True)
@@ -1150,8 +1231,8 @@ class VdelaniSplet:
         if self.stars is not None:
             try:
                 self.stars.present()
-            except Exception:
-                pass
+            except Exception as e:
+                print("[Safeer Splet] avtomatizacija stars.present:", e)
         return pogled
 
     def _ustvari_pasico_avtomatizacije(self):
@@ -1187,13 +1268,23 @@ class VdelaniSplet:
         for z in getattr(self, "zavihki", []):
             try:
                 z["pogled"].get_settings().set_enable_developer_extras(bool(vklopljeno))
-            except Exception:
-                pass
+            except Exception as e:
+                print("[Safeer Splet] developer_extras zavihek:", e)
         for p in getattr(self, "aplikacije", {}):
             try:
                 p.get_settings().set_enable_developer_extras(bool(vklopljeno))
-            except Exception:
-                pass
+            except Exception as e:
+                print("[Safeer Splet] developer_extras aplikacija:", e)
+
+    def mapa_prenosov(self) -> str:
+        """Sistemska mapa za prenose ali <zacasna mapa>/prenosi v nacinu avtomatizacije."""
+        if getattr(self, "avtomatizacija", False):
+            zacasna = getattr(self, "_zacasna_mapa", None) or getattr(getattr(self, "config", None), "config_dir", None)
+            if zacasna:
+                cilj = os.path.join(zacasna, "prenosi")
+                os.makedirs(cilj, exist_ok=True)
+                return cilj
+        return splet_prenosi.mapa_prenosov(self.GLib)
 
     def pospravi(self) -> None:
         """Pospravi zacasne datoteke ob izhodu (nacin avtomatizacije)."""
@@ -1201,8 +1292,9 @@ class VdelaniSplet:
             import shutil
             try:
                 shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-            except Exception:
-                pass
+            except Exception as e:
+                print("[Safeer Splet] pospravi zacasno:", e)
+            self._zacasna_mapa = None
 
     def _dovoljenja_obvestil(self, kontekst, *_a) -> None:
         dovoljeni, zavrnjeni = dovoljenja_strani.izvori_obvestil(self.config)
@@ -1759,7 +1851,7 @@ class VdelaniSplet:
         # ki deli proces in sejo z izvorom; upravitelj vsebine in nastavitve sta svoja (preverjeno 14. 10. 2026), zato
         # spodaj dobi iste skripte in nastavitve kot vsak zavihek.
         avto = bool(nadzorovan_avtomatizacija or getattr(self, "avtomatizacija", False))
-        dodatno = {"is_controlled_by_automation": True} if avto else {}
+        dodatno = {"is_controlled_by_automation": True} if (avto and povezan is None) else {}
         pogled = (W.WebView(related_view=povezan, **dodatno) if povezan is not None
                   else W.WebView(web_context=self.kontekst, network_session=self.seja,
                                  website_policies=self._pravila_strani(), **dodatno))
@@ -1995,6 +2087,11 @@ class VdelaniSplet:
         if nadzorovan_avtomatizacija or getattr(self, "avtomatizacija", False):
             if not hasattr(self, "pasica_avtomatizacija") and hasattr(self, "_ustvari_pasico_avtomatizacije"):
                 self.pasica_avtomatizacija = self._ustvari_pasico_avtomatizacije()
+                if hasattr(self, "gradnik") and hasattr(self.pasica_avtomatizacija, "get_parent") and self.pasica_avtomatizacija.get_parent() is None:
+                    if hasattr(self, "vprasanje"):
+                        self.gradnik.insert_child_after(self.pasica_avtomatizacija, self.vprasanje)
+                    else:
+                        self.gradnik.prepend(self.pasica_avtomatizacija)
             pas = getattr(self, "pasica_avtomatizacija", None)
             if pas is not None:
                 pogled.pasica = pas
@@ -2919,6 +3016,8 @@ class VdelaniSplet:
 
     def _drm_vdelaj(self, pogled, url: str) -> bool:
         """Stran je zaprosila za Widevine: ista stran v Safeer DRM, vstavljenem v ta zavihek."""
+        if getattr(self, "avtomatizacija", False):
+            return False
         z = self._zavihek(pogled)
         if z is None or not url.startswith("https://"):
             return False
@@ -2948,6 +3047,8 @@ class VdelaniSplet:
         """Stran ima (morda) zasciten video: vrstica nad stranjo z gumbom »Predvajaj v Safeer DRM«. Brez klika se nic
         ne prenese in ne zazene (pregled 14. 10. 2026: prej je zastoj videa, napaka zapisa ali oglas v okvirju sam
         prenesel ~120 MB in zagnal Chromium na gostitelju)."""
+        if getattr(self, "avtomatizacija", False):
+            return
         z = self._zavihek(pogled)
         if z is None or not url.startswith("https://") or z.get("drm") is not None:
             return
@@ -2967,6 +3068,13 @@ class VdelaniSplet:
 
     def _drm_klik(self) -> None:
         """Uporabnik je kliknil »Predvajaj v Safeer DRM«: nastavitev strani »zavrni« velja, »vprasaj« vprasa."""
+        if getattr(self, "avtomatizacija", False):
+            if getattr(self, "_drm_ponudba", None):
+                self._drm_ponudba = None
+            self.pojavna.set_reveal_child(False)
+            return
+        if not getattr(self, "_drm_ponudba", None):
+            return
         pogled, url = self._drm_ponudba
         self._drm_ponudba = None
         self.pojavna.set_reveal_child(False)
@@ -3604,7 +3712,7 @@ class VdelaniSplet:
         except Exception:  # noqa: BLE001
             pass
         ime = splet_prenosi.ime_prenosa(predlagano, uri)
-        mapa = splet_prenosi.mapa_prenosov(self.GLib)
+        mapa = self.mapa_prenosov()
         self._pospravi_zavihek_prenosa(prenos)
         vprasaj_kam = bool(self.config.get("always_ask_download_dir", False))
         if not splet_prenosi.je_izvrsljiv_prenos(ime):
@@ -3933,7 +4041,7 @@ class VdelaniSplet:
         d, obmocje = self._dialog(self._t("prenosi"), 560, 420, gumbi=[(self._t("pr_zapri"), Gtk.ResponseType.CLOSE)])
         glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mapa = Gtk.Button(label=self._t("pr_mapa"))
-        mapa.connect("clicked", lambda *_: self._odpri_datoteko(splet_prenosi.mapa_prenosov(self.GLib)))
+        mapa.connect("clicked", lambda *_: self._odpri_datoteko(self.mapa_prenosov()))
         glava.append(mapa)
         obmocje.append(glava)
         drsnik = Gtk.ScrolledWindow(vexpand=True)
@@ -4212,7 +4320,7 @@ class VdelaniSplet:
 
         # ---- Prenosi
         pren = stran(self._t("prenosi"))
-        pren.attach(napis(self._t("nas_mapa").format(mapa=_kratka_pot(splet_prenosi.mapa_prenosov(self.GLib)))), 0, 0, 2, 1)
+        pren.attach(napis(self._t("nas_mapa").format(mapa=_kratka_pot(self.mapa_prenosov()))), 0, 0, 2, 1)
         vprasaj = Gtk.CheckButton(label=self._t("nas_vprasaj_kam"))
         vprasaj.set_active(bool(self.config.get("always_ask_download_dir", False)))
         pren.attach(vprasaj, 0, 1, 2, 1)

@@ -25,6 +25,55 @@ QT = ("QT_QPA_PLATFORMTHEME", "QT_QPA_PLATFORM", "QT_XCB_GL_INTEGRATION")
 #: safeer_control v procesu Safeer OS, ko so niti ze tekle.
 PREVZETE = ("NOTIFY_SOCKET", "SAFEER_LUPINA_VTIC", "SAFEER_OBNOVA", "SAFEER_CONTROL_ODPRI", "SAFEER_SCIT_VTIC")
 
+#: Oddaljeni inspektor WebKita (WEBKIT_INSPECTOR_SERVER, WEBKIT_INSPECTOR_HTTP_SERVER):
+#: sme teci samo na lokalni zanki (127.0.0.1, ::1). Ce je v okolju nastavljen na omrezni vmesnik,
+#: ga pred prvo nitjo odstranimo z opozorilom (S4 pregled 132).
+ODDALJENI_INSPEKTOR = ("WEBKIT_INSPECTOR_SERVER", "WEBKIT_INSPECTOR_HTTP_SERVER")
+
+
+def je_loopback_naslov(vrednost: str) -> bool:
+    """Preveri, ali naslov oddaljenega inspektorja kaze izkljucno na lokalno zanko (loopback)."""
+    if not vrednost or not isinstance(vrednost, str):
+        return False
+    v = vrednost.strip()
+    host = ""
+    if v.startswith("["):
+        konec = v.find("]")
+        if konec != -1:
+            host = v[1:konec]
+    elif ":" in v:
+        deli = v.rsplit(":", 1)
+        if deli[0].count(":") == 0:
+            host = deli[0]
+        else:
+            host = v
+    else:
+        host = v
+
+    host = host.strip().lower()
+    if host in ("127.0.0.1", "localhost", "::1", "ip6-localhost", "ip6-loopback"):
+        return True
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback
+    except ValueError:
+        return False
+
+
+def preveri_oddaljeni_inspektor() -> None:
+    """Odstrani ne-loopback WEBKIT_INSPECTOR_SERVER / WEBKIT_INSPECTOR_HTTP_SERVER iz okolja z opozorilom."""
+    for ime in ODDALJENI_INSPEKTOR:
+        if ime in os.environ:
+            vrednost = os.environ[ime]
+            if not je_loopback_naslov(vrednost):
+                sys.stderr.write(
+                    f"[Safeer] Opozorilo: {ime}={vrednost!r} ni loopback (127.0.0.1 ali ::1) - "
+                    "odstranjeno iz okolja pred zagonom.\n"
+                )
+                del os.environ[ime]
+
+
 _pripravljeno = False
 _prevzeto: dict = {}
 
@@ -33,6 +82,7 @@ def pred_nitmi() -> None:
     """Rezervira mesta za spremenljivke, ki jih bomo med tekom zamenjevali, in prevzame PREVZETE. Klicati samo, dokler
     tece ena nit."""
     global _pripravljeno
+    preveri_oddaljeni_inspektor()
     for ime in QT:
         os.environ.setdefault(ime, "")
     for ime in PREVZETE:

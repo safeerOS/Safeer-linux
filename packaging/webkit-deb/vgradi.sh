@@ -77,6 +77,15 @@ ELF=()
 while IFS= read -r -d '' f; do
     if file -b "$f" | grep -q '^ELF'; then ELF+=("$f"); fi
 done < <(find "$WK" -type f -print0)
+
+# Varovalo: vsaka ELF datoteka v paketu mora imeti PT_GNU_STACK z RW (brez X)
+for e in "${ELF[@]}"; do
+    sklad="$(readelf -lW "$e" 2>/dev/null | awk '$1 == "GNU_STACK" {print $7}')"
+    if [ "$sklad" != "RW" ]; then
+        echo "vgradi.sh: $e nima PT_GNU_STACK RW (${sklad:-ga ni}) - sklad bi bil izvrsljiv" >&2
+        exit 1
+    fi
+done
 DELO="$(mktemp -d)"
 mkdir -p "$DELO/debian"
 printf 'Source: %s\n\nPackage: %s\nArchitecture: any\n' "$PAKET" "$PAKET" > "$DELO/debian/control"

@@ -337,5 +337,231 @@ class TestDokumentacijaWebDriverS2(unittest.TestCase):
         self.assertIn("--host=all", vsebina, "Dokumentacija mora svariti pred --host=all")
 
 
+class TestBrowserAutomationV1SafeerDRM(unittest.TestCase):
+    """V1: Safeer DRM v načinu avtomatizacije ne sme odpreti Safeer DRM ali zunanjega brskalnika."""
+
+    def test_avtomatizacija_drm_vdelaj_in_klik_ne_odpreta_nicesar(self):
+        """V1: Pri avtomatizacija=True se _drm_vdelaj in _drm_klik ne dotakneta Safeer DRM ali launch_default_for_uri."""
+        from core import os_splet
+        splet = mock.MagicMock(spec=os_splet.VdelaniSplet)
+        splet.avtomatizacija = True
+        splet._zavihek.return_value = {"drm": None}
+        splet._drm_ponudba = (mock.MagicMock(), "https://netflix.com")
+        splet.pojavna = mock.MagicMock()
+
+        with mock.patch("core.safeer_drm.Gostitelj") as mock_gostitelj, \
+             mock.patch("core.zasebni_webkit.kontekst_za_zunanje"), \
+             mock.patch.object(os_splet.safeer_drm.Gostitelj, "na_voljo", return_value=True):
+            # Poskus vdelave DRM
+            rezultat = os_splet.VdelaniSplet._drm_vdelaj(splet, mock.MagicMock(), "https://netflix.com")
+            self.assertFalse(rezultat)
+            mock_gostitelj.assert_not_called()
+
+            # Poskus klika na DRM ponudbo
+            os_splet.VdelaniSplet._drm_klik(splet)
+            mock_gostitelj.assert_not_called()
+            self.assertIsNone(splet._drm_ponudba)
+            splet.pojavna.set_reveal_child.assert_called_with(False)
+
+            # Poskus ponudbe DRM
+            os_splet.VdelaniSplet._drm_ponudi(splet, mock.MagicMock(), "https://netflix.com")
+            self.assertIsNone(splet._drm_ponudba)
+
+
+class TestBrowserAutomationS1ZacasnaMapa(unittest.TestCase):
+    """S1: Začasna mapa v $XDG_RUNTIME_DIR, čiščenje starih map brez živega PID in SIGTERM pospravljanje."""
+
+    def test_zacasna_mapa_v_xdg_runtime_dir(self):
+        """S1: ustvari_zacasno_mapo_avtomatizacije ustvari mapo v $XDG_RUNTIME_DIR, če je na voljo."""
+        from core import os_splet
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": tmpdir}):
+                pot = os_splet.ustvari_zacasno_mapo_avtomatizacije()
+                self.addCleanup(lambda: shutil.rmtree(pot, ignore_errors=True))
+                self.assertTrue(pot.startswith(tmpdir), f"Mapa {pot} mora biti v {tmpdir}")
+                self.assertTrue(os.path.isdir(pot))
+                self.assertTrue(os.path.isfile(os.path.join(pot, ".pid")))
+                with open(os.path.join(pot, ".pid"), encoding="utf-8") as f:
+                    self.assertEqual(f.read().strip(), str(os.getpid()))
+
+    def test_ciscenje_starih_zacasnih_map_brez_zivega_pid(self):
+        """S1: pocisti_stare_zacasne_avtomatizacije pobriše mape brez živega PID."""
+        from core import os_splet
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stara_mapa = os.path.join(tmpdir, "safeer-avtomatizacija-999999-stara")
+            os.makedirs(stara_mapa, exist_ok=True)
+            with open(os.path.join(stara_mapa, ".pid"), "w", encoding="utf-8") as f:
+                f.write("999999")
+
+            ziva_mapa = os.path.join(tmpdir, f"safeer-avtomatizacija-{os.getpid()}-ziva")
+            os.makedirs(ziva_mapa, exist_ok=True)
+            with open(os.path.join(ziva_mapa, ".pid"), "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": tmpdir}):
+                os_splet.pocisti_stare_zacasne_avtomatizacije()
+
+            self.assertFalse(os.path.exists(stara_mapa), "Stara mapa mrtvega PID mora biti izbrisana")
+            self.assertTrue(os.path.exists(ziva_mapa), "Mapa živega PID mora ostati")
+            shutil.rmtree(ziva_mapa, ignore_errors=True)
+
+    def test_sigterm_pospravi_in_koncaj(self):
+        """S1: Ob klicu _ob_sigterm se začasna mapa pospravi in pokliče quit()."""
+        import safeer_brskalnik as sb
+        app = sb.SafeerBrskalnik(avtomatizacija=True)
+        zacasna = app._zacasna_mapa
+        self.assertIsNotNone(zacasna)
+        self.assertTrue(os.path.isdir(zacasna))
+
+        app.quit = mock.MagicMock()
+        app.splet = mock.MagicMock()
+        app._ob_sigterm()
+
+        self.assertFalse(os.path.exists(zacasna), "Začasna mapa mora biti ob SIGTERM izbrisana")
+        app.quit.assert_called_once()
+
+
+class TestBrowserAutomationS2Prenosi(unittest.TestCase):
+    """S2: Prenosi v načinu avtomatizacije v <začasna mapa>/prenosi."""
+
+    def test_prenosi_gredo_v_zacasno_mapo(self):
+        """S2: splet.mapa_prenosov() vrne <zacasna mapa>/prenosi v načinu avtomatizacije."""
+        from core import os_splet
+        with tempfile.TemporaryDirectory() as tmpdir:
+            splet = mock.MagicMock(spec=os_splet.VdelaniSplet)
+            splet.avtomatizacija = True
+            splet._zacasna_mapa = tmpdir
+            pot = os_splet.VdelaniSplet.mapa_prenosov(splet)
+            self.assertEqual(pot, os.path.join(tmpdir, "prenosi"))
+            self.assertTrue(os.path.isdir(pot))
+
+
+class TestBrowserAutomationS3Ephemeral(unittest.TestCase):
+    """S3: Če new_ephemeral() vrže napako, se avtomatizacija zavrne (RuntimeError) brez uporabe get_default()."""
+
+    def test_avtomatizacija_ephemeral_napaka_zavrne_avtomatizacijo(self):
+        from core import os_splet
+        kontekst = mock.MagicMock()
+        WebKit2 = mock.MagicMock()
+        WebKit2.WebContext.get_default.return_value = kontekst
+        WebKit2.NetworkSession.new_ephemeral.side_effect = RuntimeError("Napaka ustvarjanja efemerne seje")
+
+        with mock.patch("core.pomnilnik.kontekst", return_value=kontekst):
+            with self.assertRaises(RuntimeError):
+                os_splet.VdelaniSplet(
+                    mock.MagicMock(), mock.MagicMock(), mock.MagicMock(), mock.MagicMock(),
+                    WebKit2, str(ROOT), "sl", None, prvi_zavihek=False, avtomatizacija=True
+                )
+        WebKit2.NetworkSession.get_default.assert_not_called()
+
+
+class TestBrowserAutomationS4InspektorOkolje(unittest.TestCase):
+    """S4: WEBKIT_INSPECTOR_SERVER / HTTP_SERVER, ki nista loopback, se odstranita iz okolja."""
+
+    def test_oddaljeni_inspektor_ne_loopback_se_odstrani(self):
+        from core import okolje_procesa
+        with mock.patch.dict(os.environ, {
+            "WEBKIT_INSPECTOR_SERVER": "0.0.0.0:9222",
+            "WEBKIT_INSPECTOR_HTTP_SERVER": "127.0.0.1:9223"
+        }):
+            okolje_procesa.preveri_oddaljeni_inspektor()
+            self.assertNotIn("WEBKIT_INSPECTOR_SERVER", os.environ, "0.0.0.0 mora biti odstranjen")
+            self.assertIn("WEBKIT_INSPECTOR_HTTP_SERVER", os.environ, "127.0.0.1 mora ostati")
+
+    def test_oddaljeni_inspektor_razlicne_oblike(self):
+        from core.okolje_procesa import je_loopback_naslov
+        self.assertTrue(je_loopback_naslov("127.0.0.1:9222"))
+        self.assertTrue(je_loopback_naslov("localhost:9222"))
+        self.assertTrue(je_loopback_naslov("[::1]:9222"))
+        self.assertTrue(je_loopback_naslov("127.0.0.5:1234"))
+        self.assertFalse(je_loopback_naslov("0.0.0.0:9222"))
+        self.assertFalse(je_loopback_naslov(":9222"))
+        self.assertFalse(je_loopback_naslov("192.168.1.50:9222"))
+        self.assertFalse(je_loopback_naslov("[2001:db8::1]:9222"))
+        self.assertFalse(je_loopback_naslov("all:9222"))
+
+
+class TestRealGTKPasicaVidnost(unittest.TestCase):
+    """S5: Preizkus vidnosti pasice s pravim GTK (tools/nas_webkit.sh + xvfb-run): pasica.get_mapped()."""
+
+    def test_pasica_get_mapped_po_create_web_view_in_window_open(self):
+        """S5 & N3: pasica.get_mapped() je True po create-web-view, po window.open in v fullscreen."""
+        os.environ["WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"] = "1"
+        from core import okolje_procesa
+        okolje_procesa.pred_nitmi()
+
+        import gi
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("WebKit", "6.0")
+        from gi.repository import Gdk, Gio, GLib, Gtk, WebKit as WebKit2
+        from core import os_splet
+        from core.config import ConfigManager
+
+        if not Gtk.init_check() or Gdk.Display.get_default() is None:
+            self.skipTest("GTK zaslon ni na voljo (zaženite z xvfb-run)")
+        zacasna = os_splet.ustvari_zacasno_mapo_avtomatizacije()
+        self.addCleanup(lambda: shutil.rmtree(zacasna, ignore_errors=True))
+
+        config = ConfigManager(config_dir=zacasna)
+        okno = Gtk.Window(title="Test Avtomatizacija Vidnost")
+        okno.set_default_size(800, 600)
+        self.addCleanup(okno.destroy)
+
+        splet = os_splet.VdelaniSplet(
+            Gtk, Gdk, Gio, GLib, WebKit2,
+            str(ROOT), "sl", None, stars=okno, config=config, avtomatizacija=True,
+            prvi_zavihek=False
+        )
+        self.addCleanup(splet.pospravi)
+        okno.set_child(splet.gradnik)
+        okno.present()
+
+        # 1. create-web-view (avtomatizacija ustvari pogled)
+        p1 = splet._avtomatizacija_ustvari_pogled()
+        self.assertIsNotNone(p1)
+
+        ctx = GLib.MainContext.default()
+        for _ in range(50):
+            ctx.iteration(False)
+
+        self.assertTrue(hasattr(splet, "pasica_avtomatizacija"), "splet mora imeti pasica_avtomatizacija")
+        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora biti preslikana (get_mapped == True)")
+        self.assertTrue(splet.pasica_avtomatizacija.is_visible(), "Pasica mora biti vidna")
+
+        # 2. window.open (_novo_okno s povezan=pogled)
+        class Action:
+            def get_request(self):
+                class Req:
+                    def get_uri(self):
+                        return "about:blank"
+                return Req()
+            def get_navigation_type(self):
+                return None
+
+        p2 = splet._novo_okno(p1, Action())
+        self.assertIsNotNone(p2)
+
+        for _ in range(50):
+            ctx.iteration(False)
+
+        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora ostati get_mapped po window.open")
+
+        # 3. N3: Celozaslonski nacin
+        okno.fullscreen()
+        for _ in range(50):
+            ctx.iteration(False)
+
+        self.assertTrue(splet.pasica_avtomatizacija.get_mapped(), "Pasica mora ostati get_mapped v fullscreen")
+
+
+class TestPrevodS6(unittest.TestCase):
+    """S6: Preverba prevoda es 'Buscar en la página'."""
+
+    def test_es_najdi_prevod(self):
+        from core.os_splet import BESEDILA
+        self.assertEqual(BESEDILA["es"]["najdi"], "Buscar en la página")
+
+
 if __name__ == "__main__":
     unittest.main()

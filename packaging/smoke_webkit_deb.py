@@ -119,7 +119,7 @@ def preveri_sklad():
     ]
     for pot in pregled:
         if not os.path.isfile(pot):
-            continue
+            napaka("%s ne obstaja (PT_GNU_STACK ni mogoce preveriti)" % pot)
         zastavice = sklad_elf(os.path.realpath(pot))
         if zastavice is None or zastavice & PF_X:
             napaka("%s: PT_GNU_STACK %s - sklad bi bil izvrsljiv" % (pot, "manjka" if zastavice is None else "je izvrsljiv"))

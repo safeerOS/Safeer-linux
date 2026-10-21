@@ -28,6 +28,8 @@ if os.environ.get("FLATPAK_ID"):
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
 zasebni_webkit.nastavi(KOREN)
+from core import okolje_procesa  # noqa: E402
+okolje_procesa.pred_nitmi()
 from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
@@ -174,9 +176,15 @@ class SafeerBrskalnik(Gtk.Application):
         self.splet = None
         self._zacasna_mapa = None
         if self.avtomatizacija:
-            import tempfile
-            self._zacasna_mapa = tempfile.mkdtemp(prefix="safeer-avtomatizacija-")
+            from core.os_splet import pocisti_stare_zacasne_avtomatizacije, ustvari_zacasno_mapo_avtomatizacije
+            pocisti_stare_zacasne_avtomatizacije()
+            self._zacasna_mapa = ustvari_zacasno_mapo_avtomatizacije()
             self.config = ConfigManager(config_dir=self._zacasna_mapa)
+            import signal
+            try:
+                GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, self._ob_sigterm)
+            except Exception as e:
+                print("[Safeer Browser] signal_add SIGTERM:", e)
         else:
             self.config = None
         self.add_main_option("automation", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
@@ -300,17 +308,39 @@ class SafeerBrskalnik(Gtk.Application):
         GLib.timeout_add_seconds(3, preveri)     # po prvem izrisu: brez zamude ob zagonu
         return rev
 
+    def _ob_sigterm(self, *_a) -> bool:
+        """S1: Ob signalu SIGTERM pospravi zacasno mapo in zapre brskalnik."""
+        self._pospravi_avtomatizacijo()
+        if self.okno:
+            try:
+                self.okno.close()
+            except Exception:
+                pass
+        self.quit()
+        return False
+
+    def _pospravi_avtomatizacijo(self) -> None:
+        if self.splet is not None:
+            try:
+                self.splet.koncaj_drm()
+            except Exception as e:
+                print("[Safeer Browser] DRM ob zaprtju:", e)
+            if hasattr(self.splet, "pospravi"):
+                try:
+                    self.splet.pospravi()
+                except Exception as e:
+                    print("[Safeer Browser] pospravi splet:", e)
+        if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
+            import shutil
+            try:
+                shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
+            except Exception as e:
+                print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
+            self._zacasna_mapa = None
+
     def _ob_zaprtju(self, *_a) -> bool:
         if self.avtomatizacija:
-            self.splet.koncaj_drm()
-            if hasattr(self.splet, "pospravi"):
-                self.splet.pospravi()
-            if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
-                import shutil
-                try:
-                    shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-                except Exception:
-                    pass
+            self._pospravi_avtomatizacijo()
             return False
         try:
             tren = self.splet.trenutni()
