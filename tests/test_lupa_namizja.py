@@ -253,6 +253,20 @@ class LupaNamizja(unittest.TestCase):
         self.assertTrue(self._pocakaj(lambda: ("spletNaNamizju", ["https://www.linuxmint.com/"]) in
                                       [(m, list(a)[:1]) for m, a in self.klici]), self.klici[-4:])
 
+    def test_oznaka_iskalnika_brez_zadetkov(self):
+        """Niz je odsel, iskalnik ni vrnil nic: oznaka pove komu, vrstice zadetka ni (spletni_zadetki.z_iskalnikom)."""
+        from PySide6.QtCore import Qt
+        n = self._namizje()
+        n.os._spletni_zadetki = lambda niz, povratni: (self.klici.append(("spletniZadetki", [niz])),
+                                                      povratni([{"iskalnik": "DuckDuckGo"}]))
+        model = self._el("zadetkiModel")
+        for k, c in ((Qt.Key.Key_X, "x"), (Qt.Key.Key_Y, "y"), (Qt.Key.Key_Z, "z")):
+            self._tipka(k, c)
+        vrste = lambda: [model.get(i).property("vrsta").toString() for i in range(model.property("count"))]  # noqa: E731
+        self.assertTrue(self._pocakaj(lambda: ("spletniZadetki", ["xyz"]) in self.klici, 3))
+        self.assertTrue(self._pocakaj(lambda: "DuckDuckGo" in model.get(vrste().index("splet")).property("opis").toString(), 3))
+        self.assertNotIn("spletZadetek", vrste())
+
     def test_brez_sprotnih_zadetkov_ob_izklopu(self):
         from PySide6.QtCore import Qt
         self._namizje()

@@ -3103,8 +3103,9 @@ class SafeerOS(Gtk.Application):
                                                            pozabi=splet.pozabi_skriti_pogled)
             ime = IMENA_ISKALNIKOV.get(_kljuc_iskalnika(), "")
             # Lupa pove, kateri iskalnik je dobil niz (oznaka pod zadetki, lastnik 20. 10. 2026).
+            from core.spletni_zadetki import z_iskalnikom
             self._predogled_iskanja.isci(_iskalnik() + GLib.uri_escape_string(niz, None, False),
-                                         lambda r: povratni([dict(z, iskalnik=ime) for z in r]))
+                                         lambda r: povratni(z_iskalnikom(r, ime)))
         except Exception as e:  # noqa: BLE001 - lupa brez sprotnih zadetkov dela naprej
             print("[SafeerOS] sprotni zadetki:", e, flush=True)
             povratni([])
