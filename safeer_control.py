@@ -25,17 +25,21 @@ ga vidita, kadar je racunalnik prizgan. Zapiranje okna Control le skrije.
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
-import threading
-import time
 import sys
-from typing import Optional
 
 KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
+
+from core import urejen_izhod  # noqa: E402
+urejen_izhod.namesti_zgodnje_signale("safeer-control")
+
+import json
+import subprocess
+import threading
+import time
+from typing import Optional
 
 #: Ponovni zagon nove razlicice (_znova_zazeni) naroci, naj se okno odpre takoj. Spremenljivka je v
 #: okolje_procesa.PREVZETE: sam Control jo tu prevzame, ko tece ena nit; v procesu Safeer OS (vgrajen Control, niti ze
@@ -905,6 +909,12 @@ class SafeerControl(_OSNOVA):
         self.gledalec: Optional[Gtk.Window] = None
         self._gledalec_naprava = ""          # naprava, katere zaslon okno gledalca trenutno kaže
         self._oddaljeni_gledalec: Optional[OddaljeniGledalec] = None
+        self._koncano = False
+        self._koncano_brez_izhoda = False
+        self._izhod_v_teku = False
+        if not VGRAJEN:
+            from core import urejen_izhod
+            urejen_izhod.povezi_signale(self.koncaj)
         # --ozadje: brez okna, z ikono v pladnju; okno se odpre iz pladnja ali ob ponovnem zagonu iz menija.
         self.ozadje = ozadje
         self.pladenj: Optional[Pladenj] = None
@@ -1895,54 +1905,133 @@ class SafeerControl(_OSNOVA):
             self.quit()
 
     def koncaj(self) -> None:
+        """Konec Safeer Control (P2: UI -> strezniki -> podprocesi -> baze -> stanje -> exit)."""
+        if getattr(self, "_koncano", False):
+            return
         self.koncaj_brez_izhoda()
         if VGRAJEN:
+            self._koncano = True
             return          # v procesu Safeer OS: Link in pladenj pospravimo, namizje tece naprej
-        self.quit()
+
+        from core import urejen_izhod
+
+        # 6. FAZA_EXIT
+        def korak_exit():
+            for w in self.get_windows():
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+            self.quit()
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_EXIT, "SafeerControl:exit", korak_exit, rok_s=1.0)
+        self._koncano = True
 
     def koncaj_brez_izhoda(self) -> None:
-        """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice)."""
-        try:
-            # Okno z zaslonom druge naprave je še odprto: naprava naj neha deliti, preden zapremo povezavo.
+        """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice).
+
+        Vrstni red zapiranja po nacrtu stabilnosti P2:
+        UI -> strezniki/vticnice -> podprocesi -> baze -> stanje.
+        """
+        if getattr(self, "_koncano_brez_izhoda", False) or getattr(self, "_izhod_v_teku", False):
+            return
+        self._izhod_v_teku = True
+        from core import urejen_izhod
+
+        # Posnetek stanja pred skrivanjem
+        okno_odprto = bool(getattr(self, "okno", None) and self.okno.get_visible())
+
+        # 1. FAZA_UI: okna, pladenj, gledalec
+        def korak_ui():
+            if getattr(self, "okno", None) is not None:
+                try:
+                    self.okno.set_visible(False)
+                except Exception:
+                    pass
+            if getattr(self, "pladenj", None) is not None:
+                try:
+                    self.pladenj.odstrani()
+                except Exception:
+                    pass
             if self.gledalec is not None:
-                self._konec_gledanja(pocakaj=1.0)
-        except Exception:
-            pass
-        try:
+                try:
+                    self._konec_gledanja(pocakaj=0.5)
+                except Exception:
+                    pass
             oddaljeni = self._oddaljeni_gledalec
             if oddaljeni is not None:
-                oddaljeni.zapri(sporoci_stop=False)
-                self._ustavi_oddaljeno_sejo(oddaljeni.id_naprave)
-        except Exception:
-            pass
-        try:
+                try:
+                    oddaljeni.zapri(sporoci_stop=False)
+                    self._ustavi_oddaljeno_sejo(oddaljeni.id_naprave)
+                except Exception:
+                    pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerControl:ui", korak_ui, rok_s=2.0)
+
+        # 2. FAZA_STREZNIKI: Link povezava, sistemski posrednik
+        def korak_strezniki():
             if self.link is not None and self.link.povezava is not None:
-                self.link.povezava.zapri()
-        except Exception:
-            pass
-        try:
-            # Sistemski posrednik namizja se vrne na prejsnje vrednosti, tokovi skozi telefon se zaprejo.
+                try:
+                    self.link.povezava.zapri()
+                except Exception:
+                    pass
             if self.internet is not None:
-                self.internet.ustavi()
-        except Exception:
-            pass
-        try:
+                try:
+                    self.internet.ustavi()
+                except Exception:
+                    pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerControl:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
+
+        # 3. FAZA_PODPROCESI: zvok, zaslon, teamwork, datoteke
+        def korak_podprocesi():
+            if getattr(self, "zvok", None) is not None:
+                try:
+                    self.zvok.ustavi()
+                except Exception:
+                    pass
+            if getattr(self, "zaslon", None) is not None:
+                try:
+                    self.zaslon.ustavi(pocakaj_s=1.5)
+                except Exception:
+                    pass
+            if getattr(self, "drugi_zaslon", None) is not None:
+                try:
+                    self.drugi_zaslon.ustavi()
+                except Exception:
+                    pass
             if getattr(self, "teamwork", None) is not None:
-                self.teamwork.ustavi()
-            self.datoteke.ustavi()
-        except Exception:
+                try:
+                    self.teamwork.ustavi()
+                except Exception:
+                    pass
+            if getattr(self, "datoteke", None) is not None:
+                try:
+                    self.datoteke.ustavi()
+                except Exception:
+                    pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerControl:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
+
+        # 4. FAZA_BAZE
+        def korak_baze():
             pass
-        try:
-            self.zvok.ustavi()
-        except Exception:
-            pass
-        try:
-            # Seja zapise povzetek meritev sele, ko se crpalka ustavi: kratko jo pocakamo, da ob izhodu ni izgubljen.
-            self.zaslon.ustavi(pocakaj_s=2.0)
-            if self.drugi_zaslon is not None:
-                self.drugi_zaslon.ustavi()
-        except Exception:
-            pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerControl:baze", korak_baze, rok_s=1.0)
+
+        # 5. FAZA_STANJE
+        def korak_stanje():
+            try:
+                from core import nova_razlicica
+                nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
+                                             ime=nova_razlicica.OBNOVA)
+            except Exception as e:
+                print("[Safeer Control] stanje za obnovo:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerControl:stanje", korak_stanje, rok_s=1.0)
+
+        self._koncano_brez_izhoda = True
+        self._izhod_v_teku = False
 
     # ------------------------------------------------------------------ "Poslji na napravo": ta racunalnik kot cilj
     #: Pasica s ponudbo (majhno okno v kotu zaslona) - ena naenkrat.
