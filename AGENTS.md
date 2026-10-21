@@ -24,6 +24,10 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
   RAM ohranijo varcni enoprocesni modul aplikacije. Izmerjeno 21. 10.: spletni motor je ze vecprocesen (WebKitGTK:
   procesi strani v bubblewrap; Android WebView: sandboxed_process tudi na TV) - »en proces« velja za vmesnik Safeer.
 
+## Razvoj Spleta (WebKit)
+- Pred vsakim delom na Spletu, Safeer Browserju ali WebKitu preberi docs/SMERNICE-SPLET.md (izmerjena arhitektura,
+  merjenje PSS in A/B, funkcije WebKita, profil naprave, pomnilnik, varnost, ustreznice tehnik drugih brskalnikov).
+
 ## Zasebnost (nikoli v repo, commit, PR ali opombe izdaje)
 - Ime lastnika, domaca pot, uporabnisko ime, ime gostitelja, MAC, e-naslovi, posnetki zaslona naprav. V besedilu: »lastnik«.
 - Gesla, zetoni, kljuci (`-----BEGIN … PRIVATE KEY-----`, `ghp_…`, `github_pat_…`, `AIza…`, `AKIA…`) – preveri `tests/test_brez_skrivnosti.py`.
