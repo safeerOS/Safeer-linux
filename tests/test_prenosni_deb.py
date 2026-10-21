@@ -28,10 +28,9 @@ class PrenosniDeb(unittest.TestCase):
         # vgradi pred dpkg-shlibdeps, sicer bi Depends se vedno zahteval libicu74 ...
         self.assertLess(s.index("PRENOSNE="), s.index("&& dpkg-shlibdeps"))
 
-    def test_ci_zavrne_depends_s_prenosno_knjiznico_in_preizkusi_mint23(self):
+    def test_ci_zavrne_depends_s_prenosno_knjiznico_in_preizkusi_nove_sisteme(self):
         s = beri(".github/workflows/linux-packages.yml")
         self.assertIn("Depends zahteva knjiznico, ki mora biti v paketu", s)
-        self.assertRegex(s, r"mint: \[[^\]]*'23'")
         self.assertIn("patchelf", beri("packaging/webkit-deb/knjiznice.sh"))
         self.assertRegex(s, r"slika: \['debian:13', 'ubuntu:26.04'\]")     # Gemini 1.0.131: trditev opomb preveri CI
         self.assertIn("nima GNU_STACK RW", s)

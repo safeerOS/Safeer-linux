@@ -619,7 +619,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mint: ['22', '22.3', '23']
+        # Linux Mint 23 (osnova Ubuntu 26.04) se ni izdan - izid decembra 2026; slika linuxmintd/mint23 ima odstranjeno
+        # razvojno skladisce »alfa« (CI 21. 10. 2026). Osnovo 26.04 preizkusa posel debian (ubuntu:26.04).
+        mint: ['22', '22.3']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8
