@@ -4,6 +4,7 @@ Safeer Browser for Linux Mint - Configuration Manager
 Manages user preferences, modular sidebar integrations, and virtual keyboard settings.
 """
 
+import ipaddress
 import os
 import copy
 import re
@@ -58,7 +59,12 @@ _KONCNICE_NE_DOMENE = frozenset(("pdf", "doc", "docx", "odt", "ods", "odp", "xls
                                  "csv", "jpg", "jpeg", "png", "gif", "webp", "svg", "mp3", "mp4", "mkv", "avi", "flac",
                                  "wav", "ogg", "7z", "rar", "tar", "gz", "deb", "rpm", "exe", "apk", "iso", "py", "js",
                                  "json", "md", "html", "htm"))
-_IPV4 = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+def _je_ip(ime: str) -> bool:
+    try:
+        ipaddress.ip_address(ime)
+        return True
+    except ValueError:
+        return False
 
 
 def je_spletni_naslov(besedilo: str) -> bool:
@@ -66,8 +72,9 @@ def je_spletni_naslov(besedilo: str) -> bool:
 
     Lastnik 21. 10. 2026: v Spletu je »test« odprl https://test/ (»Strani trenutno ni mogoče odpreti«) namesto iskanja;
     normalize_web_url iz vsake besede brez dvopicja naredi naslov, tudi iz »vreme ljubljana«. Naslov je: shema http(s),
-    localhost, IP, gostitelj z vrati ali gostitelj s piko in vrhnjo domeno iz crk (ne stevilka, ne koncnica datoteke).
-    Iskanje je: ena beseda brez pike, vse s presledkom, »python 3.12«, »racun.pdf«, vpis, ki se zacne z »?«."""
+    localhost, IP, gostitelj z vrati, beseda s posevnico na koncu (»nas/«) ali gostitelj s piko in vrhnjo domeno iz crk.
+    Iskanje je: ena beseda brez pike, vse s presledkom, »python 3.12«, »racun.pdf«, vpis, ki se zacne z »?«.
+    Isto pravilo ima zacetna stran Spleta (ui/splet.js jeSpletniNaslov) - preizkus tests/test_naslovna_vrstica.py."""
     s = (besedilo or "").strip()
     if not s or s.startswith("?") or any(c.isspace() for c in s):
         return False
@@ -75,22 +82,31 @@ def je_spletni_naslov(besedilo: str) -> bool:
     if m and m.group(2):
         return m.group(1).lower() in ("http", "https")
     gostitelj = re.split(r"[/?#]", s, 1)[0]
-    if "@" in gostitelj:
+    pot = s[len(gostitelj):]
+    if not gostitelj or "@" in gostitelj:
         return False                                   # »ime@posta.si« ni naslov strani
-    if gostitelj.startswith("["):                      # [IPv6]:vrata
-        return gostitelj.find("]") > 1
-    ime, _, vrata = gostitelj.partition(":")
-    if vrata:
-        return vrata.isdigit() and bool(ime)           # localhost:8080, test:3000, 192.168.0.1:8080
-    if ime.lower() == "localhost" or _IPV4.match(ime):
+    if gostitelj.startswith("["):                      # [IPv6] ali [IPv6]:vrata
+        konec = gostitelj.find("]")
+        ostanek = gostitelj[konec + 1:]
+        return konec > 1 and ":" in gostitelj[1:konec] and _je_ip(gostitelj[1:konec]) and \
+            (ostanek == "" or (ostanek.startswith(":") and ostanek[1:].isdigit()))
+    ime, dvopicje, vrata = gostitelj.partition(":")
+    if dvopicje:
+        return vrata.isdigit() and bool(ime)           # localhost:8080, test:3000, 192.168.0.1:8080 (»localhost:« ne)
+    if ime.lower() == "localhost" or _je_ip(ime):
         return True
+    if "." not in ime:
+        return pot == "/"                              # »nas/« (gostitelj v domacem omrezju, kot Chrome)
     deli = ime.rstrip(".").split(".")
     if len(deli) < 2 or not all(deli):
         return False
     vrh = deli[-1].lower()
     if vrh.startswith("xn--"):
         return len(vrh) > 4
-    return len(vrh) >= 2 and vrh.isalpha() and vrh not in _KONCNICE_NE_DOMENE
+    if len(vrh) < 2 or not vrh.isalpha():
+        return False
+    # »racun.pdf« je ime datoteke, »lanacion.com.py« (Paragvaj) ali »safeer.si/x.md« pa naslov (pregled pomocnika 1.0.130)
+    return not (len(deli) == 2 and not pot and vrh in _KONCNICE_NE_DOMENE)
 
 
 def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:

@@ -154,12 +154,51 @@
   }
   function odpri(url) { if (!most({ action: "navigate", url: url })) window.location.href = url; }
 
+  // Naslov ali iskanje: ISTO pravilo kot naslovna vrstica (core/config.je_spletni_naslov; lastnik 21. 10. 2026 -
+  // »test« je odprl https://test/). Preizkus tests/test_naslovna_vrstica.py primerja obe izvedbi na istih primerih.
+  var KONCNICE_NE_DOMENE = {pdf:1, doc:1, docx:1, odt:1, ods:1, odp:1, xls:1, xlsx:1, ppt:1, pptx:1, txt:1, rtf:1,
+    csv:1, jpg:1, jpeg:1, png:1, gif:1, webp:1, svg:1, mp3:1, mp4:1, mkv:1, avi:1, flac:1, wav:1, ogg:1, "7z":1, rar:1,
+    tar:1, gz:1, deb:1, rpm:1, exe:1, apk:1, iso:1, py:1, js:1, json:1, md:1, html:1, htm:1};
+  function jeIPv4(s) {
+    var d = s.split(".");
+    if (d.length !== 4) return false;
+    for (var i = 0; i < 4; i++) { if (!/^\d{1,3}$/.test(d[i]) || +d[i] > 255 || (d[i].length > 1 && d[i][0] === "0")) return false; }
+    return true;
+  }
+  function jeIPv6(s) { return /^[0-9a-f:.]+$/i.test(s) && s.indexOf(":") >= 0 && (s.match(/::/g) || []).length <= 1; }
+  function jeSpletniNaslov(vnos) {
+    var s = String(vnos || "").trim();
+    if (!s || s.charAt(0) === "?" || /\s/.test(s)) return false;
+    var m = /^([a-z][a-z0-9+.-]*):(\/\/)?/i.exec(s);
+    if (m && m[2]) return /^https?$/i.test(m[1]);
+    var gost = s.split(/[\/?#]/)[0], pot = s.slice(gost.length);
+    if (!gost || gost.indexOf("@") >= 0) return false;
+    if (gost.charAt(0) === "[") {
+      var k = gost.indexOf("]"), ost = gost.slice(k + 1);
+      return k > 1 && jeIPv6(gost.slice(1, k)) && (ost === "" || /^:\d+$/.test(ost));
+    }
+    var dv = gost.indexOf(":");
+    if (dv >= 0) return dv > 0 && /^\d+$/.test(gost.slice(dv + 1));
+    if (gost.toLowerCase() === "localhost" || jeIPv4(gost)) return true;
+    if (gost.indexOf(".") < 0) return pot === "/";
+    var deli = gost.replace(/\.$/, "").split(".");
+    for (var i = 0; i < deli.length; i++) if (!deli[i]) return false;
+    if (deli.length < 2) return false;
+    var vrh = deli[deli.length - 1].toLowerCase();
+    if (vrh.indexOf("xn--") === 0) return vrh.length > 4;
+    if (vrh.length < 2 || !/^\p{L}+$/u.test(vrh)) return false;
+    return !(deli.length === 2 && !pot && KONCNICE_NE_DOMENE[vrh] === 1);
+  }
   function vNaslov(vnos) {
     var q = (vnos || "").trim();
     if (!q) return "";
-    if (/^(https?:|file:)/i.test(q)) return q;
-    if (/^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(q)) return "http://" + q;
-    if (q.indexOf(" ") < 0 && /^[^\s.]+(\.[^\s.]+)+(:\d+)?(\/.*)?$/.test(q)) return "https://" + q;
+    if (/^file:/i.test(q)) return q;                       // lokalna datoteka (gostitelj jo preveri)
+    if (jeSpletniNaslov(q)) {
+      if (/^https?:\/\//i.test(q)) return q;
+      if (q.charAt(0) === "[" || /^[^\/?#]*:\d+([\/?#]|$)/.test(q)) return "http://" + q;   // vrata ali IPv6
+      return "https://" + q;
+    }
+    if (q.charAt(0) === "?") q = q.slice(1).trim();
     return (ISKALNIKI[S.iskalnik] || ISKALNIKI.duckduckgo) + encodeURIComponent(q);
   }
 
