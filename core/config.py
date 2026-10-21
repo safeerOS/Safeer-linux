@@ -394,9 +394,9 @@ def preseli_dns_na_scit(merged: Dict[str, Any], user_settings: Dict[str, Any]) -
 
 
 class ConfigManager:
-    def __init__(self):
-        self.config_dir = CONFIG_DIR
-        self.config_file = CONFIG_FILE
+    def __init__(self, config_dir: str | None = None):
+        self.config_dir = config_dir if config_dir is not None else CONFIG_DIR
+        self.config_file = os.path.join(self.config_dir, "settings.json") if config_dir is not None else CONFIG_FILE
         # Stanje datoteke, ki ga ta primerek pozna (zadnje branje ali zapis). Zapis zapise samo kljuce, ki so se tu
         # spremenili glede na to stanje, vse drugo vzame z diska: drug proces (Safeer OS / Safeer Browser) ima svojo
         # kopijo nastavitev in je prej ob vsakem zapisu prepisal spremembe drugega (stresni preizkus 20. 10. 2026).

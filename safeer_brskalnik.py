@@ -46,6 +46,7 @@ if __name__ == "__main__":
 import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
+gi.require_version("Pango", "1.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 from gi.repository import WebKit as WebKit2  # noqa: E402
@@ -165,10 +166,21 @@ def je_privzet() -> bool:
 
 
 class SafeerBrskalnik(Gtk.Application):
-    def __init__(self) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+    def __init__(self, avtomatizacija: bool = False) -> None:
+        self.avtomatizacija = bool(avtomatizacija)
+        flags = Gio.ApplicationFlags.NON_UNIQUE if self.avtomatizacija else Gio.ApplicationFlags.HANDLES_OPEN
+        super().__init__(application_id=APP_ID, flags=flags)
         self.okno = None
         self.splet = None
+        self._zacasna_mapa = None
+        if self.avtomatizacija:
+            import tempfile
+            self._zacasna_mapa = tempfile.mkdtemp(prefix="safeer-avtomatizacija-")
+            self.config = ConfigManager(config_dir=self._zacasna_mapa)
+        else:
+            self.config = None
+        self.add_main_option("automation", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Nacin za avtomatizacijo (WebKitWebDriver)", None)
 
     # ------------------------------------------------------------------ okno
     def _ustvari(self) -> None:
@@ -176,7 +188,9 @@ class SafeerBrskalnik(Gtk.Application):
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Browser")
         okno.set_icon_name("safeer-browser")
         okno.set_default_size(1280, 820)
-        self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno)
+        self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno,
+                                  config=self.config, avtomatizacija=self.avtomatizacija,
+                                  prvi_zavihek=not self.avtomatizacija)
         self.splet.privzeti = (je_privzet, nastavi_privzetega, besedila_privzetega)   # gumb v nastavitvah Spleta
         # Safeer DRM je od 1.0.127 v paketu: nekoc preneseno kopijo pospravimo v ozadju (profili s prijavami ostanejo).
         from core import safeer_drm
@@ -203,12 +217,13 @@ class SafeerBrskalnik(Gtk.Application):
         okno.add_controller(k)
         okno.connect("close-request", self._ob_zaprtju)
         self.okno = okno
-        seja = nalozi_sejo(self.splet.config)
-        if seja:
-            self.splet.odpri(seja[0])
-            for n in seja[1:]:
-                self.splet.nov_zavihek(n)
-            self.splet.izberi(self.splet.zavihki[izbran_v_seji(self.splet.config, len(self.splet.zavihki))]["pogled"])
+        if not self.avtomatizacija:
+            seja = nalozi_sejo(self.splet.config)
+            if seja:
+                self.splet.odpri(seja[0])
+                for n in seja[1:]:
+                    self.splet.nov_zavihek(n)
+                self.splet.izberi(self.splet.zavihki[izbran_v_seji(self.splet.config, len(self.splet.zavihki))]["pogled"])
 
     def _zavihki_v_naslovno_vrstico(self, okno) -> None:
         """Kot sodobni brskalniki: zavihki so v vrhu okna, brez locene naslovne vrstice (lastnik 17. 10. 2026: napis
@@ -224,9 +239,21 @@ class SafeerBrskalnik(Gtk.Application):
             glava.set_show_title_buttons(True)
             glava.set_title_widget(vrstica)
             okno.set_titlebar(glava)
+            from core import os_lupina
+            tok = os_lupina.tokeni()
+            if self.avtomatizacija:
+                # V1: drugacna barva naslovne vrstice iz assets/os/tokens.css (--opozorilo: #ffcf8a)
+                r, g, b, a = tok.get("opozorilo", (255, 207, 138, 1.0))
+                barva_bg = f"rgba({r},{g},{b},{a:.3f})" if a < 1 else f"#{r:02x}{g:02x}{b:02x}"
+                barva_btn = "#0b1424"
+            else:
+                r, g, b, a = tok.get("ozadje", (11, 20, 36, 1.0))
+                barva_bg = f"rgba({r},{g},{b},{a:.3f})" if a < 1 else f"#{r:02x}{g:02x}{b:02x}"
+                barva_btn = "#eaf2ff"
             css = Gtk.CssProvider()
-            css.load_from_data(b"#safeer-glava { background: #0b1424; box-shadow: none; border: 0; min-height: 0;"
-                               b" padding: 0 4px 0 0; } #safeer-glava windowcontrols button { color: #eaf2ff; }", -1)
+            slog = (f"#safeer-glava {{ background: {barva_bg}; box-shadow: none; border: 0; min-height: 0;"
+                    f" padding: 0 4px 0 0; }} #safeer-glava windowcontrols button {{ color: {barva_btn}; }}")
+            css.load_from_data(slog.encode("utf-8"), -1)
             Gtk.StyleContext.add_provider_for_display(okno.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         except Exception as e:  # noqa: BLE001 - brez glave ostane prejsnja postavitev (zavihki pod naslovno vrstico)
             print("[Safeer Browser] zavihki v glavi:", e)
@@ -236,6 +263,8 @@ class SafeerBrskalnik(Gtk.Application):
     def _vrstica_privzetega(self):
         """Kot Firefox: tiha vrstica, ce Safeer ni privzeti brskalnik - nikoli ne prevzame vloge sam (lastnik: brez
         prevzemanja za hrbtom). »Ne sprasuj vec« si zapomni (check_default_browser, ista nastavitev kot GTK3)."""
+        if self.avtomatizacija:
+            return Gtk.Box()
         besedila = besedila_privzetega()
         rev = Gtk.Revealer()
         vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -272,6 +301,17 @@ class SafeerBrskalnik(Gtk.Application):
         return rev
 
     def _ob_zaprtju(self, *_a) -> bool:
+        if self.avtomatizacija:
+            self.splet.koncaj_drm()
+            if hasattr(self.splet, "pospravi"):
+                self.splet.pospravi()
+            if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
+                import shutil
+                try:
+                    shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
+                except Exception:
+                    pass
+            return False
         try:
             tren = self.splet.trenutni()
             zavihki = self.splet.zavihki
@@ -339,10 +379,11 @@ def main() -> int:
     # res ne more teci (sicer g_error); tu le pojasnilo.
     from core import peskovnik_userns
     peskovnik = peskovnik_userns.ob_zagonu()
-    app = SafeerBrskalnik()
+    avtomatizacija = "--automation" in sys.argv[1:]
+    app = SafeerBrskalnik(avtomatizacija=avtomatizacija)
     if peskovnik.get("izklopljen"):
         peskovnik_userns.pojasni_kasneje(GLib, CONFIG_DIR, jezik(), "Safeer Browser", "safeer-browser", app)
-    argumenti = [sys.argv[0]] + naslovi_iz_argumentov(sys.argv[1:])
+    argumenti = [sys.argv[0]] + [a for a in naslovi_iz_argumentov(sys.argv[1:]) if a != "--automation"]
     # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety

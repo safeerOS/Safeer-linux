@@ -40,42 +40,54 @@ BESEDILA = {
            "najdi": "Najdi na strani", "povecaj": "Povečaj", "pomanjsaj": "Pomanjšaj",
            "nastavitve": "Nastavitve brskalnika", "zapisek": "V zapisek …", "dodaj": "Dodaj bližnjico",
            "ime": "Ime", "url": "Naslov", "preklici": "Prekliči", "shrani": "Shrani",
-           "blokirano": "Blokiranih oglasov in groženj: {count}", "isci": "Najdi …"},
+           "blokirano": "Blokiranih oglasov in groženj: {count}", "isci": "Najdi …",
+           "inspektor": "Spletni inšpektor", "orodja_za_razvijalce": "Orodja za razvijalce",
+           "avtomatizacija_pasica": "To okno upravlja program za samodejno preizkušanje (WebDriver)"},
     "en": {"nov": "New tab", "naslov": "Search or enter a web address …", "nazaj": "Back",
            "naprej": "Forward", "osvezi": "Reload", "domov": "Home", "povezan": "Connected",
            "nepovezan": "Not connected", "scit": "Safeer Shield", "meni": "Menu", "prenosi": "Downloads",
            "najdi": "Find on page", "povecaj": "Zoom in", "pomanjsaj": "Zoom out",
            "nastavitve": "Browser settings", "zapisek": "Add to note …", "dodaj": "Add shortcut",
            "ime": "Name", "url": "Address", "preklici": "Cancel", "shrani": "Save",
-           "blokirano": "Blocked ads and threats: {count}", "isci": "Find …"},
+           "blokirano": "Blocked ads and threats: {count}", "isci": "Find …",
+           "inspektor": "Web Inspector", "orodja_za_razvijalce": "Developer tools",
+           "avtomatizacija_pasica": "This window is being controlled by automated test software (WebDriver)"},
     "de": {"nov": "Neuer Tab", "naslov": "Suchen oder Webadresse eingeben …", "nazaj": "Zurück",
            "naprej": "Vor", "osvezi": "Neu laden", "domov": "Startseite", "povezan": "Verbunden",
            "nepovezan": "Nicht verbunden", "scit": "Safeer-Schutz", "meni": "Menü", "prenosi": "Downloads",
            "najdi": "Auf Seite suchen", "povecaj": "Vergrößern", "pomanjsaj": "Verkleinern",
            "nastavitve": "Browser-Einstellungen", "zapisek": "Zu Notiz hinzufügen …", "dodaj": "Verknüpfung hinzufügen",
            "ime": "Name", "url": "Adresse", "preklici": "Abbrechen", "shrani": "Speichern",
-           "blokirano": "Blockierte Werbung und Bedrohungen: {count}", "isci": "Suchen …"},
+           "blokirano": "Blockierte Werbung und Bedrohungen: {count}", "isci": "Suchen …",
+           "inspektor": "Web-Inspektor", "orodja_za_razvijalce": "Entwicklertools",
+           "avtomatizacija_pasica": "Dieses Fenster wird von einer automatisierten Testsoftware gesteuert (WebDriver)"},
     "es": {"nov": "Nueva pestaña", "naslov": "Busca o escribe una dirección web …", "nazaj": "Atrás",
            "naprej": "Adelante", "osvezi": "Recargar", "domov": "Inicio", "povezan": "Conectado",
            "nepovezan": "Sin conexión", "scit": "Escudo Safeer", "meni": "Menú", "prenosi": "Descargas",
-           "najdi": "Buscar en la página", "povecaj": "Ampliar", "pomanjsaj": "Reducir",
+           "najdi": "Buscar en la page", "povecaj": "Ampliar", "pomanjsaj": "Reducir",
            "nastavitve": "Ajustes del navegador", "zapisek": "Añadir a una nota …", "dodaj": "Añadir acceso",
            "ime": "Nombre", "url": "Dirección", "preklici": "Cancelar", "shrani": "Guardar",
-           "blokirano": "Anuncios y amenazas bloqueados: {count}", "isci": "Buscar …"},
+           "blokirano": "Anuncios y amenazas bloqueados: {count}", "isci": "Buscar …",
+           "inspektor": "Inspector web", "orodja_za_razvijalce": "Herramientas para desarrolladores",
+           "avtomatizacija_pasica": "Esta ventana está siendo controlada por software de pruebas automatizadas (WebDriver)"},
     "fr": {"nov": "Nouvel onglet", "naslov": "Rechercher ou saisir une adresse web …", "nazaj": "Retour",
            "naprej": "Suivant", "osvezi": "Actualiser", "domov": "Accueil", "povezan": "Connecté",
            "nepovezan": "Non connecté", "scit": "Bouclier Safeer", "meni": "Menu", "prenosi": "Téléchargements",
            "najdi": "Rechercher dans la page", "povecaj": "Agrandir", "pomanjsaj": "Réduire",
            "nastavitve": "Paramètres du navigateur", "zapisek": "Ajouter à une note …", "dodaj": "Ajouter un raccourci",
            "ime": "Nom", "url": "Adresse", "preklici": "Annuler", "shrani": "Enregistrer",
-           "blokirano": "Publicités et menaces bloquées : {count}", "isci": "Rechercher …"},
+           "blokirano": "Publicités et menaces bloquées : {count}", "isci": "Rechercher …",
+           "inspektor": "Inspecteur web", "orodja_za_razvijalce": "Outils de développement",
+           "avtomatizacija_pasica": "Cette fenêtre est contrôlée par un logiciel de test automatisé (WebDriver)"},
     "it": {"nov": "Nuova scheda", "naslov": "Cerca o inserisci un indirizzo web …", "nazaj": "Indietro",
            "naprej": "Avanti", "osvezi": "Ricarica", "domov": "Pagina iniziale", "povezan": "Connesso",
            "nepovezan": "Non connesso", "scit": "Scudo Safeer", "meni": "Menu", "prenosi": "Download",
            "najdi": "Trova nella pagina", "povecaj": "Ingrandisci", "pomanjsaj": "Riduci",
            "nastavitve": "Impostazioni del browser", "zapisek": "Aggiungi a una nota …", "dodaj": "Aggiungi scorciatoia",
            "ime": "Nome", "url": "Indirizzo", "preklici": "Annulla", "shrani": "Salva",
-           "blokirano": "Annunci e minacce bloccati: {count}", "isci": "Trova …"},
+           "blokirano": "Annunci e minacce bloccati: {count}", "isci": "Trova …",
+           "inspektor": "Ispettore web", "orodja_za_razvijalce": "Strumenti per sviluppatori",
+           "avtomatizacija_pasica": "Questa finestra è controllata da un software di test automatizzato (WebDriver)"},
 }
 
 # Ko se proces strani sesuje ali preseze mejo pomnilnika (web-process-terminated).
@@ -298,27 +310,33 @@ _NASTAVITVE = {
     "sl": {"nas_splosno": "Splošno", "nas_zasebnost": "Zasebnost in varnost", "nas_dovoljenja": "Nastavitve spletnih mest …",
            "nas_brisi": "Izbriši podatke brskanja …", "nas_mapa": "Mapa za prenose: {mapa}",
            "nas_vprasaj_kam": "Vedno vprašaj, kam shraniti datoteko",
-           "nas_programi": "Programi in namestitveni paketi se prenesejo šele po tvoji potrditvi."},
+           "nas_programi": "Programi in namestitveni paketi se prenesejo šele po tvoji potrditvi.",
+           "orodja_za_razvijalce": "Orodja za razvijalce"},
     "en": {"nas_splosno": "General", "nas_zasebnost": "Privacy & security", "nas_dovoljenja": "Site settings …",
            "nas_brisi": "Clear browsing data …", "nas_mapa": "Download folder: {mapa}",
            "nas_vprasaj_kam": "Always ask where to save files",
-           "nas_programi": "Programs and installers are downloaded only after you confirm."},
+           "nas_programi": "Programs and installers are downloaded only after you confirm.",
+           "orodja_za_razvijalce": "Developer tools"},
     "de": {"nas_splosno": "Allgemein", "nas_zasebnost": "Datenschutz & Sicherheit", "nas_dovoljenja": "Website-Einstellungen …",
            "nas_brisi": "Browserdaten löschen …", "nas_mapa": "Download-Ordner: {mapa}",
            "nas_vprasaj_kam": "Immer fragen, wo Dateien gespeichert werden",
-           "nas_programi": "Programme und Installationspakete werden erst nach deiner Bestätigung heruntergeladen."},
+           "nas_programi": "Programme und Installationspakete werden erst nach deiner Bestätigung heruntergeladen.",
+           "orodja_za_razvijalce": "Entwicklertools"},
     "es": {"nas_splosno": "General", "nas_zasebnost": "Privacidad y seguridad", "nas_dovoljenja": "Ajustes de sitios …",
            "nas_brisi": "Borrar datos de navegación …", "nas_mapa": "Carpeta de descargas: {mapa}",
            "nas_vprasaj_kam": "Preguntar siempre dónde guardar los archivos",
-           "nas_programi": "Los programas e instaladores solo se descargan tras tu confirmación."},
+           "nas_programi": "Los programas e instaladores solo se descargan tras tu confirmación.",
+           "orodja_za_razvijalce": "Herramientas para desarrolladores"},
     "fr": {"nas_splosno": "Général", "nas_zasebnost": "Vie privée et sécurité", "nas_dovoljenja": "Paramètres des sites …",
            "nas_brisi": "Effacer les données de navigation …", "nas_mapa": "Dossier de téléchargement : {mapa}",
            "nas_vprasaj_kam": "Toujours demander où enregistrer les fichiers",
-           "nas_programi": "Les programmes et installateurs ne sont téléchargés qu’après votre confirmation."},
+           "nas_programi": "Les programmes et installateurs ne sont téléchargés qu’après votre confirmation.",
+           "orodja_za_razvijalce": "Outils de développement"},
     "it": {"nas_splosno": "Generale", "nas_zasebnost": "Privacy e sicurezza", "nas_dovoljenja": "Impostazioni dei siti …",
            "nas_brisi": "Cancella dati di navigazione …", "nas_mapa": "Cartella download: {mapa}",
            "nas_vprasaj_kam": "Chiedi sempre dove salvare i file",
-           "nas_programi": "Programmi e pacchetti di installazione vengono scaricati solo dopo la tua conferma."},
+           "nas_programi": "Programmi e pacchetti di installazione vengono scaricati solo dopo la tua conferma.",
+           "orodja_za_razvijalce": "Strumenti per sviluppatori"},
 }
 _BRISANJE = {
     "sl": {"bp_naslov": "Izbriši podatke brskanja", "bp_obdobje": "Časovno obdobje", "bp_ura": "Zadnja ura",
@@ -493,6 +511,8 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
             return "natisni"
         if t == "delete" and shift:
             return "izbrisi"
+        if t == "i" and shift:
+            return "inspektor"
         if t == "m" and not shift:
             return "utisaj"
         if t == "d" and not shift:
@@ -523,6 +543,8 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
             return "naslov"
         return None
     if not ctrl and not alt:
+        if t == "f12":
+            return "inspektor"
         if t == "f5":
             return "osvezi"
         if t == "f6":
@@ -980,9 +1002,13 @@ class VdelaniSplet:
         return set()
 
     def __init__(self, Gtk, Gdk, Gio, GLib, WebKit2, koren: str, jezik, stanje_povezave,
-                 odpri_zapisek=None, stars=None, stremio_dodatek=None, prvi_zavihek: bool = True, config=None):
+                 odpri_zapisek=None, stars=None, stremio_dodatek=None, prvi_zavihek: bool = True, config=None,
+                 avtomatizacija: bool = False):
         # WebKit2 je tu modul WebKit (API 6.0); ime parametra ostane zaradi skupnih pomoznih funkcij.
         self.Gtk, self.Gdk, self.Gio, self.GLib, self.WebKit2 = Gtk, Gdk, Gio, GLib, WebKit2
+        self.avtomatizacija = bool(avtomatizacija)
+        import gi
+        gi.require_version("Pango", "1.0")
         from gi.repository import Pango
         self.Pango = Pango
         self.koren, self.jezik = koren, jezik
@@ -990,9 +1016,13 @@ class VdelaniSplet:
         self.stars = stars
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
-        # config: ena shramba nastavitev za vse dele procesa (Safeer OS: oba Spleta in kanali Sporocil). Dva primerka
-        # ConfigManager bi drug drugemu ob shranjevanju prepisala spremembe (vsak pise celo datoteko).
-        self.config = config if config is not None else ConfigManager()
+        self._zacasna_mapa = None
+        if self.avtomatizacija and config is None:
+            import tempfile
+            self._zacasna_mapa = tempfile.mkdtemp(prefix="safeer-avtomatizacija-")
+            self.config = ConfigManager(config_dir=self._zacasna_mapa)
+        else:
+            self.config = config if config is not None else ConfigManager()
         ucene_brez_pospesevanja(self.config)   # ob novi razlicici kompozitorja pozabi stari uceni seznam
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
@@ -1045,31 +1075,40 @@ class VdelaniSplet:
             pass
         return self.stars
     def _t(self, kljuc: str, **vrednosti) -> str:
-        niz = besedila(self.jezik()).get(kljuc, kljuc)
+        j = self.jezik() if callable(self.jezik) else self.jezik
+        niz = besedila(j).get(kljuc, kljuc)
         return niz.format(**vrednosti) if vrednosti else niz
 
     def _ustvari_kontekst(self) -> None:
         WebKit2 = self.WebKit2
-        mapa = os.path.join(self.config.config_dir, "web-data")
-        os.makedirs(mapa, exist_ok=True)
-        # WebKitGTK 6.0: podatki, piskotki, posrednik in prenosi so na NetworkSession (ista mapa kot prej: obstojece
-        # prijave, zgodovina shrambe in piskotki ostanejo). Peskovnik je v 6.0 vedno vklopljen (ni vec izklopa).
         from core import pomnilnik, profil_naprave
         # Profil naprave (core/profil_naprave.py): meje pomnilnika in GLOBALNI model predpomnilnika - ta mora biti
         # nastavljen PRED nastankom konteksta, ker WebProcessCache prebere model ob nastanku (WebProcessCache.cpp).
         self.profil = profil_naprave.trenutni()
         profil_naprave.nastavi_model(WebKit2, profil=self.profil)
-        try:
-            self.seja = WebKit2.NetworkSession.new(mapa, os.path.join(mapa, "cache"))
-            piskotki = self.seja.get_cookie_manager()
-            piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),
-                                            WebKit2.CookiePersistentStorage.SQLITE)
-            piskotki.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
-            if self.config.get("zascita_itp", False):
-                self.seja.set_itp_enabled(True)      # stroga zascita (core/zascita.py)
-        except Exception as napaka:
-            print("[Safeer OS Splet] shramba:", napaka)
-            self.seja = WebKit2.NetworkSession.get_default()
+        if self.avtomatizacija:
+            # K1: Nacin avtomatizacije tece v cisti efemerni seji brez piskotkov ali podatkov uporabnika
+            try:
+                self.seja = WebKit2.NetworkSession.new_ephemeral()
+            except Exception as napaka:
+                print("[Safeer OS Splet] efemerna seja:", napaka)
+                self.seja = WebKit2.NetworkSession.get_default()
+        else:
+            mapa = os.path.join(self.config.config_dir, "web-data")
+            os.makedirs(mapa, exist_ok=True)
+            # WebKitGTK 6.0: podatki, piskotki, posrednik in prenosi so na NetworkSession (ista mapa kot prej: obstojece
+            # prijave, zgodovina shrambe in piskotki ostanejo). Peskovnik je v 6.0 vedno vklopljen (ni vec izklopa).
+            try:
+                self.seja = WebKit2.NetworkSession.new(mapa, os.path.join(mapa, "cache"))
+                piskotki = self.seja.get_cookie_manager()
+                piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),
+                                                WebKit2.CookiePersistentStorage.SQLITE)
+                piskotki.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
+                if self.config.get("zascita_itp", False):
+                    self.seja.set_itp_enabled(True)      # stroga zascita (core/zascita.py)
+            except Exception as napaka:
+                print("[Safeer OS Splet] shramba:", napaka)
+                self.seja = WebKit2.NetworkSession.get_default()
         try:
             # Ikone strani v zavihkih (lastnik 17. 10. 2026: vsi zavihki so imeli isti globus - strani se ni dalo locit).
             self.seja.get_website_data_manager().set_favicons_enabled(True)
@@ -1080,6 +1119,12 @@ class VdelaniSplet:
         except Exception as napaka:
             print("[Safeer OS Splet] kontekst:", napaka)
             self.kontekst = WebKit2.WebContext.get_default()
+        if self.avtomatizacija:
+            try:
+                self.kontekst.set_automation_allowed(True)
+                self.kontekst.connect("automation-started", self._ob_zacetku_avtomatizacije)
+            except Exception as napaka:
+                print("[Safeer OS Splet] avtomatizacija:", napaka)
         # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
         self._varuh_ubil = -1e9
         self.GLib.timeout_add_seconds(5, self._varuh_tik)
@@ -1094,6 +1139,70 @@ class VdelaniSplet:
             pass
         self.seja.connect("download-started", self._prenos_zacet)
         self._omeji_predpomnilnik()
+
+    def _ob_zacetku_avtomatizacije(self, _kontekst, seja) -> None:
+        """Zahteva WebKitWebDriver: seja avtomatizacije ustvari pogled, ki ga nadzoruje."""
+        seja.connect("create-web-view", lambda _s: self._avtomatizacija_ustvari_pogled())
+
+    def _avtomatizacija_ustvari_pogled(self):
+        """Ustvari nov pogled z is_controlled_by_automation=True (kot Epiphany / Safari)."""
+        pogled = self.nov_zavihek(nadzorovan_avtomatizacija=True)
+        if self.stars is not None:
+            try:
+                self.stars.present()
+            except Exception:
+                pass
+        return pogled
+
+    def _ustvari_pasico_avtomatizacije(self):
+        """V1: Trajna pasica za nacin avtomatizacije (WebDriver) v vseh 6 jezikih."""
+        pasica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        pasica.set_name("splet-avtomatizacija-pasica")
+        for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+            getattr(pasica, stran)(4)
+        ikona = self.Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+        napis = self.Gtk.Label(label=self._t("avtomatizacija_pasica"), xalign=0, hexpand=True)
+        pasica.append(ikona)
+        pasica.append(napis)
+        return pasica
+
+    def _odpri_inspektor(self) -> bool:
+        """Odpre Web Inspector za trenutni pogled, ce so orodja za razvijalce vklopljena."""
+        if not self.config.get("developer_extras_enabled", False):
+            return False
+        p = self.trenutni()
+        if p is not None:
+            try:
+                insp = p.get_inspector()
+                if insp is not None:
+                    insp.show()
+                    return True
+            except Exception as e:
+                print("[Splet] inspektor:", e)
+        return False
+
+    def _nastavi_orodja_za_razvijalce(self, vklopljeno: bool) -> None:
+        """Nastavi orodja za razvijalce (set_enable_developer_extras) na vseh pogledih."""
+        self.config.set("developer_extras_enabled", bool(vklopljeno))
+        for z in getattr(self, "zavihki", []):
+            try:
+                z["pogled"].get_settings().set_enable_developer_extras(bool(vklopljeno))
+            except Exception:
+                pass
+        for p in getattr(self, "aplikacije", {}):
+            try:
+                p.get_settings().set_enable_developer_extras(bool(vklopljeno))
+            except Exception:
+                pass
+
+    def pospravi(self) -> None:
+        """Pospravi zacasne datoteke ob izhodu (nacin avtomatizacije)."""
+        if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
+            import shutil
+            try:
+                shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
+            except Exception:
+                pass
 
     def _dovoljenja_obvestil(self, kontekst, *_a) -> None:
         dovoljeni, zavrnjeni = dovoljenja_strani.izvori_obvestil(self.config)
@@ -1280,6 +1389,9 @@ class VdelaniSplet:
         self.vprasanje.set_child(vrsta)
         self.gradnik.append(self.vprasanje)
         self._dialogi = []            # odprti dialogi (Gio.Cancellable): zapri_dialoge() jih zapre skupaj s Spletom
+        if self.avtomatizacija:
+            self.pasica_avtomatizacija = self._ustvari_pasico_avtomatizacije()
+            self.gradnik.append(self.pasica_avtomatizacija)
         self.sklad = Gtk.Stack()
         self.sklad.set_transition_type(Gtk.StackTransitionType.NONE)
         self.sklad.set_vexpand(True); self.sklad.set_hexpand(True)
@@ -1324,6 +1436,7 @@ class VdelaniSplet:
             "izbrisi": lambda: self._izbrisi_podatke(), "dovoljenja": lambda: self._dovoljenja_strani(),
             "procesi": lambda: self.spanje.odpri_procese(nov=True),
             "skripte": lambda: self.skripte.pokazi(),
+            "inspektor": lambda: self._odpri_inspektor(),
         }
         for ime, dejanje in dejanja.items():
             d = self.Gio.SimpleAction.new(ime, None)
@@ -1363,6 +1476,9 @@ class VdelaniSplet:
         #safeer-splet searchbar button { background: transparent; color: #e2eaf6; border: 0; box-shadow: none; }
         #splet-najdi-stevec { color: #b0bdc4; margin-left: 6px; }
         #safeer-brskalnik { background: #0b1424; }
+        #splet-avtomatizacija-pasica { background: rgba(255, 207, 138, .18); color: #ffcf8a;
+          border-bottom: 1px solid rgba(255, 207, 138, .40); padding: 4px 12px; font-weight: 600; }
+        #splet-avtomatizacija-pasica image { color: #ffcf8a; }
         #splet-pojavna { background: #16233a; color: #eaf2ff; border-bottom: 1px solid rgba(138,199,255,.35); }
         #splet-pojavna button { background: rgba(138,199,255,.12); color: #eaf2ff; border: 1px solid rgba(138,199,255,.35);
           box-shadow: none; }
@@ -1481,6 +1597,9 @@ class VdelaniSplet:
         # Procesi (safeer://procesi, core/splet_spanje.py) pred nastavitvami; besedilo je naslov strani procesov.
         i = next((k for k, v in enumerate(vnosi) if v[1] == "nastavitve"), len(vnosi))
         vnosi.insert(i, (splet_spanje.naslov_menija(self.jezik), "procesi"))
+        if self.config.get("developer_extras_enabled", False):
+            i_insp = next((k for k, v in enumerate(vnosi) if v[1] == "nastavitve"), len(vnosi))
+            vnosi.insert(i_insp, (self._t("inspektor"), "inspektor"))
         for napis, dejanje in vnosi:
             meni.append(napis, "splet." + dejanje)
         return meni
@@ -1633,15 +1752,19 @@ class VdelaniSplet:
             koda, self.WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             cas or self.WebKit2.UserScriptInjectionTime.START, dovoljeni, izloceni))
 
-    def _nov_pogled(self, povezan=None, aplikacija: bool = False):
+    def _nov_pogled(self, povezan=None, aplikacija: bool = False, nadzorovan_avtomatizacija: bool = False):
         W = self.WebKit2
         # WebKitGTK 6.0: kontekst (procesi strani, meja pomnilnika) in omrezna seja (podatki, piskotki) sta locena.
         # povezan: okno, ki ga odpre stran (window.open, prijava z Googlom/Microsoftom): WebKit zahteva »related-view«,
         # ki deli proces in sejo z izvorom; upravitelj vsebine in nastavitve sta svoja (preverjeno 14. 10. 2026), zato
         # spodaj dobi iste skripte in nastavitve kot vsak zavihek.
-        pogled = (W.WebView(related_view=povezan) if povezan is not None
+        avto = bool(nadzorovan_avtomatizacija or getattr(self, "avtomatizacija", False))
+        dodatno = {"is_controlled_by_automation": True} if avto else {}
+        pogled = (W.WebView(related_view=povezan, **dodatno) if povezan is not None
                   else W.WebView(web_context=self.kontekst, network_session=self.seja,
-                                 website_policies=self._pravila_strani()))
+                                 website_policies=self._pravila_strani(), **dodatno))
+        if avto and hasattr(self, "pasica_avtomatizacija"):
+            pogled.pasica = self.pasica_avtomatizacija
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
         pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
@@ -1681,6 +1804,8 @@ class VdelaniSplet:
         if not aplikacija and getattr(self, "skripte", None) is not None:
             self.skripte.namesti(pogled)          # uporabniske skripte v svojem svetu (core/splet_skripte.py)
         nastavitve = pogled.get_settings()
+        if hasattr(nastavitve, "set_enable_developer_extras"):
+            nastavitve.set_enable_developer_extras(bool(self.config.get("developer_extras_enabled", False)))
         scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
         scit_pravila.funkcije_spleta(W, nastavitve)       # navigator.storage (webmaster pregled 20. 10. 2026)
         if getattr(self, "profil", None) is not None and self.profil.polni and self.config.get("splet_gpu_dom", False):
@@ -1837,12 +1962,12 @@ class VdelaniSplet:
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
 
-    def nov_zavihek(self, naslov: str = "", povezan=None, lokalno: bool = False):
+    def nov_zavihek(self, naslov: str = "", povezan=None, lokalno: bool = False, nadzorovan_avtomatizacija: bool = False):
         self._st_zavihkov += 1
         # Varcni profil nad mehko mejo procesov: nov zavihek iste registrirane domene deli proces z odprtim (related-view,
         # core/profil_naprave.deli_proces). Deljen proces = »povezan« za spanje: noben od njiju ne zaspi sam.
         deli_z = self._deli_proces_z(naslov) if povezan is None else None
-        pogled = self._nov_pogled(povezan if povezan is not None else deli_z)
+        pogled = self._nov_pogled(povezan if povezan is not None else deli_z, nadzorovan_avtomatizacija=nadzorovan_avtomatizacija)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
         vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Image.new_from_icon_name("web-browser-symbolic")
@@ -1867,6 +1992,13 @@ class VdelaniSplet:
         self.sklad.add_named(pogled, "splet-%d" % self._st_zavihkov)
         zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona,
                    "zvok": zvok}
+        if nadzorovan_avtomatizacija or getattr(self, "avtomatizacija", False):
+            if not hasattr(self, "pasica_avtomatizacija") and hasattr(self, "_ustvari_pasico_avtomatizacije"):
+                self.pasica_avtomatizacija = self._ustvari_pasico_avtomatizacije()
+            pas = getattr(self, "pasica_avtomatizacija", None)
+            if pas is not None:
+                pogled.pasica = pas
+                zavihek["pasica"] = pas
         pogled.connect("notify::favicon", lambda p, _l: self._osvezi_ikono(p))
         pogled.connect("notify::is-playing-audio", lambda p, _l: self._osvezi_zvok(p))
         pogled.connect("notify::is-muted", lambda p, _l: self._osvezi_zvok(p))
@@ -2000,6 +2132,8 @@ class VdelaniSplet:
             p.go_forward()
         elif dejanje == "domov":
             self.odpri_domov()
+        elif dejanje == "inspektor":
+            return self._odpri_inspektor()
         else:
             return False
         return True
@@ -2690,8 +2824,9 @@ class VdelaniSplet:
             self._preveri_bank_stran(pogled, naslov)   # vdelan kanal ni brskanje: ne gre v zgodovino Spleta
         else:
             self._preveri_bank_stran(pogled, naslov)
-            from core import zgodovina
-            zgodovina.dodaj(os.path.join(self.config.config_dir, "history.json"), prikazni_naslov(naslov), pogled.get_title() or "")
+            if not getattr(self, "avtomatizacija", False):
+                from core import zgodovina
+                zgodovina.dodaj(os.path.join(self.config.config_dir, "history.json"), prikazni_naslov(naslov), pogled.get_title() or "")
         self._osvezi_orodja()
 
     def _poslji_stanje(self, pogled, prenesi=True):
@@ -3646,7 +3781,10 @@ class VdelaniSplet:
             if dejanje == A.COPY and povezava and not izbor:
                 meni.remove(postavka)
             elif dejanje == A.INSPECT_ELEMENT:
-                meni.remove(postavka)
+                config = getattr(self, "config", {})
+                developer_extras = config.get("developer_extras_enabled", False) if hasattr(config, "get") else False
+                if not developer_extras:
+                    meni.remove(postavka)
             elif dejanje in (A.OPEN_LINK_IN_NEW_WINDOW, A.OPEN_IMAGE_IN_NEW_WINDOW, A.OPEN_VIDEO_IN_NEW_WINDOW,
                              A.OPEN_AUDIO_IN_NEW_WINDOW, A.OPEN_FRAME_IN_NEW_WINDOW):
                 naslov = (zadetek.get_link_uri() if dejanje == A.OPEN_LINK_IN_NEW_WINDOW else
@@ -3931,9 +4069,12 @@ class VdelaniSplet:
         temno.set_active_id(self._temno_nacin())
         strojno = Gtk.CheckButton(label=self._t("strojno"))
         strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
+        razvijalec = Gtk.CheckButton(label=self._t("orodja_za_razvijalce"))
+        razvijalec.set_active(bool(self.config.get("developer_extras_enabled", False)))
         splosno.attach(napis(self._t("iskalnik")), 0, 0, 1, 1); splosno.attach(motor, 1, 0, 1, 1)
         splosno.attach(napis(splet_temno.besedilo(jezik, "nastavitev")), 0, 1, 1, 1); splosno.attach(temno, 1, 1, 1, 1)
         splosno.attach(strojno, 0, 2, 2, 1)
+        splosno.attach(razvijalec, 0, 3, 2, 1)
         privzeti = getattr(self, "privzeti", None)     # samo samostojni Safeer Browser (safeer_brskalnik.py)
         if privzeti is not None and not privzeti[0]():
             gumb_privzeti = Gtk.Button(label=privzeti[2]()[4])
@@ -3950,8 +4091,8 @@ class VdelaniSplet:
                     # Flatpak: portala za privzeti brskalnik ni - navodila za nastavitve namizja v celoti, ne v gumbu.
                     navodila_privzetega.set_text("; ".join(napake)[:400]); navodila_privzetega.set_visible(True)
             gumb_privzeti.connect("clicked", ob_privzeti)
-            splosno.attach(gumb_privzeti, 0, 3, 2, 1)
-            splosno.attach(navodila_privzetega, 0, 4, 2, 1)
+            splosno.attach(gumb_privzeti, 0, 4, 2, 1)
+            splosno.attach(navodila_privzetega, 0, 5, 2, 1)
 
         # ---- Zasebnost in varnost
         zas = stran(self._t("nas_zasebnost"))
@@ -4115,6 +4256,9 @@ class VdelaniSplet:
                 self.config.set("popup_blokiraj", pojavna.get_active())
                 self.config.set("always_ask_download_dir", vprasaj.get_active())
                 self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
+                nov_razv = razvijalec.get_active()
+                if nov_razv != bool(self.config.get("developer_extras_enabled", False)):
+                    self._nastavi_orodja_za_razvijalce(nov_razv)
                 if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
                     self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
                     self._temno_osvezi(znova_nalozi=self.trenutni())
