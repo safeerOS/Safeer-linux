@@ -58,6 +58,8 @@ modul() { python3 "$KOREN/packaging/webkit-deb/modul.py" "$1"; }
 polje() { python3 -c 'import json,sys; v=json.load(sys.stdin)[sys.argv[1]]; print("\n".join(v) if isinstance(v,list) else v)' "$1"; }
 SOUP_JSON="$(modul "$KOREN/packaging/libsoup/libsoup3-safeer.yml")"
 WK_JSON="$(modul "$KOREN/packaging/webkit/webkitgtk6-safeer.yml")"
+XML_JSON="$(modul "$KOREN/packaging/libxml2/libxml2-safeer.yml")"
+XSLT_JSON="$(modul "$KOREN/packaging/libxml2/libxslt-safeer.yml")"
 
 # Prenos z obvezno preverbo SHA-256 iz modula (isti arhiv kot Flatpak).
 prenesi() {
@@ -102,12 +104,50 @@ mapfile -t SOUP_MOZNOSTI < <(polje moznosti <<< "$SOUP_JSON")
 rm -rf "$DELO/soup"
 # Utrjena gradnja (AGENTS.md): iste zastavice kot WebKit (modul), libsoup jih prej ni imel (izmerjeno 21. 10. 2026:
 # brez __stack_chk_fail). LDFLAGS velja tudi za CMake WebKita (CMAKE_*_LINKER_FLAGS_INIT).
-export LDFLAGS="$(polje ldflags <<< "$WK_JSON")"
+# -Wl,--exclude-libs,ALL poskrbi, da se noben simbol iz staticnih knjiznic (libxml2, libxslt) ne izvozi v .dynsym.
+export LDFLAGS="$(polje ldflags <<< "$WK_JSON") -Wl,--exclude-libs,ALL"
 [ -n "$LDFLAGS" ] || { echo "modul WebKita nima ldflags (utrjena gradnja)" >&2; exit 1; }
 CFLAGS="$(polje cflags <<< "$WK_JSON")" meson setup "$DELO/soup" "$SOUP_IZVOR" --prefix="$PREDPONA" --buildtype=release \
     -Dintrospection=enabled "${SOUP_MOZNOSTI[@]}"
 ninja -C "$DELO/soup" -j "$JEDRA"
 ninja -C "$DELO/soup" install
+
+# --- libxml2 in libxslt staticno (pred WebKitom: WebKit se poveze staticno, brez dinamicnih odvisnosti) -----------
+# Zasebna mapa $DELO/xml (ne v PREDPONO). Utrjena gradnja (-fPIC, -fvisibility=hidden, cflags iz modula WebKita),
+# brez ICU, brez python. WebKit se poveze staticno in z -Wl,--exclude-libs,ALL (simboli se ne izvozijo).
+XML_PREFIX="$DELO/xml"
+rm -rf "$XML_PREFIX" "$DELO/libxml2" "$DELO/libxslt"
+mkdir -p "$XML_PREFIX"
+
+XML_ARHIV="$(prenesi "$(polje url <<< "$XML_JSON")" "$(polje sha256 <<< "$XML_JSON")")"
+XML_IZVOR="$(razpakiraj "$XML_ARHIV" "$(polje popravki <<< "$XML_JSON")")"
+mapfile -t XML_MOZNOSTI < <(polje moznosti <<< "$XML_JSON")
+
+XML_CFLAGS="$(polje cflags <<< "$WK_JSON") -fPIC -fvisibility=hidden"
+
+cmake -S "$XML_IZVOR" -B "$DELO/libxml2" -G Ninja \
+    "${XML_MOZNOSTI[@]}" \
+    -DCMAKE_INSTALL_PREFIX="$XML_PREFIX" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="$XML_CFLAGS"
+ninja -C "$DELO/libxml2" -j "$JEDRA"
+ninja -C "$DELO/libxml2" install
+
+XSLT_ARHIV="$(prenesi "$(polje url <<< "$XSLT_JSON")" "$(polje sha256 <<< "$XSLT_JSON")")"
+XSLT_IZVOR="$(razpakiraj "$XSLT_ARHIV" "$(polje popravki <<< "$XSLT_JSON")")"
+mapfile -t XSLT_MOZNOSTI < <(polje moznosti <<< "$XSLT_JSON")
+
+cmake -S "$XSLT_IZVOR" -B "$DELO/libxslt" -G Ninja \
+    "${XSLT_MOZNOSTI[@]}" \
+    -DCMAKE_INSTALL_PREFIX="$XML_PREFIX" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="$XML_CFLAGS" \
+    -DCMAKE_PREFIX_PATH="$XML_PREFIX" \
+    -DLIBXML2_INCLUDE_DIR="$XML_PREFIX/include/libxml2" \
+    -DLIBXML2_LIBRARY="$XML_PREFIX/lib/libxml2.a"
+ninja -C "$DELO/libxslt" -j "$JEDRA"
+ninja -C "$DELO/libxslt" install
+export PKG_CONFIG_PATH="$XML_PREFIX/lib/pkgconfig:$PREDPONA/lib/pkgconfig"
 
 # --- WebKitGTK 6.0 -------------------------------------------------------------------------------------------------
 WK_ARHIV="$(prenesi "$(polje url <<< "$WK_JSON")" "$(polje sha256 <<< "$WK_JSON")")"
@@ -140,6 +180,13 @@ cmake -S "$WK_IZVOR" -B "$DELO/webkit" -G Ninja \
     -DCMAKE_INSTALL_RPATH="$PREDPONA/lib" \
     -DCMAKE_C_FLAGS="$(polje cflags <<< "$WK_JSON")" \
     -DCMAKE_CXX_FLAGS="$(polje cxxflags <<< "$WK_JSON")" \
+    -DLIBXML2_INCLUDE_DIR="$XML_PREFIX/include/libxml2" \
+    -DLIBXML2_LIBRARY="$XML_PREFIX/lib/libxml2.a" \
+    -DLIBXSLT_INCLUDE_DIR="$XML_PREFIX/include" \
+    -DLIBXSLT_LIBRARY="$XML_PREFIX/lib/libxslt.a" \
+    -DLIBXSLT_LIBRARIES="$XML_PREFIX/lib/libxslt.a" \
+    -DLIBXSLT_EXSLT_INCLUDE_DIR="$XML_PREFIX/include" \
+    -DLIBXSLT_EXSLT_LIBRARY="$XML_PREFIX/lib/libexslt.a" \
     -DBWRAP_EXECUTABLE=/usr/bin/bwrap \
     -DDBUS_PROXY_EXECUTABLE=/usr/bin/xdg-dbus-proxy
 # Hitra preverba skripte (minute namesto ur): libsoup, nastavitev CMake WebKita in vsi koraki za prevodom (typelibi,
@@ -175,7 +222,9 @@ mkdir -p "$d"
     if [ -f "$DELO/bolt/povzetek.txt" ]; then cat "$DELO/bolt/povzetek.txt"; else echo "bolt: ne"; fi
     echo "webkitgtk: $(basename "$WK_ARHIV" .tar.xz) $(polje sha256 <<< "$WK_JSON")"
     echo "libsoup: $(basename "$SOUP_ARHIV" .tar.xz) $(polje sha256 <<< "$SOUP_JSON")"
-    for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
+    echo "libxml2: $(basename "$XML_ARHIV" .tar.xz) $(polje sha256 <<< "$XML_JSON")"
+    echo "libxslt: $(basename "$XSLT_ARHIV" .tar.xz) $(polje sha256 <<< "$XSLT_JSON")"
+    for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON") $(polje popravki <<< "$XML_JSON") $(polje popravki <<< "$XSLT_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
     echo "predpona: $PREDPONA"
     echo "sistem: $(. /etc/os-release; echo "$PRETTY_NAME") $(getconf GNU_LIBC_VERSION)"
 } > "$d/gradnja.txt"

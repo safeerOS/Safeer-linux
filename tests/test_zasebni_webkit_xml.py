@@ -67,8 +67,17 @@ class RangiBrezXml(unittest.TestCase):
         self.assertIsNotNone(z.rangi_brez_xml(self.wk, "", sistemski))
 
     def test_brez_nasega_libxml2_ne_spremeni(self):
+        # Paket od 1.0.132 nima libxml2.so.2 (staticno v libwebkitgtk) -> rangi_brez_xml vrne None
         os.remove(self.nas)
         self.assertIsNone(z.rangi_brez_xml(self.wk, "", os.path.join(self.d, "ni")))
+
+    def test_novi_paket_132_brez_libxml2_vrne_none_tudi_na_drugi_razlicici(self):
+        # Novi paket brez libxml2.so.2 na sistemu z libxml2.so.16 (Ubuntu 26.04 / Mint 23) ali drugo razlicico:
+        # vticniki (hlsdemux2 ...) ostanejo vklopljeni (vrne None).
+        os.remove(self.nas)
+        sistemski = self._sistem("libxml2.so.2.12.8")
+        self.assertIsNone(z.rangi_brez_xml(self.wk, "", sistemski))
+        self.assertIsNone(z.rangi_brez_xml(self.wk, "vah264dec:MAX", sistemski))
 
     def test_obstojeci_rangi_ostanejo(self):
         r = z.rangi_brez_xml(self.wk, "vah264dec:MAX,hlsdemux2:PRIMARY", os.path.join(self.d, "ni"))

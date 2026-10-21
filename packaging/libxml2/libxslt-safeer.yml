@@ -1,0 +1,19 @@
+# libxslt 1.1.45 (zadnja stabilna izdaja z download.gnome.org, 1. 1. 2026; varnostni in stabilnostni popravki).
+# Staticna knjiznica za nas WebKitGTK v paketu .deb (safeer-webkit): WebKit se poveze staticno.
+# Zgrajeno brez Python bindings, brez programov, brez testov, -fPIC in -fvisibility=hidden.
+# Uradni vir: https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.45.tar.xz
+# Vsota SHA-256 iz uradne datoteke https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.45.sha256sum:
+# 9acfe68419c4d06a45c550321b3212762d92f41465062ca4ea19e632ee5d216e
+name: libxslt-safeer
+buildsystem: cmake-ninja
+config-opts:
+  - -DBUILD_SHARED_LIBS=OFF
+  - -DCMAKE_INSTALL_LIBDIR=lib
+  - -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  - -DLIBXSLT_WITH_PYTHON=OFF
+  - -DLIBXSLT_WITH_TESTS=OFF
+  - -DLIBXSLT_WITH_PROGRAMS=OFF
+sources:
+  - type: archive
+    url: https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.45.tar.xz
+    sha256: 9acfe68419c4d06a45c550321b3212762d92f41465062ca4ea19e632ee5d216e

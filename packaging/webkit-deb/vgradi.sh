@@ -38,11 +38,12 @@ if [ -n "$DAV1D" ]; then
     echo "vgradi.sh: dav1ddec $(stat -c %s "$DAV1D/libgstdav1d.so") B v $PREDPONA/lib/gstreamer-1.0 ($(head -1 "$DAV1D/gradnja.txt"))" >&2
 fi
 # Knjiznice, ki jih ima vsak sistem v drugi razlicici (soname), gredo v paket (RUNPATH $ORIGIN), da se .deb namesti tudi
-# na Linux Mint 23 / Ubuntu 26.04 in Debian 13 (21. 10. 2026 izmerjeno v vsebnikih: libicu74, libjxl0.7, libjpeg8,
-# libxml2 (26.04: libxml2.so.16) niso na voljo - »not installable«; prototip z vgrajenimi se namesti, ldd brez manjkajocih,
-# WebKit 2.54.1 se nalozi). libxslt gre zraven, ker je na novih sistemih povezan z drugim libxml2. Zaprtje odvisnosti:
-# vgrajena knjiznica, ki potrebuje drugo prenosno (libjxl -> libhwy, libxml2 -> ICU), jo dobi tudi.
-PRENOSNE='^(libicu(uc|i18n|data)\.so\.[0-9]+|libjxl(_threads|_cms)?\.so\.[0-9.]+|libhwy\.so\.[0-9]+|libjpeg\.so\.8|libxml2\.so\.2|libxslt\.so\.1|libexslt\.so\.0)$'
+# na Linux Mint 23 / Ubuntu 26.04 in Debian 13 (21. 10. 2026 izmerjeno v vsebnikih: libicu74, libjxl0.7, libjpeg8
+# niso na voljo - »not installable«; prototip z vgrajenimi se namesti, ldd brez manjkajocih, WebKit 2.54.1 se nalozi).
+# libxml2 in libxslt sta od 1.0.132 staticno povezana v libwebkitgtk (zgradi.sh), zato v paketu nimata vec .so knjiznic
+# in ne povzrocata ABI sporov z vticniki GStreamerja / Mese / libavformata. Zaprtje odvisnosti:
+# vgrajena knjiznica, ki potrebuje drugo prenosno (libjxl -> libhwy), jo dobi tudi.
+PRENOSNE='^(libicu(uc|i18n|data)\.so\.[0-9]+|libjxl(_threads|_cms)?\.so\.[0-9.]+|libhwy\.so\.[0-9]+|libjpeg\.so\.8)$'
 vgrajeno=1
 while [ "$vgrajeno" = 1 ]; do
     vgrajeno=0

@@ -88,13 +88,12 @@ def nastavi(koren: str) -> Optional[str]:
 
 
 #: Elementi GStreamer, katerih vticniki so povezani s sistemskim libxml2 (Linux Mint 23 / Ubuntu 26.04: libxml2.so.16;
-#: izmerjeno 21. 10. 2026: adaptivedemux2, dash, smoothstreaming, ttmlsubs). Paket ima svoj libxml2.so.2 (vgradi.sh,
-#: prenosnost .deb); ce sistemski NI ISTE RAZLICICE (ali ga ni ali ni dolocljiva), bi vticnik v spletnem procesu svoje
-#: nepoimenovane simbole libxml2 razresil na nasega (drug ABI) - sesutje (neodvisni pregled Gemini 1.0.131, VISOKA).
-#: Primerjamo po razlicici (vgradi.sh zapise v share/doc/vgrajene/libxml2/razlicica realno ime npr. libxml2.so.2.9.14),
-#: ne po SHA-256 (ta je po patchelf --set-rpath '$ORIGIN' vedno drugacen). Z rangom NONE jih samodejno sestavljanje
-#: ne izbere; HLS prevzame hlsdemux (vticnik hls, brez libxml2 - preverjeno na Mint 23), DASH/MSS brez MSE in TTML
-#: brskalniki tudi sicer ne predvajajo.
+#: izmerjeno 21. 10. 2026: adaptivedemux2, dash, smoothstreaming, ttmlsubs).
+#: Od 1.0.132 sta libxml2 in libxslt staticno povezana v nas WebKit (zgradi.sh, -fvisibility=hidden, -Wl,--exclude-libs,ALL),
+#: zato novi paketi safeer-webkit nimajo vec libxml2.so.2 in rangi_brez_xml() vrne None (vticniki kot hlsdemux2 ostanejo
+#: vklopljeni). Za starejse pakete (1.0.131), ki imajo svoj libxml2.so.2 (vgradi.sh), se ohranja preverba razlicice:
+#: ce sistemski NI ISTE RAZLICICE (ali ga ni), bi vticnik simbole razresil na nasega (drug ABI) - zato z rangom NONE
+#: samodejno sestavljanje ne izbere nezdruzljivih elementov.
 XML_ELEMENTI = ("dashdemux2", "hlsdemux2", "mssdemux2", "dashdemux", "mssdemux", "ttmlparse", "ttmlrender")
 SISTEMSKI_LIBXML2 = "/usr/lib/x86_64-linux-gnu/libxml2.so.2"
 

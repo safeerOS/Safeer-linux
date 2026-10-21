@@ -1,0 +1,23 @@
+# libxml2 2.15.4 (zadnja stabilna izdaja z download.gnome.org, 1. 9. 2026; varnostni in stabilnostni popravki).
+# Staticna knjiznica za nas WebKitGTK v paketu .deb (safeer-webkit): WebKit se poveze staticno,
+# da v istem procesu ne prihaja do navzkrizne vezave nepoimenovanih simbolov z libxml2.so.16
+# na Ubuntu 26.04 / Linux Mint 23 / Debian 13 (vticniki GStreamer, Mesa/LLVM, libavformat).
+# Zgrajeno brez ICU, brez Python bindings, brez programov/testov, -fPIC in -fvisibility=hidden.
+# Uradni vir: https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz
+# Vsota SHA-256 iz uradne datoteke https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.sha256sum:
+# 98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821
+name: libxml2-safeer
+buildsystem: cmake-ninja
+config-opts:
+  - -DBUILD_SHARED_LIBS=OFF
+  - -DCMAKE_INSTALL_LIBDIR=lib
+  - -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  - -DLIBXML2_WITH_PYTHON=OFF
+  - -DLIBXML2_WITH_ICU=OFF
+  - -DLIBXML2_WITH_TESTS=OFF
+  - -DLIBXML2_WITH_PROGRAMS=OFF
+  - -DLIBXML2_WITH_ZLIB=ON
+sources:
+  - type: archive
+    url: https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz
+    sha256: 98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821

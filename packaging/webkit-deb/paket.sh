@@ -36,6 +36,8 @@ G="$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/gradnja.txt"
 # Razlicici iz zapisa gradnje (vrstici »webkitgtk: webkitgtk-2.54.1 <sha>« in »libsoup: libsoup-3.8.0 <sha>«).
 WEBKIT_RAZLICICA="$(sed -n 's/^webkitgtk: webkitgtk-\([0-9][0-9.]*\) .*/\1/p' "$G")"
 SOUP_RAZLICICA="$(sed -n 's/^libsoup: libsoup-\([0-9][0-9.]*\) .*/\1/p' "$G")"
+LIBXML_RAZLICICA="$(sed -n 's/^libxml2: libxml2-\([0-9][0-9.]*\) .*/\1/p' "$G")"
+LIBXSLT_RAZLICICA="$(sed -n 's/^libxslt: libxslt-\([0-9][0-9.]*\) .*/\1/p' "$G")"
 [ -n "$WEBKIT_RAZLICICA" ] && [ -n "$SOUP_RAZLICICA" ] \
     || { cat "$G" >&2; echo "paket.sh: v $G ni razlicic WebKitGTK in libsoup" >&2; exit 1; }
 
@@ -51,8 +53,8 @@ chmod 644 "$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/odtis"
 install -d "$BUILD_ROOT/usr/share/doc/$PAKET"
 {
     echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"
-    echo "Upstream-Name: WebKitGTK $WEBKIT_RAZLICICA, libsoup $SOUP_RAZLICICA (with Safeer fixes)"
-    echo "Source: https://webkitgtk.org/releases/ https://download.gnome.org/sources/libsoup/"
+    echo "Upstream-Name: WebKitGTK $WEBKIT_RAZLICICA, libsoup $SOUP_RAZLICICA${LIBXML_RAZLICICA:+, libxml2 $LIBXML_RAZLICICA}${LIBXSLT_RAZLICICA:+, libxslt $LIBXSLT_RAZLICICA} (with Safeer fixes)"
+    echo "Source: https://webkitgtk.org/releases/ https://download.gnome.org/sources/libsoup/ https://download.gnome.org/sources/libxml2/ https://download.gnome.org/sources/libxslt/"
     echo "Comment: Built by Safeer (https://github.com/safeerOS/Safeer-linux, packaging/webkit-deb) from the archives,"
     echo " patches and options in $PREDPONA/share/webkitgtk-safeer/gradnja.txt (SHA-256 of every archive and patch)."
     echo
@@ -61,6 +63,21 @@ install -d "$BUILD_ROOT/usr/share/doc/$PAKET"
     echo "License: LGPL-2.1+ and BSD-2-clause"
     echo " On Debian systems the LGPL 2.1 is in /usr/share/common-licenses/LGPL-2.1. WebKit's BSD-licensed parts carry"
     echo " their notice in the source files of the upstream archive."
+    if [ -n "$LIBXML_RAZLICICA" ] || [ -n "$LIBXSLT_RAZLICICA" ]; then
+        echo
+        echo "Files: $PREDPONA/lib/libwebkitgtk-6.0.so.4"
+        echo "Comment: Statically includes libxml2 ${LIBXML_RAZLICICA:-} and libxslt ${LIBXSLT_RAZLICICA:-}"
+        echo "Copyright: Daniel Veillard, Bjorn Reese, William Brack, Igor Zlatkovic, Aleksey Sanin and other contributors"
+        echo "License: MIT"
+        echo " Permission is hereby granted, free of charge, to any person obtaining a copy"
+        echo " of this software and associated documentation files (the \"Software\"), to deal"
+        echo " in the Software without restriction, including without limitation the rights"
+        echo " to use, copy, modify, merge, publish, distribute, sublicense, and/or sell"
+        echo " copies of the Software, and to permit persons to whom the Software is"
+        echo " furnished to do so, subject to the following conditions:"
+        echo " The above copyright notice and this permission notice shall be included in"
+        echo " all copies or substantial portions of the Software."
+    fi
     echo
     echo "Files: $PREDPONA/lib/gstreamer-1.0/*"
     echo "Copyright: The gst-plugins-rs contributors"

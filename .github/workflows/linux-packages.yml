@@ -63,7 +63,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/pgo/profraw
-          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - name: Build dependencies and the training run tools
         if: steps.profil.outputs.cache-hit != 'true'
         run: |
@@ -80,7 +80,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/pgo/profraw
-          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - name: Profile summary
         run: |
           ls -l build/pgo/profraw
@@ -126,7 +126,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
       - name: Restore our WebKitGTK before BOLT (resume after a failed BOLT, without the 2.5 h build)
         # Lastnik, 19. 10. 2026: gradnja nadaljuje tam, kjer je padla. bolt.sh shrani stanje pred BOLT (namescena
         # predpona s simboli in relokacijami); kljuc iz istih datotek kot profil PGO (brez datotek BOLT), zato popravek
@@ -136,7 +136,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/webkit-predbolt.tar.zst
-          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - uses: actions/download-artifact@v8
         if: steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'
         with:
@@ -165,7 +165,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/webkit-predbolt.tar.zst
-          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
       - name: Archive is complete (zstd -t)
         # Tudi arhiv iz predpomnilnika; prirezan arhiv (poln disk, preklic) ne gre v predpomnilnik ne v paket.
         run: zstd -q -t build/safeer-webkit.tar.zst
@@ -175,7 +175,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
       - name: Build record (Clang 22, ThinLTO, lld, PGO, BOLT)
         run: |
           tar -I zstd -xOf build/safeer-webkit.tar.zst usr/lib/safeer-webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt
@@ -215,14 +215,28 @@ jobs:
           # Prenosnost (21. 10. 2026: .deb se ni namestil na Linux Mint 23 / Ubuntu 26.04 / Debian 13): knjiznice z
           # razlicnim soname po sistemih so v paketu (vgradi.sh), Depends jih ne sme zahtevati.
           if dpkg-deb -f "$DEB" Depends | grep -E '(^|, )(libicu[0-9]+|libjxl0\.[0-9]+|libhwy[0-9a-z]*|libjpeg8|libxml2|libxslt1\.1)( |,|$)'; then echo "::error::Depends zahteva knjiznico, ki mora biti v paketu"; exit 1; fi
-          for so in libicuuc.so.74 libicudata.so.74 libjxl.so.0.7 libjpeg.so.8 libxml2.so.2 libxslt.so.1; do dpkg-deb -c "$DEB" | grep -F "./usr/lib/safeer-webkit/lib/$so"; done
+          for so in libicuuc.so.74 libicudata.so.74 libjxl.so.0.7 libjpeg.so.8; do dpkg-deb -c "$DEB" | grep -F "./usr/lib/safeer-webkit/lib/$so"; done
+          # libxml2 in libxslt sta staticno v nasem WebKitu: v paketu ne sme biti libxml2.so.2, libxslt.so.1 ali libexslt.so.0
+          if dpkg-deb -c "$DEB" | grep -E 'libxml2\.so|libxslt\.so|libexslt\.so'; then echo "::error::paket nosi dinamicni libxml2/libxslt"; exit 1; fi
           # Vgrajene knjiznice (patchelf) tudi z neizvrsljivim skladom (AGENTS.md: GNU_STACK RW, nikoli RWE; Gemini 1.0.131).
           X="$(mktemp -d)"; dpkg-deb -x "$DEB" "$X"
-          for so in "$X"/usr/lib/safeer-webkit/lib/lib{icu,jxl,hwy,jpeg,xml2,xslt,exslt}*.so*; do
+          for so in "$X"/usr/lib/safeer-webkit/lib/lib{icu,jxl,hwy,jpeg}*.so*; do
             [ -f "$so" ] || continue
             readelf -lW "$so" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$so nima GNU_STACK RW"; exit 1; }
             readelf -d "$so" | grep -qE 'R(UN)?PATH.*\$ORIGIN' || { echo "::error::$so nima RUNPATH \$ORIGIN"; exit 1; }
           done
+          # Nobena knjiznica .so v paketu safeer-webkit ne sme imeti dinamicne odvisnosti (NEEDED) od libxml2/libxslt/libexslt
+          for so in $(find "$X"/usr/lib/safeer-webkit -type f -name '*.so*'); do
+            if readelf -d "$so" 2>/dev/null | grep -E '\(NEEDED\).*\[lib(xml2|xslt|exslt)\.so'; then
+              echo "::error::$so ima NEEDED libxml2/libxslt/libexslt"
+              exit 1
+            fi
+          done
+          # libwebkitgtk ne izvaza xml*/xslt* simbolov (staticna povezava z -Wl,--exclude-libs,ALL in -fvisibility=hidden)
+          if nm -D "$X"/usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4 | grep -E ' [TRDBCGS] (xml|xslt|exslt)'; then
+            echo "::error::libwebkitgtk izvaza xml/xslt simbole"
+            exit 1
+          fi
           # Utrjena gradnja (lastnik 21. 10. 2026: »ce imamo te ranljivosti, nismo zares Safeer«; AGENTS.md): nas WebKit,
           # JavaScriptCore, libsoup in pomozni procesi vsaj kot Ubuntujev paket - BIND_NOW, RELRO, zascita sklada, _FORTIFY,
           # PIE, GNU_STACK RW. CET (IBT/SHSTK) zaenkrat opozorilo: BOLT ga lahko odstrani - izmeri, preden postane napaka.

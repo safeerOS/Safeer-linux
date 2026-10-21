@@ -25,6 +25,8 @@ modul() { python3 "$KOREN/packaging/webkit-deb/modul.py" "$1"; }
 polje() { python3 -c 'import json,sys; v=json.load(sys.stdin)[sys.argv[1]]; print("\n".join(v) if isinstance(v,list) else v)' "$1"; }
 SOUP_JSON="$(modul "$KOREN/packaging/libsoup/libsoup3-safeer.yml")"
 WK_JSON="$(modul "$KOREN/packaging/webkit/webkitgtk6-safeer.yml")"
+XML_JSON="$(modul "$KOREN/packaging/libxml2/libxml2-safeer.yml")"
+XSLT_JSON="$(modul "$KOREN/packaging/libxml2/libxslt-safeer.yml")"
 
 # Okolje kot v zgradi.sh (ucni tek BOLT nalozi nase knjiznice in typelibe).
 export PATH="$LLVM:$PATH" CC="$LLVM/clang" CXX="$LLVM/clang++" AR="$LLVM/llvm-ar" NM="$LLVM/llvm-nm" RANLIB="$LLVM/llvm-ranlib"
@@ -59,7 +61,9 @@ SOUP_ARHIV="$(basename "$(polje url <<< "$SOUP_JSON")")"
     if [ -f "$DELO/bolt/povzetek.txt" ]; then cat "$DELO/bolt/povzetek.txt"; else echo "bolt: ne"; fi
     echo "webkitgtk: $(basename "$WK_ARHIV" .tar.xz) $(polje sha256 <<< "$WK_JSON")"
     echo "libsoup: $(basename "$SOUP_ARHIV" .tar.xz) $(polje sha256 <<< "$SOUP_JSON")"
-    for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
+    echo "libxml2: $(basename "$(polje url <<< "$XML_JSON")" .tar.xz) $(polje sha256 <<< "$XML_JSON")"
+    echo "libxslt: $(basename "$(polje url <<< "$XSLT_JSON")" .tar.xz) $(polje sha256 <<< "$XSLT_JSON")"
+    for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON") $(polje popravki <<< "$XML_JSON") $(polje popravki <<< "$XSLT_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
     echo "predpona: $PREDPONA"
     echo "sistem: $(. /etc/os-release; echo "$PRETTY_NAME") $(getconf GNU_LIBC_VERSION)"
 } > "$d/gradnja.txt"
