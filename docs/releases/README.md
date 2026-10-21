@@ -4,6 +4,7 @@ One file per version. Packages: [GitHub Releases](https://github.com/safeerOS/Sa
 
 ## Safeer Browser for Linux · Safeer OS · Safeer Control
 
+- [1.0.131](RELEASE_NOTES_1.0.131.md) — Safeer Browser for Linux 1.0.131 · Safeer OS 0.4.89 (with Safeer Control 2.1.86) — The .deb packages install on Linux Mint 23, Ubuntu 26.04 and Debian 13; smarter address bar.
 - [1.0.130](RELEASE_NOTES_1.0.130.md) — Safeer Browser for Linux 1.0.130 · Safeer OS 0.4.88 (with Safeer Control 2.1.85) — The address bar is also a search box; cleaner live results in the magnifier.
 - [1.0.129](RELEASE_NOTES_1.0.129.md) — Safeer Browser for Linux 1.0.129 · Safeer OS 0.4.87 (with Safeer Control 2.1.84) — Searching the web from the magnifier works again; results while you type; one file per download.
 - [1.0.128](RELEASE_NOTES_1.0.128.md) — Safeer Browser for Linux 1.0.128 · Safeer OS 0.4.86 (with Safeer Control 2.1.83) — Security fixes for updates and the Shield.

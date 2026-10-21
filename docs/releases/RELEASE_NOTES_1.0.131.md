@@ -1,0 +1,5 @@
+# Safeer Browser for Linux 1.0.131 · Safeer OS 0.4.89 (with Safeer Control 2.1.86)
+
+**The .deb packages install on Linux Mint 23, Ubuntu 26.04 and Debian 13.** Until now the Safeer OS and Safeer Browser .deb packages needed library versions that only Ubuntu 24.04 and Linux Mint 22 have (ICU 74, JPEG XL 0.7, libjpeg 8, libxml2), so on Linux Mint 23, Ubuntu 26.04 and Debian 13 the installation stopped with »not installable«. These libraries now come inside the package, next to the web engine that was already built in, so one .deb installs on Linux Mint 22 and 23, Ubuntu 24.04 and 26.04 and Debian 13. Debian 12 and older systems are still too old (glibc); use the Flatpak there.
+
+**Smarter address bar.** A full web address with a space after the site name (for example a link with a token, pasted with a space) now opens as an address instead of being sent to the search engine; ports must be 1–65535; »tel:«, »sms:«, »mailto:« and similar are searched instead of opened as a web page; »0.0.0.0«, scoped IPv6 addresses and addresses with a user name in front of the site (»https://safeer.si@other.com«) are searched, so the bar never shows one site and opens another.
