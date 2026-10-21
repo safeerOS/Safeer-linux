@@ -1032,7 +1032,11 @@ class VdelaniSplet:
         os.makedirs(mapa, exist_ok=True)
         # WebKitGTK 6.0: podatki, piskotki, posrednik in prenosi so na NetworkSession (ista mapa kot prej: obstojece
         # prijave, zgodovina shrambe in piskotki ostanejo). Peskovnik je v 6.0 vedno vklopljen (ni vec izklopa).
-        from core import pomnilnik
+        from core import pomnilnik, profil_naprave
+        # Profil naprave (core/profil_naprave.py): meje pomnilnika in GLOBALNI model predpomnilnika - ta mora biti
+        # nastavljen PRED nastankom konteksta, ker WebProcessCache prebere model ob nastanku (WebProcessCache.cpp).
+        self.profil = profil_naprave.trenutni()
+        profil_naprave.nastavi_model(WebKit2, profil=self.profil)
         try:
             self.seja = WebKit2.NetworkSession.new(mapa, os.path.join(mapa, "cache"))
             piskotki = self.seja.get_cookie_manager()
@@ -1050,17 +1054,13 @@ class VdelaniSplet:
         except Exception:
             pass
         try:
-            self.kontekst = pomnilnik.kontekst(WebKit2, pomnilnik.meja_sprostitve_mb(), ubij_mb=pomnilnik.meja_strani_mb())
+            self.kontekst = pomnilnik.kontekst(WebKit2, self.profil.meja_sprostitve_mb, ubij_mb=self.profil.meja_strani_mb)
         except Exception as napaka:
             print("[Safeer OS Splet] kontekst:", napaka)
             self.kontekst = WebKit2.WebContext.get_default()
         # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
         self._varuh_ubil = -1e9
         self.GLib.timeout_add_seconds(5, self._varuh_tik)
-        try:
-            self.kontekst.set_cache_model(WebKit2.CacheModel.WEB_BROWSER)
-        except Exception:
-            pass
         from core import jeziki_strani
         jeziki_strani.nastavi(self.kontekst)     # navigator.language ni vec »C« (core/jeziki_strani.py)
         self._nastavi_omrezje()
@@ -1661,6 +1661,10 @@ class VdelaniSplet:
         nastavitve = pogled.get_settings()
         scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
         scit_pravila.funkcije_spleta(W, nastavitve)       # navigator.storage (webmaster pregled 20. 10. 2026)
+        if getattr(self, "profil", None) is not None and self.profil.polni and self.config.get("splet_gpu_dom", False):
+            # GPU proces WebKita za izris DOM (»stable«, privzeto izklopljen v 2.54; izmerjeno 21. 10. 2026): samo polni
+            # profil in samo z zastavico - vklop po A/B meritvi (MotionMark, Speedometer, PSS) na testnem PC.
+            scit_pravila.nastavi_funkcije(W, nastavitve, (("UseGPUProcessForDOMRendering", True),))
         if aplikacija:
             izklopi_dusenje(W, nastavitve)
         nastavi_kompozitor(W, nastavitve, self._skia())
@@ -1807,7 +1811,10 @@ class VdelaniSplet:
 
     def nov_zavihek(self, naslov: str = "", povezan=None, lokalno: bool = False):
         self._st_zavihkov += 1
-        pogled = self._nov_pogled(povezan)
+        # Varcni profil nad mehko mejo procesov: nov zavihek iste registrirane domene deli proces z odprtim (related-view,
+        # core/profil_naprave.deli_proces). Deljen proces = »povezan« za spanje: noben od njiju ne zaspi sam.
+        deli_z = self._deli_proces_z(naslov) if povezan is None else None
+        pogled = self._nov_pogled(povezan if povezan is not None else deli_z)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
         vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Image.new_from_icon_name("web-browser-symbolic")
@@ -1836,11 +1843,30 @@ class VdelaniSplet:
         pogled.connect("notify::is-muted", lambda p, _l: self._osvezi_zvok(p))
         pogled.connect("notify::zoom-level", lambda p, _l: p is self.trenutni() and self._osvezi_povecavo())
         self.zavihki.append(zavihek)
-        self.spanje.nov(zavihek, povezan)
+        self.spanje.nov(zavihek, povezan if povezan is not None else deli_z)
         self.izberi(pogled)
         if povezan is None:
             self.odpri(naslov, pogled, lokalno)      # okno strani nalozi WebKit sam (zahteva iz window.open)
         return pogled
+
+    def _deli_proces_z(self, naslov: str):
+        """Pogled odprtega zavihka, s katerim nov zavihek deli spletni proces, ali None (glej profil_naprave.deli_proces)."""
+        profil = getattr(self, "profil", None)
+        if profil is None or profil.meja_procesov is None or not (naslov or "").startswith(("http://", "https://")):
+            return None
+        from core import profil_naprave
+        gost = (urllib.parse.urlsplit(naslov).hostname or "").lower()
+        budni, kandidati = 0, []
+        for z in self.zavihki:
+            st = z.get("spanje") or {}
+            if st.get("spi"):
+                continue
+            budni += 1
+            p = z["pogled"]
+            # Zavihek z oddanim obrazcem (POST) ne gosti novega: padec skupnega procesa (zaradi druge strani) bi ga
+            # izgubil, ponovno nalaganje pa ne sme poslati obrazca znova (enako pravilo kot splet_spanje: razlog »post«).
+            kandidati.append((p, (urllib.parse.urlsplit(p.get_uri() or "").hostname or "").lower(), not st.get("post")))
+        return profil_naprave.deli_proces(profil, budni, gost, kandidati, adblock.real_bank_domains())
 
     def zapri_zavihek(self, pogled):
         if len(self.zavihki) == 1:
@@ -2211,6 +2237,11 @@ class VdelaniSplet:
             self._opusti_vprasanja(z)
             try:
                 self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(z["pogled"])
+                # Zaprt Splet mora vrniti pomnilnik (lastnik 21. 10. 2026: 18 procesov po zaprtju): proces koncamo,
+                # da ga WebKit ne shrani v predpomnilnik procesov (WebProcessCache, do 5 min).
+                os_stabilnost.oznaci_zaprt(z["pogled"])        # obnova po padcu ga ne nalozi znova
+                if hasattr(z["pogled"], "terminate_web_process"):
+                    z["pogled"].terminate_web_process()
                 _unici_pogled(z["pogled"])
             except Exception:  # noqa: BLE001
                 pass

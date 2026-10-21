@@ -58,6 +58,11 @@ from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
+# Profil naprave: niti slikanja Skia za spletne procese - okolje pred prvo nitjo (core/profil_naprave.py), samo kot
+# glavni program (ob uvozu v drug proces, npr. lupino, niti ze tecejo - AGENTS.md, core/okolje_procesa.py).
+from core import profil_naprave  # noqa: E402
+if __name__ == "__main__":
+    profil_naprave.okolje_pred_nitmi()
 
 import gi  # noqa: E402
 
@@ -90,6 +95,9 @@ from core import x11  # noqa: E402
 from core import seja_prikaza  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
+# Globalni model predpomnilnika po profilu PRED prvim lastnim WebContext (strani Safeer OS, Splet): WebProcessCache ga
+# prebere ob nastanku konteksta - varcni profil brez predpomnilnika procesov (core/profil_naprave.py).
+profil_naprave.nastavi_model(WebKit2)
 from core import en_proces  # noqa: E402
 # Lupina namizja v svojem procesu pod varuhom (lastnik, 18. 10. 2026: moznost B) - core/lupina_streznik.py.
 from core import lupina_streznik, varuh_procesov  # noqa: E402
@@ -7347,7 +7355,8 @@ class SafeerOS(Gtk.Application):
         # WebKitGTK 6.0: zacasni podatki so na seji (NetworkSession.new_ephemeral), peskovnik je vedno vklopljen;
         # svoj WebContext = svoj spletni proces.
         kontekst = WebKit2.WebContext()
-        kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+        # Brez set_cache_model: model je v WebKitGTK globalen (LegacyGlobalSettings), DOCUMENT_VIEWER bi Spletu vzel
+        # back-forward cache (0 strani) in predpomnilnik - model doloca profil naprave (core/profil_naprave.py).
         from core import jeziki_strani
         jeziki_strani.nastavi(kontekst)
         # Edino sporocilo, ki ga ta pogled sme poslati Safeer OS: stanje skladbe v vgradnem predvajalniku

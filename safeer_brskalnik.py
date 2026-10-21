@@ -32,6 +32,11 @@ from core import video_dekoderji  # noqa: E402
 video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
+# Profil naprave: niti slikanja Skia za spletne procese - okolje pred prvo nitjo (core/profil_naprave.py), samo kot
+# glavni program (ob uvozu v drug proces, npr. lupino, niti ze tecejo - AGENTS.md, core/okolje_procesa.py).
+from core import profil_naprave  # noqa: E402
+if __name__ == "__main__":
+    profil_naprave.okolje_pred_nitmi()
 if __name__ == "__main__":
     # Ubuntu 24.04+ brez nasega profila AppArmor: ce bwrap ne more teci, WebKitov peskovnik izklopi (spremenljivka v
     # okolju) - tu, pred prvo nitjo; v main() so niti ze tekle (core/okolje_procesa.py). Uvoz modula okolja ne spremeni.
@@ -46,6 +51,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 from gi.repository import WebKit as WebKit2  # noqa: E402
 
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom (kot Safeer OS)
+profil_naprave.nastavi_model(WebKit2)  # globalni model predpomnilnika po profilu, pred prvim WebContext
 
 from core import log as safeer_log  # noqa: E402
 from core.config import CONFIG_DIR, ConfigManager  # noqa: E402
