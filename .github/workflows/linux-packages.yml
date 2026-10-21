@@ -254,7 +254,10 @@ jobs:
             readelf -lW "$f" | grep -q GNU_RELRO || { echo "::error::$f brez GNU_RELRO"; exit 1; }
             readelf -lW "$f" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$f nima GNU_STACK RW"; exit 1; }
             readelf -hW "$f" | grep -q 'Type:.*DYN' || { echo "::error::$f ni PIE/DYN"; exit 1; }
-            nm -D "$f" | grep -q ' U __stack_chk_fail' || { echo "::error::$f brez zascite sklada"; exit 1; }
+            # Pomozna procesa (libexec) sta le majhen main(), ki klice knjiznico: brez lokalnih polj -stack-protector-strong
+            # nima kaj zascititi (CI 39589540802: WebKitWebProcess brez __stack_chk_fail, knjiznice _chk=11/6/4). Za
+            # pomozna procesa velja preostanek (BIND_NOW, RELRO, GNU_STACK, PIE, CET), zascita sklada je v knjiznicah.
+            case "$f" in */libexec/*) ;; *) nm -D "$f" | grep -q ' U __stack_chk_fail' || { echo "::error::$f brez zascite sklada"; exit 1; } ;; esac
             case "$f" in */libexec/*) ;; *) [ "$(nm -D "$f" | grep -cE ' U __[a-z0-9_]+_chk(@|$)')" -ge 1 ] || { echo "::error::$f brez _FORTIFY_SOURCE"; exit 1; } ;; esac
             readelf -nW "$f" | grep -q 'x86 feature: IBT, SHSTK' || echo "::warning::$f brez CET (IBT, SHSTK)"
             echo "utrjeno: $f _chk=$(nm -D "$f" | grep -cE ' U __[a-z0-9_]+_chk(@|$)')"
