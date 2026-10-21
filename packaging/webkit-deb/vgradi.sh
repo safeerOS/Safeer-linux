@@ -27,6 +27,7 @@ for vzorec in "^predpona: $PREDPONA\$" 'clang version 22\.' '^LTO_MODE:.*=thin$'
 done
 for f in lib/libwebkitgtk-6.0.so.4 lib/libjavascriptcoregtk-6.0.so.1 lib/libsoup-3.0.so.0 \
          lib/girepository-1.0/WebKit-6.0.typelib lib/girepository-1.0/Soup-3.0.typelib \
+         bin/WebKitWebDriver \
          libexec/webkitgtk-6.0/WebKitWebProcess libexec/webkitgtk-6.0/WebKitNetworkProcess; do
     [ -e "$WK/$f" ] || { echo "vgradi.sh: v arhivu manjka $f" >&2; exit 1; }
 done

@@ -231,7 +231,7 @@ mkdir -p "$d"
 cat "$d/gradnja.txt"
 
 # --- pospravi kot cleanup modulov Flatpak in odstrani simbole (kot dh_strip) ------------------------------------------
-rm -rf "$PREDPONA/include" "$PREDPONA/lib/pkgconfig" "$PREDPONA/share/gir-1.0" "$PREDPONA/bin" "$PREDPONA/share/doc" \
+rm -rf "$PREDPONA/include" "$PREDPONA/lib/pkgconfig" "$PREDPONA/share/gir-1.0" "$PREDPONA/share/doc" \
     "$PREDPONA/libexec/installed-tests" "$PREDPONA/share/installed-tests"
 find "$PREDPONA" -type f \( -name '*.so*' -o -perm -u+x \) -exec sh -c \
     'for f; do if file -b "$f" | grep -q "^ELF"; then "$0" --strip-unneeded "$f"; fi; done' "$LLVM/llvm-strip" {} +

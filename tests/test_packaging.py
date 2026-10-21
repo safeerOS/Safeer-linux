@@ -503,7 +503,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertEqual([Path(p).name for p in wk['popravki']],['skia-backdrop-2n.patch','gst-mse-suspend.patch'])
         self.assertTrue(all(Path(p).is_file() for p in wk['popravki']))
         for moznost in ('-DLTO_MODE=thin','-DUSE_GTK4=ON','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_INSTALL_LIBDIR=lib',
-                        '-DCMAKE_AR=/usr/lib/llvm-22/bin/llvm-ar'):
+                        '-DCMAKE_AR=/usr/lib/llvm-22/bin/llvm-ar', '-DENABLE_WEBDRIVER=ON'):
             self.assertIn(moznost,wk['moznosti'])
         # Orodja razsiritve Flatpak llvm22 so v paketih apt.llvm.org pod /usr/lib/llvm-22/bin.
         self.assertFalse([m for m in wk['moznosti'] if '/usr/lib/sdk' in m])
@@ -538,7 +538,7 @@ class DebWebkitTests(unittest.TestCase):
         SAFEER_WEBKIT_BOLT=1; bolt-22 je ista gradnja LLVM kot clang-22; ce BOLT pade, pade gradnja (nikoli tiho brez)."""
         zgradi=(self.WEBKIT_DEB/'zgradi.sh').read_text()
         self.assertIn('BOLT="${SAFEER_WEBKIT_BOLT:-0}"',zgradi)
-        self.assertIn('BOLT_MOZNOSTI=(-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--emit-relocs)',zgradi)
+        self.assertIn('BOLT_MOZNOSTI=("-DCMAKE_SHARED_LINKER_FLAGS=$LDFLAGS -Wl,--emit-relocs")',zgradi)   # utrjena gradnja: LDFLAGS ostanejo
         self.assertIn('"${WK_MOZNOSTI[@]}" "${PGO_MOZNOSTI[@]}" "${BOLT_MOZNOSTI[@]}"',zgradi)
         # BOLT po namestitvi in pred strip (potrebuje simbole in relokacije), zapis v gradnja.txt.
         klic=zgradi.index('bash "$KOREN/packaging/webkit-deb/bolt.sh" "$PREDPONA" "$DELO/bolt"')
@@ -906,6 +906,7 @@ class DebWebkitTests(unittest.TestCase):
         """Arhiv kot iz zgradi.sh, a ponaredek: ELF datoteke so kopije /bin/true (dovolj za dpkg-shlibdeps in pakiranje)."""
         wk=Path(d)/'drevo'/predpona.lstrip('/')
         for f in ('lib/libwebkitgtk-6.0.so.4','lib/libjavascriptcoregtk-6.0.so.1','lib/libsoup-3.0.so.0',
+                  'bin/WebKitWebDriver',
                   'libexec/webkitgtk-6.0/WebKitWebProcess','libexec/webkitgtk-6.0/WebKitNetworkProcess'):
             (wk/f).parent.mkdir(parents=True,exist_ok=True)
             shutil.copy('/bin/true',wk/f)
@@ -1054,6 +1055,7 @@ class DebWebkitTests(unittest.TestCase):
             self.assertNotIn('gir1.2-webkit-6.0',polja)
             vsebina=subprocess.run(['dpkg-deb','-c',str(deb)],capture_output=True,text=True,check=True).stdout
             poti=[v.split()[5] for v in vsebina.splitlines()]
+            self.assertIn('./usr/lib/safeer-webkit/bin/WebKitWebDriver',poti)
             self.assertIn('./usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess',poti)
             self.assertIn('./usr/lib/safeer-webkit/lib/girepository-1.0/WebKit-6.0.typelib',poti)
             self.assertIn('./usr/share/doc/safeer-webkit/copyright',poti)

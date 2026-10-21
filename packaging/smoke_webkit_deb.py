@@ -110,9 +110,16 @@ def sklad_elf(pot):
 
 def preveri_sklad():
     """19. 10. 2026: knjiznici z BOLT (--use-gnu-stack) nista imeli PT_GNU_STACK in glibc je vsem procesom z WebKitom
-    naredil izvrsljiv sklad. Vsaka nalozena knjiznica WebKita/libsoup mora imeti PT_GNU_STACK brez X, sklad tega
-    procesa (ze z nalozenimi knjiznicami) pa ne sme biti izvrsljiv."""
-    for pot in knjiznice():
+    naredil izvrsljiv sklad. Vsaka nalozena knjiznica WebKita/libsoup in program (tudi WebKitWebDriver) mora imeti
+    PT_GNU_STACK brez X, sklad tega procesa (ze z nalozenimi knjiznicami) pa ne sme biti izvrsljiv."""
+    pregled = list(knjiznice()) + [
+        os.path.join(PREDPONA, "bin", "WebKitWebDriver"),
+        os.path.join(PREDPONA, "libexec", "webkitgtk-6.0", "WebKitWebProcess"),
+        os.path.join(PREDPONA, "libexec", "webkitgtk-6.0", "WebKitNetworkProcess"),
+    ]
+    for pot in pregled:
+        if not os.path.isfile(pot):
+            continue
         zastavice = sklad_elf(os.path.realpath(pot))
         if zastavice is None or zastavice & PF_X:
             napaka("%s: PT_GNU_STACK %s - sklad bi bil izvrsljiv" % (pot, "manjka" if zastavice is None else "je izvrsljiv"))

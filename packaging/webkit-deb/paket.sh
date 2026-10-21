@@ -45,7 +45,7 @@ LIBXSLT_RAZLICICA="$(sed -n 's/^libxslt: libxslt-\([0-9][0-9.]*\) .*/\1/p' "$G")
 # predpomnilnika CI) da isti odtis, nova gradnja drugega. Safeer OS in Safeer Control ob drugem odtisu zazeneta znova
 # (core/nova_razlicica.py), ko safeer-webkit posodobi drug program (npr. Safeer Browser): stara knjiznica v pomnilniku in
 # novi spletni procesi iz nove gradnje bi se lahko ne razumeli (sporocila IPC so iz izvora gradnje).
-( cd "$BUILD_ROOT$PREDPONA" && find lib libexec -type f \( -name '*.so*' -o -path 'libexec/*' \) -print0 | LC_ALL=C sort -z \
+( cd "$BUILD_ROOT$PREDPONA" && find bin lib libexec -type f \( -name '*.so*' -o -path 'libexec/*' -o -path 'bin/*' \) -print0 | LC_ALL=C sort -z \
     | xargs -0 sha256sum ) | sha256sum | cut -c1-16 > "$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/odtis"
 chmod 644 "$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/odtis"
 

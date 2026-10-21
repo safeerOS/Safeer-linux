@@ -28,7 +28,7 @@ config-opts:
   - -DCMAKE_INSTALL_LIBDIR=lib
   - -DUSE_GTK4=OFF
   - -DENABLE_SPEECH_SYNTHESIS=OFF
-  - -DENABLE_WEBDRIVER=OFF
+  - -DENABLE_WEBDRIVER=ON
   - -DUSE_LIBBACKTRACE=OFF
   - -DUSE_SYSTEM_UNIFDEF=OFF
   - -DENABLE_DOCUMENTATION=OFF
@@ -36,7 +36,6 @@ config-opts:
   - -DENABLE_API_TESTS=OFF
   - -DENABLE_LAYOUT_TESTS=OFF
 cleanup:
-  - /bin
   - /include
   - /lib/pkgconfig
   - /share/gir-1.0

@@ -54,6 +54,8 @@ d="$PREDPONA/share/webkitgtk-safeer"
 mkdir -p "$d"
 WK_ARHIV="$(basename "$(polje url <<< "$WK_JSON")")"
 SOUP_ARHIV="$(basename "$(polje url <<< "$SOUP_JSON")")"
+XML_ARHIV="$(basename "$(polje url <<< "$XML_JSON")")"
+XSLT_ARHIV="$(basename "$(polje url <<< "$XSLT_JSON")")"
 {
     "$LLVM/clang" --version | head -n 1
     cat "$Z/cmake.txt"
@@ -61,8 +63,8 @@ SOUP_ARHIV="$(basename "$(polje url <<< "$SOUP_JSON")")"
     if [ -f "$DELO/bolt/povzetek.txt" ]; then cat "$DELO/bolt/povzetek.txt"; else echo "bolt: ne"; fi
     echo "webkitgtk: $(basename "$WK_ARHIV" .tar.xz) $(polje sha256 <<< "$WK_JSON")"
     echo "libsoup: $(basename "$SOUP_ARHIV" .tar.xz) $(polje sha256 <<< "$SOUP_JSON")"
-    echo "libxml2: $(basename "$(polje url <<< "$XML_JSON")" .tar.xz) $(polje sha256 <<< "$XML_JSON")"
-    echo "libxslt: $(basename "$(polje url <<< "$XSLT_JSON")" .tar.xz) $(polje sha256 <<< "$XSLT_JSON")"
+    echo "libxml2: $(basename "$XML_ARHIV" .tar.xz) $(polje sha256 <<< "$XML_JSON")"
+    echo "libxslt: $(basename "$XSLT_ARHIV" .tar.xz) $(polje sha256 <<< "$XSLT_JSON")"
     for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON") $(polje popravki <<< "$XML_JSON") $(polje popravki <<< "$XSLT_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
     echo "predpona: $PREDPONA"
     echo "sistem: $(. /etc/os-release; echo "$PRETTY_NAME") $(getconf GNU_LIBC_VERSION)"
@@ -70,7 +72,7 @@ SOUP_ARHIV="$(basename "$(polje url <<< "$SOUP_JSON")")"
 cat "$d/gradnja.txt"
 
 # --- pospravi in odstrani simbole (kot zgradi.sh) -----------------------------------------------------------------------
-rm -rf "$PREDPONA/include" "$PREDPONA/lib/pkgconfig" "$PREDPONA/share/gir-1.0" "$PREDPONA/bin" "$PREDPONA/share/doc" \
+rm -rf "$PREDPONA/include" "$PREDPONA/lib/pkgconfig" "$PREDPONA/share/gir-1.0" "$PREDPONA/share/doc" \
     "$PREDPONA/libexec/installed-tests" "$PREDPONA/share/installed-tests"
 find "$PREDPONA" -type f \( -name '*.so*' -o -perm -u+x \) -exec sh -c \
     'for f; do if file -b "$f" | grep -q "^ELF"; then "$0" --strip-unneeded "$f"; fi; done' "$LLVM/llvm-strip" {} +

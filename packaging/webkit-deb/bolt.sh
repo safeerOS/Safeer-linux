@@ -152,6 +152,16 @@ if [ -n "${SAFEER_BOLT_POSKUS:-}" ]; then
         POVZETEK="$POVZETEK; $(basename "$pot") $(stat -c %s "$izvirnik") -> $(stat -c %s "$pot") B,"
         POVZETEK="$POVZETEK $(find "$DELO/fdata" -name "$ime.*.fdata" | wc -l) profilov"
     done
+    # Varovalo: WebKitWebDriver in pomozni programi morajo imeti PT_GNU_STACK z RW (brez X)
+    for prog in "$PREDPONA/bin/WebKitWebDriver" "$PREDPONA/libexec/webkitgtk-6.0/WebKitWebProcess" "$PREDPONA/libexec/webkitgtk-6.0/WebKitNetworkProcess"; do
+        if [ -f "$prog" ]; then
+            sklad_prog="$("$LLVM/llvm-readelf" -lW "$prog" | awk '$1 == "GNU_STACK" {print $7}')"
+            if [ "$sklad_prog" != RW ]; then
+                echo "bolt.sh: $(basename "$prog") nima PT_GNU_STACK RW (${sklad_prog:-ga ni}) - program ni uporaben" >&2
+                exit 1
+            fi
+        fi
+    done
     # --- 5. preverba z optimiziranimi knjiznicami -----------------------------------------------------------------------
     bash "$TEK" "$PREDPONA" "$DELO/preveri" preveri
     echo "$POVZETEK" | tee "$DELO/povzetek.txt"
