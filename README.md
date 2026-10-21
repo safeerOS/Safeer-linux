@@ -5,7 +5,7 @@ WebKitGTK 6.0 with our own engine fixes, so it starts instantly and leaves the f
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux_Mint_%7C_Ubuntu_%7C_Debian-87cf3e?style=flat-square)](#requirements)
-[![Packages](https://img.shields.io/badge/Packages-deb_%7C_AppImage_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
+[![Packages](https://img.shields.io/badge/Packages-deb_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
 
 Slovenian: [README.sl.md](README.sl.md) · Website: [safeer.si](https://safeer.si)
 
@@ -108,14 +108,13 @@ sudo apt install ./safeer-browser_1.0.131_amd64.deb
 ```
 
 
-Download from [Releases](../../releases/latest). Three formats are built for every release:
+Download from [Releases](../../releases/latest). From 1.0.132 every release has the `.deb` and the Flatpak, both with
+our own web engine. The AppImage is paused: up to 1.0.131 it carried the WebKitGTK and libsoup of the build system,
+not ours; it returns once it carries our web engine.
 
 ```bash
 # Debian / Ubuntu / Linux Mint (one file: our web engine is built in, from 1.0.129)
 sudo apt install ./safeer-browser_<version>_amd64.deb
-
-# AppImage — no installation, just make it executable
-chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-x86_64.AppImage
 
 # Flatpak
 flatpak install ./Safeer-Browser-<version>-x86_64.flatpak
@@ -126,8 +125,7 @@ Or double-click the `.deb` file in your file manager (1.0.128 still had a separa
 The `.deb` and the **Flatpak** both carry our own WebKitGTK 2.54 and libsoup 3.8 (Clang ThinLTO build
 with Safeer's fixes, `packaging/webkit`, `packaging/webkit-deb`); the `.deb` keeps them in
 `/usr/lib/safeer-webkit` (built into every Safeer `.deb`; installed once and shared with Safeer OS: a second Safeer
-package detects the same build and does not install it again) and never replaces the system's WebKitGTK. The
-AppImage uses the WebKitGTK of the build system. When both the `.deb` and the Flatpak are installed, the
+package detects the same build and does not install it again) and never replaces the system's WebKitGTK. When both the `.deb` and the Flatpak are installed, the
 `safeer` command starts the Flatpak (same settings, sign-ins and bookmarks). All packages are built for
 x86_64 (amd64) only.
 

@@ -4084,7 +4084,8 @@ class SafeerOS(Gtk.Application):
         st = self._posodobitve_stanje()
         nove = [n for n in st["nove"] if n.get("datoteka")]
         if not nove:
-            return {"ok": False, "koda": "ni_novih"}
+            # Nova razlicica brez paketa za ta nacin (AppImage od 1.0.132): stran s prenosi, ne »ni novih« v zanki.
+            return ({"ok": False, "koda": "rocno", "stran": st["stran"]} if st["nove"] else {"ok": False, "koda": "ni_novih"})
         nacin = st["nacin"]
         if nacin not in ("deb", "flatpak", "flatpak+deb", "appimage"):
             return {"ok": False, "koda": "rocno", "stran": st["stran"]}

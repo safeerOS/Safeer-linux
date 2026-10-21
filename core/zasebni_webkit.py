@@ -257,6 +257,17 @@ def _koren_nasega(predpona: Optional[str] = None) -> Optional[str]:
     return predpona if predpona is not None else _nastavljena
 
 
+def _je_appimage() -> bool:
+    """Tece iz AppImage ($APPDIR) in ne v Flatpaku."""
+    return bool(os.environ.get("APPDIR")) and not os.environ.get("FLATPAK_ID")
+
+
+def ima_odtis(pot_knjiznice: str) -> bool:
+    """Ali ima predpona nalozene libwebkitgtk (<predpona>/lib/libwebkitgtk-6.0.so.4) nas gradbeni odtis (ODTIS)."""
+    predpona = os.path.dirname(os.path.dirname(os.path.realpath(pot_knjiznice)))
+    return os.path.isfile(os.path.join(predpona, ODTIS))
+
+
 def _pod(pot: str, koren: str) -> bool:
     """Ali je pot pod korenom - obe strani razresimo (realpath): v maps je razresena pot, predpona pa je lahko simbolna
     povezava (/usr/lib64 -> lib, povezana mapa programa) - prej lazni alarm in izhod (pregled 1.0.132, S3)."""
@@ -322,6 +333,11 @@ def preveri_nas_webkit(
     # Nas je samo, ce je nalozen libwebkitgtk in so VSE preslikane knjiznice WebKita, JSC in libsoup pod korenom - prej se
     # je preverila le prva pot po abecedi, mesano nalaganje in sistemski libsoup sta ostala neopazena (pregled 1.0.132, S2).
     je_nas = bool(pot) and koren is not None and not tuje
+    if je_nas and _je_appimage() and not ima_odtis(pot):
+        # AppImage: knjiznica pod $APPDIR ni dovolj - 1.0.131 je v AppImage nosil Ubuntujev WebKitGTK 2.52.6 in libsoup
+        # 3.4.4 (prepare_appdir.py kopira sistemske). Nas WebKit ima gradbeni odtis (vgradi.sh/paket.sh); brez njega ni nas
+        # (lastnik, 21. 10. 2026). Flatpak odtisa nima in ga ne zahtevamo; .deb ostane pri predponi iz nastavi().
+        je_nas = False
     if tuje:
         pot = tuje[0]       # v sporocilu tuja knjiznica, ne nasa
 

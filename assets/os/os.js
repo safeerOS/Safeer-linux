@@ -3901,7 +3901,9 @@
     if (st && st.nove && st.nove.length) {
       naslov.textContent = t("posodobitevNaVoljo", { opis: st.opis });
       var novo = st.novo && (st.novo[jezik] || st.novo.en) ? (st.novo[jezik] || st.novo.en) + " " : "";
-      pod.textContent = novo + ((st.nacin === "deb" || st.nacin === "flatpak+deb" || st.nacin === "windows") ? t("posodobitevNaVoljoPod") : (st.nacin === "flatpak" || st.nacin === "appimage") ? t("posodobitevNaVoljoFlatpak") : t("posodobitevRocnoPod"));
+      // Brez paketa za ta nacin (st.rocno, AppImage od 1.0.132): povemo, kje je nova razlicica, gumb odpre stran.
+      pod.textContent = novo + (st.rocno ? t(st.nacin === "appimage" ? "posodobitevAppImagePod" : "posodobitevRocnoPod") :
+        (st.nacin === "deb" || st.nacin === "flatpak+deb" || st.nacin === "windows") ? t("posodobitevNaVoljoPod") : (st.nacin === "flatpak" || st.nacin === "appimage") ? t("posodobitevNaVoljoFlatpak") : t("posodobitevRocnoPod"));
       return;
     }
     naslov.textContent = t("posodobitevNajnovejsa", { v: (st && st.nasa) || (S.zacetek && S.zacetek.razlicica) || "" });
@@ -3933,7 +3935,7 @@
   function posodobi() {
     var st = S.posodobitve.stanje;
     if (!st || !st.nove || !st.nove.length) { nalozPosodobitve(true); return; }
-    if (st.nacin !== "deb" && st.nacin !== "flatpak+deb" && st.nacin !== "flatpak" && st.nacin !== "appimage" && st.nacin !== "windows") { klic("splet", [st.stran || "https://safeer.si/os/"]); return; }
+    if (st.rocno || (st.nacin !== "deb" && st.nacin !== "flatpak+deb" && st.nacin !== "flatpak" && st.nacin !== "appimage" && st.nacin !== "windows")) { klic("splet", [st.stran || "https://safeer.si/os/"]); return; }
     klic("posodobi").then(function (r) {
       if (r && r.ok) { narisiPosodobitve({ nasa: st.nasa, nove: st.nove, opis: st.opis, nacin: st.nacin, posodabljanje: { tece: true, faza: "prenos", odstotek: 0, sporocilo: "" } }); posodobitveZanka(); }
       else if (r && r.koda === "rocno") klic("splet", [r.stran || "https://safeer.si/os/"]);

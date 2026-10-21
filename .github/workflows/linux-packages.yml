@@ -24,6 +24,12 @@ on:
         default: ''
 permissions:
   contents: read
+env:
+  # AppImage izdaje opuscene (lastnik, 21. 10. 2026, od 1.0.132): AppImage 1.0.131 je nosil Ubuntujev WebKitGTK 2.52.6 in
+  # libsoup 3.4.4 s puscanjem (packaging/prepare_appdir.py kopira knjiznice sistema gradnje), ne nasega WebKita.
+  # Dokler AppImage ne nosi nasega WebKita IN libsoup z nasim popravkom, se ne gradi in ne gre v izdajo; .deb in Flatpak
+  # imata nas WebKit. Ponovni vklop: '1' - in v AppImage mora biti share/webkitgtk-safeer/odtis (preveri_nas_webkit).
+  SAFEER_APPIMAGE: '0'
 jobs:
   # ---- Nas WebKitGTK za pakete .deb (PGO je privzet, lastnik 15. 10. 2026) ---------------------------------------------
   # En paket safeer-webkit (/usr/lib/safeer-webkit) za safeer-os in safeer-browser (lastnik, 19. 10. 2026): prej je imel
@@ -434,6 +440,7 @@ jobs:
           # Sistemski WebKitGTK ostane nedotaknjen.
           dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
       - name: AppImage
+        if: env.SAFEER_APPIMAGE == '1'
         run: |
           bash packaging/fetch_linuxdeploy.sh
           SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
@@ -596,8 +603,10 @@ jobs:
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }
           done
       - name: Fetch linuxdeploy
+        if: env.SAFEER_APPIMAGE == '1'
         run: bash packaging/fetch_linuxdeploy.sh
       - name: Safeer OS AppImage (Safeer OS + Safeer Control)
+        if: env.SAFEER_APPIMAGE == '1'
         run: |
           SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
           chmod +x dist/Safeer-OS-*.AppImage
@@ -1296,6 +1305,8 @@ jobs:
           mkdir -p release
           # Vsak artefakt je v svoji mapi.
           find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
+          # 1.0.132: AppImage s tujim WebKitom ne sme v izdajo (env SAFEER_APPIMAGE zgoraj).
+          if [ "$SAFEER_APPIMAGE" != 1 ] && ls release/*.AppImage 2>/dev/null; then echo "::error::AppImage v izdaji, SAFEER_APPIMAGE=$SAFEER_APPIMAGE"; exit 1; fi
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           # A tag push gets a draft with the packages attached. A published release is final: its files
           # are the ones that were tested and whose checksums are in the update manifest, so a re-run of
@@ -1353,6 +1364,8 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
+          # 1.0.132: AppImage s tujim WebKitom ne sme v izdajo (env SAFEER_APPIMAGE zgoraj).
+          if [ "$SAFEER_APPIMAGE" != 1 ] && ls release/*.AppImage 2>/dev/null; then echo "::error::AppImage v izdaji, SAFEER_APPIMAGE=$SAFEER_APPIMAGE"; exit 1; fi
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --prerelease --verify-tag --title "Safeer $TAG (beta)" \

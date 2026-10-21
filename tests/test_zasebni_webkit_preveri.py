@@ -110,8 +110,9 @@ class PreveriNasWebKitTest(unittest.TestCase):
             self.assertFalse(je_nas)
 
     def test_appimage_appdir_je_nas(self):
-        """AppImage: WebKitGTK pod $APPDIR je nas."""
-        with mock.patch.dict(os.environ, {"APPDIR": "/tmp/.mount_safeer123"}):
+        """AppImage: WebKitGTK pod $APPDIR z nasim gradbenim odtisom je nas (odtis: tests/test_popravki_138.py)."""
+        with mock.patch.dict(os.environ, {"APPDIR": "/tmp/.mount_safeer123"}), \
+                mock.patch.object(zw, "ima_odtis", return_value=True):
             je_nas, pot, _raz = zw.preveri_nas_webkit(
                 WebKit=self.mock_wk,
                 maps_vsebina=MOCK_MAPS_APPIMAGE,

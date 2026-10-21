@@ -424,7 +424,10 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
     # paketu safeer-webkit s PGO in BOLT (Flatpak brez BOLT) - trditev »hitrejsi« nima podlage v meritvi, uporabnik pa bi
     # prenesel ~420 MB. Kljuc ostane (vmesnik gumb skrije), namestitev Flatpaka (namesti_flatpak) ostane za rocni preklop.
     preklop = None
-    return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(vir_m.get("stran") or STRAN),
+    # Nova razlicica brez datoteke za ta nacin namestitve (npr. AppImage od 1.0.132 ni v izdaji): samo stran s prenosi,
+    # nikoli polovicne posodobitve; vmesnik pove, kaj je na voljo (posodobitevAppImagePod / posodobitevRocnoPod).
+    rocno = bool(nove) and not any(n.get("datoteka") for n in nove)
+    return {"nove": nove, "nacin": nacin, "rocno": rocno, "flatpak_preklop": preklop, "stran": str(vir_m.get("stran") or STRAN),
             "preverjeno": int(time.time()), "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)},
             "kanal": kanal, "na_beti": any(je_predizdaja(v) for v in razlicice.values()), "beta_napaka": beta_napaka}
 

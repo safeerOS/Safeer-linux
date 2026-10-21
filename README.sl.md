@@ -5,7 +5,7 @@ in WebKitGTK 6.0 z našimi popravki pogona, zato se odpre v trenutku in pusti ve
 
 [![Licenca](https://img.shields.io/badge/Licenca-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Platforma](https://img.shields.io/badge/Platforma-Linux_Mint_%7C_Ubuntu_%7C_Debian-87cf3e?style=flat-square)](#zahteve)
-[![Paketi](https://img.shields.io/badge/Paketi-deb_%7C_AppImage_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
+[![Paketi](https://img.shields.io/badge/Paketi-deb_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
 
 English: [README.md](README.md) · Spletna stran: [safeer.si](https://safeer.si)
 
@@ -104,14 +104,13 @@ sudo apt install ./safeer-browser_1.0.108_all.deb
 ```
 
 
-Prenesi iz [Izdaj](../../releases/latest). Za vsako izdajo nastanejo trije paketi:
+Prenesi iz [Izdaj](../../releases/latest). Od 1.0.132 ima vsaka izdaja `.deb` in Flatpak, oba z našim spletnim
+pogonom. AppImage je začasno ustavljen: do 1.0.131 je nosil WebKitGTK in libsoup sistema gradnje, ne našega; vrne se,
+ko bo nosil naš spletni pogon.
 
 ```bash
 # Debian / Ubuntu / Linux Mint (ena datoteka: spletni pogon je vgrajen, od 1.0.129)
 sudo apt install ./safeer-browser_<verzija>_amd64.deb
-
-# AppImage — brez namestitve, samo izvršljiv
-chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-x86_64.AppImage
 
 # Flatpak
 flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
@@ -121,7 +120,7 @@ Ali pa v upravitelju datotek dvoklikni datoteko `.deb` (1.0.128 je imela še lo�
 
 `.deb` in **Flatpak** imata naš WebKitGTK 2.54 in libsoup 3.8 (gradnja s Clangom in ThinLTO, s popravki
 Safeerja); `.deb` ju hrani v `/usr/lib/safeer-webkit` (vgrajen v vsak paket Safeer; namesti se enkrat in je skupen s
-Safeer OS: drugi paket Safeer isto gradnjo zazna in je ne namesti ponovno) in WebKitGTK sistema ne zamenja. AppImage uporablja WebKitGTK sistema, na katerem je zgrajen. Če sta nameščena `.deb` in
+Safeer OS: drugi paket Safeer isto gradnjo zazna in je ne namesti ponovno) in WebKitGTK sistema ne zamenja. Če sta nameščena `.deb` in
 Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in zaznamki). Vsi paketi so narejeni
 samo za x86_64 (amd64).
 

@@ -94,12 +94,16 @@ def zgradi_seznam(oznaka: str, mapa: str, zdaj: datetime, dni: int = 30, repo: s
     linux = {
         "safeer-os": {"razlicica": razlicica_os, "deb": vnos("safeer-os_%s_amd64.deb" % razlicica_os),
                       "deb_app": vnos("safeer-os-app_%s_amd64.deb" % razlicica_os),
-                      "flatpak": vnos("Safeer-OS-%s-x86_64.flatpak" % razlicica_os),
-                      "appimage": vnos("Safeer-OS-%s-x86_64.AppImage" % razlicica_os)},
+                      "flatpak": vnos("Safeer-OS-%s-x86_64.flatpak" % razlicica_os)},
         "safeer-browser": {"razlicica": brskalnik, "deb": vnos("safeer-browser_%s_amd64.deb" % brskalnik),
-                           "flatpak": vnos("Safeer-Browser-%s-x86_64.flatpak" % brskalnik),
-                           "appimage": vnos("Safeer-Browser-%s-x86_64.AppImage" % brskalnik)},
+                           "flatpak": vnos("Safeer-Browser-%s-x86_64.flatpak" % brskalnik)},
     }
+    # AppImage samo, ce je v izdaji (od 1.0.132 se ne gradi, dokler ne nosi nasega WebKita - linux-packages.yml,
+    # SAFEER_APPIMAGE). Brez vnosa uporabnik AppImage dobi stran s prenosi, ne polovicne posodobitve.
+    for kljuc, ime in (("safeer-os", "Safeer-OS-%s-x86_64.AppImage" % razlicica_os),
+                       ("safeer-browser", "Safeer-Browser-%s-x86_64.AppImage" % brskalnik)):
+        if os.path.isfile(os.path.join(mapa, ime)) or ime in sums:     # v SHA256SUMS, a manjka: napaka (vnos)
+            linux[kljuc]["appimage"] = vnos(ime)
     novo = {k: str(v) for k, v in (novo or {}).items() if v}
     if novo:
         linux["novo"] = novo
