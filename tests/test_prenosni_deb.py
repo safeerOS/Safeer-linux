@@ -33,10 +33,12 @@ class PrenosniDeb(unittest.TestCase):
         self.assertIn("Depends zahteva knjiznico, ki mora biti v paketu", s)
         self.assertRegex(s, r"mint: \[[^\]]*'23'")
         self.assertIn("patchelf", beri("packaging/webkit-deb/knjiznice.sh"))
+        self.assertRegex(s, r"slika: \['debian:13', 'ubuntu:26.04'\]")     # Gemini 1.0.131: trditev opomb preveri CI
+        self.assertIn("nima GNU_STACK RW", s)
 
     def test_posodobitev_preskocena_samo_ce_prejsnja_ni_namestljiva(self):
         s = beri("tools/mint_namestitev/v_vsebniku.sh")
-        self.assertIn('grep -q "is not installable"', s)
+        self.assertIn("(libicu74|libjxl0\\.7|libjpeg8|libxml2)[ (].*is not installable", s)
         self.assertIn("--simulate", s)
 
 

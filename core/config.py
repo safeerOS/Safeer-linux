@@ -100,10 +100,15 @@ def _ipv6_v_oklepajih(gostitelj: str) -> bool:
 
 
 def _izrecna_avtoriteta(avtoriteta: str) -> bool:
-    """Gostitelj za izrecnim »http(s)://«: brez uporabniskega dela (»https://safeer.si@evil.com« pokaze safeer.si, odpre
-    evil.com - zato iskanje), brez presledka, z veljavnimi vrati in oznakami. Vrhnja domena ni potrebna (»https://test/«)."""
-    if not avtoriteta or "@" in avtoriteta or any(c.isspace() for c in avtoriteta):
+    """Gostitelj za izrecnim »http(s)://«: brez presledka, z veljavnimi vrati in oznakami. Vrhnja domena ni potrebna
+    (»https://test/«). Uporabniski del (»https://admin:geslo@192.168.0.1/«) je naslov kot v Chromu in Safariju - gostitelj
+    je za zadnjim »@«: neodvisni pregled Gemini 1.0.131 (VISOKA) - kot iskanje bi geslo ali zeton odsel iskalniku."""
+    if not avtoriteta or any(c.isspace() for c in avtoriteta):
         return False
+    if "@" in avtoriteta:
+        uporabnik, avtoriteta = avtoriteta.rsplit("@", 1)
+        if not uporabnik or not avtoriteta:
+            return False
     if avtoriteta.startswith("["):
         return _ipv6_v_oklepajih(avtoriteta)
     ime, dvopicje, vrata = avtoriteta.partition(":")
@@ -121,7 +126,7 @@ _LOKALNA_OMREZJA = tuple(ipaddress.ip_network(m) for m in (
 
 def _lokalni_gostitelj(s: str) -> bool:
     """localhost ali zasebni/loopback/link-local naslov IP (tudi [IPv6]) - tam je http obicajen in ostane v omrezju."""
-    gost = re.split(r"[/?#]", s, 1)[0]
+    gost = re.split(r"[/?#]", s, 1)[0].rsplit("@", 1)[-1]
     if gost.startswith("["):
         ime = gost[1:gost.find("]")] if "]" in gost else ""
     else:
@@ -157,8 +162,13 @@ def je_spletni_naslov(besedilo: str) -> bool:
         return False
     gostitelj = re.split(r"[/?#]", s, 1)[0]
     pot = s[len(gostitelj):]
-    if not gostitelj or "@" in gostitelj:
-        return False                                   # »ime@posta.si« ni naslov strani
+    if not gostitelj:
+        return False
+    if "@" in gostitelj:
+        uporabnik, gost = gostitelj.rsplit("@", 1)
+        if ":" not in uporabnik or not gost or uporabnik.split(":", 1)[0].lower() in _NE_SPLETNE_SHEME:
+            return False                               # »ime@posta.si«, »mailto:a@b.si« niso naslov strani - iskanje
+        return je_spletni_naslov(gost + pot)           # »admin:geslo@192.168.0.1« - geslo ne sme k iskalniku
     if gostitelj.startswith("["):                      # [IPv6] ali [IPv6]:vrata
         return _ipv6_v_oklepajih(gostitelj)
     ime, dvopicje, vrata = gostitelj.partition(":")
@@ -181,11 +191,22 @@ def je_spletni_naslov(besedilo: str) -> bool:
     return not (len(deli) == 2 and not pot and vrh in _KONCNICE_NE_DOMENE)
 
 
+def prikazni_naslov(uri: str) -> str:
+    """Naslov za prikaz v naslovni vrstici brez uporabniskega dela (kot Chrome in Safari): »https://safeer.si@evil.com/«
+    pokaze »https://evil.com/« - pravi gostitelj, ne vabe, in gesla ali zetona ne kaze na zaslonu (Gemini 1.0.131)."""
+    m = re.match(r"^([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)$", uri or "", re.S)
+    if not m or "@" not in m.group(2):
+        return uri or ""
+    return m.group(1) + m.group(2).rsplit("@", 1)[1] + m.group(3)
+
+
 def naslov_ali_iskanje(besedilo: str, iskalnik_url: str) -> str:
     """Naslov za vpis v naslovno vrstico: spletni naslov ali stran rezultatov izbranega iskalnika."""
     s = (besedilo or "").strip()
     if not s:
         return ""
+    if re.match(r"^file:", s, re.I):
+        return s                                       # kot ui/splet.js vNaslov - lokalna pot ne sme k iskalniku (Gemini 1.0.131)
     if je_spletni_naslov(s):
         # Naslov sestavimo sami (kot ui/splet.js vNaslov): normalize_web_url je »router.lan:8443?token=x« zavrnil in cel niz
         # z zetonom poslal iskalniku (neodvisni pregled OpenAI 1.0.130, krog A). Privzeto https; http samo za dokazljivo

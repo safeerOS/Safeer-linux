@@ -66,6 +66,15 @@ install -d "$BUILD_ROOT/usr/share/doc/$PAKET"
     echo "Copyright: The gst-plugins-rs contributors"
     echo "License: MIT or Apache-2.0"
     echo " See $PREDPONA/share/doc/gst-plugin-dav1d/."
+    # Knjiznice, ki jih vgradi.sh vgradi zaradi prenosnosti .deb (pregled Gemini 1.0.131: glavna datoteka jih mora navesti).
+    for d in "$BUILD_ROOT$PREDPONA"/share/doc/vgrajene/*/; do
+        [ -f "$d/copyright" ] || continue
+        pkg="$(basename "$d")"
+        echo
+        echo "Files: $PREDPONA/lib/ (library from the Ubuntu 24.04 package $pkg, bundled for Linux Mint 23 / Ubuntu 26.04 / Debian 13)"
+        echo "Copyright: see $PREDPONA/share/doc/vgrajene/$pkg/copyright"
+        echo "License: see $PREDPONA/share/doc/vgrajene/$pkg/copyright"
+    done
 } > "$BUILD_ROOT/usr/share/doc/$PAKET/copyright"
 
 # Polje Depends: knjiznice (dpkg-shlibdeps iz vgradi.sh), peskovnik spletnih procesov (bubblewrap, xdg-dbus-proxy) in TLS za

@@ -62,9 +62,9 @@ if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
   echo "   namescam: ${PREJ[*]##*/}"
   # Do 1.0.130 je .deb zahteval knjiznice Ubuntu 24.04 (libicu74 …) in se na Linux Mint 23 / Ubuntu 26.04 ni namestil
   # (21. 10. 2026) - tam uporabnik prejsnje izdaje ni mogel imeti, zato posodobitve ni kaj preizkusiti. Samo ta
-  # primer (odvisnost »not installable«) preskoci; vsaka druga napaka ostane napaka.
+  # primer (knjiznice Ubuntu 24.04 »not installable« - pregled Gemini 1.0.131: samo te) preskoci; vsaka druga napaka ostane.
   if ! apt-get install --simulate -y -q --no-install-recommends "${PREJ[@]}" >"$ZACASNO/prejsnja-sim.log" 2>&1 \
-     && grep -q "is not installable" "$ZACASNO/prejsnja-sim.log"; then
+     && grep -qE "Depends: (libicu74|libjxl0\.7|libjpeg8|libxml2)[ (].*is not installable" "$ZACASNO/prejsnja-sim.log"; then
     grep "is not installable" "$ZACASNO/prejsnja-sim.log" | head -5
     echo "   OPOMBA: prejsnja izdaja se na tem sistemu ne namesti - preizkus posodobitve preskocen, samo nova namestitev"
     PREJ=()

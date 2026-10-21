@@ -188,7 +188,10 @@
   }
   // Gostitelj za izrecnim http(s)://: brez uporabniskega dela (»https://safeer.si@evil.com« odpre evil.com), brez presledka.
   function izrecnaAvtoriteta(avt) {
-    if (!avt || avt.indexOf("@") >= 0 || /\s/.test(avt)) return false;
+    if (!avt || /\s/.test(avt)) return false;
+    // Uporabniski del je naslov (kot v Chromu in Safariju), gostitelj za zadnjim @ - geslo ne sme k iskalniku (Gemini 1.0.131).
+    var afna = avt.lastIndexOf("@");
+    if (afna >= 0) { if (afna === 0 || afna === avt.length - 1) return false; avt = avt.slice(afna + 1); }
     if (avt.charAt(0) === "[") return ipv6VOklepajih(avt);
     var dv = avt.indexOf(":"), ime = dv >= 0 ? avt.slice(0, dv) : avt;
     if (dv >= 0 && !veljavnaVrata(avt.slice(dv + 1))) return false;
@@ -203,7 +206,13 @@
     if (m && m[2]) return /^https?$/i.test(m[1]) && izrecnaAvtoriteta(s.slice(m[0].length).split(/[\/?#]/)[0]);
     if (/\s/.test(s)) return false;
     var gost = s.split(/[\/?#]/)[0], pot = s.slice(gost.length);
-    if (!gost || gost.indexOf("@") >= 0) return false;
+    if (!gost) return false;
+    var at = gost.lastIndexOf("@");
+    if (at >= 0) {                       // ime@posta.si (e-posta) je iskanje; admin:geslo@192.168.0.1 je naslov
+      var upor = gost.slice(0, at);
+      if (upor.indexOf(":") < 0 || at === gost.length - 1 || NE_SPLETNE_SHEME[upor.split(":")[0].toLowerCase()] === 1) return false;
+      return jeSpletniNaslov(gost.slice(at + 1) + pot);
+    }
     if (gost.charAt(0) === "[") return ipv6VOklepajih(gost);
     var dv = gost.indexOf(":");
     if (dv >= 0) {
@@ -224,6 +233,7 @@
   // localhost ali zasebni/loopback/link-local IP (enako kot core/config._lokalni_gostitelj; pregled OpenAI 1.0.130 B)
   function lokalniGostitelj(q) {
     var gost = q.split(/[\/?#]/)[0], ime;
+    gost = gost.slice(gost.lastIndexOf("@") + 1);
     if (gost.charAt(0) === "[") ime = gost.indexOf("]") > 0 ? gost.slice(1, gost.indexOf("]")) : "";
     else ime = /:\d+$/.test(gost) ? gost.replace(/:\d+$/, "") : gost;
     ime = ime.toLowerCase();

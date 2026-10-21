@@ -81,7 +81,45 @@ def nastavi(koren: str) -> Optional[str]:
     if os.path.isdir(vticniki):
         poti = [p for p in os.environ.get("GST_PLUGIN_PATH", "").split(os.pathsep) if p and p != vticniki]
         _nastavi_ce_drugacna("GST_PLUGIN_PATH", os.pathsep.join(poti + [vticniki]))
+    rangi = rangi_brez_xml(mapa, os.environ.get("GST_PLUGIN_FEATURE_RANK", ""))
+    if rangi is not None:
+        _nastavi_ce_drugacna("GST_PLUGIN_FEATURE_RANK", rangi)
     return mapa
+
+
+#: Elementi GStreamer, katerih vticniki so povezani s sistemskim libxml2 (Linux Mint 23 / Ubuntu 26.04: libxml2.so.16;
+#: izmerjeno 21. 10. 2026: adaptivedemux2, dash, smoothstreaming, ttmlsubs). Paket ima svoj libxml2.so.2 (vgradi.sh,
+#: prenosnost .deb); ce sistemski ni ISTA datoteka, bi vticnik v spletnem procesu svoje nepoimenovane simbole libxml2
+#: razresil na nasega (drug ABI) - sesutje (neodvisni pregled Gemini 1.0.131, VISOKA). Z rangom NONE jih samodejno
+#: sestavljanje ne izbere; HLS prevzame hlsdemux (vticnik hls, brez libxml2 - preverjeno na Mint 23), DASH/MSS brez
+#: MSE in TTML brskalniki tudi sicer ne predvajajo.
+XML_ELEMENTI = ("dashdemux2", "hlsdemux2", "mssdemux2", "dashdemux", "mssdemux", "ttmlparse", "ttmlrender")
+SISTEMSKI_LIBXML2 = "/usr/lib/x86_64-linux-gnu/libxml2.so.2"
+
+
+def _ista_datoteka(a: str, b: str) -> bool:
+    import hashlib
+    try:
+        if os.path.getsize(a) != os.path.getsize(b):
+            return False
+        vsote = []
+        for p in (a, b):
+            with open(p, "rb") as f:
+                vsote.append(hashlib.sha256(f.read()).digest())
+        return vsote[0] == vsote[1]
+    except OSError:
+        return False
+
+
+def rangi_brez_xml(mapa: str, obstojeci: str, sistemski: str = SISTEMSKI_LIBXML2) -> Optional[str]:
+    """Nova vrednost GST_PLUGIN_FEATURE_RANK (XML_ELEMENTI z rangom NONE) ali None, ce ni potrebna: paket nima svojega
+    libxml2 ali je sistemski ista datoteka (Linux Mint 22 brez varnostne posodobitve). Obstojece nastavitve ostanejo."""
+    nas = os.path.join(mapa, "lib", "libxml2.so.2")
+    if not os.path.isfile(nas) or _ista_datoteka(nas, os.path.realpath(sistemski)):
+        return None
+    deli = [d for d in obstojeci.split(",") if d.strip()]
+    imena = {d.split(":", 1)[0].strip() for d in deli}
+    return ",".join(deli + [f"{e}:NONE" for e in XML_ELEMENTI if e not in imena])
 
 
 def pot_odtisa() -> Optional[str]:
@@ -131,6 +169,16 @@ def okolje_za_zunanje(okolje: Optional[Mapping[str, str]] = None) -> dict:
             okolje[ime] = os.pathsep.join(ostanek)
         else:
             del okolje[ime]
+    # Rangi, ki jih je nastavi() dodal zaradi nasega libxml2, ne veljajo za sistemske programe (npr. predvajalnik s
+    # sistemskim libxml2 naj DASH predvaja).
+    rangi = okolje.get("GST_PLUGIN_FEATURE_RANK")
+    if rangi is not None:
+        nasi = {f"{e}:NONE" for e in XML_ELEMENTI}
+        ostanek = [d for d in rangi.split(",") if d.strip() and d.strip() not in nasi]
+        if ostanek:
+            okolje["GST_PLUGIN_FEATURE_RANK"] = ",".join(ostanek)
+        else:
+            del okolje["GST_PLUGIN_FEATURE_RANK"]
     if okolje.get("APPIMAGE"):
         for ime in SAMO_APPIMAGE:
             okolje.pop(ime, None)

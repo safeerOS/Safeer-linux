@@ -23,7 +23,7 @@ from types import MappingProxyType, SimpleNamespace
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
                   safeer_drm, scit_pravila, splet_prenosi, splet_skripte, splet_spanje, splet_temno, zascita,
                   zasebni_webkit)
-from core.config import ConfigManager, SEARCH_ENGINES, naslov_ali_iskanje, normalize_web_url
+from core.config import ConfigManager, SEARCH_ENGINES, naslov_ali_iskanje, normalize_web_url, prikazni_naslov
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
                              naprej_iz, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, shrani_naprej,
@@ -2819,7 +2819,7 @@ class VdelaniSplet:
         if not pogled: return
         uri = pogled.get_uri() or ""
         domaca = je_domaca_stran(uri, self.koren)
-        self.vnos.set_text("" if domaca else uri)
+        self.vnos.set_text("" if domaca else prikazni_naslov(uri))   # brez uporabnika:gesla@ (Gemini 1.0.131)
         self.nazaj.set_sensitive(pogled.can_go_back()); self.naprej.set_sensitive(pogled.can_go_forward())
         self.kljucavnica.set_opacity(1.0 if uri.startswith("https://") else 0.0)
         self._osvezi_scit()

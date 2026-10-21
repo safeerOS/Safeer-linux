@@ -216,6 +216,14 @@ jobs:
           # razlicnim soname po sistemih so v paketu (vgradi.sh), Depends jih ne sme zahtevati.
           if dpkg-deb -f "$DEB" Depends | grep -E '(^|, )(libicu[0-9]+|libjxl0\.[0-9]+|libhwy[0-9a-z]*|libjpeg8|libxml2|libxslt1\.1)( |,|$)'; then echo "::error::Depends zahteva knjiznico, ki mora biti v paketu"; exit 1; fi
           for so in libicuuc.so.74 libicudata.so.74 libjxl.so.0.7 libjpeg.so.8 libxml2.so.2 libxslt.so.1; do dpkg-deb -c "$DEB" | grep -F "./usr/lib/safeer-webkit/lib/$so"; done
+          # Vgrajene knjiznice (patchelf) tudi z neizvrsljivim skladom (AGENTS.md: GNU_STACK RW, nikoli RWE; Gemini 1.0.131).
+          X="$(mktemp -d)"; dpkg-deb -x "$DEB" "$X"
+          for so in "$X"/usr/lib/safeer-webkit/lib/lib{icu,jxl,hwy,jpeg,xml2,xslt,exslt}*.so*; do
+            [ -f "$so" ] || continue
+            readelf -lW "$so" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$so nima GNU_STACK RW"; exit 1; }
+            readelf -d "$so" | grep -qE 'R(UN)?PATH.*\$ORIGIN' || { echo "::error::$so nima RUNPATH \$ORIGIN"; exit 1; }
+          done
+          rm -rf "$X"
           # Samo /usr/lib/safeer-webkit in doc: nic v sistemskih mapah knjiznic in brez skript vzdrzevalca.
           if dpkg-deb -c "$DEB" | awk '{print $6}' | grep -vE '^\./($|usr/$|usr/lib/$|usr/lib/safeer-webkit/|usr/share/$|usr/share/doc/$|usr/share/doc/safeer-webkit/)'; then echo "::error::datoteke izven /usr/lib/safeer-webkit"; exit 1; fi
           if dpkg-deb --ctrl-tarfile "$DEB" | tar -t | grep -E 'postinst|prerm|postrm|preinst'; then echo "::error::skripte vzdrzevalca"; exit 1; fi
@@ -656,6 +664,36 @@ jobs:
           echo "::notice::Upgrade test from $ZADNJA"
       - name: Install, upgrade, start and remove all packages on Linux Mint ${{ matrix.mint }}
         run: bash tools/mint_namestitev/preizkus.sh "linuxmintd/mint${{ matrix.mint }}-amd64" paketi prejsnji
+  debian:
+    # Debian 13 (trixie) in Ubuntu 26.04: .deb se namesti (od 1.0.131 so knjiznice z razlicnim soname v paketu), vsaka
+    # knjiznica nasega WebKita se najde in WebKit se nalozi (pregled Gemini 1.0.131: trditev opomb mora preveriti CI).
+    needs: [brskalnik, safeer-os]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        slika: ['debian:13', 'ubuntu:26.04']
+    container:
+      image: ${{ matrix.slika }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: brskalnik
+          path: paketi
+      - uses: actions/download-artifact@v8
+        with:
+          name: safeer-os
+          path: paketi
+      - name: Install Safeer OS and Safeer Browser, every library found, WebKit loads
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ./paketi/safeer-browser_*_amd64.deb ./paketi/safeer-os_*_amd64.deb
+          W=/usr/lib/safeer-webkit
+          manjka="$(for f in $W/lib/*.so* $W/libexec/webkitgtk-6.0/*; do [ -f "$f" ] && ldd "$f" 2>/dev/null | grep 'not found'; done | sort -u)"
+          [ -z "$manjka" ] || { echo "$manjka"; echo "::error::knjiznice nasega WebKita manjkajo na ${{ matrix.slika }}"; exit 1; }
+          GI_TYPELIB_PATH=$W/lib/girepository-1.0 python3 -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; print('WebKit', WebKit.get_major_version(), WebKit.get_minor_version())"
   webkit-pgo-profil:
     # PGO 1/3 (vsak tek): Flatpaka obeh programov imata WebKitGTK, preveden s profilom (PGO; lastnik 15. 10. 2026: "DA",
     # Speedometer 3.1 na testnem PC 10.7 namesto 9.2 brez PGO). Kljuc profila (packaging/webkit/pgo.py kljuc) zajame vse,
@@ -1177,7 +1215,7 @@ jobs:
   release:
     # Beta oznake (v1.0.128-beta.1) gredo v posel beta-izdaja (osnutek predizdaje), nikoli v stabilno izdajo.
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta.')
-    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint]
+    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
@@ -1234,7 +1272,7 @@ jobs:
     # zadnjo izdajo ostanejo na stabilni), Safeer OS pa jo ponudi samo uporabnikom z vklopljenim Beta kanalom - in sele,
     # ko je beta seznam (razlicice-beta.json, tools/beta_seznam.py) podpisan in na safeer.si.
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')
-    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint]
+    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}

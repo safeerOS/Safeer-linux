@@ -21,7 +21,7 @@ class TestNaslovnaVrstica(unittest.TestCase):
                     # ne-spletne sheme, 0.0.0.0 in »::«, obmocje IPv6, uporabniski del pri izrecni shemi
                     "primer.si:99999", "primer.si:0", "-primer.si", "primer-.si", "nas-/", "tel:123", "sms:123",
                     "mailto:a@b.si", "0.0.0.0", "0.0.0.0:8000", "[::]", "[fe80::1%eth0]", "[fe80::1%eth0]:80",
-                    "https://safeer.si@evil.com", "http://user:pass@a.si", "https://primer.si:99999/", "https://-primer.si/",
+                    "https://primer.si:99999/", "https://-primer.si/", "https://@safeer.si/", "ime:@/",
                     "http://a b.si", "https:// safeer.si"):
             with self.subTest(niz=niz):
                 self.assertFalse(je_spletni_naslov(niz))
@@ -110,7 +110,9 @@ class TestNaslovnaVrstica(unittest.TestCase):
                    # 1.0.131
                    "https://safeer.si/reset?token=abc 123", "https://primer.si/a  b", "[::ffff:192.168.0.1]",
                    "[::ffff:10.1.2.3]:8080", "[::ffff:8.8.8.8]", "tel:123", "0.0.0.0", "primer.si:99999",
-                   "https://safeer.si@evil.com", "[fe80::1%eth0]"]
+                   "https://safeer.si@evil.com", "[fe80::1%eth0]", "http://admin:geslo@192.168.1.1/",
+                   "https://oauth2:zeton@github.com/projekt", "admin:geslo@192.168.1.1/", "admin:geslo@router.lan",
+                   "ime@posta.si"]
         skripta2 = ("var S = {iskalnik: 'duckduckgo'}; var ISKALNIKI = {duckduckgo: " + json.dumps(DDG) + "};\n"
                     + js[a:c] + "\nconsole.log(JSON.stringify(" + json.dumps(naslovi) + ".map(vNaslov)));")
         izid2 = json.loads(subprocess.run([node, "-e", skripta2], capture_output=True, text=True, check=True).stdout)
@@ -135,6 +137,40 @@ class TestNaslovnaVrstica(unittest.TestCase):
                          "https://safeer.si/reset?token=abc%20123")
         self.assertEqual(naslov_ali_iskanje("[::ffff:10.1.2.3]:8080", DDG), "http://[::ffff:10.1.2.3]:8080")
         self.assertEqual(naslov_ali_iskanje("tel:123", DDG), DDG + "tel%3A123")
+
+
+
+class PoverilniceNikoliIskalniku(unittest.TestCase):
+    """Neodvisni pregled Gemini 1.0.131 (VISOKA): naslov z uporabniskim delom je bil iskanje - geslo ali zeton bi odsel
+    iskalniku. Kot v Chromu in Safariju je naslov; e-posta (brez dvopicja pred @) ostane iskanje."""
+    def test_naslov_z_uporabnikom_ni_iskanje(self):
+        for niz, pricakovano in (("http://admin:geslo@192.168.1.1/", "http://admin:geslo@192.168.1.1/"),
+                                 ("https://oauth2:zeton@github.com/projekt", "https://oauth2:zeton@github.com/projekt"),
+                                 ("https://safeer.si@evil.com", "https://safeer.si@evil.com"),
+                                 ("admin:geslo@192.168.1.1/", "http://admin:geslo@192.168.1.1/"),
+                                 ("admin:geslo@router.lan", "https://admin:geslo@router.lan")):
+            with self.subTest(niz=niz):
+                self.assertTrue(je_spletni_naslov(niz))
+                self.assertEqual(naslov_ali_iskanje(niz, DDG), pricakovano)
+                self.assertNotIn("geslo", naslov_ali_iskanje(niz, DDG).replace(pricakovano, ""))
+
+    def test_eposta_ostane_iskanje(self):
+        self.assertFalse(je_spletni_naslov("ime@posta.si"))
+        self.assertTrue(naslov_ali_iskanje("ime@posta.si", DDG).startswith(DDG))
+
+    def test_lokalna_datoteka_ni_iskanje(self):
+        """Gemini 1.0.131 (SREDNJA): ui/splet.js je file: odprl, Python pa je pot poslal iskalniku."""
+        self.assertEqual(naslov_ali_iskanje("file:///home/x/zapisek.html", DDG), "file:///home/x/zapisek.html")
+
+
+    def test_prikaz_brez_uporabnika(self):
+        from core.config import prikazni_naslov
+        self.assertEqual(prikazni_naslov("https://safeer.si@evil.com/"), "https://evil.com/")
+        self.assertEqual(prikazni_naslov("http://admin:geslo@192.168.1.1/x?a=b@c"), "http://192.168.1.1/x?a=b@c")
+        self.assertEqual(prikazni_naslov("https://safeer.si/?e=ime@posta.si"), "https://safeer.si/?e=ime@posta.si")
+        self.assertEqual(prikazni_naslov(""), "")
+        vir = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core", "os_splet.py"), encoding="utf-8").read()
+        self.assertIn("prikazni_naslov(uri)", vir[vir.index("def _osvezi_orodja"):vir.index("def _osvezi_orodja") + 600])
 
 
 if __name__ == "__main__":
