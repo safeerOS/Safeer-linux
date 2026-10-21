@@ -1,4 +1,5 @@
-"""Spanje zavihkov v ozadju, stran safeer://procesi in obnova omreznega procesa za Splet (GTK4, WebKitGTK 6.0).
+"""Spanje zavihkov v ozadju, stran safeer://procesi in (v 1.0.129 izklopljena) obnova omreznega procesa za Splet
+(GTK4, WebKitGTK 6.0).
 
 Prenos iz brskalnika GTK3 (safeer_mint.py, umaknjen 18. 10. 2026), da uporabniki 1.0.127 teh funkcij ne izgubijo.
 Splet (core/os_splet.VdelaniSplet) to uporablja v Safeer OS in v Safeer Browser; modul je vezan z nekaj vrsticami.
@@ -17,10 +18,11 @@ Meritve v WebKitGTK 6.0 (2.52.6, Xvfb, 18. 10. 2026), na katerih stoji koda:
   drzi stare za »Nazaj« in enega vnaprej pripravljenega - par »nov proces = zavihek, ki se je zacel nalagati« (GTK3)
   tu ni zanesljiv. Proces pogleda zato poiscemo s sondo: 40 ms racunanja v pogledu (locen svet skript), proces,
   katerega cas CPU zraste, je njegov.
-* WebKit 6.0 nima API-ja za konec omreznega procesa (NetworkSession/WebContext: preverjeno z introspekcijo), zato ga
-  koncamo s SIGTERM kot GTK3 (proces z odprto shrambo piskotkov Spleta); spletni procesi ostanejo, naslednja zahteva
-  zazene novega. Piskotki seje (brez roka) so samo v pomnilniku omreznega procesa - pred koncem jih preberemo in
-  vrnemo, da uporabnik ostane prijavljen.
+* WebKit 6.0 nima API-ja za konec omreznega procesa (NetworkSession/WebContext: preverjeno z introspekcijo), zato ga je
+  recikliranje koncalo s SIGTERM kot GTK3 (proces z odprto shrambo piskotkov Spleta). Piskotki seje (brez roka) so
+  samo v pomnilniku omreznega procesa - pred koncem jih preberemo in vrnemo. V 1.0.129 je recikliranje IZKLOPLJENO
+  (RECIKLIRANJE_OMREZNEGA = False): spletni procesi, ki jih WebKit hrani za nove zavihke, ostanejo povezani s koncanim
+  omreznim procesom in prvo nalaganje odpove (napaka lupe 20. 10. 2026, AGENTS.md).
 """
 from __future__ import annotations
 
@@ -226,7 +228,7 @@ def _sme_koncati_omrezni(s) -> bool:
     return not libsoup_brez_puscanja()
 
 class SpanjeZavihkov:
-    """Spanje zavihkov, stran procesov in obnova omreznega procesa za en VdelaniSplet."""
+    """Spanje zavihkov, stran procesov in (izklopljena v 1.0.129) obnova omreznega procesa za en VdelaniSplet."""
 
     def __init__(self, splet) -> None:
         self._splet = weakref.ref(splet)
@@ -708,8 +710,9 @@ class SpanjeZavihkov:
                 self.uspavaj(z, "MemAvailable pod 10 %")
 
     def _omrezni(self, s, zdaj: float) -> bool:
-        """Varnostna mreza (libsoup je zdaj popravljen proti puscanju CONNECT): prevelik omrezni proces obnovimo samo,
-        ko okna 5 min nihce ne uporablja in se nic ne prenasa, nalaga ali predvaja (pravila iz GTK3)."""
+        """Varnostna mreza (libsoup je zdaj popravljen proti puscanju CONNECT): prevelik omrezni proces bi obnovili
+        samo, ko okna 5 min nihce ne uporablja in se nic ne prenasa, nalaga ali predvaja (pravila iz GTK3). V 1.0.129
+        izklopljeno (_sme_koncati_omrezni -> RECIKLIRANJE_OMREZNEGA)."""
         meja = float(s.config.get("network_process_limit_mb", 300) or 0)
         if meja <= 0 or self._recikliranje:
             return False

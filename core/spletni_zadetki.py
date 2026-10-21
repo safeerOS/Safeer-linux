@@ -206,7 +206,7 @@ class PredogledIskanja:
     def __init__(self, Gtk, WebKit, GLib, seja=None, kontekst=None, zdaj: Callable[[], float] = time.monotonic,
                  pripravi: Optional[Callable] = None, pozabi: Optional[Callable] = None):
         """pripravi/pozabi: Splet (os_splet.VdelaniSplet.pripravi_skriti_pogled) da pogledu iste zascite kot zavihku
-        in ve, da pogled zivi (omreznega procesa takrat ne konca)."""
+        in ve, da pogled zivi (dobi tudi poznejse posodobitve filtrov)."""
         self.Gtk, self.WebKit, self.GLib = Gtk, WebKit, GLib
         self.seja, self.kontekst = seja, kontekst
         self._pripravi, self._pozabi = pripravi, pozabi

@@ -217,7 +217,8 @@ def libsoup_brez_puscanja(maps: str = "/proc/self/maps") -> bool:
         return False
     from core import zasebni_webkit
     # AppImage NE: nosi WebKitGTK in libsoup sistema gradnje (Ubuntu 3.4.4, s puscanjem) - pomocnik, pregled
-    # popravkov 2812b8b; tam omrezni proces koncamo kot prej (notranja napaka WebKita se samodejno ponovi).
+    # popravkov 2812b8b. Od 1.0.129 omreznega procesa ne konca nobena pot (tudi v AppImage ne); zaznavo uporablja samo
+    # izklopljeno recikliranje (splet_spanje.RECIKLIRANJE_OMREZNEGA).
     nase = tuple(m.rstrip("/") + "/" for m in zasebni_webkit.PREDPONE_PAKETOV) + ("/app/",)
     return all(pot.startswith(nase) for pot in poti)
 
@@ -987,7 +988,8 @@ class VdelaniSplet:
         self.aplikacije = {}
         self._threat_service = None
         self._ustvari_kontekst()
-        # Spanje zavihkov v ozadju, safeer://procesi in obnova omreznega procesa (core/splet_spanje.py, iz GTK3).
+        # Spanje zavihkov v ozadju in safeer://procesi (core/splet_spanje.py, iz GTK3); obnova omreznega procesa je v
+        # 1.0.129 izklopljena (RECIKLIRANJE_OMREZNEGA).
         self.spanje = splet_spanje.SpanjeZavihkov(self)
         self._zgradi()
         self._zazeni_zascito()
@@ -1557,9 +1559,9 @@ class VdelaniSplet:
 
     def pripravi_skriti_pogled(self, pogled) -> None:
         """Skrit pogled v seji Spleta (sprotni zadetki lupe, core/spletni_zadetki.py) dobi iste zascite kot zavihek
-        (EasyList, sledilci, GPC/DNT, nastavitve proti prstnim odtisom), omrezni proces pa se ne konca, dokler zivi.
-        OpenAI pregled 1.0.129 (20. 10. 2026): surov WebView je stran rezultatov nalagal brez filtrov, sprostitev
-        Spleta pa bi s sistemskim libsoup lahko koncala omrezni proces pod njim (notranja napaka WebKit 300)."""
+        (EasyList, sledilci, GPC/DNT, nastavitve proti prstnim odtisom) in je med pogledi Spleta (_vsi_pogledi).
+        OpenAI pregled 1.0.129 (20. 10. 2026): surov WebView je stran rezultatov nalagal brez filtrov. (Takrat je
+        sprostitev Spleta s sistemskim libsoup se koncala omrezni proces; od 1.0.129 ga ne konca nobena pot.)"""
         W = self.WebKit2
         nastavitve = pogled.get_settings()
         scit_pravila.zasebnost_pogleda(W, nastavitve)
@@ -2222,15 +2224,15 @@ class VdelaniSplet:
         # bo tudi AppImage nosil nas libsoup.
 
     def ob_zaklepu(self, meja_mb: float = 300.0) -> bool:
-        """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik; prevelik omrezni proces (libsoup pusca prek
-        DoH posrednika) obnovimo, ce se nobena stran ne nalaga. Vrne True, ce je bil omrezni proces obnovljen."""
+        """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik. Omreznega procesa od 1.0.129 ne koncamo
+        (glej spodaj); vrne vedno False (klicatelj safeer_os._ob_zaklepu to zapise v dnevnik)."""
         self.sprazni_predpomnilnik()
         if self.aplikacije or len(self._skriti()):
             return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov / lupe
         # Ponovni pregled OpenAI 1.0.129 (B2, E): ob zaklepu omreznega procesa ne koncamo vec - zavihki ostanejo zivi,
         # konec bi pokvaril prvo nalaganje (WebKitErrorDomain 300, napaka lupe 20. 10. 2026) in izgubil piskotke seje
-        # (odjava). Pomnilnik s sistemskim libsoup (AppImage) obnovi varuh mirovanja (splet_spanje._omrezni), ki
-        # piskotke seje vrne. meja_mb ostane zaradi klicateljev.
+        # (odjava). Tudi varuh mirovanja (splet_spanje._omrezni) je v 1.0.129 izklopljen (RECIKLIRANJE_OMREZNEGA):
+        # s sistemskim libsoup (AppImage) omrezni proces raste do 1.0.130. meja_mb ostane zaradi klicateljev.
         del meja_mb
         return False
 
