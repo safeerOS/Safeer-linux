@@ -454,7 +454,11 @@ class PreverbaRazlicicZaBeto(unittest.TestCase):
         stare = [(KOREN / "packaging" / i).read_text().strip() for i in ("VERSION", "VERSION_OS", "VERSION_CONTROL")]
         r = self._pozeni(*stare)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("beta", r.stdout)
+        # Veja v razvoju je lahko beta (1.0.132-beta.1 za zivo meritev, 21. 10. 2026): README ostane na zadnji stabilni.
+        if "-beta." in stare[0]:
+            self.assertIn("| beta", r.stdout)
+        else:
+            self.assertNotIn("beta", r.stdout)
 
 
 class PoselBetaIzdaja(unittest.TestCase):

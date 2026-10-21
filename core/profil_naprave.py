@@ -110,9 +110,22 @@ def model_predpomnilnika(WebKit, profil: Optional[Profil] = None):
     return getattr(WebKit.CacheModel, (profil or trenutni()).model_predpomnilnika)
 
 
+def _ima_zaslon() -> bool:
+    """GDK ima privzeti zaslon (Gtk ze uvozen z require_version 4.0 v programu, ki klice nastavi_model)."""
+    try:
+        from gi.repository import Gdk
+        return Gdk.Display.get_default() is not None
+    except Exception:  # noqa: BLE001 - brez GDK ni zaslona
+        return False
+
+
 def nastavi_model(WebKit, kontekst=None, profil: Optional[Profil] = None) -> bool:
     """Globalni model predpomnilnika WebKita. Klicati PRED prvim lastnim WebContext: WebProcessCache prebere model ob
     nastanku konteksta (zato samo enkrat in zgodaj; poznejsi klic spremeni samo back-forward cache)."""
+    if kontekst is None and not _ima_zaslon():
+        # Brez zaslona (ukazna vrstica, npr. safeer_os.py --back-to-cinnamon) WebContext.get_default() sesuje proces
+        # (SIGSEGV v gdk_display_prepare_gl, CI 39570038399, 21. 10. 2026) - tam spletnih strani tako ni.
+        return False
     try:
         (kontekst or WebKit.WebContext.get_default()).set_cache_model(model_predpomnilnika(WebKit, profil))
         return True

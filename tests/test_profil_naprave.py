@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import types
+from unittest import mock
 import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,9 +62,17 @@ class TestProfil(unittest.TestCase):
         W = types.SimpleNamespace(CacheModel=types.SimpleNamespace(DOCUMENT_BROWSER="db", WEB_BROWSER="wb"),
                                   WebContext=types.SimpleNamespace(get_default=lambda: types.SimpleNamespace(
                                       set_cache_model=klici.append)))
-        self.assertTrue(P.nastavi_model(W, profil=_profil(2.8)))
-        self.assertTrue(P.nastavi_model(W, profil=_profil(16)))
+        with mock.patch.object(P, "_ima_zaslon", return_value=True):
+            self.assertTrue(P.nastavi_model(W, profil=_profil(2.8)))
+            self.assertTrue(P.nastavi_model(W, profil=_profil(16)))
         self.assertEqual(klici, ["db", "wb"])
+        # Brez zaslona (safeer_os.py --back-to-cinnamon, CI) WebContext.get_default() sesuje proces: ne klicemo ga.
+        with mock.patch.object(P, "_ima_zaslon", return_value=False):
+            self.assertFalse(P.nastavi_model(W, profil=_profil(2.8)))
+            # izrecen kontekst (Splet ima svojega) zaslona ne potrebuje preverjati
+            self.assertTrue(P.nastavi_model(W, kontekst=types.SimpleNamespace(set_cache_model=klici.append),
+                                            profil=_profil(2.8)))
+        self.assertEqual(klici, ["db", "wb", "db"])
 
     def test_trenutni_bere_meminfo(self):
         with tempfile.NamedTemporaryFile("w", suffix=".meminfo", delete=False) as d:
