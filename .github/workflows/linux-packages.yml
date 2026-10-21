@@ -245,34 +245,9 @@ jobs:
           fi
           # Utrjena gradnja (lastnik 21. 10. 2026: »ce imamo te ranljivosti, nismo zares Safeer«; AGENTS.md): nas WebKit,
           # JavaScriptCore, libsoup in pomozni procesi vsaj kot Ubuntujev paket - BIND_NOW, RELRO, zascita sklada, _FORTIFY,
-          # PIE, GNU_STACK RW. CET (IBT/SHSTK) zaenkrat opozorilo: BOLT ga lahko odstrani - izmeri, preden postane napaka.
-          W="$X/usr/lib/safeer-webkit"
-          for f in "$W"/lib/libwebkitgtk-6.0.so.4 "$W"/lib/libjavascriptcoregtk-6.0.so.1 "$W"/lib/libsoup-3.0.so.0 \
-                   "$W"/libexec/webkitgtk-6.0/WebKitWebProcess "$W"/libexec/webkitgtk-6.0/WebKitNetworkProcess; do
-            f="$(readlink -f "$f")"
-            readelf -dW "$f" | grep -qE 'BIND_NOW|FLAGS_1.*NOW' || { echo "::error::$f brez BIND_NOW"; exit 1; }
-            readelf -lW "$f" | grep -q GNU_RELRO || { echo "::error::$f brez GNU_RELRO"; exit 1; }
-            readelf -lW "$f" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$f nima GNU_STACK RW"; exit 1; }
-            readelf -hW "$f" | grep -q 'Type:.*DYN' || { echo "::error::$f ni PIE/DYN"; exit 1; }
-            # Pomozna procesa (libexec) sta le majhen main(), ki klice knjiznico: brez lokalnih polj -stack-protector-strong
-            # nima kaj zascititi (CI 39589540802: WebKitWebProcess brez __stack_chk_fail, knjiznice _chk=11/6/4). Za
-            # pomozna procesa velja preostanek (BIND_NOW, RELRO, GNU_STACK, PIE, CET), zascita sklada je v knjiznicah.
-            case "$f" in */libexec/*) ;; *) nm -D "$f" | grep -q ' U __stack_chk_fail' || { echo "::error::$f brez zascite sklada"; exit 1; } ;; esac
-            case "$f" in */libexec/*) ;; *) [ "$(nm -D "$f" | grep -cE ' U __[a-z0-9_]+_chk(@|$)')" -ge 1 ] || { echo "::error::$f brez _FORTIFY_SOURCE"; exit 1; } ;; esac
-            readelf -nW "$f" | grep -q 'x86 feature: IBT, SHSTK' || echo "::warning::$f brez CET (IBT, SHSTK)"
-            echo "utrjeno: $f _chk=$(nm -D "$f" | grep -cE ' U __[a-z0-9_]+_chk(@|$)')"
-          done
-          # Vse ostale datoteke ELF v paketu (vgrajene knjiznice Ubuntuja, dav1ddec, vticniki ...): vsaj BIND_NOW, RELRO,
-          # GNU_STACK RW (pregled 1.0.132: preverba samo 5 datotek je spregledala libgstdav1d.so brez BIND_NOW).
-          while IFS= read -r -d '' f; do
-            file -b "$f" | grep -q '^ELF' || continue
-            # Vgrajene knjiznice Ubuntuja (vgradi.sh) so nespremenjeni binarni paketi distribucije - Ubuntujev libjxl0.7
-            # nima BIND_NOW (izmerjeno 21. 10.); zanje veljata RELRO in GNU_STACK, BIND_NOW samo za nase gradnje.
-            case "$(basename "$f")" in libicu*|libjxl*|libhwy*|libjpeg*|libxml2*|libxslt*|libexslt*) ;;
-              *) readelf -dW "$f" | grep -qE 'BIND_NOW|FLAGS_1.*NOW' || { echo "::error::$f brez BIND_NOW"; exit 1; } ;; esac
-            readelf -lW "$f" | grep -q GNU_RELRO || { echo "::error::$f brez GNU_RELRO"; exit 1; }
-            readelf -lW "$f" | grep GNU_STACK | grep -q ' RW ' || { echo "::error::$f nima GNU_STACK RW"; exit 1; }
-          done < <(find "$W" -type f -print0)
+          # PIE, GNU_STACK RW in CET (IBT, SHSTK; od naloge 40 napaka - CI 39589540802 ga je izmeril tudi po BOLT); vse
+          # ostale datoteke ELF v paketu vsaj BIND_NOW, RELRO, GNU_STACK RW. Ista pravila za Flatpak (posla flatpak*).
+          bash tools/preveri_utrjenost.sh "$X/usr/lib/safeer-webkit"
           rm -rf "$X"
           # Samo /usr/lib/safeer-webkit in doc: nic v sistemskih mapah knjiznic in brez skript vzdrzevalca.
           if dpkg-deb -c "$DEB" | awk '{print $6}' | grep -vE '^\./($|usr/$|usr/lib/$|usr/lib/safeer-webkit/|usr/share/$|usr/share/doc/$|usr/share/doc/safeer-webkit/)'; then echo "::error::datoteke izven /usr/lib/safeer-webkit"; exit 1; fi
@@ -1008,6 +983,9 @@ jobs:
           WK="$(flatpak info --show-location io.github.memelandfaner.SafeerOS)/files/lib"
           ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
           echo "::notice::$(stat -L -c '%n %s' "$WK"/libwebkitgtk-6.0.so.4 "$WK"/libjavascriptcoregtk-6.0.so.1 | paste -sd ' ')"
+          # Utrjenost nasega WebKita in libsoup v namescenem paketu izdaje (naloga 40): files/ je /app v peskovniku. Knjiznice
+          # runtime-a (/usr, GNOME SDK) in drugih modulov v /app (PySide6, Python ...) niso nasa gradnja WebKita - izven.
+          bash tools/preveri_utrjenost.sh "$WK/.." lib/webkitgtk-6.0 libexec/webkitgtk-6.0
           G="$WK/../share/webkitgtk-safeer/gradnja.txt"
           cat "$G"; echo "::notice::$(paste -sd '|' "$G")"
           grep -q 'clang version 22\.' "$G"
@@ -1207,6 +1185,9 @@ jobs:
           WK="$(flatpak info --show-location $APP)/files/lib"
           ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
           echo "::notice::$(stat -L -c '%n %s' "$WK"/libwebkitgtk-6.0.so.4 "$WK"/libjavascriptcoregtk-6.0.so.1 | paste -sd ' ')"
+          # Utrjenost nasega WebKita in libsoup v namescenem paketu izdaje (naloga 40): files/ je /app v peskovniku. Knjiznice
+          # runtime-a (/usr, GNOME SDK) in drugih modulov v /app (PySide6, Python ...) niso nasa gradnja WebKita - izven.
+          bash tools/preveri_utrjenost.sh "$WK/.." lib/webkitgtk-6.0 libexec/webkitgtk-6.0
           G="$WK/../share/webkitgtk-safeer/gradnja.txt"
           cat "$G"; echo "::notice::$(paste -sd '|' "$G")"
           grep -q 'clang version 22\.' "$G"

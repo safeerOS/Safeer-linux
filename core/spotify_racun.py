@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import safeer_drm, uporabniske_skripte
-from core import shramba_json
+from core import otroci, shramba_json
 
 IZVOR = "https://open.spotify.com/"
 #: Prijava v Spotify poteka v Spletu (WebKit Safeer OS), ne v Safeer DRM: Google prijavo v vgrajenih brskalnikih
@@ -455,8 +455,9 @@ class Kanal:
 
     @staticmethod
     def _popen(args: list, okolje: Optional[dict]) -> Any:
-        return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                start_new_session=True, env=okolje)
+        # Brskalnik prijave s svojimi procesi v svoji skupini; ustavi() in izhod procesa koncata vse (naloga 41).
+        return otroci.zazeni(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                             env=okolje, dolgoziv=True)
 
     @staticmethod
     def profil() -> Path:
@@ -679,11 +680,7 @@ class Kanal:
             p = self.proces
             self.proces = None
         if p is not None and p.poll() is None:
-            p.terminate()
-            try:
-                p.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                p.kill()
+            otroci.ustavi(p, rok=5)
         with self._zaklep:
             self._pospravi()
         for c in list(self._cakajo.values()):

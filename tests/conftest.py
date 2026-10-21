@@ -49,6 +49,32 @@ def pytest_configure(config):
     _izid["vodilo"] = naslov
 
 
+# Vmesnik samo iz glavne niti (tests/varovalo_niti.py, naloga 42): klic Gtk/Gdk/WebKit ali okna Qt iz delovne niti
+# preizkus podre. SAFEER_VAROVALO_NITI=porocilo samo zapise (povzetek na koncu teka), =0 izklopi.
+from varovalo_niti import Varovalo  # noqa: E402
+
+_varovalo = Varovalo.iz_okolja()
+
+
+@pytest.fixture(autouse=True)
+def _vmesnik_na_glavni_niti():
+    _varovalo.namesti_nalozene()
+    zacetek = _varovalo.oznaci()
+    yield
+    _varovalo.namesti_nalozene()      # tudi prostori, ki jih je ta preizkus sele uvozil (za naslednje preizkuse)
+    krsitve = _varovalo.od(zacetek)
+    if krsitve and _varovalo.nacin == "strogo":
+        pytest.fail("Vmesnik izven glavne niti (%d): %s" % (len(krsitve), "\n".join(str(k) for k in krsitve[:5])),
+                    pytrace=False)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    povzetek = _varovalo.povzetek()
+    if povzetek:
+        terminalreporter.write_sep("-", "varovalo niti")
+        terminalreporter.write_line(povzetek)
+
+
 @pytest.fixture(autouse=True)
 def _smeti_na_glavni_niti():
     yield

@@ -12,9 +12,9 @@ import json
 import uuid
 import time
 import urllib.parse
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
-from core import shramba_json
+from core import nastavitve_shema, shramba_json
 
 
 def normalize_web_url(url: str) -> str:
@@ -349,6 +349,26 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 }
 
 
+# Shema settings.json (tipi, obsegi, razlicica, selitve) je v core/nastavitve_shema.py - brez kode brskalnika, da jo
+# lahko uvozita tudi Safeer Control in Safeer OS za branje enega kljuca (naloga 43). Nalaga in pise samo ConfigManager.
+DEFAULT_SETTINGS[nastavitve_shema.KLJUC_RAZLICICE] = nastavitve_shema.SCHEMA_VERSION
+KLJUC_RAZLICICE = nastavitve_shema.KLJUC_RAZLICICE
+SCHEMA_VERSION = nastavitve_shema.SCHEMA_VERSION
+SHEMA = nastavitve_shema.SHEMA
+razlicica_datoteke = nastavitve_shema.razlicica_datoteke
+varnostna_kopija = nastavitve_shema.varnostna_kopija
+preseli_razlicico = nastavitve_shema.preseli_razlicico
+
+
+def uveljavi_shemo(nastavitve: Dict[str, Any], tiho: bool = False) -> List[str]:
+    """nastavitve_shema.uveljavi_shemo s privzetimi vrednostmi brskalnika (DEFAULT_SETTINGS)."""
+    return nastavitve_shema.uveljavi_shemo(nastavitve, DEFAULT_SETTINGS, tiho=tiho)
+
+
+def preberi_kljuc(kljuc: str, privzeto: Any = None, pot: Optional[str] = None) -> Any:
+    return nastavitve_shema.preberi_kljuc(kljuc, privzeto, pot or CONFIG_FILE)
+
+
 LEGACY_DEFAULT_PORTALS = [
         {"id": "p0", "title": "YouTube", "url": "https://www.youtube.com", "mark": "📺", "bg": "linear-gradient(145deg, #4a0b0b, #cc0000)", "color": "#cc0000"},
         {"id": "p1", "title": "Wikipedia", "url": "https://www.wikipedia.org", "mark": "🌐", "bg": "linear-gradient(145deg, #1e293b, #475569)", "color": "#64748b"},
@@ -442,6 +462,16 @@ class ConfigManager:
                 try:
                     merged = copy.deepcopy(DEFAULT_SETTINGS)
                     merged.update(user_settings)
+                    # Shema (naloga 43): razlicica iz DATOTEKE (privzete imajo trenutno); pred selitvijo varnostna kopija.
+                    stara = razlicica_datoteke(user_settings)
+                    merged[KLJUC_RAZLICICE] = stara
+                    if stara < SCHEMA_VERSION:
+                        varnostna_kopija(self.config_file, stara)
+                    # Tipi in obsegi pred selitvami (selitve spodaj pricakujejo seznam slovarjev). Popravek velja v
+                    # pomnilniku; na disku ostane uporabnikova vrednost, dokler je ne spremeni (glej _brez_popravkov).
+                    popravljeni = uveljavi_shemo(merged)
+                    # Popravljene vrednosti pred selitvami: kljuc, ki ga selitev nato spremeni, se zapise (s popravkom).
+                    popravki = {k: copy.deepcopy(merged[k]) for k in popravljeni if k in merged}
                     # If youtube was previously in integrations, remove it as requested
                     if "integrations" in merged and "youtube" in merged["integrations"]:
                         del merged["integrations"]["youtube"]
@@ -468,17 +498,23 @@ class ConfigManager:
                         migrated = True
                     if preseli_dns_na_scit(merged, user_settings):
                         migrated = True
+                    if preseli_razlicico(merged, stara):
+                        migrated = True
                     if migrated:
+                        # Popravljeni kljuci veljajo za nespremenjene: selitev zapise samo svoje spremembe.
+                        self._na_disku = self._brez_popravkov(user_settings, popravki, popravljeni)
                         self.save_settings(merged)
-                    else:
-                        # Primerjava za naslednji zapis: stanje ob nalaganju (s privzetimi). Privzeta vrednost, ki je ta
-                        # proces ni spremenil, ne sme prekriti izbire, ki jo drug proces medtem zapise.
-                        self._na_disku = copy.deepcopy(merged)
+                        uveljavi_shemo(merged, tiho=True)        # kar je zapis prevzel z diska
+                    # Primerjava za naslednji zapis: stanje ob nalaganju (s privzetimi in popravki). Privzeta vrednost,
+                    # ki je ta proces ni spremenil, ne sme prekriti izbire, ki jo drug proces medtem zapise.
+                    self._na_disku = copy.deepcopy(merged)
                     return merged
                 except Exception as e:  # noqa: BLE001 - napaka v selitvi ne sme izbrisati uporabnikovih nastavitev
                     print(f"[Config] Napaka pri selitvi nastavitev: {e}")
                     merged = copy.deepcopy(DEFAULT_SETTINGS)
                     merged.update(copy.deepcopy(user_settings))
+                    merged[KLJUC_RAZLICICE] = razlicica_datoteke(user_settings)
+                    uveljavi_shemo(merged)
                     self._na_disku = copy.deepcopy(merged)
                     return merged
 
@@ -487,6 +523,18 @@ class ConfigManager:
         dodaj_katalog_integracijam(nove)
         self.save_settings(copy.deepcopy(nove))
         return nove
+
+    @staticmethod
+    def _brez_popravkov(disk: Dict[str, Any], popravki: Dict[str, Any], popravljeni: List[str]) -> Dict[str, Any]:
+        """Znano stanje diska, v katerem imajo popravljeni kljuci popravljeno vrednost: zapis jih prepise samo, ce jih
+        je selitev spremenila naprej."""
+        znano = copy.deepcopy(disk)
+        for k in popravljeni:
+            if k in popravki:
+                znano[k] = copy.deepcopy(popravki[k])
+            else:
+                znano.pop(k, None)
+        return znano
 
     def save_settings(self, settings: Dict[str, Any] = None) -> bool:
         """Zapise kljuce, ki so se v tem procesu spremenili, na trenutno vsebino datoteke (pod zaklepom, atomsko).
@@ -497,6 +545,10 @@ class ConfigManager:
             os.makedirs(self.config_dir, exist_ok=True)
             self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
                                                            getattr(self, "_na_disku", {}), indent=4)
+            # Kljuce, ki jih je zapis prevzel z diska (drug proces, rocno urejanje), preveri tudi shema - tiho,
+            # popravek samo v pomnilniku (znano stanje enako pomnilniku: zapis ga ne prepise).
+            if uveljavi_shemo(self.settings, tiho=True):
+                self._na_disku = copy.deepcopy(self.settings)
             return True
         except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
             print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)

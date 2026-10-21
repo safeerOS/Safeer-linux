@@ -86,18 +86,12 @@ def orodje(sk: str, najdi: Callable[[str], Optional[str]] = shutil.which) -> str
 
 def _zazeni_s_koncem(u: List[str], cas: float) -> int:
     """Kot subprocess.run s casovno omejitvijo, a ob prekoracitvi najprej SIGTERM: flatpak-spawn ga posreduje programu
-    na racunalniku (SIGKILL ne - soffice bi ostal ziv brez profila; pregled 14. 10. 2026)."""
-    p = subprocess.Popen(u, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        return p.wait(timeout=cas)
-    except subprocess.TimeoutExpired:
-        p.terminate()
-        try:
-            p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            p.wait()
-        raise
+    na racunalniku (SIGKILL ne - soffice bi ostal ziv brez profila; pregled 14. 10. 2026).
+    Svoja skupina (core/otroci.py, naloga 41): soffice je oosplash, ki zazene soffice.bin - prej je SIGTERM dobil samo
+    oosplash in soffice.bin je ostal; zdaj SIGTERM celi skupini, po 10 s SIGKILL."""
+    from core import otroci
+    p = otroci.zazeni(u, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, dolgoziv=True)
+    return otroci.pocakaj(p, rok=cas, rok_konca=10)
 
 
 def _zacasna_mapa() -> str:

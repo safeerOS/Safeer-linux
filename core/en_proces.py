@@ -61,12 +61,27 @@ def klic_os(metoda: str, argumenti: list) -> Optional[dict]:
     return _os_klic(metoda, list(argumenti))
 
 
-def na_glavni(fn: Callable[[], Any], cas: float = 10.0, privzeto: Any = None) -> Any:
+def _je_glavna(GLib) -> bool:
+    """Glavna nit ali nit, ki zdaj vrti privzeto zanko GLib (cakanje nase bi jo zamrznilo za ves rok)."""
+    if threading.current_thread() is threading.main_thread():
+        return True
+    try:
+        return bool(GLib.MainContext.default().is_owner())
+    except Exception:  # noqa: BLE001 - brez GLib velja samo glavna nit
+        return False
+
+
+def na_glavni(fn: Callable[[], Any], cas: float = 10.0, privzeto: Any = None, prednost: Optional[int] = None) -> Any:
     """Izvede `fn` na glavni niti (GTK) in vrne izid. Z glavne niti takoj; iz druge niti prek GLib.idle_add in caka
-    najvec `cas` sekund (potem vrne `privzeto`)."""
+    najvec `cas` sekund (potem vrne `privzeto`). Izjema v `fn` gre klicatelju.
+
+    Edini pomocnik za glavno nit (naloga 42): link_teamwork.na_glavni_niti ga klice s prednostjo dogodkov
+    (GLib.PRIORITY_DEFAULT), da zasedena zanka Safeer OS klica ne zadrzuje."""
     if threading.current_thread() is threading.main_thread():
         return fn()
     from gi.repository import GLib
+    if _je_glavna(GLib):
+        return fn()
     izid: dict = {}
     konec = threading.Event()
 
@@ -78,7 +93,10 @@ def na_glavni(fn: Callable[[], Any], cas: float = 10.0, privzeto: Any = None) ->
         finally:
             konec.set()
         return False
-    GLib.idle_add(tek)
+    if prednost is None:
+        GLib.idle_add(tek)
+    else:
+        GLib.idle_add(tek, priority=prednost)
     if not konec.wait(cas):
         return privzeto
     if "e" in izid:

@@ -234,13 +234,11 @@ def _jezik() -> str:
     posnetek = (os.environ.get("SAFEER_OS_JEZIK") or "")[:2].lower()   # samo za razvoj/posnetke
     if posnetek in ("sl", "en", "de", "es", "fr", "it"):
         return posnetek
-    try:
-        with open(BRSKALNIK_NASTAVITVE, encoding="utf-8") as f:
-            v = (json.load(f) or {}).get("ui_language")
-        if v:
-            return str(v)[:2]
-    except Exception:
-        pass
+    # Prek sheme nastavitev (core/nastavitve_shema.preberi_kljuc, naloga 43): napacen tip (npr. stevilo) ne velja za jezik.
+    from core.nastavitve_shema import preberi_kljuc
+    v = preberi_kljuc("ui_language", None, BRSKALNIK_NASTAVITVE)
+    if v:
+        return str(v)[:2]
     # Jezik seje po vrstnem redu gettexta - enako kot Safeer Control. Prej samo LC_MESSAGES/LANG: v seji z
     # LANGUAGE=sl in LANG=en_US je bil Safeer OS angleski, Control pa slovenski.
     for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
@@ -344,11 +342,8 @@ IMENA_ISKALNIKOV = {"google": "Google", "duckduckgo": "DuckDuckGo", "brave": "Br
 
 
 def _kljuc_iskalnika() -> str:
-    try:
-        with open(BRSKALNIK_NASTAVITVE, encoding="utf-8") as f:
-            ime = (json.load(f) or {}).get("search_engine") or "duckduckgo"
-    except Exception:
-        ime = "duckduckgo"
+    from core.nastavitve_shema import preberi_kljuc
+    ime = preberi_kljuc("search_engine", "duckduckgo", BRSKALNIK_NASTAVITVE) or "duckduckgo"
     return ime if ime in ISKALNIKI else "duckduckgo"
 
 
@@ -4922,9 +4917,13 @@ class SafeerOS(Gtk.Application):
             if metoda == "mediaPredvajaj":
                 self._katalog_pogled = pogled     # ta stran zdaj vodi vrsto skladb (glej _dogodek)
             # Katalog Medijskega centra bere omrezje: vedno v ozadju; okno (predvajalnik) klice sam v glavni niti.
+            # Katalog vzamemo tu, na glavni niti: _katalog_most() ga ob prvem klicu ustvari in bere zaslon (Gdk) -
+            # nit naj ga dobi ze ustvarjenega (naloga 42, vmesnik samo iz glavne niti).
+            katalog = self._katalog_most()
+
             def delo_katalog():
                 try:
-                    self._odgovori(pogled, id_, True, self._katalog_most().izvedi(metoda, a))
+                    self._odgovori(pogled, id_, True, katalog.izvedi(metoda, a))
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS]", metoda, e)
                     self._odgovori(pogled, id_, False, str(e))

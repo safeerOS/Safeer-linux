@@ -32,7 +32,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
-from core import root_ukaz, zasebni_webkit
+from core import otroci, root_ukaz, zasebni_webkit
 from core.link_vnos import NAJVEC_BESEDILA, NAJVEC_DRZANJA_S, NAJVEC_PREMIK, TIPKE
 
 #: Ime navideznega zvocnega izhoda, na katerega igrajo programi drugega zaslona.
@@ -913,8 +913,10 @@ class DrugiZaslon:
                            "ACCESSIBILITY_ENABLED": "1", "GNOME_ACCESSIBILITY": "1",
                            "QT_ACCESSIBILITY": "1", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON": "1"})
             dnevnik = open(os.path.join(self.mapa, "sway.log"), "wb")     # samo za stdout/stderr programa sway
-            self._sway = subprocess.Popen(["sway", "-c", konf], env=okolje, stdout=dnevnik, stderr=dnevnik,
-                                          stdin=subprocess.DEVNULL, start_new_session=True)
+            # Skupina sway: swaybg in Xwayland (sway ju zazene brez setsid). Programi na zaslonu (exec) imajo svojo sejo
+            # (sway/commands/exec_always.c: setsid) in jih ustavitev skupine ne konca (naloga 41).
+            self._sway = otroci.zazeni(["sway", "-c", konf], env=okolje, stdout=dnevnik, stderr=dnevnik,
+                                       stdin=subprocess.DEVNULL, dolgoziv=True)
             dnevnik.close()
             konec = time.monotonic() + 8
             while time.monotonic() < konec and self._sway.poll() is None:
@@ -1251,12 +1253,8 @@ class DrugiZaslon:
             self.vnos.zapri()
             self.fokus.ustavi()
             sway, self._sway = self._sway, None
-            if sway is not None and sway.poll() is None:
-                sway.terminate()
-                try:
-                    sway.wait(5)
-                except Exception:
-                    sway.kill()
+            if sway is not None:
+                otroci.ustavi(sway, rok=5)       # tudi ce je sway ze koncal, swaybg/Xwayland v skupini ne ostaneta
             self._wayland = self._ipc = ""
             if self._zvocni_modul:
                 pocisti_zvok()

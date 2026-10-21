@@ -106,6 +106,10 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         from PySide6.QtCore import QCoreApplication, Qt
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
+        # Sporocila Qt in QML v nas dnevnik skozi os_stabilnost.cisto (ne neposredno na stderr; naloga 42) - pred
+        # nastankom aplikacije, da ujame tudi opozorila zagona.
+        from core import qt_dnevnik
+        qt_dnevnik.namesti()
         if not os.environ.get("QT_QPA_PLATFORM"):
             okolje_procesa.zamenjaj("QT_QPA_PLATFORM", platforma_qt())
         # HiDPI: delno merilo zaslona (125, 150, 175 %) Qt uporabi natancno, brez zaokrozanja na 1x/2x - enako kot GTK4.

@@ -1288,31 +1288,21 @@ class Teamwork:
 
 
 def na_glavni_niti(delo: Callable[[], object], rok_s: float = 3.0):
-    """Izid `delo()` z glavne niti GLib (seznam oken bere samo ona) ali None, ce ga v `rok_s` ni.
+    """Izid `delo()` z glavne niti GLib (seznam oken bere samo ona) ali None, ce ga v `rok_s` ni ali delo pade.
 
     Ce je klicatelj ze glavna nit, delo izvede takoj: prej je klic z glavne niti (prijava Teamworka) cakal nase
-    in jo zamrznil za ves rok - ob vsakem javljanju udelezenca (vsakih 5 s) 3 s brez odziva."""
+    in jo zamrznil za ves rok - ob vsakem javljanju udelezenca (vsakih 5 s) 3 s brez odziva.
+    Od naloge 42 en pomocnik za vse (core/en_proces.na_glavni); tu s prednostjo dogodkov (ne »idle«): zasedena glavna
+    zanka Safeer OS bi klic sicer zadrzevala."""
     from gi.repository import GLib
+    from core import en_proces
+    if en_proces._je_glavna(GLib):
+        return delo()          # kot prej: napaka dela na glavni niti gre klicatelju
     try:
-        na_glavni = GLib.MainContext.default().is_owner() or threading.current_thread() is threading.main_thread()
-    except Exception:  # noqa: BLE001
-        na_glavni = threading.current_thread() is threading.main_thread()
-    if na_glavni:
-        return delo()
-    izid: list = [None]
-    koncano = threading.Event()
-
-    def ovoj() -> bool:
-        try:
-            izid[0] = delo()
-        finally:
-            koncano.set()
-        return False
-    # Prednost kot dogodki (ne »idle«): zasedena glavna zanka Safeer OS bi klic sicer zadrzevala.
-    GLib.idle_add(ovoj, priority=GLib.PRIORITY_DEFAULT)
-    if not koncano.wait(rok_s):
+        return en_proces.na_glavni(delo, cas=rok_s, privzeto=None, prednost=GLib.PRIORITY_DEFAULT)
+    except Exception as e:  # noqa: BLE001 - kot prej: napaka dela je None za klicatelja, sled v dnevnik
+        print("[Teamwork] delo na glavni niti:", type(e).__name__, e, flush=True)
         return None
-    return izid[0]
 
 
 def _razlog_diska(e: OSError) -> str:

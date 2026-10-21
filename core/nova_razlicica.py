@@ -419,7 +419,9 @@ def znova(spremenljivka_nadzora: str, skripta: str, argv: Sequence[str]) -> int:
             tok.flush()
         except Exception:  # noqa: BLE001
             pass
-    from core import okolje_procesa
+    from core import okolje_procesa, otroci
+    # execv obide atexit: nasi dolgozivi otroci (ffmpeg, Safeer DRM, sway) bi ostali brez lastnika (naloga 41).
+    otroci.pospravi_vse()
     py = okolje_procesa.python_ukaz()
     os.execv(py[0], py + [skripta, *nacin_zagona(argv)])
     return KODA_ZNOVA  # pragma: no cover - execv se ne vrne

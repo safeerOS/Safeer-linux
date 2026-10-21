@@ -36,15 +36,17 @@ class UtrjenaGradnja(unittest.TestCase):
         self.assertIn('-DCMAKE_SHARED_LINKER_FLAGS=$LDFLAGS -Wl,--emit-relocs', s)
 
     def test_ci_preveri_vsako_knjiznico(self):
-        s = beri(".github/workflows/linux-packages.yml")
+        # Od naloge 40 so pravila v skupnem skriptu (tools/preveri_utrjenost.sh), ki ga klicejo vsi trije posli.
+        s = beri("tools/preveri_utrjenost.sh")
         for niz in ("brez BIND_NOW", "brez GNU_RELRO", "brez zascite sklada", "brez _FORTIFY_SOURCE", "ni PIE/DYN",
                     "libsoup-3.0.so.0", "libexec/webkitgtk-6.0/WebKitWebProcess", "libexec/webkitgtk-6.0/WebKitNetworkProcess"):
             self.assertIn(niz, s)
 
     def test_vse_elf_datoteke_in_dav1d(self):
         """Pregled 1.0.132: CI je preveril samo 5 datotek; dav1ddec (Rust) brez BIND_NOW."""
-        s = beri(".github/workflows/linux-packages.yml")
-        self.assertIn('done < <(find "$W" -type f -print0)', s)
+        s = beri("tools/preveri_utrjenost.sh")
+        self.assertIn('done < <(find "${mapa}" -type f -print0)', s)
+        self.assertIn('bash tools/preveri_utrjenost.sh "$X/usr/lib/safeer-webkit"\n', beri(".github/workflows/linux-packages.yml"))
         self.assertIn('RUSTFLAGS="-C link-arg=-Wl,-z,relro,-z,now"', beri("packaging/webkit-deb/dav1d.sh"))
 
     def test_agents_pravilo(self):

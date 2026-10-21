@@ -583,14 +583,16 @@ class Pretvorba:
             # Nizka prednost z "nice" (preexec_fn ni varen v vecnitnem Controlu).
             if os.name != "nt" and shutil.which("nice"):
                 ukaz = ["nice", "-n", "10"] + ukaz
-            p = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            # Dolgoziv (minute): ob izhodu Controla ga pospravi core/otroci (prej je osirotel tekel do konca; naloga 41).
+            from core import otroci
+            p = otroci.zazeni(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, dolgoziv=True)
             for vrstica in p.stdout or []:
                 if vrstica.startswith("out_time_us=") and trajanje > 0:
                     try:
                         o.odstotek = max(0, min(99, int(int(vrstica.split("=", 1)[1]) / 1e6 / trajanje * 100)))
                     except ValueError:
                         pass
-            if p.wait() != 0 or not os.path.isfile(zacasna) or os.path.getsize(zacasna) == 0:
+            if otroci.pocakaj(p) != 0 or not os.path.isfile(zacasna) or os.path.getsize(zacasna) == 0:
                 raise OSError("ffmpeg")
             os.replace(zacasna, cilj)
         except Exception:  # noqa: BLE001

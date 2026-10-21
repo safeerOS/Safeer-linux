@@ -37,7 +37,7 @@ import urllib.parse
 import uuid
 from typing import Callable, Dict, List, Optional, Tuple
 
-from core import budnost, os_deskriptorji
+from core import budnost, os_deskriptorji, otroci
 
 MB = 1024 * 1024
 VISINA = 1080
@@ -946,14 +946,7 @@ class Sprotno:
         t.koncano = True
         pr = t.proces
         if pr is not None and pr.poll() is None:
-            try:
-                pr.terminate()
-                try:
-                    pr.wait(3)
-                except subprocess.TimeoutExpired:
-                    pr.kill()
-            except OSError:
-                pass
+            otroci.ustavi(pr)          # SIGTERM skupini, po 3 s SIGKILL (prej samo ffmpeg, brez cakanja po kill)
         with self._kljucavnica:
             self._viri.pop(t.skrivnost, None)
         if t.bralcev == 0:
@@ -1051,10 +1044,11 @@ class Sprotno:
                 return
             t.strojno = naprava is not None or kodirnik in STROJNI_WINDOWS
             try:
-                t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik,
-                                                      zvocna_sled=sled),
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA,
-                                            env=okolje_ffmpeg(vhod))
+                # Svoja skupina in pospravljanje ob izhodu (core/otroci.py, naloga 41).
+                t.proces = otroci.zazeni(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik,
+                                                   zvocna_sled=sled),
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA,
+                                         env=okolje_ffmpeg(vhod), dolgoziv=True)
             except OSError as e:
                 t.napaka = "napaka"; t.koncano = True
                 _zapisi(f"pretok {t.ime}: ffmpeg se ni zagnal ({e})")
@@ -1062,7 +1056,7 @@ class Sprotno:
             if t.koncano:
                 # ustavi() je tekel med preverbo zgoraj in zagonom, procesa se ni videl: ffmpeg ne sme ostati
                 # (preizkus 19. 10. 2026: osirotel pretvornik je tekel naprej).
-                t.proces.kill()
+                otroci.ustavi(t.proces, rok=0)
                 t.proces.communicate()
                 return
             _, err = t.proces.communicate()

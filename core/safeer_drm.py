@@ -33,7 +33,7 @@ import threading
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from core import vstavi_okno
+from core import otroci, vstavi_okno
 
 #: Mapa Safeer DRM v tovoru paketa (<tovor>/safeer-drm, zraven core/). SAFEER_DRM_MAPA jo zamenja (preizkusi, razvoj).
 SPREMENLJIVKA_MAPE = "SAFEER_DRM_MAPA"
@@ -283,9 +283,9 @@ class Gostitelj:
         if args is None:
             return False
         try:
-            self.proces = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                           stdin=subprocess.DEVNULL, start_new_session=True,
-                                           env=okolje_zagona(peskovnik))
+            # Electron (zygote, GPU, upodabljalniki) v svoji skupini; ustavi() in izhod procesa koncata vse (naloga 41).
+            self.proces = otroci.zazeni(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        stdin=subprocess.DEVNULL, env=okolje_zagona(peskovnik), dolgoziv=True)
         except OSError as e:
             print("[SafeerDRM] zagon ni uspel:", e, flush=True)
             return False
@@ -390,11 +390,7 @@ class Gostitelj:
             self.GLib.source_remove(self._casovnik)
             self._casovnik = 0
         if self.proces is not None and self.proces.poll() is None:
-            self.proces.terminate()
-            try:
-                self.proces.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.proces.kill()
+            otroci.ustavi(self.proces)
         self._pospravi()
 
     def unici(self) -> None:

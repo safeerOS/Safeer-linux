@@ -175,13 +175,12 @@ def _jezik_sistema() -> Optional[str]:
 
 
 def _jezik_brskalnika() -> Optional[str]:
+    """Jezik Safeer Browserja prek sheme nastavitev (core/nastavitve_shema.preberi_kljuc, naloga 43): brez ConfigManager, ki bi
+    na racunalniku brez brskalnika ustvaril settings.json."""
     pot = os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-mint", "settings.json")
-    try:
-        with open(pot, "r", encoding="utf-8") as d:
-            v = (json.load(d) or {}).get("ui_language")
-        return str(v) if v else None
-    except Exception:
-        return None
+    from core.nastavitve_shema import preberi_kljuc
+    v = preberi_kljuc("ui_language", None, pot)
+    return str(v) if v else None
 
 
 def prevzemi_seznanitev_brskalnika(nastavitve: link_hub.Nastavitve, id_naprave: str, ime: str) -> bool:
