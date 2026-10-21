@@ -63,6 +63,11 @@ WebKitGTK 2.54.1 (packaging/webkit/webkitgtk6-safeer.yml). Pred trditvijo o drug
   primerja odlocitev in koncni naslov). Brez sheme https; http samo localhost in zasebni/loopback/link-local IP;
   zeton nikoli k iskalniku; »0.0.0.0«, uporabniski del, ne-spletne sheme -> iskanje.
 - Http -> https s povratkom (kot Safari/Chrome): samo GET glavnega okvirja, lokalni naslovi brez poskusa.
+  Strani, ki https ne podpirajo, si zapomnimo trajno (z rokom) in jih naslednjic odpremo takoj na http - casa ne
+  izgubljamo (lastnik, 21. 10. 2026); napaka TLS ali zavrnjena povezava = takojsen povratek, brez opozorilne strani.
+  Pred nevarnimi stranmi scit Safeer Scit (DNS), ne opozorilo o http: Scit je PRIVZETI razresevalnik imen
+  (core/config.py doh_provider="scit"), zato se ime nevarne strani zavrne, se preden se odpre katerakoli povezava
+  http ali https (lastnik, 21. 10. 2026).
 - Samodejna ponovitev nalaganja samo GET glavnega okvirja (core/network_errors.py).
 
 ## 8. Orodja za razvijalce
@@ -82,3 +87,28 @@ WebKitGTK 2.54.1 (packaging/webkit/webkitgtk6-safeer.yml). Pred trditvijo o drug
 ## 10. Preden odpres nalogo
 - Preberi AGENTS.md in zapisnik (SAFEER-ZNANJE.md, ZAPISNIK) - ne ponavljaj poskusov, ki niso delovali.
 - Vsaka sprememba: preizkus, ki brez popravka pade; neodvisni pregled; zivi preizkus po uporabnikovi poti.
+
+## 11. Zgodovina WebKita in nauki (lastnik 21. 10. 2026: »poglej, kaj so se razvijalci iz napak naucili, da jih ne ponavljamo«)
+Dejstva (viri v zapisniku SAFEER-ZNANJE.md, 21. 10. 2026 10:05):
+- Chrome je do 2013 uporabljal WebKit. Aprila 2013 je Google naredil fork Blink: Chromov vecprocesni model se je
+  razlikoval od WebKitovega, kar je oba zapletalo; v prvem koraku so izbrisali 7 sistemov gradnje in >7000 datotek
+  (>4,5 milijona vrstic). Apple WebKita NI zapustil - ga vodi naprej (Safari); ob njem Igalia (WebKitGTK, WPE),
+  Sony (PlayStation, Windows) in Red Hat (GNOME).
+- WebKit je vecprocesnost (WebKit2) uredil v motorju; WebKitGTK je danes samo vecprocesen s peskovnikom.
+- Igalia je 2024 za WebKitGTK/WPE zamenjala Cairo s Skio (Googlova knjiznica, kot ANGLE v drevesu WebKita): lastna
+  knjiznica ni dosegla hitrosti in kakovosti; najprej prototip in meritev, en port najprej, brez regresij, zgodaj gorvodno.
+- Chromium: ~70 % resnih varnostnih napak je napak pomnilnika, polovica use-after-free; odgovor je peskovnik, izolacija
+  strani (po Spectre 2018), »pravilo dveh« (nezaupljiv vnos ne v privilegiranem procesu), varnejsi jeziki, hitre posodobitve.
+- Site Isolation v WebKitu (julij 2025) dela samo na Applovih platformah; GTK nima - zato je pri nas »unstable«.
+Nauki za Safeer (obvezno):
+1. Ne forkaj WebKita. Nasi popravki (packaging/webkit/*.patch, libsoup) so cim manjsi in gredo gorvodno; ob vsaki novi
+   razlicici WebKitGTK preveri, kateri so ze sprejeti, in jih odstrani.
+2. Varnostne izdaje WebKitGTK (WSA) gredo v nas paket v nekaj dneh - zaostanek za stabilno razlicico je najvecje
+   tveganje (21. 10. 2026: imamo 2.54.1 = najnovejsa stabilna). Enako za vgrajene knjiznice (ICU, libxml2, libjpeg, JPEG XL).
+3. Arhitektura je v motorju: procesov ne upravljamo mimo WebKita (CacheModel, process swap, terminate_web_process po
+   pravilih WebKita) - lastni »popravki« ob strani so ze povzrocili ostale procese (naloga 27).
+4. Peskovnik vedno; nezaupljiva vsebina (strani, zadetki iskalnikov) se razclenjuje samo v spletnem procesu (locen svet),
+   nikoli v procesu vmesnika Safeer (pravilo dveh).
+5. Kar vzdrzujejo drugi in je dobro, uporabimo (Skia, ANGLE, GStreamer), namesto da pisemo svoje; najprej prototip in
+   meritev, en port, brez regresij.
+6. Funkcij, ki so v WebKitGTK »unstable« (SiteIsolation), ne vklapljamo - spremljamo webkit-dev in jih vzamemo, ko so stabilne.
