@@ -16,6 +16,13 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
   Huba je rezerva).
 - Vsaka izboljsava spletne izkusnje v Spletu (Safeer OS) gre tudi v vse brskalnike Safeer: Safeer Browser za Linux
   (safeer_brskalnik.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
+- Splet in brskalniki Safeer se zgledujejo po modernih brskalnikih: omogocimo vse, kar drugi, ali bolje, in smo enako
+  hitri. Strani nas prepoznajo kot Safari, zato smo vsaj tako dobri kot Safari (lastnik, 21. 10. 2026). Http strani
+  samodejno na https, ce jih stran ponuja (povratek na http, ce ne); iskanje ostane mogoce tudi za vpis, ki je naslov.
+- Profil po zmogljivosti naprave (lastnik, 21. 10. 2026): naprave z vec RAM (racunalniki, telefoni z veliko RAM)
+  polno izkoristijo vecprocesni spletni motor s peskovnikom, vecnitno sestavljanje strani in GPU; TV in naprave z malo
+  RAM ohranijo varcni enoprocesni modul aplikacije. Izmerjeno 21. 10.: spletni motor je ze vecprocesen (WebKitGTK:
+  procesi strani v bubblewrap; Android WebView: sandboxed_process tudi na TV) - »en proces« velja za vmesnik Safeer.
 
 ## Zasebnost (nikoli v repo, commit, PR ali opombe izdaje)
 - Ime lastnika, domaca pot, uporabnisko ime, ime gostitelja, MAC, e-naslovi, posnetki zaslona naprav. V besedilu: »lastnik«.
@@ -33,7 +40,8 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 
 ## Koda
 - Komentarji in sporocila commitov v slovenscini (brez sumnikov v imenih), kratki, povejo ZAKAJ in kdaj je bilo izmerjeno.
-- En proces: Safeer OS, Safeer Control, Splet in predvajalnik tecejo v istem procesu (core/en_proces.py).
+- En proces: vmesnik Safeer OS, Safeer Control, Splet in predvajalnik tecejo v istem procesu (core/en_proces.py);
+  spletne strani tecejo v procesih spletnega motorja s peskovnikom.
 - Safeer je samo GTK4 in WebKitGTK 6.0 (GTK3 umaknjen 18. 10. 2026): nove kode za GTK3 ne pisi.
 - Nov modul v `core/` dodaj v seznam v `packaging/install_os_payload.sh` oziroma `install_control_payload.sh` (test `tests/test_tovor_uvozi.py`).
 - Dostop drugih naprav: o vsebinah te naprave odloca samo ta naprava (core/link_dostop.py); nic iz dohodnega sporocila ne sme podeliti dostopa.
