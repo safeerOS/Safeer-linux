@@ -207,7 +207,8 @@ def tlak_omrezja(WebKit2, meja_mb: int) -> bool:
 
 def recikliraj_omrezni(*, okno_aktivno: bool, neaktivno_s: float, prenosi: bool, nalaganje: bool,
                        zvok: bool, pss_mb: float, meja_mb: float, mirovanje_s: float = 300.0) -> bool:
-    """Ali Safeer Browser sme koncati svoj omrezni proces (WebKit takoj zazene novega).
+    """Ali Safeer Browser sme koncati svoj omrezni proces (WebKit takoj zazene novega). Klice ga samo recikliranje v
+    splet_spanje, ki je v 1.0.129 izklopljeno (RECIKLIRANJE_OMREZNEGA).
 
     12. 10. 2026: libsoup 3.4.4-5ubuntu0.9 pri vsaki povezavi prek posrednika (nas DoH) pusti SoupConnection, zato
     omrezni proces raste. Uporabniku to ne sme nicesar pokvariti: nikoli med uporabo okna, prenosom, nalaganjem ali

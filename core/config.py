@@ -181,7 +181,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "sleep_heavy_background_tabs": True,  # Težek zavihek v ozadju brez zvoka po minuti zaspi (klik ga znova naloži)
     "tab_freeze_after_s": 60,              # Neaktiven tih zavihek po tem času ustavi časovnike (0 = izklop)
     "tab_discard_after_s": 600,            # Neaktiven tih zavihek po tem času sprosti spletni proces (0 = izklop)
-    "network_process_limit_mb": 300,       # Omrezni proces nad to mejo se obnovi, ko okno 5 min miruje (0 = izklop)
+    "network_process_limit_mb": 300,       # Meja recikliranja omreznega procesa (0 = izklop); v 1.0.129 ne velja (RECIKLIRANJE_OMREZNEGA = False)
     "tracking_protection_enabled": True,  # Odstranjevanje sledilnih parametrov (UTM, fbclid, gclid, si, itd.)
     "gpc_dnt_enabled": True,             # W3C Global Privacy Control & Do Not Track signal
     "doh_enabled": True,                 # Šifriran DNS (DNS-over-HTTPS) za zaščito pred ISP cenzuro in prisluškovanjem
