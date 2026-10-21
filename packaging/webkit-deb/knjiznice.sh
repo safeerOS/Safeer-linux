@@ -15,4 +15,4 @@ apt-get install -y -q --no-install-recommends \
     libgcrypt20 libxslt1.1 libxml2 libsqlite3-0 libicu74 libwayland-client0 libwayland-egl1 libwayland-server0 \
     libwebp7 libwebpdemux2 libwebpmux3 libjpeg-turbo8 libpng16-16t64 libfontconfig1 libfreetype6 libx11-6 \
     libnghttp2-14 libpsl5t64 libbrotli1 libzstd1 libgssapi-krb5-2 libgudev-1.0-0 libdav1d7 \
-    libatomic1 bubblewrap xdg-dbus-proxy glib-networking dpkg-dev file zstd
+    libatomic1 bubblewrap xdg-dbus-proxy glib-networking dpkg-dev file zstd patchelf binutils

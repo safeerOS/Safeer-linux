@@ -212,6 +212,10 @@ jobs:
           # Dekoder AV1 dav1ddec v predponi nasega WebKita, libdav1d7 iz noble.
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-webkit/lib/gstreamer-1.0/libgstdav1d.so'
           dpkg-deb -f "$DEB" Depends | grep -E '(^|, )libdav1d7( |,|$)'
+          # Prenosnost (21. 10. 2026: .deb se ni namestil na Linux Mint 23 / Ubuntu 26.04 / Debian 13): knjiznice z
+          # razlicnim soname po sistemih so v paketu (vgradi.sh), Depends jih ne sme zahtevati.
+          if dpkg-deb -f "$DEB" Depends | grep -E '(^|, )(libicu[0-9]+|libjxl0\.[0-9]+|libhwy[0-9a-z]*|libjpeg8|libxml2|libxslt1\.1)( |,|$)'; then echo "::error::Depends zahteva knjiznico, ki mora biti v paketu"; exit 1; fi
+          for so in libicuuc.so.74 libicudata.so.74 libjxl.so.0.7 libjpeg.so.8 libxml2.so.2 libxslt.so.1; do dpkg-deb -c "$DEB" | grep -F "./usr/lib/safeer-webkit/lib/$so"; done
           # Samo /usr/lib/safeer-webkit in doc: nic v sistemskih mapah knjiznic in brez skript vzdrzevalca.
           if dpkg-deb -c "$DEB" | awk '{print $6}' | grep -vE '^\./($|usr/$|usr/lib/$|usr/lib/safeer-webkit/|usr/share/$|usr/share/doc/$|usr/share/doc/safeer-webkit/)'; then echo "::error::datoteke izven /usr/lib/safeer-webkit"; exit 1; fi
           if dpkg-deb --ctrl-tarfile "$DEB" | tar -t | grep -E 'postinst|prerm|postrm|preinst'; then echo "::error::skripte vzdrzevalca"; exit 1; fi
@@ -607,7 +611,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mint: ['22', '22.3']
+        mint: ['22', '22.3', '23']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8

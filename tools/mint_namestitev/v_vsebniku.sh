@@ -39,6 +39,7 @@ chmod 0711 "$ZACASNO"
 POSNETEK="$POSNETEK_MAPA/safeer-os.png"
 # Prejsnja izdaja ima pakete _all (do 1.0.127) ali _amd64 (z nasim WebKitom): posodobitev all -> amd64 je pot vseh
 # obstojecih uporabnikov.
+PREJ=()
 if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
   echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*.deb)"
   # Paketa, ki ju je nadomestil safeer-os, morata ob posodobitvi »izginiti« (Replaces): to se zgodi samo, ce ima
@@ -59,6 +60,17 @@ if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
     PREJ+=("$p")
   done
   echo "   namescam: ${PREJ[*]##*/}"
+  # Do 1.0.130 je .deb zahteval knjiznice Ubuntu 24.04 (libicu74 …) in se na Linux Mint 23 / Ubuntu 26.04 ni namestil
+  # (21. 10. 2026) - tam uporabnik prejsnje izdaje ni mogel imeti, zato posodobitve ni kaj preizkusiti. Samo ta
+  # primer (odvisnost »not installable«) preskoci; vsaka druga napaka ostane napaka.
+  if ! apt-get install --simulate -y -q --no-install-recommends "${PREJ[@]}" >"$ZACASNO/prejsnja-sim.log" 2>&1 \
+     && grep -q "is not installable" "$ZACASNO/prejsnja-sim.log"; then
+    grep "is not installable" "$ZACASNO/prejsnja-sim.log" | head -5
+    echo "   OPOMBA: prejsnja izdaja se na tem sistemu ne namesti - preizkus posodobitve preskocen, samo nova namestitev"
+    PREJ=()
+  fi
+fi
+if [ "${#PREJ[@]}" -gt 0 ]; then
   apt-get install -y -q --no-install-recommends "${PREJ[@]}" >"$ZACASNO/prejsnja.log" 2>&1 \
     || { tail -40 "$ZACASNO/prejsnja.log"; echo "NAPAKA: namestitev prejsnje izdaje"; exit 1; }
   # Najslabsi primer za posodobitev: programi so ze tekli kot root in v mapah programov pustili svojo bajtno kodo.
@@ -97,7 +109,7 @@ for p in safeer-control safeer-cinnamon; do
     echo "NAPAKA: stari paket $p je po posodobitvi se namescen (safeer-os bi ga moral nadomestiti)"; exit 1
   fi
 done
-if ls /prejsnji/safeer-cinnamon_*_all.deb >/dev/null 2>&1; then
+if [ "${#PREJ[@]}" -gt 0 ] && ls /prejsnji/safeer-cinnamon_*_all.deb >/dev/null 2>&1; then
   [ -f /home/preizkus/.config/safeer-cinnamon/vklopljeno ] || { echo "NAPAKA: posodobitev je izklopila Safeer Cinnamon"; exit 1; }
   rm -f /home/preizkus/.config/safeer-cinnamon/vklopljeno
 fi
