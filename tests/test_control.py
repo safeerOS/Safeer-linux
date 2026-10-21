@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
@@ -86,7 +87,7 @@ class ControlPaket(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(mapa, "usr", "share", "applications", "safeer-control.desktop")))
         # Control se predstavi s svojo razlicico, tudi brez GTK (izpis pred uvozom okna ni potreben: --version).
         v = open(os.path.join(KOREN, "packaging", "VERSION_CONTROL"), encoding="utf-8").read().strip()
-        self.assertRegex(v, r"^\d+\.\d+\.\d+(-beta\.\d+)?$")   # beta kanal (docs/BETA.md)
+        self.assertRegex(v, r"^\d+\.\d+\.\d+(-beta\.\d+)?$")
 
     def test_stran_pozna_nacin_control(self):
         js = open(os.path.join(KOREN, "assets", "link", "link.js"), encoding="utf-8").read()
@@ -182,19 +183,20 @@ class ControlOzadje(unittest.TestCase):
             pot = os.path.join(mapa, "autostart", "safeer-control.desktop")
             stara = sc.SAMOZAGON_POT
             sc.SAMOZAGON_POT = pot
-            try:
-                self.assertFalse(sc.Samozagon.je_vklopljen())
-                sc.Samozagon.nastavi(True)
-                self.assertTrue(sc.Samozagon.je_vklopljen())
-                vsebina = open(pot, encoding="utf-8").read()
-                self.assertIn("[Desktop Entry]", vsebina)
-                self.assertIn("--ozadje", vsebina)
-                self.assertIn("X-GNOME-Autostart-enabled=true", vsebina)
-                sc.Samozagon.nastavi(False)
-                self.assertFalse(os.path.exists(pot))
-                self.assertFalse(sc.Samozagon.je_vklopljen())
-            finally:
-                sc.SAMOZAGON_POT = stara
+            with mock.patch("core.en_proces.delovna_safeer_cinnamon", return_value=False):
+                try:
+                    self.assertFalse(sc.Samozagon.je_vklopljen())
+                    sc.Samozagon.nastavi(True)
+                    self.assertTrue(sc.Samozagon.je_vklopljen())
+                    vsebina = open(pot, encoding="utf-8").read()
+                    self.assertIn("[Desktop Entry]", vsebina)
+                    self.assertIn("--ozadje", vsebina)
+                    self.assertIn("X-GNOME-Autostart-enabled=true", vsebina)
+                    sc.Samozagon.nastavi(False)
+                    self.assertFalse(os.path.exists(pot))
+                    self.assertFalse(sc.Samozagon.je_vklopljen())
+                finally:
+                    sc.SAMOZAGON_POT = stara
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             for kljuc in ("odpri", "samozagon", "koncaj", "povezan", "ni"):
                 self.assertTrue(sc.besedilo(jezik, kljuc))

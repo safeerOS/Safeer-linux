@@ -27,6 +27,7 @@ kontekst_za_zunanje() vrneta okolje brez njih (vse poti v nasi predponi WebKit i
 from __future__ import annotations
 
 import os
+import sys
 from typing import Mapping, Optional
 
 TYPELIB = os.path.join("lib", "girepository-1.0", "WebKit-6.0.typelib")
@@ -70,6 +71,10 @@ def nastavi(koren: str) -> Optional[str]:
     if os.environ.get("FLATPAK_ID") or os.environ.get("APPIMAGE") or os.environ.get("SAFEER_SISTEMSKI_WEBKIT"):
         return None
     mapa = predpona(koren)
+    if mapa is None and os.environ.get("SAFEER_WEBKIT_PREDPONA"):
+        kand = os.environ["SAFEER_WEBKIT_PREDPONA"]
+        if os.path.isfile(os.path.join(kand, TYPELIB)):
+            mapa = kand
     if mapa is None:
         return None
     _nastavljena = mapa
@@ -147,6 +152,167 @@ def pot_odtisa() -> Optional[str]:
         return None
     pot = os.path.join(_nastavljena, ODTIS)
     return pot if os.path.isfile(pot) else None
+
+
+class Razlicica(tuple):
+    """Trojica razlicice WebKitGTK (major, minor, micro), ki se predstavlja tudi kot niz 'major.minor.micro'."""
+
+    def __str__(self) -> str:
+        return ".".join(str(x) for x in self)
+
+
+JEZIKI = ("sl", "en", "de", "es", "fr", "it")
+
+SPOROCILA_NAPAKE = {
+    "sl": "Safeer ne najde svojega spletnega pogona - znova namestite paket.",
+    "en": "Safeer cannot find its web engine - please reinstall the package.",
+    "de": "Safeer kann seine Web-Engine nicht finden - bitte installieren Sie das Paket neu.",
+    "es": "Safeer no puede encontrar su motor web - vuelva a instalar el paquete.",
+    "fr": "Safeer ne trouve pas son moteur web - veuillez réinstaller le paquet.",
+    "it": "Safeer non riesce a trovare il proprio motore web - reinstalla il pacchetto.",
+}
+
+
+def _zaznaj_jezik(jezik: Optional[str] = None) -> str:
+    """Prepozna jezik vmesnika iz okolja ali argumenta (privzeto 'sl')."""
+    if jezik and str(jezik)[:2].lower() in JEZIKI:
+        return str(jezik)[:2].lower()
+    for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        vrednost = os.environ.get(kljuc, "")
+        if vrednost:
+            lang = vrednost.split(":")[0].replace("-", "_").split(".")[0].split("_")[0].strip().lower()[:2]
+            if lang in JEZIKI:
+                return lang
+    return "sl"
+
+
+def sporocilo_napake(jezik: Optional[str] = None) -> str:
+    """Sporocilo za uporabnika ob manjkajocem nasem WebKitu v vseh jezikih vmesnika."""
+    j = _zaznaj_jezik(jezik)
+    return SPOROCILA_NAPAKE.get(j, SPOROCILA_NAPAKE["en"])
+
+
+def obvesti_uporabnika(sporocilo: str) -> None:
+    """Poslje nujno obvestilo namizja prek D-Busa (core/obvestila) brez potrebe po tekoci zanki GTK."""
+    try:
+        from core import obvestila
+        obvestila._poslji_dbus("safeer-webkit-napaka", "Safeer", sporocilo, 10000, "urgent", [], None)
+    except Exception as e:  # noqa: BLE001
+        print("[Safeer] obvestilo uporabniku:", e, file=sys.stderr, flush=True)
+
+
+def poisci_nas_webkit(koren: Optional[str] = None) -> Optional[str]:
+    """Poisce mapo nasega WebKita: najprej koren programa, nato SAFEER_WEBKIT_PREDPONA,
+    nato standardne predpone paketov (PREDPONE_PAKETOV)."""
+    if koren:
+        p = predpona(koren)
+        if p:
+            return p
+    env_p = os.environ.get("SAFEER_WEBKIT_PREDPONA")
+    if env_p and os.path.isfile(os.path.join(env_p, TYPELIB)):
+        return env_p
+    for mapa in PREDPONE_PAKETOV:
+        if os.path.isfile(os.path.join(mapa, TYPELIB)):
+            return mapa
+    return None
+
+
+def _namescen() -> bool:
+    """Ali tece namesceni program (paket .deb, Flatpak, AppImage) - ne izvorna koda."""
+    if os.environ.get("FLATPAK_ID") or os.environ.get("APPIMAGE"):
+        return True
+    glavni = getattr(sys.modules.get("__main__"), "__file__", "") or ""
+    return os.path.abspath(glavni).startswith("/usr/lib/safeer-")
+
+
+def preveri_nas_webkit(
+    WebKit=None,
+    uveljavi: bool = True,
+    maps_vsebina: Optional[str] = None,
+    maps_pot: Optional[str] = None,
+    predpona: Optional[str] = None,
+    jezik: Optional[str] = None,
+) -> tuple[bool, Optional[str], Optional[Razlicica]]:
+    """Po `import gi` + require_version WebKit 6.0 preveri, iz katere datoteke je nalozen libwebkitgtk-6.0
+    (/proc/self/maps) in ali je nas: deb -> pod predpono iz nastavi(), Flatpak -> /app/, AppImage -> $APPDIR.
+    Vrne (je_nas, pot, razlicica).
+
+    Ce ni nas in ni izrecnega SAFEER_SISTEMSKI_WEBKIT=1 ter je uveljavi=True:
+      - jasna napaka v dnevnik (sys.stderr)
+      - obvestilo uporabniku v jeziku vmesnika (sporocilo_napake)
+      - program se NE nadaljuje s sistemskim WebKitom (sys.exit(1)).
+    """
+    razlicica: Optional[Razlicica] = None
+    if WebKit is None:
+        try:
+            from gi.repository import WebKit as _WK
+            WebKit = _WK
+        except Exception:
+            WebKit = None
+
+    if WebKit is not None:
+        try:
+            # GI nalozi knjiznico typeliba sele ob prvem klicu funkcije: razlicici najprej, nato /proc/self/maps.
+            v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version())
+            razlicica = Razlicica(v)
+        except Exception:
+            pass
+
+    pot: Optional[str] = None
+    try:
+        if maps_vsebina is not None:
+            vsebina = maps_vsebina
+        else:
+            with open(maps_pot or "/proc/self/maps", "r", encoding="utf-8", errors="replace") as f:
+                vsebina = f.read()
+        knjiznice = sorted({l.split()[-1] for l in vsebina.splitlines() if "libwebkitgtk-6.0" in l and l.split()[-1].startswith("/")})
+        if knjiznice:
+            pot = knjiznice[0]
+    except OSError:
+        pot = None
+
+    je_nas = False
+    if pot:
+        if pot.startswith("/app/"):
+            # Flatpak: mora biti iz /app/, nikoli iz /usr runtime-a
+            je_nas = True
+        elif os.environ.get("APPDIR"):
+            # AppImage: mora biti pod $APPDIR
+            appdir = os.path.normpath(os.environ["APPDIR"])
+            norm_pot = os.path.normpath(pot)
+            if norm_pot == appdir or norm_pot.startswith(appdir + os.sep):
+                je_nas = True
+        else:
+            # deb / krajevna namestitev: pod predpono iz nastavi()
+            ciljna_predpona = predpona if predpona is not None else _nastavljena
+            if ciljna_predpona:
+                norm_pred = os.path.normpath(ciljna_predpona)
+                norm_pot = os.path.normpath(pot)
+                if norm_pot == norm_pred or norm_pot.startswith(norm_pred + os.sep):
+                    je_nas = True
+
+    if uveljavi and not je_nas:
+        # Zagon iz izvorne kode (razvoj, CI s sistemskim gir1.2-webkit-6.0, preizkusi tovora v zacasni mapi) samo opozori;
+        # ustavi se namesceni program (paket .deb pod /usr/lib/safeer-*, Flatpak, AppImage), ki bi sicer tiho tekel s
+        # sistemskim WebKitom brez nasih popravkov (Claude 21. 10. 2026).
+        sistemski_dovoljen = os.environ.get("SAFEER_SISTEMSKI_WEBKIT") == "1" or not _namescen()
+        if sistemski_dovoljen:
+            sys.stderr.write(
+                f"[Safeer] OPOZORILO: uporaba sistemskega WebKitGTK ({pot or 'ni nalozen'}, {razlicica}) "
+                "zaradi SAFEER_SISTEMSKI_WEBKIT=1.\n"
+            )
+            sys.stderr.flush()
+        else:
+            sys.stderr.write(
+                f"[Safeer] NAPAKA: Safeer ne najde svojega spletnega pogona "
+                f"(nalozen je sistemski: {pot or 'ni nalozen'}, razlicica: {razlicica}). "
+                "Znova namestite paket. Za razvoj nastavite SAFEER_SISTEMSKI_WEBKIT=1.\n"
+            )
+            sys.stderr.flush()
+            obvesti_uporabnika(sporocilo_napake(jezik))
+            sys.exit(1)
+
+    return je_nas, pot, razlicica
 
 
 # ---------------------------------------------------------------------------------------- zunanji programi

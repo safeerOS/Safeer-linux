@@ -66,6 +66,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 # WebKitGTK 6.0 (GTK4): ime WebKit2 ostane, ker ga pomozne funkcije (pomnilnik, odlozisce_varuh, os_stabilnost) dobijo
 # kot parameter in znajo oba API-ja.
 from gi.repository import WebKit as WebKit2  # noqa: E402
+zasebni_webkit.preveri_nas_webkit(WebKit2)
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402

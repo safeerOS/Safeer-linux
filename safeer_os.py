@@ -73,6 +73,7 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 # Ime WebKit2 ostane: skupne pomozne funkcije (pomnilnik, os_stabilnost, odlozisce_varuh) dobijo modul kot parameter.
 from gi.repository import WebKit as WebKit2  # noqa: E402
+zasebni_webkit.preveri_nas_webkit(WebKit2)
 try:   # X11: delovno obmocje zaslona (GdkX11.X11Monitor.get_workarea) in cas streznika; na Waylandu ga ni
     gi.require_version("GdkX11", "4.0")
     from gi.repository import GdkX11  # noqa: E402

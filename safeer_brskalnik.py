@@ -49,6 +49,7 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 from gi.repository import WebKit as WebKit2  # noqa: E402
+zasebni_webkit.preveri_nas_webkit(WebKit2)
 
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom (kot Safeer OS)
 profil_naprave.nastavi_model(WebKit2)  # globalni model predpomnilnika po profilu, pred prvim WebContext

@@ -26,7 +26,8 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 
 ## Razvoj Spleta (WebKit)
 - Vedno nas WebKit (lastnik, 21. 10. 2026): program, meritev ali preizkus s sistemskim WebKitGTK ni veljaven - pred
-  meritvijo preveri razlicico in pot nalozene knjiznice (21. 10. je LD_LIBRARY_PATH na napacno mapo tiho nalozil 2.52.6).
+  meritvijo preveri razlicico in pot nalozene knjiznice (21. 10. je LD_LIBRARY_PATH na napacno mapo tiho nalozil 2.52.6); orodje tools/nas_webkit.sh,
+  v programu zasebni_webkit.preveri_nas_webkit() - namesceni program s tujim WebKitom se ne zazene).
 
 ## Utrjena gradnja (lastnik, 21. 10. 2026: »ce imamo te ranljivosti, nismo zares Safeer«)
 - Vsaka knjiznica in program, ki ga gradimo sami (WebKit, JavaScriptCore, libsoup, dav1d, rqbit, Qt, nase .so), je vsaj
