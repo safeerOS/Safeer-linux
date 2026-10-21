@@ -16,7 +16,10 @@ config-opts:
   - -DLIBXML2_WITH_ICU=OFF
   - -DLIBXML2_WITH_TESTS=OFF
   - -DLIBXML2_WITH_PROGRAMS=OFF
-  - -DLIBXML2_WITH_ZLIB=ON
+  # Brez zlib in lzma (Claude 21. 10.): WebKit razclenjuje v pomnilniku, stisnjenih datotek ne bere; staticna knjiznica
+  # s -lz/-llzma bi zahtevala pravilen vrstni red povezovanja v CMake WebKita (napaka sele po 2 h prevoda).
+  - -DLIBXML2_WITH_ZLIB=OFF
+  - -DLIBXML2_WITH_LZMA=OFF
 sources:
   - type: archive
     url: https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz
