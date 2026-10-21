@@ -210,7 +210,7 @@ def test_vsak_iskalnik_ima_ime_za_oznako():
             vrednosti[n.targets[0].id] = ast.literal_eval(n.value)
     assert set(vrednosti["ISKALNIKI"]) == set(vrednosti["IMENA_ISKALNIKOV"])
     vir = open(os.path.join(koren, "safeer_os.py"), encoding="utf-8").read()
-    assert "dict(z, iskalnik=ime)" in vir
+    assert "povratni(z_iskalnikom(r, ime))" in vir   # z_iskalnikom: ime na vsakem zadetku, brez zadetkov en vnos
 
 
 def _lazni_predogled(dokument):
@@ -223,7 +223,8 @@ def _lazni_predogled(dokument):
     GLib = types.SimpleNamespace(timeout_add=lambda ms, f: (casovniki.append(f) if ms == 250 else None) or 1,  # brez roka
                                  timeout_add_seconds=lambda *_a: 1, source_remove=lambda _i: None)
     p = sz.PredogledIskanja(None, WebKit, GLib)
-    rezultat = types.SimpleNamespace(to_string=lambda: _json.dumps({"naslov": dokument[0][0], "zadetki": dokument[0][1]}))
+    rezultat = types.SimpleNamespace(to_string=lambda: _json.dumps(
+        {"naslov": dokument[0][0], "zadetki": dokument[0][1], "stanje": dokument[0][2] if len(dokument[0]) > 2 else "complete"}))
     pogled = types.SimpleNamespace(load_uri=lambda _u: None, get_uri=lambda: "", stop_loading=lambda: None,
                                    evaluate_javascript=lambda js, _d, _s, _a, _b, cb: cb(pogled, "r"),
                                    evaluate_javascript_finish=lambda r: rezultat)
@@ -270,3 +271,48 @@ def test_stran_brez_niza_ne_da_zadetkov():
     assert sz.ta_niz("https://duckduckgo.com/?q=x", "https://html.duckduckgo.com/html/?q=x")
     assert not sz.ta_niz("https://www.google.com/search?q=x", "https://notgoogle.evil.com/search?q=x")
     assert not sz.ta_niz("https://www.google.com/search?q=x", "https://duckduckgo.com/?q=x")
+
+
+def test_dokument_med_razclenjevanjem_ne_potrdi_zadetkov():
+    """Pregled pomocnika 6670a91: nov dokument, ki se se razclenjuje (readyState »loading«), da lahko 1-2 zadetka
+    namesto 3; potrdi in shrani se sele razclenjen dokument."""
+    dokument = [("https://www.google.com/search?q=vreme", ZADETEK, "loading")]
+    p, LoadEvent, casovniki = _lazni_predogled(dokument)
+    izid = []
+    p.isci("https://www.google.com/search?q=vreme", izid.append, motor="google")
+    p._nalozeno(p.pogled, LoadEvent.FINISHED)
+    assert izid == [] and not p._shramba and casovniki       # caka
+    dokument[0] = ("https://www.google.com/search?q=vreme", ZADETEK * 1 + [dict(ZADETEK[0], u="https://b.si/")], "interactive")
+    casovniki.pop(0)()
+    assert len(izid) == 1 and len(izid[0]) == 2 and p._shramba
+
+
+def test_startpage_povezava_za_sledenje_ni_zadetek():
+    """Lastnik 21. 10. 2026 (02:25): tretji zadetek Startpage je bil https://www.startpage.com/clev?... z istim naslovom
+    kot prvi. Iskalniki s pravimi povezavami: zadetek na njihovem gostitelju izlocimo; Google /url in Bing /ck/a ne."""
+    surovo = [{"t": "Vreme", "u": "https://vreme.arso.gov.si/"}, {"t": "Drugi", "u": "https://b.si/"},
+              {"t": "Vreme", "u": "https://www.startpage.com/clev?q=x&r=1"}, {"t": "Tretji", "u": "https://c.si/"}]
+    assert [z["url"] for z in sz.ocisti(surovo, motor="startpage")] == ["https://vreme.arso.gov.si/", "https://b.si/",
+                                                                         "https://c.si/"]
+    for motor, gost in (("duckduckgo", "duckduckgo.com"), ("brave", "search.brave.com"), ("ecosia", "www.ecosia.org")):
+        z = sz.ocisti([{"t": "Notranja", "u": "https://%s/x" % gost}, {"t": "Prava", "u": "https://p.si/"}], motor=motor)
+        assert [x["url"] for x in z] == ["https://p.si/"], motor
+    g = sz.ocisti([{"t": "ARSO", "u": "https://www.google.com/url?q=https://vreme.arso.gov.si/", "p": "https://vreme.arso.gov.si"}],
+                  motor="google")
+    assert len(g) == 1 and g[0]["stran"] == "vreme.arso.gov.si"
+    assert len(sz.ocisti([{"t": "B", "u": "https://www.bing.com/ck/a?u=x", "p": "https://b.si"}], motor="bing")) == 1
+    assert len(sz.ocisti(surovo)) == 3                        # brez motorja (stari klicatelji) kot prej
+
+
+def test_oznaka_iskalnika_tudi_brez_zadetkov():
+    """Webmaster pregled pomocnika 1.0.129: oznaka »zadetki spodaj so od iskalnika X« se je pokazala samo z zadetki -
+    niz pa je odsel tudi, ko iskalnik ni vrnil nic. Brez zadetkov en vnos brez naslova, QML iz njega ne naredi vrstice."""
+    assert sz.z_iskalnikom([], "DuckDuckGo") == [{"iskalnik": "DuckDuckGo"}]
+    assert sz.z_iskalnikom([{"url": "https://a.si/"}], "Google") == [{"url": "https://a.si/", "iskalnik": "Google"}]
+    assert sz.z_iskalnikom([], "") == []
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
+        assert "povratni(z_iskalnikom(r, ime))" in f.read()
+    with open(os.path.join(koren, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8") as f:
+        qml = f.read()
+    assert "(d.splet || []).filter(function (z) { return !!z.url }).forEach" in qml

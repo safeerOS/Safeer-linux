@@ -600,9 +600,10 @@ Item {
                 else v.push({ vrsta: "naCilj", skupina: koren.t("skPrikaziNa"), ime: koren.t("niNapraveCilja"), opis: "", kljuc: "", ikona: "", podatki: "{}" })
             }
             // Sprotni zadetki: uporabnik vidi, kateri iskalnik je dobil niz in kje jih izklopi (lastnik 20. 10. 2026).
+            // Oznaka tudi brez zadetkov: vnos {iskalnik} brez naslova (spletni_zadetki.z_iskalnikom) pove, da je niz odsel.
             var spletOpis = (d.splet && d.splet.length && d.splet[0].iskalnik) ? koren.t("spletniOznaka", { ime: d.splet[0].iskalnik }) : koren.t("odpreVBrskalniku")
             v.push({ vrsta: "splet", skupina: koren.t("skSplet"), ime: koren.t("isciVSpletu", { q: q }), opis: spletOpis, kljuc: q, ikona: "", podatki: "{}" })
-            ;(d.splet || []).forEach(function (z) {
+            ;(d.splet || []).filter(function (z) { return !!z.url }).forEach(function (z) {
                 v.push({ vrsta: "spletZadetek", skupina: koren.t("skSplet"), ime: z.naslov || "", opis: [z.stran || "", z.odlomek || ""].filter(function (x) { return !!x }).join(" · "),
                          kljuc: z.url || "", ikona: "", podatki: "{}" })
             })

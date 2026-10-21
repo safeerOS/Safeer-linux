@@ -75,7 +75,8 @@ IZVLECI_JS = r"""
     vsi(".w-gl .result, .result", function (r) { var a = r.querySelector("a.result-title, a.result-link"); dodaj(a, r.querySelector("h2, .wgl-title") || a, r.querySelector("p.description"), null); });
   }
   // Naslov dokumenta, iz katerega so zadetki prebrani (ne naslov pogleda - ta se zamenja ze ob zacetku nalaganja).
-  return JSON.stringify({naslov: String(location.href), zadetki: izid});
+  // stanje: »loading« = stran se se razclenjuje (Google posilja HTML po kosih) - seznam je lahko nepopoln.
+  return JSON.stringify({naslov: String(location.href), stanje: String(document.readyState), zadetki: izid});
 })(%s)
 """
 
@@ -104,8 +105,21 @@ def gostitelj(url: str, prikaz: str = "") -> str:
     return ""
 
 
-def ocisti(surovo, najvec: int = NAJVEC) -> List[dict]:
-    """Zadetki iz strani (podatki tuje strani!) -> varen seznam {naslov, url, stran, odlomek}."""
+#: Iskalniki, ki na strani rezultatov dajo PRAVE povezave: zadetek na gostitelju iskalnika samega je njegova povezava
+#: za sledenje klikov ali notranja stran (Startpage https://www.startpage.com/clev?... z istim naslovom kot prvi zadetek,
+#: izmerjeno 21. 10. 2026) - ne kazemo ga. Google (/url) in Bing (/ck/a) dajo povezave prek sebe; pravo stran pove
+#: gostitelj() iz prikazanega naslova, zato tam ne izlocamo.
+LASTNE_POVEZAVE = {"startpage": 5, "duckduckgo": 1, "brave": 3, "ecosia": 4}   # indeks v DOMENE_ISKALNIKOV
+
+
+def _na_iskalniku(url_gost: str, motor: str) -> bool:
+    i = LASTNE_POVEZAVE.get(motor)
+    return i is not None and bool(DOMENE_ISKALNIKOV[i].search((url_gost or "").lower().rstrip(".")))
+
+
+def ocisti(surovo, najvec: int = NAJVEC, motor: str = "") -> List[dict]:
+    """Zadetki iz strani (podatki tuje strani!) -> varen seznam {naslov, url, stran, odlomek}. motor: brez povezav na
+    iskalnik sam, kadar ta daje prave povezave (LASTNE_POVEZAVE)."""
     izid: List[dict] = []
     if not isinstance(surovo, list):
         return izid
@@ -116,6 +130,8 @@ def ocisti(surovo, najvec: int = NAJVEC) -> List[dict]:
         u, t = str(z.get("u") or ""), " ".join(str(z.get("t") or "").split())
         deli = urllib.parse.urlsplit(u)
         if deli.scheme not in ("http", "https") or not deli.hostname or not t or len(u) > 2000 or u in videno:
+            continue
+        if _na_iskalniku(deli.hostname, motor):
             continue
         videno.add(u)
         izid.append({"naslov": t[:200], "url": u, "stran": gostitelj(u, str(z.get("p") or "")),
@@ -173,6 +189,15 @@ def ta_niz(zahtevan: str, dokument: str) -> bool:
         return " ".join(v[0].split()).lower() if v else None
     a = q(zahtevan)
     return a is None or a == q(dokument)
+
+
+def z_iskalnikom(zadetki: List[dict], ime: str) -> List[dict]:
+    """Za lupo: vsakemu zadetku ime iskalnika, ki je dobil niz (oznaka »zadetki spodaj so od iskalnika X«). Brez
+    zadetkov (iskalnik ni vrnil nic, soglasje, rok) en sam vnos brez naslova {"iskalnik": ime} - niz je kljub temu
+    odsel in uporabnik mora vedeti, komu (pomocnik, webmaster pregled 1.0.129). QML iz njega ne naredi vrstice."""
+    if not ime:
+        return list(zadetki)
+    return [dict(z, iskalnik=ime) for z in zadetki] or [{"iskalnik": ime}]
 
 
 class PredogledIskanja:
@@ -311,8 +336,11 @@ class PredogledIskanja:
             except Exception:  # noqa: BLE001
                 surovo = []
             naslov = surovo.get("naslov", "") if isinstance(surovo, dict) else ""
-            zadetki = ocisti(surovo.get("zadetki") if isinstance(surovo, dict) else surovo)
-            if not ta_niz(self._url, naslov):
+            zadetki = ocisti(surovo.get("zadetki") if isinstance(surovo, dict) else surovo, motor=self._motor)
+            # Pregled pomocnika 6670a91: veriga ponovnih poskusov lahko bere nov dokument ze med razclenjevanjem -
+            # delni seznam (1-2 namesto 3) bi ostal 10 min v predpomnilniku. Potrdi sele razclenjen dokument.
+            nalaga = isinstance(surovo, dict) and surovo.get("stanje") == "loading"
+            if nalaga or not ta_niz(self._url, naslov):
                 # V pogledu je (se) dokument drugega niza ali stran brez niza (soglasje, preusmeritev): ne kazi in ne
                 # shrani; pocakaj na naslednje nalaganje ali rok (OpenAI pregled F: tudi stran brez q ne potrdi).
                 if poskus < POSKUSOV:
