@@ -607,6 +607,28 @@ def je_domaca_stran(naslov: str, koren: str) -> bool:
         return False
 
 
+def naslov_zavihka(uri: str, naslov_strani: Optional[str] = None, privzeto: str = "Nov zavihek", koren: str = "") -> str:
+    """Naslov zavihka iz title strani ali naslova (URL).
+
+    Kot Safari in Chrome (lastnik, 21. 10. 2026):
+    - Zacetna/domaca stran -> privzeto (»Nov zavihek«).
+    - Stran z naslovom (title) -> title strani.
+    - file: brez naslova strani -> zadnji del poti (URL-dekodiran, npr. »os-release«).
+    - Vse ostalo brez naslova strani -> privzeto (»Nov zavihek«)."""
+    if koren and je_domaca_stran(uri or "", koren):
+        return privzeto
+    t = (naslov_strani or "").strip()
+    if t:
+        return t
+    u = (uri or "").strip()
+    if u.startswith("file:"):
+        pot = urllib.parse.unquote(urllib.parse.urlsplit(u).path).rstrip("/")
+        zadnji = os.path.basename(pot)
+        if zadnji:
+            return zadnji
+    return privzeto
+
+
 def _gostitelj(url: str) -> str:
     try:
         return (urllib.parse.urlsplit(url).hostname or "").lower()
@@ -1819,7 +1841,8 @@ class VdelaniSplet:
         vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Image.new_from_icon_name("web-browser-symbolic")
         ikona.set_pixel_size(16)
-        naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
+        naslov_lbl = self.Gtk.Label(label=naslov_zavihka(naslov, None, self._t("nov"), self.koren))
+        naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
         # Zavihki se ob vecjem stevilu najprej skrcijo (kot v Chromu), sele nato drsijo - prej je imel vsak najmanj
         # 180 px in prvi zavihek je bil pri 7 zavihkih odrezan (testni PC 17. 10. 2026).
         naslov_lbl.set_width_chars(3); naslov_lbl.set_max_width_chars(22)
@@ -2637,6 +2660,7 @@ class VdelaniSplet:
             self._filter_za(pogled, pogled.get_uri() or "")    # izjema zascite velja ze za prvo zahtevo strani
             return
         if dogodek != self.WebKit2.LoadEvent.FINISHED: return
+        self._naslov_spremenjen(pogled)
         naslov = pogled.get_uri() or ""
         if je_domaca_stran(naslov, self.koren):
             self._poslji_stanje(pogled)
@@ -2692,13 +2716,19 @@ class VdelaniSplet:
         else:
             z["ikona"].set_from_icon_name("web-browser-symbolic")
 
-    def _naslov_spremenjen(self, pogled, _lastnost):
-        z = next((x for x in self.zavihki if x["pogled"] is pogled), None)
-        if z:
-            z["naslov"].set_text(self._t("nov") if je_domaca_stran(pogled.get_uri() or "", self.koren) else (pogled.get_title() or self._t("nov")))
-            z["vrstica"].set_tooltip_text(z["naslov"].get_text())      # cel naslov, ko je zavihek ozek
+    def _naslov_spremenjen(self, pogled, _lastnost=None):
+        z = next((x for x in self.zavihki if x.get("pogled") is pogled), None)
+        if z and "naslov" in z:
+            title = pogled.get_title() if hasattr(pogled, "get_title") else None
+            uri = (pogled.get_uri() if hasattr(pogled, "get_uri") else "") or ""
+            naslov = naslov_zavihka(uri, title, self._t("nov") if hasattr(self, "_t") else "Nov zavihek",
+                                    getattr(self, "koren", ""))
+            z["naslov"].set_text(naslov)
+            if "vrstica" in z and hasattr(z["vrstica"], "set_tooltip_text"):
+                z["vrstica"].set_tooltip_text(naslov)      # cel naslov, ko je zavihek ozek
 
-    def _uri_spremenjen(self, pogled, _lastnost):
+    def _uri_spremenjen(self, pogled, _lastnost=None):
+        self._naslov_spremenjen(pogled)
         z = self._zavihek(pogled)
         if z is not None and z.get("drm") is not None:
             # Uporabnik je sel drugam (Nazaj, nov naslov, Domov): zasciten video se konca, zavihek spet kaze Splet.
@@ -4090,7 +4120,9 @@ class VdelaniSplet:
 
     def _v_zapisek(self, *_):
         p = self.trenutni()
-        if self.odpri_zapisek and p: self.odpri_zapisek(p.get_title() or self._t("nov"), p.get_uri() or "")
+        if self.odpri_zapisek and p:
+            self.odpri_zapisek(naslov_zavihka(p.get_uri() or "", p.get_title(), self._t("nov"), self.koren),
+                               p.get_uri() or "")
 
     def koncaj(self):
         self._koncan = True

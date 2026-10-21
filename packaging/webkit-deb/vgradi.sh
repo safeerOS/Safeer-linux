@@ -57,6 +57,7 @@ while [ "$vgrajeno" = 1 ]; do
             patchelf --set-rpath '$ORIGIN' "$WK/lib/$so"
             pkg="$(dpkg -S "$(readlink -f "$pot")" | head -1 | cut -d: -f1)"
             install -D -m 644 "/usr/share/doc/$pkg/copyright" "$WK/share/doc/vgrajene/$pkg/copyright"
+            basename "$(readlink -f "$pot")" > "$WK/share/doc/vgrajene/$pkg/razlicica"
             echo "vgradi.sh: vgrajena $so iz $pkg ($(stat -c %s "$WK/lib/$so") B)" >&2
             vgrajeno=1
         done

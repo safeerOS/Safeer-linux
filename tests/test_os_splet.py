@@ -78,3 +78,43 @@ class StevecScita(unittest.TestCase):
                                 and e.attr in metode):
                             napake.append("%s.%s (vrstica %d)" % (razred.name, e.attr, v.lineno))
         self.assertEqual(napake, [])
+
+
+class NaslovZavihkaTests(unittest.TestCase):
+    """Zavihek file:// brez title mora imeti ime datoteke (kot Safari/Chrome), ne »Nov zavihek«."""
+
+    def test_naslov_zavihka_file_brez_naslova_strani(self):
+        from core.os_splet import naslov_zavihka
+        self.assertEqual(naslov_zavihka("file:///etc/os-release", None, "Nov zavihek", KOREN), "os-release")
+        self.assertEqual(naslov_zavihka("file:///etc/os-release", "", "Nov zavihek", KOREN), "os-release")
+        self.assertEqual(naslov_zavihka("file:///home/uporabnik/poro%C4%8Dilo.pdf", None, "Nov zavihek", KOREN), "poročilo.pdf")
+        self.assertEqual(naslov_zavihka("file:///home/uporabnik/mapa/", None, "Nov zavihek", KOREN), "mapa")
+
+    def test_naslov_zavihka_file_z_naslovom_strani(self):
+        from core.os_splet import naslov_zavihka
+        self.assertEqual(naslov_zavihka("file:///etc/os-release", "Linux Mint 22", "Nov zavihek", KOREN), "Linux Mint 22")
+
+    def test_naslov_zavihka_domaca_ali_ne_file(self):
+        from core.os_splet import naslov_zavihka
+        domaca = "file://" + os.path.join(KOREN, "ui", "splet.html")
+        self.assertEqual(naslov_zavihka(domaca, None, "Nov zavihek", KOREN), "Nov zavihek")
+        self.assertEqual(naslov_zavihka("https://safeer.si/novice", None, "Nov zavihek", KOREN), "Nov zavihek")
+        self.assertEqual(naslov_zavihka("https://safeer.si/novice", "Safeer Novice", "Nov zavihek", KOREN), "Safeer Novice")
+        self.assertEqual(naslov_zavihka("file:///", None, "Nov zavihek", KOREN), "Nov zavihek")
+
+    def test_splet_naslov_spremenjen_nastavi_ime_datoteke(self):
+        from unittest import mock
+        from core.os_splet import VdelaniSplet
+        splet = mock.MagicMock(spec=VdelaniSplet)
+        splet.koren = KOREN
+        splet._t = lambda kljuc: "Nov zavihek" if kljuc == "nov" else kljuc
+        pogled = mock.Mock()
+        pogled.get_uri.return_value = "file:///etc/os-release"
+        pogled.get_title.return_value = None
+        label = mock.Mock()
+        vrstica = mock.Mock()
+        splet.zavihki = [{"pogled": pogled, "naslov": label, "vrstica": vrstica}]
+
+        VdelaniSplet._naslov_spremenjen(splet, pogled, None)
+        label.set_text.assert_called_with("os-release")
+        vrstica.set_tooltip_text.assert_called_with("os-release")

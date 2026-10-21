@@ -89,33 +89,51 @@ def nastavi(koren: str) -> Optional[str]:
 
 #: Elementi GStreamer, katerih vticniki so povezani s sistemskim libxml2 (Linux Mint 23 / Ubuntu 26.04: libxml2.so.16;
 #: izmerjeno 21. 10. 2026: adaptivedemux2, dash, smoothstreaming, ttmlsubs). Paket ima svoj libxml2.so.2 (vgradi.sh,
-#: prenosnost .deb); ce sistemski ni ISTA datoteka, bi vticnik v spletnem procesu svoje nepoimenovane simbole libxml2
-#: razresil na nasega (drug ABI) - sesutje (neodvisni pregled Gemini 1.0.131, VISOKA). Z rangom NONE jih samodejno
-#: sestavljanje ne izbere; HLS prevzame hlsdemux (vticnik hls, brez libxml2 - preverjeno na Mint 23), DASH/MSS brez
-#: MSE in TTML brskalniki tudi sicer ne predvajajo.
+#: prenosnost .deb); ce sistemski NI ISTE RAZLICICE (ali ga ni ali ni dolocljiva), bi vticnik v spletnem procesu svoje
+#: nepoimenovane simbole libxml2 razresil na nasega (drug ABI) - sesutje (neodvisni pregled Gemini 1.0.131, VISOKA).
+#: Primerjamo po razlicici (vgradi.sh zapise v share/doc/vgrajene/libxml2/razlicica realno ime npr. libxml2.so.2.9.14),
+#: ne po SHA-256 (ta je po patchelf --set-rpath '$ORIGIN' vedno drugacen). Z rangom NONE jih samodejno sestavljanje
+#: ne izbere; HLS prevzame hlsdemux (vticnik hls, brez libxml2 - preverjeno na Mint 23), DASH/MSS brez MSE in TTML
+#: brskalniki tudi sicer ne predvajajo.
 XML_ELEMENTI = ("dashdemux2", "hlsdemux2", "mssdemux2", "dashdemux", "mssdemux", "ttmlparse", "ttmlrender")
 SISTEMSKI_LIBXML2 = "/usr/lib/x86_64-linux-gnu/libxml2.so.2"
 
 
-def _ista_datoteka(a: str, b: str) -> bool:
-    import hashlib
+def _vgrajena_razlicica_xml(mapa: str) -> Optional[str]:
+    """Realno ime vgrajene knjiznice libxml2 (npr. libxml2.so.2.9.14) iz share/doc/vgrajene/libxml2/razlicica ali None."""
+    pot = os.path.join(mapa, "share", "doc", "vgrajene", "libxml2", "razlicica")
     try:
-        if os.path.getsize(a) != os.path.getsize(b):
+        with open(pot, "r", encoding="utf-8") as f:
+            v = f.read().strip()
+            return v if v else None
+    except OSError:
+        return None
+
+
+def _ista_razlicica_xml(mapa: str, sistemski: str) -> bool:
+    """Ali je sistemski libxml2.so.2 iste razlicice kot vgrajeni v paketu safeer-webkit.
+
+    Najpreprostejse zanesljivo (21. 10. 2026): brez nalaganja knjiznice v proces primerjamo realno ime
+    datoteke sistemske povezave (os.path.realpath) z imenom, ki ga je vgradi.sh zapisal v
+    share/doc/vgrajene/libxml2/razlicica (npr. libxml2.so.2.9.14). SHA-256 ni primeren, ker patchelf spremeni
+    vgrajeno datoteko. Ce sistemske knjiznice ni ali razlicice ni mogoce dolociti, vrne False (varna stran - izklop)."""
+    try:
+        if not os.path.isfile(sistemski):
             return False
-        vsote = []
-        for p in (a, b):
-            with open(p, "rb") as f:
-                vsote.append(hashlib.sha256(f.read()).digest())
-        return vsote[0] == vsote[1]
+        vgrajena = _vgrajena_razlicica_xml(mapa)
+        if not vgrajena:
+            return False
+        sistemska = os.path.basename(os.path.realpath(sistemski))
+        return sistemska == vgrajena
     except OSError:
         return False
 
 
 def rangi_brez_xml(mapa: str, obstojeci: str, sistemski: str = SISTEMSKI_LIBXML2) -> Optional[str]:
     """Nova vrednost GST_PLUGIN_FEATURE_RANK (XML_ELEMENTI z rangom NONE) ali None, ce ni potrebna: paket nima svojega
-    libxml2 ali je sistemski ista datoteka (Linux Mint 22 brez varnostne posodobitve). Obstojece nastavitve ostanejo."""
+    libxml2 ali je sistemski iste razlicice (Linux Mint 22: isti libxml2.so.2.9.14). Obstojece nastavitve ostanejo."""
     nas = os.path.join(mapa, "lib", "libxml2.so.2")
-    if not os.path.isfile(nas) or _ista_datoteka(nas, os.path.realpath(sistemski)):
+    if not os.path.isfile(nas) or _ista_razlicica_xml(mapa, sistemski):
         return None
     deli = [d for d in obstojeci.split(",") if d.strip()]
     imena = {d.split(":", 1)[0].strip() for d in deli}

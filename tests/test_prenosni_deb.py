@@ -25,6 +25,7 @@ class PrenosniDeb(unittest.TestCase):
             self.assertFalse(vzorec.match(so), so)        # sistemske knjiznice ostanejo odvisnosti
         self.assertIn("patchelf --set-rpath '$ORIGIN'", s)   # vgrajena najde vgrajeno (libjxl -> libhwy)
         self.assertIn("/usr/share/doc/$pkg/copyright", s)    # licence vgrajenih knjiznic v paketu
+        self.assertIn("share/doc/vgrajene/$pkg/razlicica", s)  # razlicica vgrajene knjiznice za primerjavo ABI
         # vgradi pred dpkg-shlibdeps, sicer bi Depends se vedno zahteval libicu74 ...
         self.assertLess(s.index("PRENOSNE="), s.index("&& dpkg-shlibdeps"))
 
