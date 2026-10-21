@@ -15,10 +15,13 @@ builddir: true
 # je uspela. Pospesi tudi gradnjo in izlocanje debuginfo (WebKit je velik).
 no-debuginfo: true
 build-options:
-  cflags: -O2
+  # Utrjena gradnja (lastnik, 21. 10. 2026; AGENTS.md): cflags-override odstrani tudi zascite SDK, zato jih navedemo
+  # sami - vsaj kot paket distribucije (izmerjeno: Ubuntujev libwebkitgtk ima BIND_NOW, _FORTIFY, CET; nas jih ni imel).
+  cflags: -O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -fstack-clash-protection -fcf-protection=full
   cflags-override: true
-  cxxflags: -O2
+  cxxflags: -O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -fstack-clash-protection -fcf-protection=full
   cxxflags-override: true
+  ldflags: -Wl,-z,relro,-z,now
 config-opts:
   - -DPORT=GTK
   - -DCMAKE_BUILD_TYPE=Release

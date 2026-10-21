@@ -7,7 +7,7 @@ tudi .deb - nicesar ni treba prepisovati na dve mesti.
 
   python3 packaging/webkit-deb/modul.py packaging/webkit/webkitgtk6-safeer.yml
 
-Izpise JSON: {"ime", "url", "sha256", "popravki": [absolutne poti], "moznosti": [...], "cflags", "cxxflags", "okolje"}.
+Izpise JSON: {"ime", "url", "sha256", "popravki": [absolutne poti], "moznosti": [...], "cflags", "cxxflags", "ldflags", "okolje"}.
 Poti orodij iz razsiritve Flatpak llvm22 (/usr/lib/sdk/llvm22/bin) zamenja s potmi paketov apt.llvm.org
 (/usr/lib/llvm-22/bin) - isti prevajalnik, druga namestitev.
 """
@@ -40,6 +40,7 @@ def preberi(pot: pathlib.Path) -> dict:
         "moznosti": moznosti,
         "cflags": gradnja.get("cflags", ""),
         "cxxflags": gradnja.get("cxxflags", ""),
+        "ldflags": gradnja.get("ldflags", ""),
         "okolje": {k: str(v) for k, v in (gradnja.get("env", {}) or {}).items()},
     }
 

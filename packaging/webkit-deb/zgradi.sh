@@ -100,7 +100,11 @@ SOUP_ARHIV="$(prenesi "$(polje url <<< "$SOUP_JSON")" "$(polje sha256 <<< "$SOUP
 SOUP_IZVOR="$(razpakiraj "$SOUP_ARHIV" "$(polje popravki <<< "$SOUP_JSON")")"
 mapfile -t SOUP_MOZNOSTI < <(polje moznosti <<< "$SOUP_JSON")
 rm -rf "$DELO/soup"
-CFLAGS="-O2" meson setup "$DELO/soup" "$SOUP_IZVOR" --prefix="$PREDPONA" --buildtype=release \
+# Utrjena gradnja (AGENTS.md): iste zastavice kot WebKit (modul), libsoup jih prej ni imel (izmerjeno 21. 10. 2026:
+# brez __stack_chk_fail). LDFLAGS velja tudi za CMake WebKita (CMAKE_*_LINKER_FLAGS_INIT).
+export LDFLAGS="$(polje ldflags <<< "$WK_JSON")"
+[ -n "$LDFLAGS" ] || { echo "modul WebKita nima ldflags (utrjena gradnja)" >&2; exit 1; }
+CFLAGS="$(polje cflags <<< "$WK_JSON")" meson setup "$DELO/soup" "$SOUP_IZVOR" --prefix="$PREDPONA" --buildtype=release \
     -Dintrospection=enabled "${SOUP_MOZNOSTI[@]}"
 ninja -C "$DELO/soup" -j "$JEDRA"
 ninja -C "$DELO/soup" install
@@ -128,7 +132,7 @@ case "$PGO" in
 esac
 # BOLT premika funkcije med knjiznico samo s staticnimi relokacijami v knjiznici (lld --emit-relocs).
 BOLT_MOZNOSTI=()
-[ "$BOLT" = 0 ] || BOLT_MOZNOSTI=(-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--emit-relocs)
+[ "$BOLT" = 0 ] || BOLT_MOZNOSTI=("-DCMAKE_SHARED_LINKER_FLAGS=$LDFLAGS -Wl,--emit-relocs")
 rm -rf "$DELO/webkit"
 cmake -S "$WK_IZVOR" -B "$DELO/webkit" -G Ninja \
     "${WK_MOZNOSTI[@]}" "${PGO_MOZNOSTI[@]}" "${BOLT_MOZNOSTI[@]}" \
