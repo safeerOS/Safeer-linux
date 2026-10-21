@@ -278,7 +278,7 @@ class TestSplet(unittest.TestCase):
         b = vir.index("NetworkErrorHandler(pogled")
         self.assertLess(a, b, "nadgradnja mora biti povezana PRED NetworkErrorHandler (signal ustavi z True)")
         odpri = vir[vir.index("    def odpri(self"):vir.index("    def _vnesi_naslov")]
-        self.assertEqual(odpri.count("load_uri(self._https_pred(pogled, normalen))"), 2)
+        self.assertEqual(odpri.count("load_uri(VdelaniSplet._https_pred(pogled, normalen))"), 2)
         with open(os.path.join(KOREN, "safeer_brskalnik.py"), encoding="utf-8") as f:
             self.assertIn("VdelaniSplet(", f.read())
 

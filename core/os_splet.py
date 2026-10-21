@@ -2520,7 +2520,7 @@ class VdelaniSplet:
         if not naslov: pogled.load_uri(self.domaci_uri()); return True
         normalen = (lokalni_naslov(naslov) if lokalno else "") or normalize_web_url(naslov)
         if not normalen: return False
-        pogled.load_uri(self._https_pred(pogled, normalen)); return True
+        pogled.load_uri(VdelaniSplet._https_pred(pogled, normalen)); return True
 
     def odpri_povezavo(self, naslov: str, lokalno: bool = False) -> bool:
         """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
@@ -2530,7 +2530,7 @@ class VdelaniSplet:
         if not normalen: return False
         pogled = self.trenutni()
         if pogled is not None and ozadje_strani.nasa_stran(pogled.get_uri() or "", os.path.join(self.koren, "ui")):
-            pogled.load_uri(self._https_pred(pogled, normalen)); return True
+            pogled.load_uri(VdelaniSplet._https_pred(pogled, normalen)); return True
         if lokalno:
             self.nov_zavihek(normalen, lokalno=True); return True
         self.nov_zavihek(normalen); return True

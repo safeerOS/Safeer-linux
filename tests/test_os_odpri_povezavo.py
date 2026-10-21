@@ -77,6 +77,7 @@ class Brskalnik(unittest.TestCase):
     def _brskalnik(self, uri, ima_zavihek=True):
         pogled = mock.Mock()
         pogled.get_uri.return_value = uri
+        pogled._safeer_https = None   # brez nadgradnje https (core/https_nadgradnja; https:// ostane enak)
         brskalnik = types.SimpleNamespace(koren=KOREN, trenutni=lambda: pogled if ima_zavihek else None,
                                           nov_zavihek=mock.Mock())
         return brskalnik, pogled
