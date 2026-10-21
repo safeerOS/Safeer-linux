@@ -216,6 +216,14 @@ def odpri(id_: str, popen: Callable = subprocess.Popen) -> bool:
     ukaz = root_ukaz.sistemski_ukaz(ukaz)
     if ukaz is None:
         return False
+    if popen is subprocess.Popen:
+        from core import varuh_procesov
+        try:
+            pid = varuh_procesov.zazeni_program(ukaz)
+            if pid:
+                return True
+        except Exception:
+            pass
     try:
         popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return True

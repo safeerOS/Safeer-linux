@@ -43,6 +43,13 @@ def _v_ozadju(ukaz: List[str]) -> bool:
     ukaz = root_ukaz.sistemski_ukaz(ukaz)
     if not ukaz:
         return False
+    from core import varuh_procesov
+    try:
+        pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+        if pid:
+            return True
+    except Exception:
+        pass
     try:
         # Nastavitve sistema so zunanji program: brez nasih zasebnih poti (core/zasebni_webkit.py).
         subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,

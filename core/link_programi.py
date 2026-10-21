@@ -319,9 +319,16 @@ class Programi:
                     "razredi": razredi_okna(ime, vnos.get("razred", ""), ukaz)}
             if ukaz and self.drugi.zazeni_program(ukaz, opis=opis):
                 return True
+        from core import varuh_procesov
         for ukaz in (["gio", "launch", pot], ["gtk-launch", ime]):
             if shutil.which(ukaz[0]) is None:
                 continue
+            try:
+                pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                if pid:
+                    return True
+            except Exception:
+                pass
             try:
                 subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())

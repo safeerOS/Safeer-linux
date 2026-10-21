@@ -46,6 +46,11 @@ OTROK = textwrap.dedent("""
         if vedenje[0] == "znova" and os.path.exists(os.environ.get("ZASTAVICA", "/nic")) and not globals().get("poslano"):
             v.obvesti("SAFEER_ZNOVA=1")
             globals()["poslano"] = True
+        if vedenje[0] == "zazeni" and not globals().get("poslano_zazeni"):
+            pid = v.zazeni_program([sys.executable, "-c", "import time; time.sleep(10)"])
+            with open(os.environ.get("ZASTAVICA", "/nic"), "w") as f:
+                f.write(str(pid or -1))
+            globals()["poslano_zazeni"] = True
         v.obvesti("WATCHDOG=1")
         time.sleep(0.1)
 """ % KOREN)
@@ -303,6 +308,73 @@ class Pravila(_Osnova):
         self.assertEqual(os.stat(self.varuh.pot_vtic).st_mode & 0o777, 0o600)
         self.teci(lambda: os.path.exists(self.varuh.pot_stanja))
         self.assertEqual(os.stat(self.varuh.pot_stanja).st_mode & 0o777, 0o600)
+
+    def test_zagon_prek_varuha_oom_in_seja(self):
+        """Otrok varuha z oom_score_adj=200 prek varuha zazene program, ki dobi oom=0, loceno sejo in ne umre ob restartu."""
+        zastavica = os.path.join(self.mapa, "znova")
+        os_ = self.proces("os", "zazeni", glavni=True, oom=200)
+        self.zazeni(os_)
+        ok, _ = self.teci(lambda: os.path.exists(zastavica), 15)
+        self.assertTrue(ok, self.dnevnik)
+        with open(zastavica) as f:
+            grandchild_pid = int(f.read().strip())
+        self.assertGreater(grandchild_pid, 0)
+        try:
+            # Stars (safeer-os otrok) ima oom_score_adj 200
+            with open("/proc/%d/oom_score_adj" % os_.pid) as f:
+                self.assertEqual(f.read().strip(), "200")
+            # Zagnani program pa ima oom_score_adj 0 (podedovano od varuha)
+            with open("/proc/%d/oom_score_adj" % grandchild_pid) as f:
+                self.assertEqual(f.read().strip(), "0")
+            # Program je v svoji seji (setsid)
+            self.assertEqual(os.getsid(grandchild_pid), grandchild_pid)
+            # PPID je varuh (zagnan zunaj drevesa safeer-os)
+            with open("/proc/%d/stat" % grandchild_pid) as f:
+                ppid = int(f.read().split()[3])
+                self.assertNotEqual(ppid, os_.pid)
+                self.assertEqual(ppid, os.getpid())
+            # Ob sesutju Safeer OS program tece naprej
+            os.kill(os_.pid, signal.SIGKILL)
+            self.teci(lambda: os_.zagonov >= 2, 10)
+            self.assertTrue(os.path.exists("/proc/%d" % grandchild_pid))
+        finally:
+            try:
+                os.kill(grandchild_pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    def test_zagon_nadomestna_pot_brez_varuha(self):
+        """Brez NOTIFY_SOCKET zazeni_program vrne None (klicatelj zazene po starem)."""
+        with mock.patch.dict(vp._obvestila, {"vtic": None, "naslov": None, "prebrano": False, "utrip": 0}), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NOTIFY_SOCKET", None)
+            self.assertIsNone(vp.zazeni_program(["ls"]))
+
+    def test_zagon_tuj_proces_zavrnjen(self):
+        """Zahteve zunanjega procesa (ki ni otrok varuha) varuh zavrne brez zagona."""
+        os_ = self.proces("os", glavni=True)
+        self.zazeni(os_)
+        self.teci(lambda: os_.pripravljen)
+        import array
+        c1, c2 = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM | socket.SOCK_CLOEXEC)
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            anc = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [c2.fileno()]))]
+            s.sendmsg([b"SAFEER_ZAZENI=1\n"], anc, 0, self.varuh.pot_vtic)
+            s.close()
+            c2.close()
+            # Poskusi poslati ukaz
+            c1.settimeout(0.5)
+            telo = json.dumps({"ukaz": ["sleep", "10"]}).encode("utf-8")
+            try:
+                c1.sendall(struct.pack(">I", len(telo)) + telo)
+                odg = c1.recv(4)
+                # Ker varuh zavrne proces in zapre povezavo, odg je prazen
+                self.assertEqual(odg, b"")
+            except (OSError, socket.timeout):
+                pass
+        finally:
+            c1.close()
 
 
 class Pomozne(unittest.TestCase):

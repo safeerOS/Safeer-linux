@@ -144,6 +144,25 @@ def zazeni(najdba: dict) -> Optional[subprocess.Popen]:
         # Brez »--«: GOption ga pusti v argv, ce mu sledi argument z »-« (npr. --ozone-platform=x11), in flatpak-spawn
         # bi zagnal »--«. Program z »-« na zacetku je zavrnjen zgoraj, zato ga flatpak-spawn ne more brati kot moznost.
         ukaz = ["flatpak-spawn", "--host"] + gostitelj.env_zaslona() + ukaz
+    else:
+        from core import varuh_procesov
+        try:
+            pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+            if pid:
+                class _ProcesOvoj:
+                    def __init__(self, p: int) -> None:
+                        self.pid = p
+                    def poll(self) -> Optional[int]:
+                        try:
+                            os.kill(self.pid, 0)
+                            return None
+                        except OSError:
+                            return 0
+                    def wait(self, timeout: Optional[float] = None) -> Optional[int]:
+                        return self.poll()
+                return _ProcesOvoj(pid)
+        except Exception:
+            pass
     try:
         return subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                                 start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())

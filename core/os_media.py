@@ -5092,7 +5092,16 @@ def odpri(pot: str) -> bool:
     if not path.is_file() or path.suffix.lower() not in MEDIA_EXT:
         return False
     try:
-        from core import zasebni_webkit      # sistemski predvajalnik brez nasih zasebnih poti v okolju
+        from core import varuh_procesov, zasebni_webkit      # sistemski predvajalnik brez nasih zasebnih poti v okolju
+        for ukaz in (["gio", "open", str(path)], ["xdg-open", str(path)]):
+            if shutil.which(ukaz[0]) is None:
+                continue
+            try:
+                pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+                if pid:
+                    return True
+            except Exception:
+                pass
         if zasebni_webkit.odpri_privzeto(str(path)):      # v procesu (Gio), xdg-open je rezerva
             return True
         subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL,

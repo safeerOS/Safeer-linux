@@ -228,6 +228,16 @@ def odpri(pot: str) -> bool:
     pot = os.path.abspath(os.path.expanduser(str(pot or "")))
     if not os.path.exists(pot):
         return False
+    from core import varuh_procesov
+    for ukaz in (["gio", "open", pot], ["xdg-open", pot]):
+        if shutil.which(ukaz[0]) is None:
+            continue
+        try:
+            pid = varuh_procesov.zazeni_program(ukaz, zasebni_webkit.okolje_za_zunanje())
+            if pid:
+                return True
+        except Exception:
+            pass
     # V procesu (Gio), brez skripte xdg-open in procesa gio (meritev v commitu 19. 10. 2026); ukaza sta rezerva.
     if zasebni_webkit.odpri_privzeto(pot):
         return True
@@ -249,6 +259,13 @@ def pokazi_v_mapi(pot: str) -> bool:
     pot = os.path.abspath(os.path.expanduser(str(pot or "")))
     if not os.path.exists(pot) or shutil.which("nemo") is None:
         return False
+    from core import varuh_procesov
+    try:
+        pid = varuh_procesov.zazeni_program(["nemo", pot], zasebni_webkit.okolje_za_zunanje())
+        if pid:
+            return True
+    except Exception:
+        pass
     try:
         subprocess.Popen(["nemo", pot], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
                          env=zasebni_webkit.okolje_za_zunanje())
