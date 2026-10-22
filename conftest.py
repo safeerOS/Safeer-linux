@@ -12,6 +12,11 @@ import tempfile
 
 _PREDPONA = "safeer-testi-"
 _stanje = {}
+# Pravi HOME in mape XDG se v preizkusih ne smejo pisati (22. 10. 2026: tek na lastnikovem prenosniku je ustavil dock
+# Plank in zapisal lazna sesutja v pravi ~/.cache/safeer-os/dnevnik.log). Preizkus, ki namerno nastavi svoje mape,
+# ostane kot je (monkeypatch/patch.dict zamenja vrednost za cas preizkusa).
+_IZOLIRANE = (("HOME", ""), ("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"),
+              ("XDG_DATA_HOME", "share"), ("XDG_STATE_HOME", "state"))
 
 
 def _pocisti_zapuscene(koren: str) -> None:
@@ -40,6 +45,19 @@ def pytest_configure(config):
     _stanje.update(mapa=mapa, tempdir=tempfile.tempdir, okolje=os.environ.get("TMPDIR"))
     tempfile.tempdir = mapa
     os.environ["TMPDIR"] = mapa
+    # Okolje spreminjamo tu, ker se zgodaj, pred uvozom core/ in pred nitmi (glej core/okolje_procesa.py).
+    dom = os.path.join(mapa, "dom")
+    prej = {}
+    for ime, pod in _IZOLIRANE:
+        prej[ime] = os.environ.get(ime)
+        pot = os.path.join(dom, pod) if pod else dom
+        os.makedirs(pot, exist_ok=True)
+        os.environ[ime] = pot
+    # Pravi dconf ostane nedotaknjen: gsettings brez nastavljenega zaledja pise v uporabnikov dconf.
+    prej["GSETTINGS_BACKEND"] = os.environ.get("GSETTINGS_BACKEND")
+    if not prej["GSETTINGS_BACKEND"]:
+        os.environ["GSETTINGS_BACKEND"] = "memory"
+    _stanje["okolje_prej"] = prej
 
 
 def pytest_unconfigure(config):
@@ -47,6 +65,11 @@ def pytest_unconfigure(config):
     if not mapa:
         return
     tempfile.tempdir = _stanje.pop("tempdir", None)
+    for ime, vrednost in _stanje.pop("okolje_prej", {}).items():
+        if vrednost is None:
+            os.environ.pop(ime, None)
+        else:
+            os.environ[ime] = vrednost
     staro = _stanje.pop("okolje", None)
     if staro is None:
         os.environ.pop("TMPDIR", None)
