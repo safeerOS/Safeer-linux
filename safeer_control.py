@@ -1919,7 +1919,7 @@ class SafeerControl(_OSNOVA):
             for w in self.get_windows():
                 try:
                     w.destroy()
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             self.quit()
 
@@ -1945,25 +1945,26 @@ class SafeerControl(_OSNOVA):
             if getattr(self, "okno", None) is not None:
                 try:
                     self.okno.set_visible(False)
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             if getattr(self, "pladenj", None) is not None:
                 try:
-                    self.pladenj.odstrani()
-                except Exception:
+                    if hasattr(self.pladenj, "odstrani"):
+                        self.pladenj.odstrani()
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             if self.gledalec is not None:
                 try:
                     self._konec_gledanja(pocakaj=1.0)
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - prekinitev gledanja ne sme ustaviti pospravljanja
+                    print("[Safeer Control] konec gledanja:", e)
             oddaljeni = self._oddaljeni_gledalec
             if oddaljeni is not None:
                 try:
                     oddaljeni.zapri(sporoci_stop=False)
                     self._ustavi_oddaljeno_sejo(oddaljeni.id_naprave)
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev oddaljenega gledalca ne sme ustaviti pospravljanja
+                    print("[Safeer Control] oddaljeni gledalec:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerControl:ui", korak_ui, rok_s=2.0)
 
@@ -1972,13 +1973,13 @@ class SafeerControl(_OSNOVA):
             if self.link is not None and self.link.povezava is not None:
                 try:
                     self.link.povezava.zapri()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - zapiranje povezave ne sme ustaviti pospravljanja
+                    print("[Safeer Control] povezava zapri:", e)
             if self.internet is not None:
                 try:
                     self.internet.ustavi()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev interneta ne sme ustaviti pospravljanja
+                    print("[Safeer Control] internet ustavi:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerControl:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
 
@@ -1987,28 +1988,28 @@ class SafeerControl(_OSNOVA):
             if getattr(self, "zvok", None) is not None:
                 try:
                     self.zvok.ustavi()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev zvoka ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] zvok ustavi:", e)
             if getattr(self, "zaslon", None) is not None:
                 try:
                     self.zaslon.ustavi(pocakaj_s=2.0)
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev zaslona ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] zaslon ustavi:", e)
             if getattr(self, "drugi_zaslon", None) is not None:
                 try:
                     self.drugi_zaslon.ustavi()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev drugega zaslona ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] drugi_zaslon ustavi:", e)
             if getattr(self, "teamwork", None) is not None:
                 try:
                     self.teamwork.ustavi()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev teamwork ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] teamwork ustavi:", e)
             if getattr(self, "datoteke", None) is not None:
                 try:
                     self.datoteke.ustavi()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - ustavitev datotek ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] datoteke ustavi:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerControl:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
 
@@ -2024,7 +2025,7 @@ class SafeerControl(_OSNOVA):
                 from core import nova_razlicica
                 nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
                                              ime=nova_razlicica.OBNOVA)
-            except Exception as e:
+            except (OSError, ImportError) as e:
                 print("[Safeer Control] stanje za obnovo:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerControl:stanje", korak_stanje, rok_s=1.0)

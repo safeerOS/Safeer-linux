@@ -347,7 +347,7 @@ class SafeerBrskalnik(Gtk.Application):
                 from core.splet_spanje import naslov_pogleda
                 zavihki_za_sejo = [naslov_pogleda(z["pogled"]) for z in zavihki]
                 izbran_idx = next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - posnetek seje ne sme ustaviti zapiranja
             print("[Safeer Browser] posnetek seje:", e, flush=True)
 
         # 1. FAZA_UI: skrij okno, pocisti WebKit ob izhodu, pospravi Splet
@@ -355,7 +355,7 @@ class SafeerBrskalnik(Gtk.Application):
             if self.okno is not None:
                 try:
                     self.okno.set_visible(False)
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             if self.splet is not None:
                 if self.splet.config.get("brisi_ob_izhodu", []) and not getattr(self, "_brisanje", False):
@@ -372,12 +372,12 @@ class SafeerBrskalnik(Gtk.Application):
                         while ostane["n"] > 0 and time.monotonic() < rok:
                             if not kontekst.iteration(False):
                                 time.sleep(0.01)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - ciscenje WebKita ne sme blokirati izhoda
                         print("[Safeer Browser] pocisti_ob_izhodu:", e)
                 if hasattr(self.splet, "pospravi"):
                     try:
                         self.splet.pospravi()
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - pospravljanje spleta ne sme blokirati izhoda
                         print("[Safeer Browser] pospravi splet:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerBrowser:ui", korak_ui, rok_s=2.5)
@@ -409,13 +409,13 @@ class SafeerBrskalnik(Gtk.Application):
             if not self.avtomatizacija and zavihki_za_sejo is not None and self.splet is not None and self.splet.config is not None:
                 try:
                     shrani_ali_pozabi_sejo(self.splet.config, zavihki_za_sejo, izbran_idx)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - napaka seje ne sme podreti izhoda
                     print("[Safeer Browser] seja:", e, flush=True)
             try:
                 from core import nova_razlicica
                 nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
                                              ime=nova_razlicica.OBNOVA)
-            except Exception as e:
+            except (OSError, ImportError) as e:
                 print("[Safeer Browser] stanje obnova:", e)
             if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
                 from core.os_splet import _je_zacasna_mapa_avtomatizacije
@@ -423,7 +423,7 @@ class SafeerBrskalnik(Gtk.Application):
                     import shutil
                     try:
                         shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-                    except Exception as e:
+                    except OSError as e:
                         print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
                 self._zacasna_mapa = None
 
@@ -434,7 +434,7 @@ class SafeerBrskalnik(Gtk.Application):
             if self.okno is not None:
                 try:
                     self.okno.destroy()
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             self.quit()
 

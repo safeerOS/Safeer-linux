@@ -44,7 +44,16 @@ jobs:
           "$RUNNER_TEMP/ruff/bin/pip" install -q ruff==0.6.9
           export PATH="$RUNNER_TEMP/ruff/bin:$PATH"
           OSNOVA="${{ github.event.pull_request.base.sha }}"
-          [ -n "$OSNOVA" ] || OSNOVA="$(git merge-base HEAD origin/gtk4 2>/dev/null || git rev-parse HEAD~1)"
+          if [ -z "$OSNOVA" ]; then
+            BEFORE="${{ github.event.before }}"
+            # Na push je osnova commit pred potiskom (ce je prazen ali same nicle -> HEAD~1).
+            # Ne primerjamo z origin/gtk4, ker je gtk4 starejsi od veje izdaje in bi stara koda stela kot nova.
+            if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -qE '^0+$'; then
+              OSNOVA="$BEFORE"
+            else
+              OSNOVA="$(git rev-parse HEAD~1 2>/dev/null || echo HEAD)"
+            fi
+          fi
           python3 tools/ruff_nove_vrstice.py "$OSNOVA"
   # ---- Nas WebKitGTK za pakete .deb (PGO je privzet, lastnik 15. 10. 2026) ---------------------------------------------
   # En paket safeer-webkit (/usr/lib/safeer-webkit) za safeer-os in safeer-browser (lastnik, 19. 10. 2026): prej je imel

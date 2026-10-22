@@ -3527,7 +3527,7 @@ class SafeerOS(Gtk.Application):
         stanje_za_zapis = None
         try:
             stanje_za_zapis = self._stanje_za_obnovo()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - posnetek stanja ne sme ustaviti zapiranja
             print("[SafeerOS] posnetek stanja pred izhodom:", e, flush=True)
 
         # 1. FAZA_UI: okna, lupina, budnost, medijski pogled, Mintov pult, kanali sporocil, Control UI, Splet UI
@@ -3535,27 +3535,27 @@ class SafeerOS(Gtk.Application):
             for o in self.get_windows():
                 try:
                     o.set_visible(False)
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             if getattr(self, "lupina", None) is not None:
                 try:
                     self.lupina.skrij()
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             try:
                 self._budnost.sprosti_vse()
-            except Exception:
+            except (AttributeError, RuntimeError, OSError, GLib.Error):
                 pass
             self._pocisti_medijski_pogled()
             if self.namizje:
                 try:
                     vrni_mintov_pult(self.shramba)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - vracanje pulta ne sme blokirati izhoda
                     print("[SafeerOS] Mintov pult ob izhodu:", e)
             try:
                 if getattr(self, "_kanali_sporocil", None) is not None:
                     self._kanali_sporocil.koncaj()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - zakljucek kanalov ne sme blokirati izhoda
                 print("[SafeerOS] kanali Sporocil ob izhodu:", e)
             c = en_proces.control_app()
             if c is not None:
@@ -3567,20 +3567,21 @@ class SafeerOS(Gtk.Application):
                     if getattr(c, "okno", None) is not None:
                         c.okno.set_visible(False)
                     if getattr(c, "pladenj", None) is not None:
-                        c.pladenj.odstrani()
-                except Exception as e:
+                        if hasattr(c.pladenj, "odstrani"):
+                            c.pladenj.odstrani()
+                except Exception as e:  # noqa: BLE001 - pospravljanje Control UI ne sme ustaviti izhoda
                     print("[SafeerOS] Control UI ob izhodu:", e)
             try:
                 if self._spletni is not None or self._spletni_namizje is not None:
                     from core.os_splet import pocisti_vse_ob_izhodu
                     pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - ciscenje Spleta ob izhodu ne sme blokirati izhoda
                 print("[SafeerOS] Splet ob izhodu:", e)
             try:
                 if self._spletni is not None:
                     self._spletni.koncaj()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - zakljucek spleta ne sme ustaviti izhoda
+                print("[SafeerOS] zakljucek spletnega pogleda:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerOS:ui", korak_ui, rok_s=6.0)  # brisanje podatkov Spleta ob izhodu caka do 5 s
 
@@ -3588,11 +3589,11 @@ class SafeerOS(Gtk.Application):
         def korak_strezniki():
             try:
                 self.scit.koncaj()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - ustavitev scita ne sme blokirati izhoda
                 print("[SafeerOS] scit:", e)
             try:
                 self.sporocila.zapri()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - zaprtje sporocil ne sme blokirati izhoda
                 print("[SafeerOS] sporocila:", e)
             c = en_proces.control_app()
             if c is not None:
@@ -3601,7 +3602,7 @@ class SafeerOS(Gtk.Application):
                         c.link.povezava.zapri()
                     if getattr(c, "internet", None) is not None:
                         c.internet.ustavi()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - zapiranje povezave Controla ne sme blokirati izhoda
                     print("[SafeerOS] Control strezniki ob izhodu:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerOS:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
@@ -3610,14 +3611,14 @@ class SafeerOS(Gtk.Application):
         def korak_podprocesi():
             try:
                 os_torrent.torrenti().ustavi()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - ustavitev torrentov ne sme ustaviti pospravljanja
+                print("[SafeerOS] torrenti ustavi:", e)
             self._ustavi_neposredni_medij()
             if self._medijski_predvajalnik is not None:
                 try:
                     self._medijski_predvajalnik.zapri()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - zaprtje predvajalnika ne sme ustaviti pospravljanja
+                    print("[SafeerOS] medijski predvajalnik zapri:", e)
             c = en_proces.control_app()
             if c is not None:
                 try:
@@ -3631,7 +3632,7 @@ class SafeerOS(Gtk.Application):
                         c.zaslon.ustavi(pocakaj_s=1.0)
                     if getattr(c, "drugi_zaslon", None) is not None:
                         c.drugi_zaslon.ustavi()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - ustavitev podprocesov Controla ne sme ustaviti izhoda
                     print("[SafeerOS] Control podprocesi ob izhodu:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerOS:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
@@ -3641,7 +3642,7 @@ class SafeerOS(Gtk.Application):
             if self._katalog is not None:
                 try:
                     self._katalog.zapri()
-                except Exception:
+                except (AttributeError, RuntimeError):
                     pass
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerOS:katalog", korak_baze, rok_s=1.5, na_niti=True)
@@ -3653,17 +3654,17 @@ class SafeerOS(Gtk.Application):
                     try:
                         from core import nova_razlicica
                         nova_razlicica.shrani_stanje("safeer-os", stanje_za_zapis, ime=nova_razlicica.OBNOVA)
-                    except Exception as e:
+                    except (OSError, ImportError) as e:
                         print("[SafeerOS] shrani_stanje:", e)
                 else:
                     try:
                         self._posnemi_stanje()
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - posnetek stanja ne sme ustaviti zapiranja
                         print("[SafeerOS] posnetek stanja:", e)
             if hasattr(self, "shramba") and hasattr(self.shramba, "shrani"):
                 try:
                     self.shramba.shrani()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - shramba ne sme ustaviti zapiranja
                     print("[SafeerOS] shramba shrani:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerOS:stanje", korak_stanje, rok_s=1.5)
@@ -3673,7 +3674,7 @@ class SafeerOS(Gtk.Application):
             for o in self.get_windows():
                 try:
                     o.destroy()
-                except Exception:
+                except (AttributeError, RuntimeError, GLib.Error):
                     pass
             self.quit()
 

@@ -72,7 +72,7 @@ def izvedi_korak(
         def delo():
             try:
                 dejanje()
-            except BaseException as e:
+            except BaseException as e:  # noqa: BLE001 - v loceni niti ujamemo vse izjeme koraka, da ne zrusijo niti
                 napaka.append(e)
 
         t = threading.Thread(target=delo, name=f"izhod-{ime}", daemon=True)
@@ -99,7 +99,7 @@ def izvedi_korak(
         zacetek = time.monotonic()
         try:
             dejanje()
-        except BaseException as e:
+        except BaseException as e:  # noqa: BLE001 - napaka koraka na glavni niti ne sme prekiniti ostalih korakov
             print(
                 f"[UrejenIzhod] Napaka v koraku '{ime}' faze '{faza}': {e}",
                 file=sys.stderr,
@@ -132,7 +132,7 @@ def namesti_zgodnje_signale(ime_programa: str) -> None:
                 if GLib.main_depth() > 0:
                     GLib.idle_add(koncaj_fn)
                     return
-            except Exception:
+            except (ImportError, AttributeError, RuntimeError):
                 pass
             koncaj_fn()
             return
@@ -142,14 +142,14 @@ def namesti_zgodnje_signale(ime_programa: str) -> None:
             from core import nova_razlicica
             nova_razlicica.shrani_stanje(prog, {"pid": os.getpid(), "zgodnji_izhod": True},
                                          ime=nova_razlicica.OBNOVA)
-        except Exception:
-            pass
+        except (OSError, ImportError) as e:
+            print(f"[UrejenIzhod] Zgodnje shranjevanje stanja ni uspelo: {e}", file=sys.stderr, flush=True)
         sys.exit(0)
 
     for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         try:
             signal.signal(s, ob_zgodnjem_signalu)
-        except Exception:
+        except (ValueError, OSError):
             pass
 
 
@@ -166,17 +166,17 @@ def povezi_signale(koncaj_fn: Callable[[], Any], ime_programa: Optional[str] = N
             if GLib.main_depth() > 0:
                 GLib.idle_add(fn)
                 return
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             pass
         fn()
 
     for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         try:
             signal.signal(s, ob_signalu)
-        except Exception:
+        except (ValueError, OSError):
             pass
         try:
             from gi.repository import GLib
             GLib.unix_signal_add(GLib.PRIORITY_HIGH, s, lambda *a: (koncaj_fn(), False)[1])
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             pass
