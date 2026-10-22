@@ -46,14 +46,18 @@ def ovij(vticnik: socket.socket, gostitelj: str, pripeti: Optional[str]) -> Tupl
     NeujemanjeOdtisa.
     """
     s = _kontekst().wrap_socket(vticnik, server_hostname=gostitelj)
-    der = s.getpeercert(binary_form=True) or b""
-    videni = odtis_potrdila(der) if der else ""
-    if not videni or (pripeti is not None and not _isti(videni, pripeti)):
+    try:
+        der = s.getpeercert(binary_form=True) or b""
+        videni = odtis_potrdila(der) if der else ""
+        if not videni or (pripeti is not None and not _isti(videni, pripeti)):
+            raise NeujemanjeOdtisa("Safeer Link: Hub ima drugo potrdilo, kot je bilo ob seznanitvi.")
+    except BaseException:
+        # Vsaka napaka po rokovanju zapre TLS (surova vticnica je ze odklopljena v s) - naloga 45.
         try:
             s.close()
-        except Exception:
-            pass
-        raise NeujemanjeOdtisa("Safeer Link: Hub ima drugo potrdilo, kot je bilo ob seznanitvi.")
+        except OSError as e:
+            print("[Link TLS] zapiranje:", type(e).__name__, flush=True)
+        raise
     return s, videni
 
 

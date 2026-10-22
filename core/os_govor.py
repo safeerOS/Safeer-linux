@@ -429,9 +429,10 @@ class Govor:
     def prepoznaj(self, pcm: bytes, jezik: str, seja=None, kopiraj=True) -> str:
         mapa = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
         fd, pot = tempfile.mkstemp(prefix="safeer-govor-", suffix=".wav", dir=mapa)
-        os.close(fd)
         try:
-            with wave.open(pot, "wb") as w:
+            # Pisemo v deskriptor iz mkstemp, ne znova po poti: brez okna med zaprtjem in odprtjem, ko bi bila v
+            # /tmp (brez XDG_RUNTIME_DIR) na tej poti lahko druga datoteka (naloga 45).
+            with os.fdopen(fd, "wb") as datoteka, wave.open(datoteka, "wb") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
                 w.setframerate(VZORCI)

@@ -1,0 +1,9 @@
+# ruff za NOVO kodo (nacrt stabilnosti P2, naloga 45, 21. 10. 2026). Obstojeca koda ima ~820 `except: pass` in slepih
+# `except Exception` - izhodisce je git: tools/ruff_nove_vrstice.py javi samo najdbe v vrsticah, ki jih veja doda ali
+# spremeni glede na osnovno vejo. Namerno slepo lovljenje oznaci z `# noqa: BLE001 - razlog` (kot ze v kodi).
+target-version = "py312"
+line-length = 120
+
+[lint]
+# S110 try-except-pass, BLE001 slep except (Exception/BaseException), E722 golo `except:`.
+select = ["S110", "BLE001", "E722"]

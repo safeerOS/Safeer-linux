@@ -908,7 +908,10 @@ class Teamwork:
 
     def _mapa_zacasnih(self) -> str:
         m = os.path.join(self.mapa, "zacasno")
-        os.makedirs(m, exist_ok=True)
+        os.makedirs(m, mode=0o700, exist_ok=True)
+        # Zacasne datoteke popravkov (mkstemp, nato pisanje po poti v link_delta): mapo sme spreminjati samo ta
+        # uporabnik, zato po zaprtju deskriptorja datoteke na poti ne more zamenjati nihce drug (naloga 45).
+        os.chmod(m, 0o700)
         return m
 
     def _zaznaj_lokalno_shranitev(self, s: _Seja, takoj: bool = False) -> None:

@@ -1267,7 +1267,11 @@ class StreznikDatotek:
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.load_cert_chain(potrdilo, kljuc)
             s = _Streznik((self.naslov_poslusanja, 0), _Obravnava)
-            s.socket = ctx.wrap_socket(s.socket, server_side=True, do_handshake_on_connect=False)
+            try:
+                s.socket = ctx.wrap_socket(s.socket, server_side=True, do_handshake_on_connect=False)
+            except Exception:
+                s.server_close()        # kot Hub (link_hub_streznik): ponovni zagon ne sme pustiti odprtih vrat
+                raise
             s.streznik = self  # type: ignore[attr-defined]
             s.obramba = self.obramba
             s.cuvaj = _CuvajGlav()

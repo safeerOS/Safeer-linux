@@ -127,7 +127,8 @@ class TestVgradnja(unittest.TestCase):
         telo = vir[vir.index("    def _budnost_predvajanja(self) -> None:"):vir.index("    def _medijski_tik(self) -> bool:")]
         self.assertIn('if servis is not None and servis.stanje == "predvaja":', telo)
         self.assertIn("budnost.SPANJE | (budnost.ZASLON if self._medij_ima_sliko() else 0)", telo)
-        konec = vir[vir.index("    def _koncaj(self) -> None:"):vir.index("    def _koncaj(self) -> None:") + 700]
+        zacetek = vir.index("    def _koncaj(self) -> None:")
+        konec = vir[zacetek:vir.index("\n    def ", zacetek + 10)]
         self.assertIn("self._budnost.sprosti_vse()", konec)
 
     def test_control_in_streznik(self):

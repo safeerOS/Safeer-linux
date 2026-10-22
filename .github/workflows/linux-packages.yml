@@ -31,6 +31,21 @@ env:
   # imata nas WebKit. Ponovni vklop: '1' - in v AppImage mora biti share/webkitgtk-safeer/odtis (preveri_nas_webkit).
   SAFEER_APPIMAGE: '0'
 jobs:
+  # ---- ruff za novo kodo (naloga 45): S110/BLE001/E722 samo v vrsticah, ki jih veja doda ali spremeni ------------------
+  ruff-nova-koda:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: ruff (samo nove in spremenjene vrstice)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ruff"
+          "$RUNNER_TEMP/ruff/bin/pip" install -q ruff==0.6.9
+          export PATH="$RUNNER_TEMP/ruff/bin:$PATH"
+          OSNOVA="${{ github.event.pull_request.base.sha }}"
+          [ -n "$OSNOVA" ] || OSNOVA="$(git merge-base HEAD origin/gtk4 2>/dev/null || git rev-parse HEAD~1)"
+          python3 tools/ruff_nove_vrstice.py "$OSNOVA"
   # ---- Nas WebKitGTK za pakete .deb (PGO je privzet, lastnik 15. 10. 2026) ---------------------------------------------
   # En paket safeer-webkit (/usr/lib/safeer-webkit) za safeer-os in safeer-browser (lastnik, 19. 10. 2026): prej je imel
   # vsak paket svojo kopijo in CI je WebKit s PGO in BOLT gradil dvakrat (matrika, ~2,5 h vsaka gradnja).

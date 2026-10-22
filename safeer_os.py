@@ -3573,7 +3573,7 @@ class SafeerOS(Gtk.Application):
             try:
                 if self._spletni is not None or self._spletni_namizje is not None:
                     from core.os_splet import pocisti_vse_ob_izhodu
-                    pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib, cas=2.0)
+                    pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib)
             except Exception as e:
                 print("[SafeerOS] Splet ob izhodu:", e)
             try:
@@ -3582,7 +3582,7 @@ class SafeerOS(Gtk.Application):
             except Exception:
                 pass
 
-        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerOS:ui", korak_ui, rok_s=2.5)
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerOS:ui", korak_ui, rok_s=6.0)  # brisanje podatkov Spleta ob izhodu caka do 5 s
 
         # 2. FAZA_STREZNIKI: Scit DNS, Sporocila, Control strezniki
         def korak_strezniki():

@@ -1954,7 +1954,7 @@ class SafeerControl(_OSNOVA):
                     pass
             if self.gledalec is not None:
                 try:
-                    self._konec_gledanja(pocakaj=0.5)
+                    self._konec_gledanja(pocakaj=1.0)
                 except Exception:
                     pass
             oddaljeni = self._oddaljeni_gledalec
@@ -1991,7 +1991,7 @@ class SafeerControl(_OSNOVA):
                     pass
             if getattr(self, "zaslon", None) is not None:
                 try:
-                    self.zaslon.ustavi(pocakaj_s=1.5)
+                    self.zaslon.ustavi(pocakaj_s=2.0)
                 except Exception:
                     pass
             if getattr(self, "drugi_zaslon", None) is not None:

@@ -234,6 +234,7 @@ class Gledalec:
         """TCP in TLS do enega naslova; vrne povezavo samo, ce se odtis potrdila ujema z odtisom seje. Zeton
         gre na pot sele po tem - naprava na napacnem naslovu ga ne vidi."""
         surova = socket.create_connection((naslov, self.seja["port"]), cas)
+        varna = None
         try:
             surova.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -251,10 +252,12 @@ class Gledalec:
             varna.settimeout(self.cas_povezave)
             return surova, varna
         except Exception:
+            # Po wrap_socket je surova odklopljena (detach): zapreti je treba ovito vticnico, sicer ostane deskriptor
+            # odprt do pobiranja smeti - prej ob vsakem napacnem odtisu (naloga 45).
             try:
-                surova.close()
-            except OSError:
-                pass
+                (varna if varna is not None else surova).close()
+            except OSError as e:
+                print("[Gledalec] zapiranje povezave:", type(e).__name__, flush=True)
             raise
 
     def povezi(self) -> Glava:
