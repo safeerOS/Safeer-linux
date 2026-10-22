@@ -33,6 +33,7 @@ tests/*
 !tests/zasebno_vodilo.py
 !tests/varovalo_niti.py
 !tests/skupni-primeri/
+!tests/varovalo_signalov.py
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/

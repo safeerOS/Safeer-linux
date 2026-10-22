@@ -55,6 +55,21 @@ from varovalo_niti import Varovalo  # noqa: E402
 
 _varovalo = Varovalo.iz_okolja()
 
+# Signali samo potomcem procesa preizkusov (tests/varovalo_signalov.py): preizkus ne sme ustaviti lastnikovega Planka.
+from varovalo_signalov import Varovalo as VarovaloSignalov  # noqa: E402
+
+_signali = VarovaloSignalov()
+_signali.namesti()
+
+
+@pytest.fixture(autouse=True)
+def _signali_samo_potomcem():
+    zacetek = len(_signali.krsitve)
+    yield
+    krsitve = _signali.od(zacetek)
+    if krsitve:    # izjemo je preizkusena koda morda pogoltnila (siroko lovljenje napak)
+        pytest.fail("Varovalo signalov (%d): %s" % (len(krsitve), "\n".join(krsitve[:5])), pytrace=False)
+
 
 @pytest.fixture(autouse=True)
 def _vmesnik_na_glavni_niti():
