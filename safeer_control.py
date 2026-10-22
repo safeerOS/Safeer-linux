@@ -1919,7 +1919,7 @@ class SafeerControl(_OSNOVA):
             for w in self.get_windows():
                 try:
                     w.destroy()
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             self.quit()
 
@@ -1945,13 +1945,13 @@ class SafeerControl(_OSNOVA):
             if getattr(self, "okno", None) is not None:
                 try:
                     self.okno.set_visible(False)
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             if getattr(self, "pladenj", None) is not None:
                 try:
                     if hasattr(self.pladenj, "odstrani"):
                         self.pladenj.odstrani()
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             if self.gledalec is not None:
                 try:
@@ -2025,7 +2025,7 @@ class SafeerControl(_OSNOVA):
                 from core import nova_razlicica
                 nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
                                              ime=nova_razlicica.OBNOVA)
-            except (OSError, ImportError) as e:
+            except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                 print("[Safeer Control] stanje za obnovo:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerControl:stanje", korak_stanje, rok_s=1.0)

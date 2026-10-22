@@ -355,7 +355,7 @@ class SafeerBrskalnik(Gtk.Application):
             if self.okno is not None:
                 try:
                     self.okno.set_visible(False)
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             if self.splet is not None:
                 if self.splet.config.get("brisi_ob_izhodu", []) and not getattr(self, "_brisanje", False):
@@ -415,7 +415,7 @@ class SafeerBrskalnik(Gtk.Application):
                 from core import nova_razlicica
                 nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
                                              ime=nova_razlicica.OBNOVA)
-            except (OSError, ImportError) as e:
+            except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                 print("[Safeer Browser] stanje obnova:", e)
             if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
                 from core.os_splet import _je_zacasna_mapa_avtomatizacije
@@ -423,7 +423,7 @@ class SafeerBrskalnik(Gtk.Application):
                     import shutil
                     try:
                         shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-                    except OSError as e:
+                    except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                         print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
                 self._zacasna_mapa = None
 
@@ -434,7 +434,7 @@ class SafeerBrskalnik(Gtk.Application):
             if self.okno is not None:
                 try:
                     self.okno.destroy()
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             self.quit()
 

@@ -3535,16 +3535,16 @@ class SafeerOS(Gtk.Application):
             for o in self.get_windows():
                 try:
                     o.set_visible(False)
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             if getattr(self, "lupina", None) is not None:
                 try:
                     self.lupina.skrij()
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             try:
                 self._budnost.sprosti_vse()
-            except (AttributeError, RuntimeError, OSError, GLib.Error):
+            except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                 pass
             self._pocisti_medijski_pogled()
             if self.namizje:
@@ -3642,7 +3642,7 @@ class SafeerOS(Gtk.Application):
             if self._katalog is not None:
                 try:
                     self._katalog.zapri()
-                except (AttributeError, RuntimeError):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerOS:katalog", korak_baze, rok_s=1.5, na_niti=True)
@@ -3654,7 +3654,7 @@ class SafeerOS(Gtk.Application):
                     try:
                         from core import nova_razlicica
                         nova_razlicica.shrani_stanje("safeer-os", stanje_za_zapis, ime=nova_razlicica.OBNOVA)
-                    except (OSError, ImportError) as e:
+                    except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                         print("[SafeerOS] shrani_stanje:", e)
                 else:
                     try:
@@ -3674,7 +3674,7 @@ class SafeerOS(Gtk.Application):
             for o in self.get_windows():
                 try:
                     o.destroy()
-                except (AttributeError, RuntimeError, GLib.Error):
+                except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                     pass
             self.quit()
 

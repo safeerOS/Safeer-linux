@@ -132,7 +132,7 @@ def namesti_zgodnje_signale(ime_programa: str) -> None:
                 if GLib.main_depth() > 0:
                     GLib.idle_add(koncaj_fn)
                     return
-            except (ImportError, AttributeError, RuntimeError):
+            except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
                 pass
             koncaj_fn()
             return
@@ -142,14 +142,14 @@ def namesti_zgodnje_signale(ime_programa: str) -> None:
             from core import nova_razlicica
             nova_razlicica.shrani_stanje(prog, {"pid": os.getpid(), "zgodnji_izhod": True},
                                          ime=nova_razlicica.OBNOVA)
-        except (OSError, ImportError) as e:
+        except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
             print(f"[UrejenIzhod] Zgodnje shranjevanje stanja ni uspelo: {e}", file=sys.stderr, flush=True)
         sys.exit(0)
 
     for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         try:
             signal.signal(s, ob_zgodnjem_signalu)
-        except (ValueError, OSError):
+        except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
             pass
 
 
@@ -166,17 +166,17 @@ def povezi_signale(koncaj_fn: Callable[[], Any], ime_programa: Optional[str] = N
             if GLib.main_depth() > 0:
                 GLib.idle_add(fn)
                 return
-        except (ImportError, AttributeError, RuntimeError):
+        except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
             pass
         fn()
 
     for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         try:
             signal.signal(s, ob_signalu)
-        except (ValueError, OSError):
+        except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
             pass
         try:
             from gi.repository import GLib
             GLib.unix_signal_add(GLib.PRIORITY_HIGH, s, lambda *a: (koncaj_fn(), False)[1])
-        except (ImportError, AttributeError, RuntimeError):
+        except Exception:  # noqa: BLE001, S110 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
             pass
