@@ -1905,7 +1905,7 @@ class SafeerControl(_OSNOVA):
 
     def koncaj(self) -> None:
         """Konec Safeer Control (P2: UI -> strezniki -> podprocesi -> baze -> stanje -> exit)."""
-        if getattr(self, "_koncano", False):
+        if getattr(self, "_koncano", False) or getattr(self, "_izhod_v_teku", False):
             return
         self.koncaj_brez_izhoda()
         if VGRAJEN:
@@ -1916,6 +1916,11 @@ class SafeerControl(_OSNOVA):
 
         # 6. FAZA_EXIT
         def korak_exit():
+            try:
+                from core import otroci
+                otroci.pospravi_vse()
+            except Exception as e:  # noqa: BLE001 - pospravljanje otrok ne sme blokirati izhoda
+                print("[Safeer Control] otroci pospravi_vse:", e)
             for w in self.get_windows():
                 try:
                     w.destroy()
@@ -1925,6 +1930,7 @@ class SafeerControl(_OSNOVA):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_EXIT, "SafeerControl:exit", korak_exit, rok_s=1.0)
         self._koncano = True
+        self._izhod_v_teku = False
 
     def koncaj_brez_izhoda(self) -> None:
         """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice).
@@ -1983,35 +1989,20 @@ class SafeerControl(_OSNOVA):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerControl:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
 
-        # 3. FAZA_PODPROCESI: zvok, zaslon, teamwork, datoteke
-        def korak_podprocesi():
-            if getattr(self, "zvok", None) is not None:
-                try:
-                    self.zvok.ustavi()
-                except Exception as e:  # noqa: BLE001 - ustavitev zvoka ne sme ustaviti naslednjih korakov
-                    print("[Safeer Control] zvok ustavi:", e)
-            if getattr(self, "zaslon", None) is not None:
-                try:
-                    self.zaslon.ustavi(pocakaj_s=2.0)
-                except Exception as e:  # noqa: BLE001 - ustavitev zaslona ne sme ustaviti naslednjih korakov
-                    print("[Safeer Control] zaslon ustavi:", e)
-            if getattr(self, "drugi_zaslon", None) is not None:
-                try:
-                    self.drugi_zaslon.ustavi()
-                except Exception as e:  # noqa: BLE001 - ustavitev drugega zaslona ne sme ustaviti naslednjih korakov
-                    print("[Safeer Control] drugi_zaslon ustavi:", e)
-            if getattr(self, "teamwork", None) is not None:
-                try:
-                    self.teamwork.ustavi()
-                except Exception as e:  # noqa: BLE001 - ustavitev teamwork ne sme ustaviti naslednjih korakov
-                    print("[Safeer Control] teamwork ustavi:", e)
-            if getattr(self, "datoteke", None) is not None:
-                try:
-                    self.datoteke.ustavi()
-                except Exception as e:  # noqa: BLE001 - ustavitev datotek ne sme ustaviti naslednjih korakov
-                    print("[Safeer Control] datoteke ustavi:", e)
+        # 3. FAZA_PODPROCESI: zvok, zaslon, drugi_zaslon, teamwork, datoteke vzporedno (K3)
+        podprocesi_koraki = []
+        if getattr(self, "zvok", None) is not None:
+            podprocesi_koraki.append(("SafeerControl:zvok", self.zvok.ustavi))
+        if getattr(self, "zaslon", None) is not None:
+            podprocesi_koraki.append(("SafeerControl:zaslon", lambda: self.zaslon.ustavi(pocakaj_s=2.0)))
+        if getattr(self, "drugi_zaslon", None) is not None:
+            podprocesi_koraki.append(("SafeerControl:drugi_zaslon", self.drugi_zaslon.ustavi))
+        if getattr(self, "teamwork", None) is not None:
+            podprocesi_koraki.append(("SafeerControl:teamwork", self.teamwork.ustavi))
+        if getattr(self, "datoteke", None) is not None:
+            podprocesi_koraki.append(("SafeerControl:datoteke", self.datoteke.ustavi))
 
-        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerControl:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
+        urejen_izhod.izvedi_vzporedno(urejen_izhod.FAZA_PODPROCESI, podprocesi_koraki, rok_s=2.5)
 
         # 4. FAZA_BAZE
         def korak_baze():
@@ -2019,14 +2010,16 @@ class SafeerControl(_OSNOVA):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerControl:baze", korak_baze, rok_s=1.0)
 
-        # 5. FAZA_STANJE
+        # 5. FAZA_STANJE: samo pod varuhom (P2)
         def korak_stanje():
-            try:
-                from core import nova_razlicica
-                nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
-                                             ime=nova_razlicica.OBNOVA)
-            except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
-                print("[Safeer Control] stanje za obnovo:", e)
+            from core import varuh_procesov
+            if varuh_procesov.pod_varuhom():
+                try:
+                    from core import nova_razlicica
+                    nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
+                                                 ime=nova_razlicica.OBNOVA)
+                except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
+                    print("[Safeer Control] stanje za obnovo:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerControl:stanje", korak_stanje, rok_s=1.0)
 
@@ -2826,6 +2819,8 @@ def _pokazi_tekocega(cakaj_s: float = 8.0) -> bool:
 
 def main() -> int:
     global _ZAKLEP_PRIMERKA
+    from core import urejen_izhod
+    urejen_izhod.preveri_zgodnji_signal()
     if "--version" in sys.argv[1:]:
         print(f"Safeer Control {APP_VERSION}")
         return 0
@@ -2852,24 +2847,18 @@ def main() -> int:
     GLib.set_application_name("Safeer Control")
     # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita je izklopljen ze pred nitmi (vrh datoteke), samo ce
     # res ne more teci (sicer g_error); tu le pojasnilo.
+    urejen_izhod.preveri_zgodnji_signal()
     peskovnik = peskovnik_userns.ob_zagonu()
     app = SafeerControl(ozadje=ozadje)
     if peskovnik.get("izklopljen"):
         peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-control"),
                                          _jezik_brskalnika() or _jezik_sistema() or "en", "Safeer Control",
                                          "safeer-control", app)
-    # Ob SIGTERM (odjava, posodobitev paketa) pospravimo kot ob Izhodu: sicer bi locen zaslon s
-    # programi ostal tece nevidno in brez lastnika - nihce ga ne bi vec videl ne zaprl.
-    try:
-        import signal as _signal
-        for _sig in (_signal.SIGTERM, _signal.SIGINT):
-            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, _sig, lambda *_a: (app.koncaj(), False)[1])
-    except Exception:
-        pass
     # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety
     runtime_safety.install_main_thread_gc()
+    urejen_izhod.preveri_zgodnji_signal()
     koda = app.run(argv)
     if getattr(app, "_ponovni_zagon", False) is True:      # samo pravi zahtevek (ne lazni predmet v preizkusih)
         # Nova razlicica (core/nova_razlicica.py): zaganjalnik jo zazene ob kodi 75, sicer exec nove kode.

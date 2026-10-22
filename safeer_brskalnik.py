@@ -411,12 +411,17 @@ class SafeerBrskalnik(Gtk.Application):
                     shrani_ali_pozabi_sejo(self.splet.config, zavihki_za_sejo, izbran_idx)
                 except Exception as e:  # noqa: BLE001 - napaka seje ne sme podreti izhoda
                     print("[Safeer Browser] seja:", e, flush=True)
-            try:
-                from core import nova_razlicica
-                nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
-                                             ime=nova_razlicica.OBNOVA)
-            except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
-                print("[Safeer Browser] stanje obnova:", e)
+            from core import varuh_procesov
+            brisi = []
+            if hasattr(self, "splet") and hasattr(self.splet, "config") and self.splet.config is not None:
+                brisi = self.splet.config.get("brisi_ob_izhodu", []) or []
+            if varuh_procesov.pod_varuhom() and "zgodovina" not in brisi:
+                try:
+                    from core import nova_razlicica
+                    nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
+                                                 ime=nova_razlicica.OBNOVA)
+                except Exception as e:  # noqa: BLE001 - izhod/pospravljanje: nobena napaka ne sme ustaviti naslednjih korakov
+                    print("[Safeer Browser] stanje obnova:", e)
             if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
                 from core.os_splet import _je_zacasna_mapa_avtomatizacije
                 if _je_zacasna_mapa_avtomatizacije(self._zacasna_mapa):
@@ -470,6 +475,7 @@ class _Tipka:
 
 
 def main() -> int:
+    urejen_izhod.preveri_zgodnji_signal()
     if "--version" in sys.argv[1:]:
         print("Safeer Browser " + razlicica())
         return 0
@@ -485,6 +491,7 @@ def main() -> int:
     # res ne more teci (sicer g_error); tu le pojasnilo.
     from core import peskovnik_userns
     peskovnik = peskovnik_userns.ob_zagonu()
+    urejen_izhod.preveri_zgodnji_signal()
     avtomatizacija = "--automation" in sys.argv[1:]
     app = SafeerBrskalnik(avtomatizacija=True) if avtomatizacija else SafeerBrskalnik()
     if peskovnik.get("izklopljen"):
@@ -494,6 +501,7 @@ def main() -> int:
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety
     runtime_safety.install_main_thread_gc()
+    urejen_izhod.preveri_zgodnji_signal()
     return app.run(argumenti)
 
 

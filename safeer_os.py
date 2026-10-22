@@ -1845,7 +1845,7 @@ class SafeerOS(Gtk.Application):
         self._koncano = False
         self._izhod_v_teku = False
         from core import urejen_izhod
-        urejen_izhod.povezi_signale(self._koncaj)
+        urejen_izhod.povezi_signale(self._koncaj)     # M5/P3: ENA povezava signalov na proces (v __init__, pred prvo aktivacijo)
         self.shramba = os_programi.Shramba()
         # Pred prvim zapisom v shrambo: prazna shramba = nova namestitev (oznaci_vodnik).
         self._vodnik = not posnetek and oznaci_vodnik(self.shramba)
@@ -2323,10 +2323,6 @@ class SafeerOS(Gtk.Application):
         koncaj = Gio.SimpleAction.new("koncaj", None)
         koncaj.connect("activate", lambda *a: self._koncaj())
         self.add_action(koncaj)
-        for signal in (15, 1, 2):     # SIGTERM (odjava), SIGHUP, SIGINT: Mintov pult vrnemo
-            GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal, lambda *a: (self._koncaj(), False)[1])
-        from core import urejen_izhod
-        urejen_izhod.povezi_signale(self._koncaj)
 
     def _vklopi_delovno(self) -> bool:
         """`safeer-os --delovna` (safeer-cinnamon ob prijavi ali ob vklopu teme), ko Safeer OS ze tece kot Safeer Player
@@ -3582,15 +3578,28 @@ class SafeerOS(Gtk.Application):
                     self._spletni.koncaj()
             except Exception as e:  # noqa: BLE001 - zakljucek spleta ne sme ustaviti izhoda
                 print("[SafeerOS] zakljucek spletnega pogleda:", e)
+            try:
+                self._ustavi_neposredni_medij()
+            except Exception as e:  # noqa: BLE001 - ustavitev neposrednega medija ne sme blokirati izhoda
+                print("[SafeerOS] neposredni medij ob izhodu:", e)
+            if self._medijski_predvajalnik is not None:
+                try:
+                    self._medijski_predvajalnik.zapri()
+                except Exception as e:  # noqa: BLE001 - zaprtje predvajalnika ne sme ustaviti pospravljanja
+                    print("[SafeerOS] medijski predvajalnik zapri:", e)
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerOS:ui", korak_ui, rok_s=6.0)  # brisanje podatkov Spleta ob izhodu caka do 5 s
 
-        # 2. FAZA_STREZNIKI: Scit DNS, Sporocila, Control strezniki
-        def korak_strezniki():
+        # 2. FAZA_STREZNIKI: Scit DNS (do konca, rok 35 s > resolvectl 30 s - K1), Sporocila, Control strezniki
+        def korak_scit():
             try:
                 self.scit.koncaj()
             except Exception as e:  # noqa: BLE001 - ustavitev scita ne sme blokirati izhoda
                 print("[SafeerOS] scit:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerOS:scit", korak_scit, rok_s=urejen_izhod.ROK_SCITA_S, na_niti=True)
+
+        def korak_strezniki():
             try:
                 self.sporocila.zapri()
             except Exception as e:  # noqa: BLE001 - zaprtje sporocil ne sme blokirati izhoda
@@ -3607,35 +3616,22 @@ class SafeerOS(Gtk.Application):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerOS:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
 
-        # 3. FAZA_PODPROCESI: torrenti (rqbit), neposredni medij, medijski predvajalnik, Control podprocesi
-        def korak_podprocesi():
-            try:
-                os_torrent.torrenti().ustavi()
-            except Exception as e:  # noqa: BLE001 - ustavitev torrentov ne sme ustaviti pospravljanja
-                print("[SafeerOS] torrenti ustavi:", e)
-            self._ustavi_neposredni_medij()
-            if self._medijski_predvajalnik is not None:
-                try:
-                    self._medijski_predvajalnik.zapri()
-                except Exception as e:  # noqa: BLE001 - zaprtje predvajalnika ne sme ustaviti pospravljanja
-                    print("[SafeerOS] medijski predvajalnik zapri:", e)
-            c = en_proces.control_app()
-            if c is not None:
-                try:
-                    if getattr(c, "teamwork", None) is not None:
-                        c.teamwork.ustavi()
-                    if getattr(c, "datoteke", None) is not None:
-                        c.datoteke.ustavi()
-                    if getattr(c, "zvok", None) is not None:
-                        c.zvok.ustavi()
-                    if getattr(c, "zaslon", None) is not None:
-                        c.zaslon.ustavi(pocakaj_s=1.0)
-                    if getattr(c, "drugi_zaslon", None) is not None:
-                        c.drugi_zaslon.ustavi()
-                except Exception as e:  # noqa: BLE001 - ustavitev podprocesov Controla ne sme ustaviti izhoda
-                    print("[SafeerOS] Control podprocesi ob izhodu:", e)
+        # 3. FAZA_PODPROCESI: torrenti (rqbit), Control podprocesi (vzporedno vsak v svoji niti z rokom 2.5 s - K3)
+        podprocesi_koraki = [("SafeerOS:torrenti", lambda: os_torrent.torrenti().ustavi())]
+        c = en_proces.control_app()
+        if c is not None:
+            if getattr(c, "teamwork", None) is not None:
+                podprocesi_koraki.append(("SafeerOS:teamwork", c.teamwork.ustavi))
+            if getattr(c, "datoteke", None) is not None:
+                podprocesi_koraki.append(("SafeerOS:datoteke", c.datoteke.ustavi))
+            if getattr(c, "zvok", None) is not None:
+                podprocesi_koraki.append(("SafeerOS:zvok", c.zvok.ustavi))
+            if getattr(c, "zaslon", None) is not None:
+                podprocesi_koraki.append(("SafeerOS:zaslon", lambda: c.zaslon.ustavi(pocakaj_s=1.0)))
+            if getattr(c, "drugi_zaslon", None) is not None:
+                podprocesi_koraki.append(("SafeerOS:drugi_zaslon", c.drugi_zaslon.ustavi))
 
-        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerOS:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
+        urejen_izhod.izvedi_vzporedno(urejen_izhod.FAZA_PODPROCESI, podprocesi_koraki, rok_s=2.5)
 
         # 4. FAZA_BAZE: katalog medijev SQLite
         def korak_baze():
@@ -3647,9 +3643,13 @@ class SafeerOS(Gtk.Application):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerOS:katalog", korak_baze, rok_s=1.5, na_niti=True)
 
-        # 5. FAZA_STANJE: posnetek stanja za obnovo in shramba
+        # 5. FAZA_STANJE: posnetek stanja za obnovo in shramba (samo pod varuhom in brez 'zgodovina' v brisi - P2)
         def korak_stanje():
-            if not self._ponovni_zagon:
+            from core import varuh_procesov
+            brisi = []
+            if hasattr(self, "shramba") and hasattr(self.shramba, "get"):
+                brisi = self.shramba.get("brisi_ob_izhodu", []) or []
+            if not self._ponovni_zagon and varuh_procesov.pod_varuhom() and "zgodovina" not in brisi:
                 if stanje_za_zapis:
                     try:
                         from core import nova_razlicica
@@ -3669,8 +3669,13 @@ class SafeerOS(Gtk.Application):
 
         urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerOS:stanje", korak_stanje, rok_s=1.5)
 
-        # 6. FAZA_EXIT: zapri okna in quit
+        # 6. FAZA_EXIT: pospravi otroke (otroci.pospravi_vse), zapri okna in quit
         def korak_exit():
+            try:
+                from core import otroci
+                otroci.pospravi_vse()
+            except Exception as e:  # noqa: BLE001 - pospravljanje otrok ne sme blokirati izhoda
+                print("[SafeerOS] otroci pospravi_vse:", e)
             for o in self.get_windows():
                 try:
                     o.destroy()
@@ -7894,6 +7899,7 @@ def _velikost_okna(vrednost: str):
 
 def main() -> int:
     global VARNI_NACIN
+    urejen_izhod.preveri_zgodnji_signal()
     if "--version" in sys.argv[1:]:
         print("Safeer OS", RAZLICICA)
         return 0
@@ -8040,6 +8046,7 @@ def main() -> int:
         v_oknu = True
     # Ubuntu 24.04+: brez nasega profila AppArmor bwrap ne dobi imenskega prostora in WebKit bi ob prvi strani koncal
     # ves proces (g_error). Peskovnik je izklopljen ze pred nitmi (vrh datoteke), samo ce res ne more teci; tu pojasnilo.
+    urejen_izhod.preveri_zgodnji_signal()
     peskovnik = peskovnik_userns.ob_zagonu()
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
@@ -8079,6 +8086,7 @@ def main() -> int:
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety
     runtime_safety.install_main_thread_gc()
+    urejen_izhod.preveri_zgodnji_signal()
     koda = app.run([sys.argv[0]])
     if getattr(app, "_ponovni_zagon", False) is True:      # samo pravi zahtevek (ne lazni predmet v preizkusih)
         # Nova razlicica (core/nova_razlicica.py): zaganjalnik jo zazene ob kodi 75, sicer exec nove kode.
