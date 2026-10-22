@@ -2307,7 +2307,7 @@ class SafeerControl(_OSNOVA):
         GLib.timeout_add(500, po_koncu)
 
     def do_activate(self) -> None:
-        if getattr(self, "_koncano", False) or getattr(self, "_izhod_v_teku", False):
+        if getattr(self, "_koncano", False) is True or getattr(self, "_izhod_v_teku", False) is True:
             # SIGTERM med nalaganjem: zanka GLib je obdelala signal (koncaj() je ze zapisal obnova.json) pred aktivacijo.
             # Aktivacija po pospravljanju bi izbrisala to stanje (_okno_po_novi_razlicici) in zagnala Link in pladenj
             # brez lastnika (izmerjeno 22. 10. pod obremenitvijo: izhod 0 brez obnova.json).
