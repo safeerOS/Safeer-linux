@@ -226,7 +226,12 @@ class Zagon(_Lupina):
             self.SafeerOS._povezi_koncanje(lazni)
             self.SafeerOS._povezi_koncanje(lazni)
         self.assertEqual(lazni.add_action.call_count, 1)
-        self.assertEqual(sorted(k.args[1] for k in glib.unix_signal_add.call_args_list), [1, 2, 15])
+        # Signali se od 22. 10. 2026 povezejo ENKRAT v __init__ (urejen_izhod.povezi_signale), ne vec ob aktivaciji okna:
+        # _povezi_koncanje jih ne sme registrirati se enkrat (podvojen rokovalnik bi dvakrat poklical _koncaj).
+        glib.unix_signal_add.assert_not_called()
+        vir = beri("safeer_os.py")
+        init = vir[vir.index("class SafeerOS("):vir.index("def _povezi_koncanje")]
+        self.assertEqual(init.count("urejen_izhod.povezi_signale(self._koncaj)"), 1)
 
 
 class Okno(_Lupina):

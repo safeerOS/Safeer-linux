@@ -47,7 +47,9 @@ def zazeni(ukaz: list, *, dolgoziv: bool = False, **kwargs: Any) -> subprocess.P
     p = subprocess.Popen(ukaz, **kwargs)
     with _zaklep:
         _skupine[p.pid] = p.pid          # setsid: skupina ima stevilko otroka
-        for pid in [pid for pid, (q, _g) in _dolgozivi.items() if q.poll() is not None]:
+        # Nadomestni objekt brez poll() (preizkusi nadomestijo Popen) ni pravi otrok: odstrani ga, ne podri zagona.
+        for pid in [pid for pid, (q, _g) in _dolgozivi.items()
+                    if not callable(getattr(q, "poll", None)) or q.poll() is not None]:
             _dolgozivi.pop(pid, None)
             _skupine.pop(pid, None)
         if dolgoziv:

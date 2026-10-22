@@ -310,6 +310,24 @@ class TestSigtermFazeZagona(unittest.TestCase):
                 ostanki = _preveri_brez_ostankov(td_conf, td_run)
                 self.assertEqual(ostanki, [], f"Ostanki datotek v fazi {faza}: {ostanki}")
 
+    def test_safeer_control_aktivacija_po_koncaju_ne_dela_nic(self):
+        """Signal med nalaganjem: koncaj() tece pred do_activate; aktivacija ne sme brisati stanja ne zagnati Linka."""
+        koda = (
+            "import sys, unittest.mock as m\n"
+            "import safeer_control as c\n"
+            "for polje in ('_koncano', '_izhod_v_teku'):\n"
+            "    lazni = m.Mock(spec=['ozadje', '_prva_aktivacija', 'link', '_pripravi_link', 'pokazi_okno', polje])\n"
+            "    lazni.ozadje = True; lazni._prva_aktivacija = True\n"
+            "    setattr(lazni, polje, True)\n"
+            "    c.SafeerControl.do_activate(lazni)\n"
+            "    assert lazni._prva_aktivacija is True, polje\n"
+            "    lazni._pripravi_link.assert_not_called(); lazni.pokazi_okno.assert_not_called()\n"
+        )
+        env = dict(self.env)
+        env.pop("NOTIFY_SOCKET", None)
+        r = subprocess.run([sys.executable, "-c", koda], cwd=KOREN, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr[-800:])
+
     def test_safeer_os_sigterm_v_vseh_fazah(self):
         for faza, zamik in [("pred_oknom", 0.25), ("med_nalaganjem", 1.1), ("po_zagonu", 2.2)]:
             with self.subTest(faza=faza), tempfile.TemporaryDirectory() as td_conf, tempfile.TemporaryDirectory() as td_run:
