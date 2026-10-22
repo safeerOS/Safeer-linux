@@ -415,7 +415,8 @@ class SafeerBrskalnik(Gtk.Application):
             brisi = []
             if hasattr(self, "splet") and hasattr(self.splet, "config") and self.splet.config is not None:
                 brisi = self.splet.config.get("brisi_ob_izhodu", []) or []
-            if varuh_procesov.pod_varuhom() and "zgodovina" not in brisi:
+            # Zgodnji signal (pred rokovalnikom GLib, P4): zagon ni bil koncan, stanja brez vsebine ne pisemo.
+            if varuh_procesov.pod_varuhom() and "zgodovina" not in brisi and urejen_izhod.prejeti_zgodnji_signal() is None:
                 try:
                     from core import nova_razlicica
                     nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
@@ -448,10 +449,20 @@ class SafeerBrskalnik(Gtk.Application):
         self._koncano = True
         self._izhod_v_teku = False
 
+    def _pripravljen(self) -> None:
+        """Zagon koncan, okno prikazano: varuh (in preizkusi) dobijo READY=1 (core/varuh_procesov.py), brez varuha nic.
+        Enkrat na proces (kot lupina)."""
+        if getattr(self, "_ready_poslan", False):
+            return
+        self._ready_poslan = True
+        from core import varuh_procesov
+        varuh_procesov.obvesti("READY=1")
+
     def do_activate(self) -> None:
         if self.okno is None:
             self._ustvari()
         self.okno.present()
+        self._pripravljen()
 
     def do_open(self, datoteke, _n, _namig) -> None:
         """Naslovi od drugod (privzeti brskalnik, drugi zagon): v oknu, ki tece; strani, ki jo ima uporabnik odprto,
@@ -467,6 +478,7 @@ class SafeerBrskalnik(Gtk.Application):
             else:
                 self.splet.odpri_povezavo(naslov, lokalno=True)
         self.okno.present()
+        self._pripravljen()
 
 
 class _Tipka:

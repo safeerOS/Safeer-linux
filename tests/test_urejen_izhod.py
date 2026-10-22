@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,7 @@ if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
 from core import urejen_izhod, nova_razlicica, varuh_procesov  # noqa: E402
+from zasebno_vodilo import ZasebnoVodilo  # noqa: E402
 
 
 class TestEnoteUrejenIzhod(unittest.TestCase):
@@ -228,10 +230,57 @@ class TestSigtermFazeZagona(unittest.TestCase):
         self.env["SAFEER_NOVA_RAZLICICA_MAPA"] = self.td_run.name
         self.env["WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"] = "1"
         self.env["NOTIFY_SOCKET"] = os.path.join(self.td_run.name, "varuh.sock")
+        # Lastno vodilo seje: Control ob zagonu v ozadju preveri, ali ime ze ima drug primerek (_ime_zasedeno), in se ob
+        # zasedenem imenu tiho konca s kodo 0 - na vodilu, ki ga deli ves tek, ga lahko drzi preizkus, ki je Control
+        # zagnal v procesu (CI 22. 10.: izhod 0 brez obnova.json). Brez dbus-daemon ostane okolje, kot je.
+        self.vodilo = ZasebnoVodilo()
+        self.addCleanup(self.vodilo.ustavi)
+        if self.vodilo.naslov:
+            self.env["DBUS_SESSION_BUS_ADDRESS"] = self.vodilo.naslov
 
     def tearDown(self):
         self.td_conf.cleanup()
         self.td_run.cleanup()
+
+    def _zazeni_do_faze(self, ukaz, env, td_run, faza, zamik, caka_ready=True):
+        """Zazene program in pocaka do faze. po_zagonu: na READY=1 prek NOTIFY_SOCKET (dolocljiv znak, da je zagon
+        koncan, ne glede na hitrost stroja; rok 20 s), druge faze: casovnik (namenoma neodvisne od zagona).
+        Vrne (proces, pot izpisa). caka_ready=False: tudi po_zagonu
+        s casovnikom (Safeer OS --okno READY=1 ne poslje)."""
+        pot_izpisa = os.path.join(td_run, "izpis.log")
+        vtic = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.addCleanup(vtic.close)
+        vtic.bind(env["NOTIFY_SOCKET"])
+        izpis = open(pot_izpisa, "wb")  # noqa: SIM115 - zaprto takoj po zagonu otroka (podedovan deskriptor)
+        try:
+            p = subprocess.Popen(ukaz, env=env, stdout=izpis, stderr=izpis)
+        finally:
+            izpis.close()
+        self.addCleanup(lambda: p.poll() is None and p.kill())
+        if faza != "po_zagonu" or not caka_ready:
+            time.sleep(zamik)
+            return p, pot_izpisa
+        rok = time.monotonic() + 20.0
+        vtic.settimeout(0.2)
+        while time.monotonic() < rok:
+            try:
+                if b"READY=1" in vtic.recv(4096):
+                    return p, pot_izpisa
+            except socket.timeout:
+                pass
+            if p.poll() is not None:
+                self.fail(f"Program je koncal s kodo {p.returncode} se pred READY=1; izpis:\n{self._izpis(pot_izpisa)}")
+        p.kill()
+        p.wait()
+        self.fail(f"Program v 20 s ni poslal READY=1; izpis:\n{self._izpis(pot_izpisa)}")
+
+    @staticmethod
+    def _izpis(pot):
+        try:
+            with open(pot, "rb") as d:
+                return d.read()[-1500:].decode("utf-8", "replace")
+        except OSError:
+            return "(brez izpisa)"
 
     def test_safeer_brskalnik_sigterm_v_vseh_fazah(self):
         for faza, zamik in [("pred_oknom", 0.15), ("med_nalaganjem", 0.8), ("po_zagonu", 2.6)]:
@@ -241,13 +290,7 @@ class TestSigtermFazeZagona(unittest.TestCase):
                 env["XDG_RUNTIME_DIR"] = td_run
                 env["SAFEER_NOVA_RAZLICICA_MAPA"] = td_run
                 env["NOTIFY_SOCKET"] = os.path.join(td_run, "varuh.sock")
-                p = subprocess.Popen(
-                    [sys.executable, os.path.join(KOREN, "safeer_brskalnik.py"), "about:blank"],
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                time.sleep(zamik)
+                p, pot_izpisa = self._zazeni_do_faze([sys.executable, os.path.join(KOREN, "safeer_brskalnik.py"), "about:blank"], env, td_run, faza, zamik)
                 z0 = time.monotonic()
                 p.send_signal(signal.SIGTERM)
                 try:
@@ -267,10 +310,10 @@ class TestSigtermFazeZagona(unittest.TestCase):
                                   f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
                     self.assertFalse(os.path.isfile(pot_obnova), f"Zgodnji signal ne sme pisati stanja brez vsebine v fazi {faza}")
                 else:
-                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
+                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}\n{self._izpis(pot_izpisa)}")
                     # Stanje zapisano v obnova.json pod varuhom
                     if faza == "po_zagonu":
-                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}")
+                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}\n{self._izpis(pot_izpisa)}")
 
                 # Brez ostankov .tmp datotek
                 ostanki = _preveri_brez_ostankov(td_conf, td_run)
@@ -284,13 +327,7 @@ class TestSigtermFazeZagona(unittest.TestCase):
                 env["XDG_RUNTIME_DIR"] = td_run
                 env["SAFEER_NOVA_RAZLICICA_MAPA"] = td_run
                 env["NOTIFY_SOCKET"] = os.path.join(td_run, "varuh.sock")
-                p = subprocess.Popen(
-                    [sys.executable, os.path.join(KOREN, "safeer_control.py"), "--ozadje"],
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                time.sleep(zamik)
+                p, pot_izpisa = self._zazeni_do_faze([sys.executable, os.path.join(KOREN, "safeer_control.py"), "--ozadje"], env, td_run, faza, zamik)
                 z0 = time.monotonic()
                 p.send_signal(signal.SIGTERM)
                 try:
@@ -309,9 +346,9 @@ class TestSigtermFazeZagona(unittest.TestCase):
                                   f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
                     self.assertFalse(os.path.isfile(pot_obnova), f"Zgodnji signal ne sme pisati stanja brez vsebine v fazi {faza}")
                 else:
-                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
+                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}\n{self._izpis(pot_izpisa)}")
                     if faza == "po_zagonu":
-                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}")
+                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}\n{self._izpis(pot_izpisa)}")
 
                 ostanki = _preveri_brez_ostankov(td_conf, td_run)
                 self.assertEqual(ostanki, [], f"Ostanki datotek v fazi {faza}: {ostanki}")
@@ -342,13 +379,8 @@ class TestSigtermFazeZagona(unittest.TestCase):
                 env["XDG_RUNTIME_DIR"] = td_run
                 env["SAFEER_NOVA_RAZLICICA_MAPA"] = td_run
                 env["NOTIFY_SOCKET"] = os.path.join(td_run, "varuh.sock")
-                p = subprocess.Popen(
-                    [sys.executable, os.path.join(KOREN, "safeer_os.py"), "--okno"],
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                time.sleep(zamik)
+                p, pot_izpisa = self._zazeni_do_faze([sys.executable, os.path.join(KOREN, "safeer_os.py"), "--okno"], env, td_run, faza, zamik,
+                                                     caka_ready=False)      # --okno ne poslje READY=1 (samo namizje, _ob_namizju)
                 z0 = time.monotonic()
                 p.send_signal(signal.SIGTERM)
                 try:
@@ -367,9 +399,9 @@ class TestSigtermFazeZagona(unittest.TestCase):
                                   f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
                     self.assertFalse(os.path.isfile(pot_obnova), f"Zgodnji signal ne sme pisati stanja brez vsebine v fazi {faza}")
                 else:
-                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}")
+                    self.assertEqual(p.returncode, 0, f"Napacna izhodna koda v fazi {faza}: {p.returncode}\n{self._izpis(pot_izpisa)}")
                     if faza == "po_zagonu":
-                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}")
+                        self.assertTrue(os.path.isfile(pot_obnova), f"Manjka obnova.json v fazi {faza}\n{self._izpis(pot_izpisa)}")
 
                 ostanki = _preveri_brez_ostankov(td_conf, td_run)
                 self.assertEqual(ostanki, [], f"Ostanki datotek v fazi {faza}: {ostanki}")

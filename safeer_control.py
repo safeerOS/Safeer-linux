@@ -47,6 +47,11 @@ from typing import Optional
 from core import okolje_procesa  # noqa: E402
 _ODPRI_OB_ZAGONU = okolje_procesa.prevzemi("SAFEER_CONTROL_ODPRI") == "1"
 if __name__ == "__main__":
+    # NOTIFY_SOCKET prevzame samo samostojni Control in to tu, ko tece ena nit: prej ga je pripravi_obvestila prvic
+    # prebrala sele ob izhodu (os.environ.pop z nitmi GTK) - v procesu Safeer OS ga je ze prevzel Safeer OS.
+    from core import varuh_procesov as _varuh  # noqa: E402
+    _varuh.pripravi_obvestila()
+if __name__ == "__main__":
     # Peskovnik WebKita (Ubuntu 24.04+ brez profila AppArmor): IZKLOP v okolje pred prvo nitjo, ne v main(). Vgrajen
     # Control (uvoz v procesu Safeer OS) tega ne naredi - stanje je ze pripravil Safeer OS (core/peskovnik_userns.py).
     from core import peskovnik_userns  # noqa: E402
@@ -2013,7 +2018,9 @@ class SafeerControl(_OSNOVA):
         # 5. FAZA_STANJE: samo pod varuhom (P2)
         def korak_stanje():
             from core import varuh_procesov
-            if varuh_procesov.pod_varuhom():
+            # Signal je prisel pred rokovalnikom GLib (zgodnji, P4): zagon ni bil koncan, stanja brez vsebine ne pisemo
+            # (izmerjeno 22. 10. pod obremenitvijo: izhod 143 z obnova.json, ki ga zgodnji signal ne sme pustiti).
+            if varuh_procesov.pod_varuhom() and urejen_izhod.prejeti_zgodnji_signal() is None:
                 try:
                     from core import nova_razlicica
                     nova_razlicica.shrani_stanje("safeer-control", {"pid": os.getpid(), "okno": okno_odprto},
@@ -2322,6 +2329,9 @@ class SafeerControl(_OSNOVA):
                 GLib.timeout_add_seconds(120, self._posodobitve_preveri)
             if _ODPRI_OB_ZAGONU or self._okno_po_novi_razlicici():
                 self.pokazi_okno()
+            if not VGRAJEN:      # v procesu Safeer OS READY=1 poslje Safeer OS; tu je zagon samostojnega Controla koncan
+                from core import varuh_procesov
+                varuh_procesov.obvesti("READY=1")
             return
         self._prva_aktivacija = False
         if VGRAJEN and time.time() - self._ZAGNAN_OB < self.ZAGON_BREZ_OKNA_S:
