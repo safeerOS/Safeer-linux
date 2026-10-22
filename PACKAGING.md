@@ -19,9 +19,9 @@ Install build dependencies: Python 3, Pillow, dpkg-dev, desktop-file-utils and a
 ```sh
 sudo bash packaging/webkit-deb/odvisnosti.sh                     # Clang 22 (apt.llvm.org, key fingerprint and package version pinned) and the noble -dev packages
 sudo bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst   # 2-3 h, in a clean container (refuses a prefix an installed package owns)
-SAFEER_DAV1D=build/dav1d bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst   # safeer-webkit_1.0.131_amd64.deb
-SAFEER_WEBKIT_DEB=safeer-webkit_1.0.131_amd64.deb bash build_deb.sh   # WebKit built in (safeer-webkit is only the build input)
-sudo apt install ./safeer-browser_1.0.131_amd64.deb   # one file
+SAFEER_DAV1D=build/dav1d bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst   # safeer-webkit_1.0.132_amd64.deb
+SAFEER_WEBKIT_DEB=safeer-webkit_1.0.132_amd64.deb bash build_deb.sh   # WebKit built in (safeer-webkit is only the build input)
+sudo apt install ./safeer-browser_1.0.132_amd64.deb   # one file
 ```
 
 Our WebKitGTK and libsoup are built from the Flatpak modules themselves (`packaging/webkit-deb/modul.py` reads the archive, SHA-256, patches and CMake/meson options of `packaging/webkit/webkitgtk6-safeer.yml` and `packaging/libsoup/libsoup3-safeer.yml`), so the two formats cannot drift apart. They are installed into one private prefix, `/usr/lib/safeer-webkit`, shipped once by the package `safeer-webkit` (`packaging/webkit-deb/paket.sh`; WebKit compiles the path of its helper processes into the library, so the prefix is fixed). Until 1.0.127~pred every package carried its own copy (`/usr/lib/<package>/webkit`, ~135 MB each, different files because of the prefix): with Safeer OS and Safeer Browser running, the kernel held the engine's code twice (measured on the test PC 18 Oct 2026: ~60-70 MiB libwebkitgtk + ~30 MiB JavaScriptCore) and CI built WebKit twice. `safeer-os` and `safeer-browser` depend on `safeer-webkit (>=` the release`)`: a lower bound, so updating one program never removes the other (the WebKitGTK 6.0 API and soname are stable); the package version is the release (`packaging/VERSION`). On an upgrade from a package with its own copy, dpkg removes the old `/usr/lib/<package>/webkit` files itself (they are not in the new package); `tools/mint_namestitev` checks that nothing is left. To measure the saving with both programs running: `sudo python3 tools/webkit_pomnilnik.py` (sum of `Pss` of the WebKit, JavaScriptCore and libsoup mappings over all processes) before and after the upgrade. Safeer OS and Safeer Control also watch the build fingerprint of the shared engine (`/usr/lib/safeer-webkit/share/webkitgtk-safeer/odtis`): when another program installs a new build, they restart like after their own update (`core/nova_razlicica.py`). The in-app update of Safeer OS installs `safeer-webkit` in the same `apt-get` as the program (`webkit_deb` in the signed version list; for 1.0.126 clients the stable list also carries it as `tema_deb`, which they already install the same way). The libraries find each other through `DT_RPATH`, the typelibs carry absolute library paths (`typelibi.py`), and `core/zasebni_webkit.py` puts the package's typelibs first in `GI_TYPELIB_PATH` before `import gi` — no `LD_LIBRARY_PATH`. Programs the user starts from Safeer OS (menu, dock, files, "Open with", links, scripts) get an environment without our private paths (`zasebni_webkit.okolje_za_zunanje()` / `kontekst_za_zunanje()`; also strips `$APPDIR` paths of the AppImage), so they keep the system's typelibs, GStreamer plugins and libraries. The bubblewrap sandbox stays on: Ubuntu 24.04+ restricts unprivileged user namespaces, so both packages ship AppArmor profiles for their launchers (`packaging/apparmor`, conffiles in `/etc/apparmor.d`, loaded by `postinst`) like Ubuntu's own profiles for epiphany and geary; where no profile applies, `core/peskovnik_userns.py` detects the restriction with WebKit's own bwrap probe and turns the sandbox off instead of crashing, with a one-time explanation. Release builds use PGO: job `webkit-deb-profil` builds an instrumented WebKit and records a profile with the pinned Speedometer 3.1 copy (`packaging/webkit-deb/ucni_tek.sh`, the same `pgo_trening.py` as the Flatpak), because a profile from the Flatpak build does not match a noble build (other system headers and source paths); job `webkit-deb` builds the one WebKit with it (`SAFEER_WEBKIT_PGO=uporaba`, plus BOLT) and packages `safeer-webkit` (artifact `safeer-webkit`, attached to the release). Profile and archive stay in the Actions cache keyed on these files. Without `SAFEER_WEBKIT_DEB`, `build_deb.sh` builds `safeer-browser_<version>_all.deb` on the system's WebKitGTK (local development and tests).
@@ -37,7 +37,7 @@ flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flath
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50
 # Also install your distribution's flatpak-builder and AppStream compose tools.
 bash packaging/build_flatpak.sh
-flatpak install --user dist/Safeer-Browser-1.0.131-x86_64.flatpak
+flatpak install --user dist/Safeer-Browser-1.0.132-x86_64.flatpak
 flatpak run io.github.memelandfaner.SafeerBrowser
 ```
 
@@ -69,8 +69,8 @@ Release build baseline: Ubuntu 24.04 x86_64 / glibc 2.39 (GTK 4 and WebKitGTK 6.
 ```sh
 bash packaging/fetch_linuxdeploy.sh
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
-chmod +x dist/Safeer-Browser-1.0.131-x86_64.AppImage
-./dist/Safeer-Browser-1.0.131-x86_64.AppImage
+chmod +x dist/Safeer-Browser-1.0.132-x86_64.AppImage
+./dist/Safeer-Browser-1.0.132-x86_64.AppImage
 ```
 
 linuxdeploy is pinned to a versioned release and checked against SHA256. The AppDir includes Python, GI modules/typelibs, GTK, WebKit subprocesses, GStreamer and GIO TLS resources. linuxdeploy resolves ELF dependencies and applies its system-library exclusions. glibc, the ELF loader and GPU drivers must remain host-provided. WebKit process sandboxing is not disabled. Host bubblewrap/user-namespace support may be required by the distro WebKit build. A build must fail acceptance rather than use an insecure fallback.
@@ -83,9 +83,9 @@ Safeer OS is the Safeer desktop on top of Linux Mint: a workspace (search, progr
 
 ```sh
 bash build_os_deb.sh
-SAFEER_WEBKIT_DEB=safeer-webkit_1.0.131_amd64.deb bash build_os_deb.sh   # desktop environment safeer-os, our WebKitGTK built in
-SAFEER_OS_PAKET=safeer-os-app SAFEER_WEBKIT_DEB=safeer-webkit_1.0.131_amd64.deb bash build_os_deb.sh   # app in a window safeer-os-app (no Safeer Cinnamon)
-sudo apt install ./safeer-os_0.4.89_amd64.deb    # nothing on the desktop changes until "Safeer Cinnamon" is opened in the menu; safeer-os-app replaces it and back
+SAFEER_WEBKIT_DEB=safeer-webkit_1.0.132_amd64.deb bash build_os_deb.sh   # desktop environment safeer-os, our WebKitGTK built in
+SAFEER_OS_PAKET=safeer-os-app SAFEER_WEBKIT_DEB=safeer-webkit_1.0.132_amd64.deb bash build_os_deb.sh   # app in a window safeer-os-app (no Safeer Cinnamon)
+sudo apt install ./safeer-os_0.4.90_amd64.deb    # nothing on the desktop changes until "Safeer Cinnamon" is opened in the menu; safeer-os-app replaces it and back
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh   # Safeer-OS-<version>-x86_64.AppImage (Safeer OS + Control; `--control` starts Control)
 bash packaging/build_os_flatpak.sh                                                        # Safeer-OS-<version>-x86_64.flatpak (io.github.memelandfaner.SafeerOS)
 ```
