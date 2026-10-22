@@ -24,23 +24,27 @@ Naprave lahko uporabnik kadarkoli poveze v razdelku Naprave.
 
 from __future__ import annotations
 
+import os
+import sys
+
+KOREN = os.path.dirname(os.path.abspath(__file__))
+if KOREN not in sys.path:
+    sys.path.insert(0, KOREN)
+
+from core import urejen_izhod  # noqa: E402
+urejen_izhod.namesti_zgodnje_signale("safeer-os")
+
 import hmac
 import json
-import os
 import secrets
 import socket
 import subprocess
 import weakref
-import sys
 import threading
 import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
-
-KOREN = os.path.dirname(os.path.abspath(__file__))
-if KOREN not in sys.path:
-    sys.path.insert(0, KOREN)
 
 # Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
@@ -1838,6 +1842,10 @@ class SafeerOS(Gtk.Application):
         super().__init__(application_id=APP_ID, flags=zastavice)
         self.v_oknu = v_oknu
         self.posnetek = posnetek
+        self._koncano = False
+        self._izhod_v_teku = False
+        from core import urejen_izhod
+        urejen_izhod.povezi_signale(self._koncaj)
         self.shramba = os_programi.Shramba()
         # Pred prvim zapisom v shrambo: prazna shramba = nova namestitev (oznaci_vodnik).
         self._vodnik = not posnetek and oznaci_vodnik(self.shramba)
@@ -2317,6 +2325,8 @@ class SafeerOS(Gtk.Application):
         self.add_action(koncaj)
         for signal in (15, 1, 2):     # SIGTERM (odjava), SIGHUP, SIGINT: Mintov pult vrnemo
             GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal, lambda *a: (self._koncaj(), False)[1])
+        from core import urejen_izhod
+        urejen_izhod.povezi_signale(self._koncaj)
 
     def _vklopi_delovno(self) -> bool:
         """`safeer-os --delovna` (safeer-cinnamon ob prijavi ali ob vklopu teme), ko Safeer OS ze tece kot Safeer Player
@@ -3506,55 +3516,171 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _koncaj(self) -> None:
-        """Konec Safeer OS (izhod, odjava, »Nazaj v Linux Mint«): Mintov pult se vrne."""
-        if self._koncano:
+        """Konec Safeer OS po nacrtu stabilnosti P2: UI -> strezniki/vticnice -> podprocesi -> baze -> stanje -> exit."""
+        if getattr(self, "_koncano", False) or getattr(self, "_izhod_v_teku", False):
             return
-        if varuh_procesov.pod_varuhom() and not self._ponovni_zagon:
-            self._posnemi_stanje()        # varuh (meja pomnilnika) zazene Safeer OS znova s tem stanjem
+        self._izhod_v_teku = True
+
+        from core import urejen_izhod
+
+        # Posnetek stanja pred skrivanjem oken in ustavljanjem komponent
+        stanje_za_zapis = None
+        try:
+            stanje_za_zapis = self._stanje_za_obnovo()
+        except Exception as e:
+            print("[SafeerOS] posnetek stanja pred izhodom:", e, flush=True)
+
+        # 1. FAZA_UI: okna, lupina, budnost, medijski pogled, Mintov pult, kanali sporocil, Control UI, Splet UI
+        def korak_ui():
+            for o in self.get_windows():
+                try:
+                    o.set_visible(False)
+                except Exception:
+                    pass
+            if getattr(self, "lupina", None) is not None:
+                try:
+                    self.lupina.skrij()
+                except Exception:
+                    pass
+            try:
+                self._budnost.sprosti_vse()
+            except Exception:
+                pass
+            self._pocisti_medijski_pogled()
+            if self.namizje:
+                try:
+                    vrni_mintov_pult(self.shramba)
+                except Exception as e:
+                    print("[SafeerOS] Mintov pult ob izhodu:", e)
+            try:
+                if getattr(self, "_kanali_sporocil", None) is not None:
+                    self._kanali_sporocil.koncaj()
+            except Exception as e:
+                print("[SafeerOS] kanali Sporocil ob izhodu:", e)
+            c = en_proces.control_app()
+            if c is not None:
+                try:
+                    if getattr(c, "gledalec", None) is not None:
+                        c._konec_gledanja(pocakaj=0.5)
+                    if getattr(c, "_oddaljeni_gledalec", None) is not None:
+                        c._oddaljeni_gledalec.zapri(sporoci_stop=False)
+                    if getattr(c, "okno", None) is not None:
+                        c.okno.set_visible(False)
+                    if getattr(c, "pladenj", None) is not None:
+                        c.pladenj.odstrani()
+                except Exception as e:
+                    print("[SafeerOS] Control UI ob izhodu:", e)
+            try:
+                if self._spletni is not None or self._spletni_namizje is not None:
+                    from core.os_splet import pocisti_vse_ob_izhodu
+                    pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib, cas=2.0)
+            except Exception as e:
+                print("[SafeerOS] Splet ob izhodu:", e)
+            try:
+                if self._spletni is not None:
+                    self._spletni.koncaj()
+            except Exception:
+                pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerOS:ui", korak_ui, rok_s=2.5)
+
+        # 2. FAZA_STREZNIKI: Scit DNS, Sporocila, Control strezniki
+        def korak_strezniki():
+            try:
+                self.scit.koncaj()
+            except Exception as e:
+                print("[SafeerOS] scit:", e)
+            try:
+                self.sporocila.zapri()
+            except Exception as e:
+                print("[SafeerOS] sporocila:", e)
+            c = en_proces.control_app()
+            if c is not None:
+                try:
+                    if getattr(c, "link", None) is not None and c.link.povezava is not None:
+                        c.link.povezava.zapri()
+                    if getattr(c, "internet", None) is not None:
+                        c.internet.ustavi()
+                except Exception as e:
+                    print("[SafeerOS] Control strezniki ob izhodu:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerOS:strezniki", korak_strezniki, rok_s=2.0, na_niti=True)
+
+        # 3. FAZA_PODPROCESI: torrenti (rqbit), neposredni medij, medijski predvajalnik, Control podprocesi
+        def korak_podprocesi():
+            try:
+                os_torrent.torrenti().ustavi()
+            except Exception:
+                pass
+            self._ustavi_neposredni_medij()
+            if self._medijski_predvajalnik is not None:
+                try:
+                    self._medijski_predvajalnik.zapri()
+                except Exception:
+                    pass
+            c = en_proces.control_app()
+            if c is not None:
+                try:
+                    if getattr(c, "teamwork", None) is not None:
+                        c.teamwork.ustavi()
+                    if getattr(c, "datoteke", None) is not None:
+                        c.datoteke.ustavi()
+                    if getattr(c, "zvok", None) is not None:
+                        c.zvok.ustavi()
+                    if getattr(c, "zaslon", None) is not None:
+                        c.zaslon.ustavi(pocakaj_s=1.0)
+                    if getattr(c, "drugi_zaslon", None) is not None:
+                        c.drugi_zaslon.ustavi()
+                except Exception as e:
+                    print("[SafeerOS] Control podprocesi ob izhodu:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerOS:podprocesi", korak_podprocesi, rok_s=2.5, na_niti=True)
+
+        # 4. FAZA_BAZE: katalog medijev SQLite
+        def korak_baze():
+            if self._katalog is not None:
+                try:
+                    self._katalog.zapri()
+                except Exception:
+                    pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerOS:katalog", korak_baze, rok_s=1.5, na_niti=True)
+
+        # 5. FAZA_STANJE: posnetek stanja za obnovo in shramba
+        def korak_stanje():
+            if not self._ponovni_zagon:
+                if stanje_za_zapis:
+                    try:
+                        from core import nova_razlicica
+                        nova_razlicica.shrani_stanje("safeer-os", stanje_za_zapis, ime=nova_razlicica.OBNOVA)
+                    except Exception as e:
+                        print("[SafeerOS] shrani_stanje:", e)
+                else:
+                    try:
+                        self._posnemi_stanje()
+                    except Exception as e:
+                        print("[SafeerOS] posnetek stanja:", e)
+            if hasattr(self, "shramba") and hasattr(self.shramba, "shrani"):
+                try:
+                    self.shramba.shrani()
+                except Exception as e:
+                    print("[SafeerOS] shramba shrani:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerOS:stanje", korak_stanje, rok_s=1.5)
+
+        # 6. FAZA_EXIT: zapri okna in quit
+        def korak_exit():
+            for o in self.get_windows():
+                try:
+                    o.destroy()
+                except Exception:
+                    pass
+            self.quit()
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_EXIT, "SafeerOS:exit", korak_exit, rok_s=1.0)
+
         self._koncano = True
-        try:
-            self._budnost.sprosti_vse()
-        except Exception:  # noqa: BLE001
-            pass
-        self._pocisti_medijski_pogled()
-        self._ustavi_neposredni_medij()
-        if self._medijski_predvajalnik is not None:
-            self._medijski_predvajalnik.zapri()
-        if self._katalog is not None:
-            self._katalog.zapri()
-        if self.namizje:
-            vrni_mintov_pult(self.shramba)
-        try:
-            os_torrent.torrenti().ustavi()        # rqbit ne ostane teči brez Safeer OS
-        except Exception:
-            pass
-        # Brez nasega razresevalnika bi racunalnik ostal brez DNS: nastavitev povrnemo.
-        try:
-            self.scit.koncaj()
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] scit:", e)
-        try:
-            self.sporocila.zapri()
-        except Exception:
-            pass
-        try:
-            if getattr(self, "_kanali_sporocil", None) is not None:
-                self._kanali_sporocil.koncaj()   # okna vgrajenih programov nazaj na namizje (programi tecejo naprej)
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] kanali Sporocil ob izhodu:", e)
-        try:
-            # »Izbrisi ob izhodu« in Safeer DRM za oba Spleta (okno in namizje), s cakanjem na WebKit (najvec 5 s).
-            if self._spletni is not None or self._spletni_namizje is not None:
-                from core.os_splet import pocisti_vse_ob_izhodu
-                pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib)
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] Splet ob izhodu:", e)
-        try:
-            if self._spletni is not None:
-                self._spletni.koncaj()
-        except Exception:
-            pass
-        self.quit()
+        self._izhod_v_teku = False
 
     def _na_vlecene_podatke(self, pogled, kontekst) -> None:
         """Datoteke, ki jih uporabnik vlece v okno iz drugega programa (Nemo, namizje). WebKitGTK strani njihovih poti

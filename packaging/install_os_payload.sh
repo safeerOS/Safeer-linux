@@ -23,7 +23,7 @@ for modul in budnost otroci qt_dnevnik nastavitve_shema en_proces storitve_na_za
              os_splet splet_spanje splet_skripte processes_page tab_monitor tab_lifecycle splet_temno splet_varuh jeziki_strani ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters scit_pravila bank_guard odlozisce_varuh ozadje_strani drm safeer_drm splet_prenosi external_apps i18n pojavna_okna network_errors https_nadgradnja zascita dovoljenja_strani \
              spletni_klepeti os_kanali_sporocil vstavi_okno namizni_programi znacke_programov \
              poraba_kanalov os_poraba_kanalov \
-             lupina_most lupina_streznik lupina_proces varuh_procesov; do
+             lupina_most lupina_streznik lupina_proces varuh_procesov urejen_izhod; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"

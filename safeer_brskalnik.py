@@ -16,6 +16,9 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
+from core import urejen_izhod  # noqa: E402
+urejen_izhod.namesti_zgodnje_signale("safeer-browser")
+
 if os.environ.get("FLATPAK_ID"):
     # Flatpak od 1.0.127 brez dostopa do gostitelja (lastnik, 15. 10. 2026): brez ovojev /app/host-bin in brez celega
     # doma. Nastavitve, prijave in zaznamki ostanejo skupni s paketom .deb: manifest pokaze samo ~/.config/safeer-mint
@@ -174,18 +177,17 @@ class SafeerBrskalnik(Gtk.Application):
         self.okno = None
         self.splet = None
         self._zacasna_mapa = None
+        self._koncano = False
+        self._izhod_v_teku = False
         if self.avtomatizacija:
             from core.os_splet import pocisti_stare_zacasne_avtomatizacije, ustvari_zacasno_mapo_avtomatizacije
             pocisti_stare_zacasne_avtomatizacije()
             self._zacasna_mapa = ustvari_zacasno_mapo_avtomatizacije()
             self.config = ConfigManager(config_dir=self._zacasna_mapa)
-            import signal
-            try:
-                GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, self._ob_sigterm)
-            except Exception as e:
-                print("[Safeer Browser] signal_add SIGTERM:", e)
         else:
             self.config = None
+        from core import urejen_izhod
+        urejen_izhod.povezi_signale(self._koncaj)
         self.add_main_option("automation", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Nacin za avtomatizacijo (WebKitWebDriver)", None)
 
@@ -316,65 +318,130 @@ class SafeerBrskalnik(Gtk.Application):
         return rev
 
     def _ob_sigterm(self, *_a) -> bool:
-        """S1: Ob signalu SIGTERM pospravi zacasno mapo in zapre brskalnik."""
-        self._pospravi_avtomatizacijo()
-        if self.okno:
-            try:
-                self.okno.close()
-            except Exception:
-                pass
-        self.quit()
+        """Ob signalu SIGTERM/SIGINT: urejen izhod po nacrtu stabilnosti P2."""
+        self._koncaj()
         return False
-
-    def _pospravi_avtomatizacijo(self) -> None:
-        if self.splet is not None:
-            try:
-                self.splet.koncaj_drm()
-            except Exception as e:
-                print("[Safeer Browser] DRM ob zaprtju:", e)
-            if hasattr(self.splet, "pospravi"):
-                try:
-                    self.splet.pospravi()
-                except Exception as e:
-                    print("[Safeer Browser] pospravi splet:", e)
-        if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
-            from core.os_splet import _je_zacasna_mapa_avtomatizacije
-            if _je_zacasna_mapa_avtomatizacije(self._zacasna_mapa):
-                import shutil
-                try:
-                    shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
-                except Exception as e:
-                    print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
-            self._zacasna_mapa = None
 
     def _ob_zaprtju(self, *_a) -> bool:
-        if self.avtomatizacija:
-            self._pospravi_avtomatizacijo()
-            return False
-        try:
-            tren = self.splet.trenutni()
-            zavihki = self.splet.zavihki
-            from core.splet_spanje import naslov_pogleda   # uspan zavihek nima vec get_uri(), v seji pa ostane
-            shrani_ali_pozabi_sejo(self.splet.config, [naslov_pogleda(z["pogled"]) for z in zavihki],
-                                   next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0))
-        except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
-            print("[Safeer Browser] seja:", e, flush=True)
-        self.splet.koncaj_drm()
-        # »Izbrisi ob izhodu«: okno se skrije takoj, proces pa konca sele, ko WebKit podatke izbrise (najvec 5 s).
-        if self.splet.config.get("brisi_ob_izhodu", []) and not getattr(self, "_brisanje", False):
-            self._brisanje = True
-            self.okno.set_visible(False)
-            stanje = {"konec": False}
-
-            def konec():
-                if not stanje["konec"]:
-                    stanje["konec"] = True
-                    self.okno.destroy()
-                return False
-            self.splet.pocisti_ob_izhodu(lambda: GLib.idle_add(konec))
-            GLib.timeout_add_seconds(5, konec)
-            return True
+        """Ob zaprtju okna: urejen izhod po nacrtu stabilnosti P2."""
+        self._koncaj()
         return False
+
+    def _koncaj(self) -> None:
+        """Urejen izhod Safeer Browserja (P2: UI -> strezniki -> podprocesi -> baze -> stanje -> exit)."""
+        if getattr(self, "_koncano", False) or getattr(self, "_izhod_v_teku", False):
+            return
+        self._izhod_v_teku = True
+
+        import os
+        import time
+        from core import urejen_izhod
+
+        # Posnetek seje pred skrivanjem oken
+        zavihki_za_sejo = None
+        izbran_idx = 0
+        try:
+            if self.splet is not None and getattr(self.splet, "config", None) is not None:
+                tren = self.splet.trenutni()
+                zavihki = self.splet.zavihki
+                from core.splet_spanje import naslov_pogleda
+                zavihki_za_sejo = [naslov_pogleda(z["pogled"]) for z in zavihki]
+                izbran_idx = next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0)
+        except Exception as e:
+            print("[Safeer Browser] posnetek seje:", e, flush=True)
+
+        # 1. FAZA_UI: skrij okno, pocisti WebKit ob izhodu, pospravi Splet
+        def korak_ui():
+            if self.okno is not None:
+                try:
+                    self.okno.set_visible(False)
+                except Exception:
+                    pass
+            if self.splet is not None:
+                if self.splet.config.get("brisi_ob_izhodu", []) and not getattr(self, "_brisanje", False):
+                    self._brisanje = True
+                    ostane = {"n": 1}
+
+                    def konec():
+                        ostane["n"] = 0
+
+                    try:
+                        self.splet.pocisti_ob_izhodu(konec)
+                        kontekst = GLib.MainContext.default()
+                        rok = time.monotonic() + 2.0
+                        while ostane["n"] > 0 and time.monotonic() < rok:
+                            if not kontekst.iteration(False):
+                                time.sleep(0.01)
+                    except Exception as e:
+                        print("[Safeer Browser] pocisti_ob_izhodu:", e)
+                if hasattr(self.splet, "pospravi"):
+                    try:
+                        self.splet.pospravi()
+                    except Exception as e:
+                        print("[Safeer Browser] pospravi splet:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_UI, "SafeerBrowser:ui", korak_ui, rok_s=2.5)
+
+        # 2. FAZA_STREZNIKI: brskalnik nima zunanjih streznikov
+        def korak_strezniki():
+            pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STREZNIKI, "SafeerBrowser:strezniki", korak_strezniki, rok_s=1.0)
+
+        # 3. FAZA_PODPROCESI: Safeer DRM
+        def korak_podprocesi():
+            if self.splet is not None:
+                try:
+                    self.splet.koncaj_drm()
+                except Exception as e:
+                    print("[Safeer Browser] DRM ob izhodu:", e)
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_PODPROCESI, "SafeerBrowser:drm", korak_podprocesi, rok_s=2.0, na_niti=True)
+
+        # 4. FAZA_BAZE: WebKit baze
+        def korak_baze():
+            pass
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_BAZE, "SafeerBrowser:baze", korak_baze, rok_s=1.0)
+
+        # 5. FAZA_STANJE: seja, obnova, zacasna mapa avtomatizacije
+        def korak_stanje():
+            if not self.avtomatizacija and zavihki_za_sejo is not None and self.splet is not None and self.splet.config is not None:
+                try:
+                    shrani_ali_pozabi_sejo(self.splet.config, zavihki_za_sejo, izbran_idx)
+                except Exception as e:
+                    print("[Safeer Browser] seja:", e, flush=True)
+            try:
+                from core import nova_razlicica
+                nova_razlicica.shrani_stanje("safeer-browser", {"pid": os.getpid(), "zavihki": zavihki_za_sejo or []},
+                                             ime=nova_razlicica.OBNOVA)
+            except Exception as e:
+                print("[Safeer Browser] stanje obnova:", e)
+            if getattr(self, "_zacasna_mapa", None) and os.path.isdir(self._zacasna_mapa):
+                from core.os_splet import _je_zacasna_mapa_avtomatizacije
+                if _je_zacasna_mapa_avtomatizacije(self._zacasna_mapa):
+                    import shutil
+                    try:
+                        shutil.rmtree(self._zacasna_mapa, ignore_errors=True)
+                    except Exception as e:
+                        print("[Safeer Browser] pospravi zacasno ob zaprtju:", e)
+                self._zacasna_mapa = None
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_STANJE, "SafeerBrowser:stanje", korak_stanje, rok_s=2.0)
+
+        # 6. FAZA_EXIT: unici okno in koncaj
+        def korak_exit():
+            if self.okno is not None:
+                try:
+                    self.okno.destroy()
+                except Exception:
+                    pass
+            self.quit()
+
+        urejen_izhod.izvedi_korak(urejen_izhod.FAZA_EXIT, "SafeerBrowser:exit", korak_exit, rok_s=1.0)
+
+        self._koncano = True
+        self._izhod_v_teku = False
 
     def do_activate(self) -> None:
         if self.okno is None:
