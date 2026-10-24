@@ -482,6 +482,24 @@ class KrogPoHttp(unittest.TestCase):
         self.assertEqual(odgovori, [(401, "naprava_ni_seznanjena")])
 
 
+
+class KlepetBrezPonarejenegaPosiljatelja(unittest.TestCase):
+    """Pregled 25. 10. 2026: posiljatelja doloci sredisce; odjemalec brez kljuca ne more vpisati tujega sender_device."""
+
+    def test_sender_device_od_odjemalca_odstranjen(self):
+        kljuci = {"fon-os": "n-fon"}          # tujec nima kljuca v krogu
+        with mock.patch.object(link_hub_streznik.Hub, "naprava_iz_kljuca", staticmethod(lambda i: kljuci.get(i))):
+            hub = link_hub_streznik.Hub(odtis="ab" * 32, nas_id="n-racunalnik")
+            tujec, os_ = LaznaPovezava(), LaznaPovezava()
+            hub.obdelaj(tujec, _prijava("tujec", "Tujec", "sender", ("url", "chat")))
+            hub.obdelaj(os_, _prijava("fon-os", "Telefon", "sender", ("url", "chat")))
+            r = json.loads(hub.obdelaj(tujec, json.dumps({"id": "p1", "type": "chat.send", "target": "fon-os",
+                                                           "sender_device": "n-pc", "payload": {"text": "zivjo"}})))
+            if r["status"] == "accepted":
+                s = os_.zadnje("chat.send")
+                self.assertNotEqual(s.get("sender_device"), "n-pc")
+                self.assertEqual(s["sender"], "tujec")
+
 if __name__ == "__main__":
     unittest.main()
 
