@@ -84,7 +84,7 @@ try:   # X11: delovno obmocje zaslona (GdkX11.X11Monitor.get_workarea) in cas st
 except (ValueError, ImportError):
     GdkX11 = None
 
-from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, sistem_podatki, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
@@ -4824,6 +4824,10 @@ class SafeerOS(Gtk.Application):
             "smeti": os_datoteke.smeti,
             "obnoviIzSmeti": lambda: os_datoteke.obnovi_iz_smeti(str(a[0]) if a else ""),
             "nosilci": os_datoteke.nosilci,
+            # Diski s prostim prostorom (tudi nepriklopljeni) in podatki o racunalniku (core/sistem_podatki.py).
+            "diski": sistem_podatki.diski,
+            "priklopiDisk": lambda: sistem_podatki.priklopi(str(a[0]) if a else ""),
+            "sistemPodatki": sistem_podatki.podatki,
             "izvrziNosilec": lambda: os_datoteke.izvrzi(str(a[0]) if a else ""),
             "lastnostiDatoteke": lambda: os_datoteke.lastnosti(str(a[0]) if a else ""),
             "programiZaDatoteko": lambda: os_odpri_z.programi_za(str(a[0]) if a else ""),

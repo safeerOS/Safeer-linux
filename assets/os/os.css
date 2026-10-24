@@ -1653,3 +1653,14 @@ body.en-razdelek .nabiralnik { height:calc(100vh - 60px); max-height:calc(100vh 
 .debrid-opis { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
 .debrid-vrstica input { flex: 1 1 220px; min-width: 0; }
 .debrid-takoj { display: flex; align-items: center; gap: 8px; }
+
+/* Diski v Datotekah (lastnik, 24. 10. 2026): prosti prostor in zasedenost; nepriklopljen disk se priklopi s klikom. */
+.mape-seznam .mape-naslov { margin: 14px 14px 2px; font-size: 13px; font-weight: 600; color: var(--medlo); text-transform: none; }
+.mape-seznam button.disk { align-items: flex-start; }
+.disk-opis { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.disk-opis > span, .disk-opis small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disk-opis small { color: var(--medlo); font-size: 12px; }
+.disk-vrstica { display: block; height: 4px; border-radius: 2px; background: var(--rob); overflow: hidden; }
+.disk-vrstica b { display: block; height: 100%; background: var(--zelena); border-radius: 2px; }
+.mape-seznam button.disk.malo .disk-vrstica b { background: var(--opozorilo); }
+.mape-seznam button.disk.malo small { color: var(--opozorilo); }
