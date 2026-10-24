@@ -28,7 +28,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
+from . import debrid, jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
 from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
 from core import shramba_json
 
@@ -481,7 +481,7 @@ class Katalog:
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
-        "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi",
+        "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi", "mediaDebrid": "_debrid",
         "mediaPolice": "_police", "mediaOdkrivanje": "_odkrivanje", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
         "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
         "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
@@ -1424,6 +1424,10 @@ class Katalog:
 
     def _stanje(self, _a: list) -> dict:
         return {"na_voljo": True, "native": True, "predvajalnik": "GStreamer"}
+
+    def _debrid(self, a: list) -> Any:
+        """Naloga 131: debrid storitve - stanje, izbira ob zvrsteh, kljuci (core/debrid.most)."""
+        return debrid.most(self.mc.debrid, list(a or []))
 
     def _tokovi(self, a: list) -> Any:
         return self.mc.tokovi_postaje(self._niz(a, 0))

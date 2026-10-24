@@ -1646,3 +1646,10 @@ body.en-razdelek .nabiralnik { height:calc(100vh - 60px); max-height:calc(100vh 
 }
 /* ==== konec: nabiralnik Sporocil ==== */
 @media (max-width: 560px) { .scit-statistika { grid-template-columns: 1fr; } }
+
+/* Naloga 131: okno »Debrid storitve« - samo postavitev; barve, robovi in pisava so od obstojecih razredov (plosca, gumb). */
+.debrid-seznam { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+.debrid-vrstica { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.debrid-opis { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
+.debrid-vrstica input { flex: 1 1 220px; min-width: 0; }
+.debrid-takoj { display: flex; align-items: center; gap: 8px; }

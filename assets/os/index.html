@@ -271,6 +271,7 @@
                 <div class="kat-orodja">
                   <label class="kat-razvrsti"><span data-t="katRazvrsti"></span><select id="mediaRazvrsti"></select></label>
                   <label class="kat-jezik" id="mediaJezikPolje" hidden><select id="mediaJezik"></select></label>
+                  <label class="kat-jezik" id="mediaDebridPolje" hidden><select id="mediaDebrid"></select></label>
                   <label class="kat-jezik" id="mediaDrzavaPolje" hidden><select id="mediaDrzava"></select></label>
                   <div class="kat-filter-viri">
                     <button class="gumb" id="mediaViriFilterGumb" type="button" aria-expanded="false" aria-controls="mediaViriFilter"></button>
@@ -632,6 +633,17 @@
     <p class="drobno" id="mediaNapravePot" data-t="mediaNapraveOpis"></p>
     <div class="media-mape-seznam media-naprave-seznam" id="mediaNapraveSeznam" aria-live="polite"></div>
     <div class="gumbi"><button type="button" class="gumb" id="mediaNapraveNazaj" data-t="mediaNapravaNazaj" hidden></button><button type="button" class="gumb" id="mediaNapraveZapri" data-t="zapri"></button></div>
+  </div>
+</div>
+<!-- Naloga 131: debrid storitve - kljuci (shranjeni sifrirani) in »samo takoj predvajljivo«. -->
+<div class="sloj" id="slojDebrid"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca debrid-plosca" role="dialog" aria-modal="true" aria-labelledby="debridNaslov" aria-describedby="debridPojasnilo">
+    <span class="media-kicker">SAFEER MEDIA · DEBRID</span>
+    <h3 id="debridNaslov" data-t="debridNaslov"></h3>
+    <p class="drobno" id="debridPojasnilo" data-t="debridPojasnilo"></p>
+    <div class="debrid-seznam" id="debridSeznam"></div>
+    <label class="debrid-takoj"><input type="checkbox" id="debridSamoTakoj"> <span data-t="debridSamoTakoj"></span></label>
+    <div class="gumbi"><button type="button" class="gumb" id="debridZapri" data-t="zapri"></button></div>
   </div>
 </div>
 <div class="sloj" id="slojMagnet"><div class="tancica"></div>
