@@ -32,6 +32,7 @@ tests/*
 !tests/wayland_okolje.py
 !tests/zasebno_vodilo.py
 !tests/varovalo_niti.py
+!tests/skupni-primeri/
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/
