@@ -1708,7 +1708,7 @@ class MediaCenter:
             return None
         zadetki = tok_izbira.uredi(zadetki, lambda t: str(t.get("opis") or ""),
                                    tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
-                                   naslov=lambda t: "", **self._jezik_zvoka(item))
+                                   naslov=lambda t: "", **(self._jezik_zvoka(item) if hasattr(self, "_jezik_zvoka") else {}))
         for i in usenet_pravila.za_samodejno([float(t.get("gb") or 0.0) for t in zadetki]):
             t = zadetki[i]
             izid = self.debrid.usenet_tok(str(t["url"]), str(t.get("naslov") or ""), samo_takoj=False,
