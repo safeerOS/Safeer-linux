@@ -9458,6 +9458,7 @@
   function odpriMeniMonitorjev(p) {
     PR.meni = true;
     $("prostoriMeni").hidden = false;
+    $("prostoriMeniNaslov").textContent = t("prostorMonitorNaslov");
     var v = $("prostoriMeniVsebina");
     v.innerHTML = "";
     var naslov = el("div", "prostori-meni-vrsta");
@@ -9693,6 +9694,7 @@
   function odpriMeni() {
     PR.meni = true;
     $("prostoriMeni").hidden = false;
+    $("prostoriMeniNaslov").textContent = t("prostorMeniNaslov");
     narisiMeni(true);
     var plus = document.querySelector("#prostoriTrak .prostor.dodaj");
     if (plus) plus.setAttribute("aria-expanded", "true");

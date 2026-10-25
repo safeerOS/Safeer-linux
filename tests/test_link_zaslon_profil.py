@@ -19,6 +19,10 @@ class Profil(unittest.TestCase):
         p = lp.izberi(False, "ethernet", ZICNO, 0.4, VSE, hevc444=True)
         self.assertEqual((p["ime"], p["kodek"], p["izvorna"], p["pot"]), ("lan_zicno", "h264rgb", True, "neposredno"))
         self.assertEqual(lp.opis(p, 2560, 1440, 60), "LAN · 1 Gb/s · neposredno · 2560×1440 · 60 fps · brezizgubno")
+        # Navidezno namizje (lastnik 25. 10. 2026): vrstica pove, da je navidezno, in DPI gledalca.
+        self.assertEqual(lp.opis(p, 2560, 1600, 60, navidezno=True, merilo=1.25),
+                         "LAN · 1 Gb/s · neposredno · navidezno namizje · 2560×1600 · 120 DPI · 60 fps · brezizgubno")
+        self.assertNotIn("DPI", lp.opis(p, 1920, 1080, 60, navidezno=True))
 
     def test_zicni_brez_brezizgubnega_gledalca(self):
         p = lp.izberi(False, "ethernet", ZICNO, 0.4, ["izvorna", "444"], hevc444=True)
@@ -38,7 +42,7 @@ class Profil(unittest.TestCase):
     def test_zdoma(self):
         p = lp.izberi(True, "4g", ZICNO, 40.0, VSE, hevc444=True)
         self.assertEqual((p["ime"], p["kodek"], p["izvorna"], p["hitrost_mbps"]), ("zdoma", "", False, 0))
-        self.assertTrue(lp.opis(p, 1920, 1080, 60).startswith("Global Link · prek sredisca"))
+        self.assertTrue(lp.opis(p, 1920, 1080, 60).startswith("Global Link · prek središča"))
 
     def test_velikost(self):
         lan = lp.izberi(False, "ethernet", ZICNO, 0.4, ["izvorna"])

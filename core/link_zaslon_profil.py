@@ -121,8 +121,9 @@ def ukaz_brezizgubno(ffmpeg: str, display: str, sirina: int, visina: int, fps: i
             "-g", str(gop if gop > 0 else fps * 10), "-bf", "0", "-flags", "+low_delay", "-f", "h264", "-"]
 
 
-def opis(profil: dict, sirina: int, visina: int, fps: int) -> str:
-    """Kratka vrstica za dnevnik in gledalca, ki ne sestavi svoje: »LAN · 1 Gb/s · neposredno · 2560×1440 · 60 fps«."""
+def opis(profil: dict, sirina: int, visina: int, fps: int, navidezno: bool = False, merilo: float = 1.0) -> str:
+    """Kratka vrstica za dnevnik in gledalca, ki ne sestavi svoje (lastnik 25. 10. 2026: »LAN · 1 Gb/s · neposredno ·
+    navidezno namizje · locljivost · fps«). Navidezno namizje pove tudi DPI, ce ni 96 (merilo gledalca)."""
     deli = []
     ime = profil.get("ime")
     deli.append("Global Link" if ime == ZDOMA else ("LAN" if profil.get("omrezje") == "ethernet" else
@@ -130,8 +131,16 @@ def opis(profil: dict, sirina: int, visina: int, fps: int) -> str:
     h = int(profil.get("hitrost_mbps") or 0)
     if h:
         deli.append("%s Gb/s" % (h // 1000) if h >= 1000 and h % 1000 == 0 else "%d Mb/s" % h)
-    deli.append("neposredno" if profil.get("pot") == "neposredno" else "prek sredisca")
+    deli.append("neposredno" if profil.get("pot") == "neposredno" else "prek središča")
+    if navidezno:
+        deli.append("navidezno namizje")
     deli.append("%d×%d" % (int(sirina), int(visina)))
+    try:
+        dpi = int(round(96 * float(merilo)))
+    except (TypeError, ValueError):
+        dpi = 96
+    if navidezno and dpi != 96:
+        deli.append("%d DPI" % dpi)
     deli.append("%d fps" % int(fps))
     if profil.get("kodek") == "h264rgb":
         deli.append("brezizgubno")

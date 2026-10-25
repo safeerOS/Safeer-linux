@@ -1216,7 +1216,10 @@ class Zaslon:
                 glava["qp"] = 0
             if self._kazalec_x11 is not None:
                 glava["kazalec"] = True
-            glava["profil"] = dict(profil, opis=link_zaslon_profil.opis(profil, glava["w"], glava["h"], glava["fps"]),
+            navidezno = self._cilj == "apps"
+            glava["profil"] = dict(profil, opis=link_zaslon_profil.opis(
+                profil, glava["w"], glava["h"], glava["fps"], navidezno=navidezno,
+                merilo=self._merilo_navideznega() if navidezno else 1.0),
                                    zaslon="navidezno" if self._cilj == "apps" else "namizje")
             if utrip:
                 glava["rtt"] = True
@@ -1411,6 +1414,14 @@ class Zaslon:
             print("[zaslon] drugi zaslon je prazen (%s), seja koncana" % razlog, flush=True)
             self.ustavi()
             return
+
+    def _merilo_navideznega(self) -> float:
+        """Merilo navideznega namizja za gledalca (izhod x pisave, link_sway.razdeli_merilo) - za DPI v vrstici."""
+        drugi = self.drugi
+        try:
+            return float(getattr(drugi, "_osnova", 1.0) or 1.0) * float(getattr(drugi, "_pisava", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            return 1.0
 
     def _strazi_dostop(self, seja: int, konec: threading.Event) -> None:
         """Dokler tece seja: naprava brez upravljanja tega racunalnika (umik iz kroga, odvzem v drugem programu) jo konca."""
