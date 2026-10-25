@@ -116,11 +116,14 @@ class Tok(unittest.TestCase):
         self.assertEqual(str(e.exception), "ni_prostora")
         self.assertEqual(self.m.dodane, [])                                # brez prostora se prenos ne zacne
 
-    def test_po_48_urah_brez_gledanja_se_odstrani_samo(self):
+    def test_po_12_urah_brez_gledanja_se_odstrani_samo(self):
+        """Lastnik 25. 10. 2026: 12 ur po zadnjem predvajanju (prej 48 ur); 11 ur star prenos ostane."""
+        self.assertEqual(tt.RABA_VELJA_S, 12 * 3600)
+        self.assertEqual(link_datoteke.RABA_VELJA_S, 12 * 3600)        # prenosi za naprave: isto pravilo
         self._pripravi(H1)
         self._pripravi(H2)
         zdaj = time.time()
-        link_datoteke._pisi_rabo(self.raba, {H1: zdaj - 49 * 3600, H2: zdaj - 3600})
+        link_datoteke._pisi_rabo(self.raba, {H1: zdaj - 13 * 3600, H2: zdaj - 11 * 3600})
         self.assertEqual(tt.pocisti(self.m, self.raba), [H1])
         self.assertEqual(self.m.odstranjeni, [(H1, True)])
         self.assertEqual(set(link_datoteke._beri_rabo(self.raba)), {H2})
@@ -145,7 +148,7 @@ class Tok(unittest.TestCase):
 
     def test_brez_prostora_najprej_odstrani_negledano(self):
         self._pripravi(H1)
-        link_datoteke._pisi_rabo(self.raba, {H1: time.time() - 7 * 3600})     # 7 ur: ni vec "v teku", a mlajse od 48 h
+        link_datoteke._pisi_rabo(self.raba, {H1: time.time() - 7 * 3600})     # 7 ur: ni vec "v teku", a mlajse od 12 h
         stanje = {"prosto": False}
 
         def zmogljivost(mapa, potrebno):

@@ -879,7 +879,7 @@ def _magnet_klic(delo) -> dict:
 
 def _magnet_dodaj(uri: str, izbrane: list, potrjene: list) -> int:
     """Uporabnik je torrent dodal sam (Magnet povezave): ostane, dokler ga sam ne odstrani - tudi ce je prej nastal
-    kot prenos zaradi gledanja v Medijskem centru (tega po 48 urah brez predvajanja odstranimo sami)."""
+    kot prenos zaradi gledanja v Medijskem centru (tega po 12 urah brez predvajanja odstranimo sami)."""
     tid = os_torrent.torrenti().dodaj(uri, izbrane, potrjene)
     m = os_torrent.razcleni_magnet(uri)
     if m is not None:
@@ -1902,7 +1902,7 @@ class SafeerOS(Gtk.Application):
         self._ponovni_zagon = False
         #: Posodobitev je zagnal uporabnik v Safeer OS: nova razlicica ne caka na njegovo nedejavnost.
         self._posodobil_sam = False
-        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
+        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 12 ur nihce ni predvajal, se odstranijo sami.
         os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None

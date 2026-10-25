@@ -935,7 +935,7 @@ class SafeerControl(_OSNOVA):
         self.datoteke = link_datoteke.Datoteke(mape if isinstance(mape, list) else [],
                                               ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)))
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
-        # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 48 ur nihce ne predvaja, odstrani sam.
+        # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 12 ur nihce ne predvaja, odstrani sam.
         link_datoteke.zazeni_ciscenje()
         # Knjiznica kroga: film, ki ga je Safeer OS na tem racunalniku zaradi gledanja prenesel sam, vidijo in predvajajo
         # tudi naprave (magnet.list); zasebnih naslovov med njimi ni.
