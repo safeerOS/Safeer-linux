@@ -115,8 +115,9 @@ def nacin_predvajanja(item: dict, neposredni_zvok: Callable[[str], bool] = lambd
     vdelano = (item.get("vrsta") == "embed" or "/embed/" in nizko
                or any(x in nizko for x in ("youtube", "vimeo", "dailymotion", "peertube")))
     pot = urllib.parse.urlsplit(url).path.lower()
+    # webtor: koncni naslov toka, ki ga je preverila sonda (core/webtor.py) - vedno nas predvajalnik, nikoli brskalnik.
     neposredno = (os.path.splitext(pot)[1] in os_media.MEDIA_EXT or pot.endswith((".m3u8", ".mpd", ".ts"))
-                  or bool(item.get("glave")))
+                  or bool(item.get("glave")) or bool(item.get("webtor")))
     if vdelano and not neposredno:
         return "vdelano"
     if neposredno:
@@ -162,6 +163,10 @@ def tok_za_predvajalnik(item: dict, url: str) -> dict:
         tok["glave"] = dict(glave)
     if nadomestni:
         tok["nadomestni"] = nadomestni
+    if item.get("webtor"):
+        # Webtor (pregled Grok U4): sonda je preverila koncni naslov - predvajalnik ne sledi novim preusmeritvam
+        # (streznik bi drugi zahtevi lahko odgovoril s preusmeritvijo na http ali v domace omrezje).
+        tok["brez_preusmeritev"] = True
     return tok
 
 

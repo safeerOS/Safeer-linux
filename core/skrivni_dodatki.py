@@ -388,6 +388,38 @@ def skrij(naslov: str) -> str:
     return n
 
 
+def _skrivni_odseki(naslov: str) -> list:
+    """Odseki poti (in uporabnik:geslo), ki so skrivnost - za iskanje zetona v drugem naslovu."""
+    d = _razcleni(naslov)
+    if d is None:
+        return []
+    webtor = je_webtor_gostitelj(d.gostitelj)
+    izid, prejsnji = [], ""
+    for k, o in enumerate(d.pot.split("/")):
+        if k and je_skriven_odsek(o, prejsnji, webtor):
+            izid.append(o)
+        if k and o:
+            prejsnji = o
+    if d.z_uporabnikom:
+        izid.append(naslov[naslov.find("://") + 3:d.zacetek_poti].rpartition("@")[0])
+    return [o for o in izid if len(o) >= 4]
+
+
+def nosi_skrivnost(naslov: str, izvor: str) -> bool:
+    """Ali `naslov` (npr. koncni po preusmeritvi toka) nosi zeton dodatka, iz katerega je `izvor` (tok dodatka):
+    zacne se s pravo predpono dodatka ali vsebuje njen skrivni odsek. Webtor: predpona je vse pred »/resolve/«."""
+    n, izvor = str(naslov or ""), str(izvor or "")
+    with _ZAKLEP:
+        pravi = [p for p in _PRAVI.values() if izvor.startswith(p)]
+    predpona = max(pravi, key=len) if pravi else izvor.split("/resolve/", 1)[0] if "/resolve/" in izvor \
+        else (skrivna_predpona_toka(izvor) or "")
+    if not predpona:
+        return False
+    if n.startswith(predpona):
+        return True
+    return any(o in n or odkodiraj(o) in odkodiraj(n) for o in _skrivni_odseki(predpona))
+
+
 def zakrij(besedilo: object) -> str:
     """Besedilo za dnevnik ali sporocilo: prave predpone znanih dodatkov -> nadomestki, druge skrivnosti v naslovih
     (`/token/...`, kljuc v poizvedbi) zakrite z »…«."""

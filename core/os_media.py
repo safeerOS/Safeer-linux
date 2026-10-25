@@ -48,6 +48,7 @@ from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
 from . import skrivni_dodatki
+from . import webtor
 from core import shramba_json
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
@@ -3015,7 +3016,7 @@ class MediaCenter:
         if len(koreni) == 1:
             ime = next((str(x.get("ime") or "")[:60] for x in self._stremio_strezniki()
                         if media_servers._stremio_koren(str(x.get("url") or "")) == koreni[0]), "")
-            tokovi = vprasaj(koreni[0])
+            tokovi = self._oznaci_webtor(koreni[0], vprasaj(koreni[0]))
             if ime:
                 tokovi = [dict(t, dodatek=ime) for t in tokovi]
             zapomni(koreni[0], tokovi)
@@ -3050,7 +3051,8 @@ class MediaCenter:
         imena = {media_servers._stremio_koren(str(x.get("url") or "")): str(x.get("ime") or "")[:60]
                  for x in self._stremio_strezniki()}
         for k in koreni[:10]:               # vrstni red dodatkov ostane (prvi je dodatek kartice)
-            izid = [dict(t, dodatek=imena.get(k) or "") if imena.get(k) else t for t in (izidi.get(k) or [])]
+            izid = [dict(t, dodatek=imena.get(k) or "") if imena.get(k) else t
+                    for t in self._oznaci_webtor(k, izidi.get(k) or [])]
             zapomni(k, izid)
             for t in izid:
                 kljuc = str(t.get("url") or "") or ("torrent:%s:%s" % (t.get("hash") or "", t.get("indeks"))
@@ -3060,6 +3062,70 @@ class MediaCenter:
                     tokovi.append(t)
         self._tokovi_odgovor.vsi = not izpadi
         return tokovi
+
+    # --- Webtor rezerva (lastnik 25. 10. 2026; core/webtor.py) ------------------------------------------------------
+    def _je_webtor_koren(self, koren: str) -> bool:
+        """Dodatek je uporabnikov osebni dodatek Webtor: https://webtor.io (natanko) IN id manifesta Webtorja."""
+        if webtor.gostitelj(koren) != webtor.GOSTITELJ or not str(koren).lower().startswith("https://"):
+            return False
+        znani = self.__dict__.setdefault("_webtor_koreni", {})
+        if koren not in znani:
+            try:
+                znani[koren] = webtor.je_webtor_dodatek(str(media_servers.stremio_manifest(koren).get("id") or ""), koren)
+            except Exception:  # noqa: BLE001 - manifesta ni: ta zagon ga vprasamo znova ob naslednjem iskanju toka
+                return False
+        return znani[koren]
+
+    def _oznaci_webtor(self, koren: str, tokovi: list) -> list:
+        """Tokovi dodatka Webtor (`.../resolve/<JWT>`) dobijo vrsto (`[⚡WT]`, `[WT]`, `[⚡TB]`, `[P2P]`) in izdajo iz JWT
+        (hash, datoteka) - v izbiri gredo posebej, ne med neposredne povezave."""
+        if not tokovi or not self._je_webtor_koren(koren):
+            return tokovi
+        izid = []
+        for t in tokovi:
+            if t.get("url") and webtor.je_resolve_naslov(str(t["url"])):
+                if webtor.je_glavni_video(str(t.get("datoteka") or ""), t.get("velikost")) is False:
+                    continue                    # vzorec, slika, glasba (Android 25. 10.: naslovnica namesto filma)
+                t = dict(t, webtor=webtor.razcleni(str(t.get("vir") or ""))[0], webtor_kljuc=webtor.iz_jwt(str(t["url"])))
+            izid.append(t)
+        return izid
+
+    def _webtor_sonda(self, url: str, rok_ms: int) -> webtor.Sonda:
+        return webtor.sonda(url, rok_ms)
+
+    def _razresi_webtor(self, item_id: str, item: dict, tokovi: list, indeksi: list, stanje: dict) -> Optional[dict]:
+        """Prvi tok Webtor (po `indeksi`), ki v roku da prvi bajt: predvajalnik dobi KONCNI naslov, ki ga je sonda
+        preverila (https, javni naslov, najvec 5 preusmeritev) - nikoli /resolve/ z zetonom. Vse sonde ene izbire skupaj
+        najvec 15 s in najvec 2 (webtor.rok_sonde). None = nic (naslednji korak)."""
+        for i in indeksi:
+            if i in stanje["poskuseni"]:
+                continue
+            stanje["poskuseni"].add(i)
+            t = tokovi[i]
+            try:
+                pravi = skrivni_dodatki.dejanski(str(t.get("url") or ""))
+            except ValueError:
+                continue                        # dodatek ni odklenjen (zbirka skrivnosti zaklenjena)
+            if not webtor.je_resolve_naslov(pravi):
+                continue
+            zdaj = int(time.monotonic() * 1000)
+            rok = webtor.rok_sonde(stanje["zacetek"], zdaj, stanje["poskusov"])
+            if rok <= 0:
+                return None
+            if stanje["zacetek"] is None:
+                stanje["zacetek"] = zdaj
+            stanje["poskusov"] += 1
+            s = self._webtor_sonda(pravi, rok)
+            print("[SafeerMedia] webtor sonda:", webtor.opis_za_dnevnik(s), flush=True)
+            if s.izid != webtor.PREDVAJAJ or not s.koncni or skrivni_dodatki.nosi_skrivnost(s.koncni, pravi):
+                continue                        # ni video posode ali zeton v naslovu: nikoli v predvajalnik
+            ime = webtor.razcleni(str(t.get("vir") or ""))[1]
+            tok = {"url": s.koncni, "vir": ("%s %s" % (webtor.IME, ime)).strip()[:60],
+                   "kakovost": str(t.get("kakovost") or ""), "opis": str(t.get("opis") or "")}
+            resolved = dict(item, url=s.koncni, razlicice=[tok], stevilo_razlicic=1, webtor=True)
+            self._dynamic_items[item_id] = resolved
+            return resolved
+        return None
 
     #: Tokovi: ko kateri dodatek ze da tok, na ostale cakamo se najvec do toliko sekund od zacetka.
     #: Meritev 15. 10. 2026 (10 dodatkov, 4 filmi x 3): vsi dodatki odgovorijo v 2,9-5,4 s, izjeme 7,7 in 10,1 s
@@ -5090,6 +5156,9 @@ class MediaCenter:
         if stremio_url:
             koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
             tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
+            # Webtor rezerva (core/webtor.py): tokovi dodatka Webtor niso neposredne povezave - gredo v svoj korak.
+            webtor_tokovi = [t for t in tokovi if t.get("webtor")]
+            tokovi = [t for t in tokovi if not t.get("webtor")]
             # tok=True: neposreden tok dodatka (tudi brez koncnice) - predvajalnik ga sme tiho poskusiti kot razlicico.
             neposredni = [dict(t, tok=True) for t in tokovi if t.get("url") and not t.get("zunanje")
                           and (t["url"].startswith("https://") or media_servers.dovoljen_naslov(t["url"]))]
@@ -5118,7 +5187,13 @@ class MediaCenter:
             # preverba ⚡ tece hkrati z njim. Nato ⚡ torrent, povezave, Usenet s cakanjem, debrid s cakanjem.
             usenet = bool(pripravi_torrent) and self._usenet_mogoc(tip, ident)
             pred_f = debrid.v_ozadju(self.debrid.predpomnjeni, hashi) if usenet and aktivna and hashi else None
-            for korak in usenet_pravila.vrstni_red_virov(usenet, webtor=False):
+            # Webtor (lastnik 25. 10. 2026): kar nas debrid nima pripravljenega, zacne teci prek Webtorja (pred cakanjem
+            # na debrid). Ista izdaja kot nasi torrenti najprej; `[⚡TB]` skrijemo, ce je nas debrid TorBox (podvaja ga).
+            wt = [(tuple(t["webtor_kljuc"]) if t.get("webtor_kljuc") else None, t["webtor"]) for t in webtor_tokovi]
+            nasi = [webtor.kljuc(t.get("hash"), t.get("indeks")) for t in torrenti]
+            imamo_torbox = aktivna == debrid_pravila.TORBOX
+            wt_stanje: dict = {"zacetek": None, "poskusov": 0, "poskuseni": set()}
+            for korak in usenet_pravila.vrstni_red_virov(usenet, webtor=bool(webtor_tokovi)):
                 if korak == usenet_pravila.KORAK_USENET_TAKOJ:
                     resolved = self._razresi_usenet_takoj(item_id, item, ident, neposredni)
                     if resolved:
@@ -5147,12 +5222,25 @@ class MediaCenter:
                             resolved["glave"] = dict(neposredni[0]["glave"])
                         self._dynamic_items[item_id] = resolved
                         return resolved
+                    if webtor_tokovi and pripravi_torrent:
+                        # Takoj predvajljivo pri Webtorju (`[⚡WT]`, `[⚡TB]` brez nasega TorBoxa) - kot ziva povezava.
+                        resolved = self._razresi_webtor(item_id, item, webtor_tokovi,
+                                                        webtor.vrstni_red(nasi, wt, imamo_torbox, samo_takoj=True), wt_stanje)
+                        if resolved:
+                            return resolved
                     if drugi_http:
                         return dict(item, razlicice=drugi_http, stevilo_razlicic=len(drugi_http))
                 elif korak == usenet_pravila.KORAK_USENET_CAKAJ:
                     # Pripravljen je bil preverjen v prvem koraku: tu TorBox izdajo prenese (prenos Usenet je hiter -
                     # izmerjeno na TV 2,2 GB v 36 s), najvec dva poskusa do 15 GB.
                     resolved = self._razresi_usenet(item_id, item, tip, ident, [], samo_takoj=False)
+                    if resolved:
+                        return resolved
+                elif korak == usenet_pravila.KORAK_WEBTOR and webtor_tokovi:
+                    if not pripravi_torrent:
+                        return dict(item, torrent=True)
+                    resolved = self._razresi_webtor(item_id, item, webtor_tokovi, webtor.vrstni_red(nasi, wt, imamo_torbox),
+                                                    wt_stanje)
                     if resolved:
                         return resolved
                 elif korak == usenet_pravila.KORAK_DEBRID_CAKAJ and torrenti and aktivna:
@@ -5163,7 +5251,8 @@ class MediaCenter:
                 return self._razresi_torrent(item, torrenti) if pripravi_torrent else dict(item, torrent=True)
             # Brez predvajljivega toka ni strani in ni seznama povezav: kratko obvestilo, vsebina izgine s seznama.
             # Za ure si to zapomnimo le, ce so odgovorili vsi dodatki (izpad dodatka ni "ni na voljo").
-            if getattr(self._tokovi_odgovor, "vsi", False):
+            if getattr(self._tokovi_odgovor, "vsi", False) and not webtor_tokovi:
+                # Webtor je tok imel, a ni odgovoril v roku: to ni »ni na voljo« (naslednjic morda je).
                 if tip == "series" and not media_servers.stremio_je_epizoda(ident):
                     # Serija: ena epizoda brez toka se ni "serije ni" - presodimo po vec epizodah (v ozadju).
                     self.preveri_razpolozljivost([item])

@@ -7,7 +7,7 @@ import json
 import unittest
 from pathlib import Path
 
-from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U
+from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
 #: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
@@ -18,11 +18,22 @@ NI_NA_NAMIZJU = {
     "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
     "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
     "izberi_usenet": "namizje ima svojo vzporedno preverbo Useneta (Debrid.usenet_takoj)",
-    "webtor_oznaka": "Webtor (naslednji commit)", "je_webtor_dodatek": "Webtor (naslednji commit)",
-    "webtor_odlocitev": "Webtor (naslednji commit)", "webtor_vrstni_red": "Webtor (naslednji commit)",
-    "webtor_rok_sonde": "Webtor (naslednji commit)", "vrstni_red_korakov": "Webtor (naslednji commit)",
-    "scit_dovoljena": "Webtor (naslednji commit)",
 }
+#: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
+KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
+                  U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
+
+
+def _koraki_kot_android(ima_usenet: bool) -> list:
+    izid = []
+    for k in U.vrstni_red_virov(ima_usenet, True):
+        if not izid or izid[-1] != KORAKI_ANDROID[k]:
+            izid.append(KORAKI_ANDROID[k])
+    return izid
+
+
+def _wt_kljuc(x):
+    return None if x is None else W.kljuc(x[0], x[1])
 
 
 def _meritev(m):
@@ -105,6 +116,22 @@ def izracunaj(f, v):
         return S.za_prikaz(v["naslov"])
     if f == "odstrani_tok_ob_shranjevanju":
         return S.odstrani_tok_ob_shranjevanju(v["osnova"], v["tok"])
+    # Webtor rezerva (core/webtor.py, Android WebtorPravila.kt).
+    if f == "webtor_oznaka":
+        return list(W.razcleni(v["ime"]))
+    if f == "je_webtor_dodatek":
+        return W.je_webtor_dodatek(v["id"], v["osnova"])
+    if f == "webtor_odlocitev":
+        return W.odlocitev(v["koda"], v["prvi_bajt_ms"], v["potekel"])
+    if f == "webtor_rok_sonde":
+        return W.rok_sonde(v["zacetek_prve"], v["zdaj"], v["poskusov"])
+    if f == "webtor_vrstni_red":
+        return W.vrstni_red([_wt_kljuc(x) for x in v["nasi"]], [(_wt_kljuc(w[:2]), w[2]) for w in v["webtor"]],
+                            v["imamo_torbox"], v.get("samo_takoj", False))
+    if f == "vrstni_red_korakov":
+        return _koraki_kot_android(v["ima_usenet"])
+    if f == "scit_dovoljena":
+        return W.scit_dovoljena(v["ime"], v["naucene"], v["zdaj"])
     raise KeyError("neznano pravilo: " + f)
 
 

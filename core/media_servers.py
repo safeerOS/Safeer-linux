@@ -1204,6 +1204,11 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
             glave = ((namigi.get("proxyHeaders") or {}).get("request") if isinstance(namigi.get("proxyHeaders"), dict) else None) or {}
             if isinstance(glave, dict) and glave:
                 tok["glave"] = {str(k)[:80]: str(v)[:500] for k, v in glave.items() if "\n" not in str(v) and "\r" not in str(v)}
+            # Ime in velikost datoteke (behaviorHints): Webtor rezerva izbere glavni video, ne vzorca ali slike.
+            if namigi.get("filename"):
+                tok["datoteka"] = str(namigi["filename"])[:300]
+            if isinstance(namigi.get("videoSize"), int) and not isinstance(namigi.get("videoSize"), bool):
+                tok["velikost"] = int(namigi["videoSize"])
             podnapisi = [{"uri": skrivni_dodatki.skrij(str(p.get("url"))), "jezik": str(p.get("lang") or "")[:12]}
                          for p in (t.get("subtitles") or []) if isinstance(p, dict) and str(p.get("url") or "").startswith(("https://", "http://"))]
             if podnapisi:

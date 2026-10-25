@@ -48,7 +48,7 @@ from array import array
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from core import root_ukaz
+from core import root_ukaz, webtor
 from core.signed_feed import _atomic_write, isti_gostitelj
 
 NASLOV = "127.0.0.1"
@@ -1402,6 +1402,10 @@ class Scit:
             return None
         kategorija = self.seznami.kategorija(ime) if self.seznami is not None else None
         if kategorija == KATEGORIJA_PREMORA and self._premor_do and time.monotonic() < self._premor_do:
+            return None
+        if kategorija == KATEGORIJA_PREMORA and webtor.je_stalna_izjema_scita(ime):
+            # Webtor rezerva (25. 10. 2026): oglasni seznam ne sme ustaviti toka (API in gostitelj toka, natancno -
+            # core/webtor.py). Izmerjeno 25. 10.: nasi seznami jih ne blokirajo; seznami grozenj imajo vedno prednost.
             return None
         return kategorija
 

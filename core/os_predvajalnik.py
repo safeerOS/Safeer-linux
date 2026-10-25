@@ -37,6 +37,8 @@ class Skladba:
     #: Druge razlicice istega naslova: ((uri, glave), ...). Ce se tok ne odpre (4xx, 5xx, cas, stran HTML), predvajalnik
     #: tiho poskusi naslednjo; napako pokaze sele, ko ne dela nobena.
     nadomestni: tuple = ()
+    #: False: souphttpsrc ne sledi preusmeritvam (tok Webtor - koncni naslov je preverila sonda, core/webtor.py).
+    preusmeritve: bool = True
 
 
 #: Kode napak predvajanja (za dnevnik). Lastnik 18. 10. 2026: napak predvajalnika uporabniku ne kazemo - predvajalnik
@@ -313,7 +315,8 @@ class Predvajalnik:
                              podnapisi=_cisti_podnapisi(v.podnapisi),
                              naprava=str(v.naprava or "")[:80], oznaka=str(v.oznaka or "")[:1024],
                              izvirnik=str(v.izvirnik or "")[:2048], glave=cisti_glave(v.glave),
-                             nadomestni=cisti_nadomestne(v.nadomestni)) for v in vnosi]
+                             nadomestni=cisti_nadomestne(v.nadomestni), preusmeritve=v.preusmeritve is not False)
+                       for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
         return self.predvajaj(zacni)
@@ -850,7 +853,14 @@ class Predvajalnik:
         self.vodilo.remove_signal_watch()
 
     def _nastavi_vir(self, _playbin, vir) -> None:
-        """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva."""
+        """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva, in politika preusmeritev."""
+        s = self.trenutna
+        if s is not None and not s.preusmeritve:
+            try:
+                if vir.find_property("automatic-redirect") is not None:
+                    vir.set_property("automatic-redirect", False)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] preusmeritve toka:", type(e).__name__, flush=True)
         if not self._glave:
             return
         try:
