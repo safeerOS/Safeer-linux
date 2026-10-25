@@ -37,6 +37,7 @@ urejen_izhod.namesti_zgodnje_signale("safeer-os")
 import hmac
 import json
 import secrets
+import shutil
 import socket
 import subprocess
 import weakref
