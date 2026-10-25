@@ -88,6 +88,7 @@ from core import (os_datoteke, sistem_podatki, os_govor, os_katalog, os_knjiznic
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
+from core import link_prostori  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
 from core import nova_razlicica  # noqa: E402
 from core import media_servers  # noqa: E402
@@ -4092,6 +4093,14 @@ class SafeerOS(Gtk.Application):
         # Vgrajeni spletni predvajalnik nad Medijskim centrom: Escape (cel zaslon / nazaj) in F11 sta njegova.
         if self._plast_tipka(okno, dogodek):
             return True
+        # Super+Tab (Shift+Super+Tab nazaj): Prostori - zasloni povezanih naprav (Safeer Link Spaces). V Cinnamonu je
+        # bliznjica prosta (preverjeno 25. 10. 2026: gsettings org.cinnamon.desktop.keybindings*); tipko ujamemo tu,
+        # ker WebKitGTK tipke Super strani ne sporoci zanesljivo kot metaKey.
+        if dogodek.keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab) and dogodek.state & Gdk.ModifierType.SUPER_MASK \
+                and not self.posnetek and getattr(self, "pogled", None) is not None:
+            nazaj = dogodek.keyval == Gdk.KEY_ISO_Left_Tab or bool(dogodek.state & Gdk.ModifierType.SHIFT_MASK)
+            self._dogodek("prostori", {"smer": -1 if nazaj else 1}, self.pogled)
+            return True
         # F11: namizni nacin / okno (obicajna bliznjica, deluje tudi, ko se kaj zatakne).
         if dogodek.keyval == Gdk.KEY_F11 and not self.posnetek:
             self._celozaslonsko(not self.namizje)
@@ -4848,6 +4857,10 @@ class SafeerOS(Gtk.Application):
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
             "predajanje": lambda: nastavi_predajanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
+            # Prostori (Safeer Link Spaces, MVP): seznam zaslonov povezanih naprav in odprtje enega (Control caka na
+            # odgovor naprave do 15 s - nikoli na glavni niti).
+            "prostori": lambda: self._prostori(bool(a[0]) if a else True),
+            "prostorOdpri": lambda: self._prostor_odpri(str(a[0]) if a else ""),
             "odjava": lambda: control_dejanje("odjava"),
             "omrezje": lambda: os_omrezje.stanje(bool(a[0]) if a else False),
             # Internet prek telefona v Safeer Linku (Safeer Control). Stanje Controla ne zaganja; nastavitev in preizkus ga.
@@ -7853,6 +7866,42 @@ class SafeerOS(Gtk.Application):
         Safeer OS in se po prijavi samo zapre."""
         threading.Thread(target=lambda: control_dejanje("prijava") or self._odpri_control(), daemon=True).start()
         return True
+
+    # ------------------------------------------------------------------ Prostori (Safeer Link Spaces, MVP)
+    def _prostori(self, zazeni: bool = True) -> dict:
+        """Prostori za sloj #slojProstori (v ozadju): naprave v ozjem krogu, ki znajo pokazati svoj zaslon, in zapomnjene
+        brez povezave - v stalnem vrstnem redu (core/link_prostori.py). Zapis je v os.json (kljuc "prostori"); naprave
+        vprasa Safeer Control kot stran Naprave (brez njega naprav v Linku ni). `zazeni=False` (sprotna osvezitev
+        odprtega preklopnika): Controla ne zaganjamo - sicer bi ga ob napaki poskusali zagnati vsakih 5 s."""
+        izid = {"ok": False, "koda": "ni_controla"}
+        try:
+            tece = zazeni or _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None))
+        except Exception:  # noqa: BLE001
+            tece = False
+        if tece:
+            izid = _control_naprave("Seznam")
+        zive = izid.get("naprave") if izid.get("ok") and isinstance(izid.get("naprave"), list) else []
+        znane = link_prostori.ocisti_znane(self.shramba.get("prostori", []))
+        nove = link_prostori.zapomni(znane, zive, int(time.time()))
+        if nove != znane:
+            self.shramba.set("prostori", nove)
+        return {"ok": bool(izid.get("ok")), "koda": str(izid.get("koda") or ""),
+                "prostori": link_prostori.prostori(nove, zive)}
+
+    def _prostor_odpri(self, id_naprave: str) -> dict:
+        """Odpre zaslon prostora tukaj po ze obstojeci poti: racunalnik -> Upravljaj (oddaljeni zaslon z misko in
+        tipkovnico), naprava Android -> OdpriTukaj s CEL_ZASLON (potrditev na napravi, nato gledalec s Safeer Vnos).
+        Stran ne izbira programa ne poljubnega id-ja: velja samo prostor, ki je zdaj v Linku (link_prostori.za_odpiranje)."""
+        izid = _control_naprave("Seznam")
+        zive = izid.get("naprave") if izid.get("ok") and isinstance(izid.get("naprave"), list) else []
+        p = link_prostori.za_odpiranje(zive, id_naprave)
+        if p is None:
+            return {"ok": False, "koda": str(izid.get("koda") or "") if not izid.get("ok") else "ni_prostora"}
+        if p["nacin"] == link_prostori.NACIN_RACUNALNIK:
+            r = _control_naprave("Upravljaj", p["id"])
+        else:
+            r = _control_naprave("OdpriTukaj", p["id"], link_prostori.CEL_ZASLON)
+        return dict(r if isinstance(r, dict) else {"ok": False}, nacin=p["nacin"], ime=p["ime"])
 
     def _odpri_control(self) -> bool:
         """Safeer Control: prijavno okno (QR / koda) ali seznam naprav, ce je racunalnik ze povezan.

@@ -1,0 +1,268 @@
+"""Prostori (Safeer Link Spaces, MVP) skozi PRAVO stran (assets/os/index.html, os.js) in pravi most Safeer OS v WebKitGTK 6.0
+(Xvfb): gumb v glavi in Super+Tab (safeer_os._na_tipko) odpreta preklopnik, puscice izbirajo, Enter/klik odpre zaslon
+naprave po obstojeci poti Safeer Controla (Upravljaj za racunalnik, OdpriTukaj s CEL_ZASLON za Android), »+« odpre dodajanje
+naprave, Esc zapre in vrne fokus. Safeer Control je nadomescen (safeer_os._control_naprave), vse drugo je pravo."""
+import json
+import os
+import tempfile
+import unittest
+from unittest import mock
+
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DOM = tempfile.mkdtemp(prefix="safeer-prostori-zivo-")
+os.environ["XDG_CONFIG_HOME"] = os.path.join(_DOM, ".config")
+os.environ["XDG_CACHE_HOME"] = os.path.join(_DOM, ".cache")
+os.environ["XDG_DATA_HOME"] = os.path.join(_DOM, ".local", "share")
+os.makedirs(os.path.join(_DOM, ".cache"), exist_ok=True)
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("WebKit", "6.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+Gtk.init()
+
+import safeer_os as so  # noqa: E402
+from tests.test_stranska_vrstica_zivo import RAZPOLOZLJIVO, _cakaj, _Nic  # noqa: E402
+
+PRAVE = ("_nov_pogled", "_na_sporocilo", "_obdelaj_klic", "_odgovori", "_js", "_dogodek", "_na_tipko",
+         "_prostori", "_prostor_odpri")
+
+NAPRAVE = [
+    {"id": "jaz-control", "ime": "Ta", "zmoznosti": ["desktop"], "platforma": "linux", "ta": True, "ozji": True},
+    {"id": "pc-1-control", "ime": "Pisarna", "zmoznosti": ["desktop", "apps"], "platforma": "windows", "vrsta": "control",
+     "ozji": True},
+    {"id": "t-1-os", "ime": "Tablica", "zmoznosti": ["zaslon.deli", "remote"], "platforma": "tablet", "ozji": True},
+    {"id": "tuj", "ime": "Tuj telefon", "zmoznosti": ["zaslon.deli"], "platforma": "phone", "ozji": False},
+]
+
+
+class _Shramba(dict):
+    def set(self, k, v):
+        self[k] = v
+
+
+def _os_razred(jezik):
+    imena = {ime: so.SafeerOS.__dict__[ime] for ime in PRAVE}
+
+    class Os:
+        posnetek = ""
+
+        def __init__(self):
+            self.pogledi, self._os_kontekst, self.razdelki = [], None, []
+            # Prej videna naprava, ki je zdaj ni v Linku: ostane na svojem mestu (prva), oznacena »ni povezana«.
+            self.shramba = _Shramba(prostori=[{"kljuc": "tv-9", "id": "tv-9-os", "ime": "Kuhinja", "vrsta": "tv",
+                                               "nacin": "zaslon", "dodana": 1, "videna": 1}])
+
+        def __getattr__(self, ime):
+            return _Nic()
+
+        def _na_politiko(self, *_a):
+            return False
+
+        def _zacetek(self):
+            return {"jezik": jezik, "sporocila": True, "platforma": "linux", "mape": [], "razlicica": "1.0.133",
+                    "razpolozljivo": RAZPOLOZLJIVO, "agent": {"na_voljo": False}, "povezava": {"stanje": "povezan"}}
+
+        def _katalog_most(self):
+            class _K:
+                @staticmethod
+                def pozna(_m):
+                    return False
+            return _K()
+    for ime, f in imena.items():
+        setattr(Os, ime, f)
+    return Os
+
+
+class Prostori(unittest.TestCase):
+    JEZIK = "sl"
+    NI_NASLOVA = "neposredno"
+
+    def setUp(self):
+        self.klici = []
+        self.odgovori = {}
+
+        def control(metoda, *a):
+            self.klici.append((metoda,) + a)
+            if metoda == "Seznam":
+                return {"ok": True, "naprave": NAPRAVE}
+            return self.odgovori.get(metoda, {"ok": True})
+        p = mock.patch.object(so, "_control_naprave", side_effect=control)
+        p.start()
+        self.addCleanup(p.stop)
+        self.dejanja = []
+        p2 = mock.patch.object(so, "control_dejanje", side_effect=lambda ime, *_a: self.dejanja.append(ime) or True)
+        p2.start()
+        self.addCleanup(p2.stop)
+        self.os = _os_razred(self.JEZIK)()
+        self.pogled = self.os._nov_pogled("index.html")
+        self.os.pogled = self.pogled
+        self.okno = Gtk.Window()
+        self.okno.set_default_size(1260, 860)
+        self.okno.set_child(self.pogled)
+        self.okno.present()
+        self.addCleanup(self.okno.destroy)
+        self.assertTrue(_cakaj(lambda: self._js("!!window.SafeerOS && !!document.getElementById('gumbProstori')") is True, 20))
+        self.assertTrue(_cakaj(lambda: self._js("document.getElementById('gumbProstori').title") not in (None, "", "prostoriNamig"), 10))
+
+    def _js(self, koda):
+        izid = {}
+
+        def konec(p, r, *_):
+            try:
+                izid["v"] = json.loads(p.evaluate_javascript_finish(r).to_string() or "null")
+            except Exception as e:  # noqa: BLE001
+                izid["v"] = "napaka:%s" % e
+        self.pogled.evaluate_javascript("JSON.stringify((%s)) || \"null\"" % koda, -1, None, None, None, konec, None)
+        _cakaj(lambda: "v" in izid, 5)
+        return izid.get("v")
+
+    def tipka(self, kljuc, **mod):
+        self._js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', %s)), 1"
+                 % json.dumps(dict({"key": kljuc, "bubbles": True, "cancelable": True}, **mod)))
+
+    def odprto(self):
+        return self._js("document.getElementById('slojProstori').classList.contains('viden')")
+
+    def ploscice(self):
+        return self._js("Array.prototype.map.call(document.querySelectorAll('#prostoriTrak button.prostor'), "
+                        "function (b) { return b.getAttribute('aria-label'); })")
+
+    def fokus(self):
+        return self._js("document.activeElement.getAttribute('data-prostor')")
+
+    def pocakaj_naprave(self):
+        self.assertTrue(_cakaj(lambda: len(self.ploscice() or []) == 5, 10), self.ploscice())
+
+    def test_gumb_odpre_ploscice_v_stalnem_redu(self):
+        g = "document.getElementById('gumbProstori')"
+        self.assertEqual(self._js(g + ".getAttribute('aria-label')"), "Prostori – zasloni tvojih naprav (Super+Tab)")
+        self.assertEqual(self._js(g + ".getAttribute('aria-expanded')"), "false")
+        self._js(g + ".focus(), " + g + ".click(), 1")
+        self.assertTrue(self.odprto())
+        self.pocakaj_naprave()
+        p = self.ploscice()
+        self.assertEqual(p[0], "Ta računalnik, Tukaj si")
+        self.assertTrue(p[1].startswith("Kuhinja, televizor, Ni povezana"), p[1])     # zapomnjena, na svojem mestu
+        self.assertEqual(p[2], "Pisarna, računalnik, Povezana")
+        self.assertEqual(p[3], "Tablica, tablica, Povezana")
+        self.assertEqual(p[4], "Dodaj napravo, QR ali 6-mestna koda")
+        self.assertNotIn("Tuj", json.dumps(p, ensure_ascii=False), "izven ozjega kroga ni prostor")
+        self.assertEqual(self.fokus(), "0", "gumb odpre na tem racunalniku")
+        self.assertEqual(self._js(g + ".getAttribute('aria-expanded')"), "true")
+        self.assertEqual(self._js("document.querySelector('#prostoriTrak .prostor.ta').getAttribute('aria-current')"), "true")
+        # Zapis ima nove naprave na koncu, zapomnjeno spredaj (stalna mesta).
+        self.assertEqual([z["kljuc"] for z in self.os.shramba["prostori"]], ["tv-9", "pc-1", "t-1"])
+        # Puscice, Home/End; Esc zapre in vrne fokus gumbu.
+        self.tipka("ArrowRight")
+        self.assertEqual(self.fokus(), "1")
+        self.tipka("ArrowLeft")
+        self.tipka("ArrowLeft")
+        self.assertEqual(self.fokus(), "4", "iz prvega levo na zadnjega")
+        self.tipka("Home")
+        self.assertEqual(self.fokus(), "0")
+        # Crka med odprtim preklopnikom ne gre v iskanje.
+        self.tipka("w")
+        self.assertEqual(self._js("document.getElementById('iskanje').value"), "")
+        self.tipka("Escape")
+        self.assertFalse(self.odprto())
+        self.assertEqual(self._js("document.activeElement.id"), "gumbProstori")
+
+    def test_super_tab_iz_gtk(self):
+        # Pravi upravljalec tipk okna (faza zajema): Super+Tab odpre in izbere naslednji prostor, vnovic naprej, Shift nazaj.
+        self.assertTrue(self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_Tab, Gdk.ModifierType.SUPER_MASK, 0)))
+        self.assertTrue(_cakaj(lambda: self.odprto() is True, 5))
+        self.assertTrue(_cakaj(lambda: self.fokus() == "1", 5), self.fokus())
+        self.pocakaj_naprave()
+        self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_Tab, Gdk.ModifierType.SUPER_MASK, 0))
+        self.assertTrue(_cakaj(lambda: self.fokus() == "2", 5), self.fokus())
+        self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_ISO_Left_Tab, Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.SHIFT_MASK, 0))
+        self.assertTrue(_cakaj(lambda: self.fokus() == "1", 5), self.fokus())
+        # Navaden Tab ni bliznjica.
+        self.assertFalse(self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_Tab, 0, 0)))
+
+    def test_enter_odpre_racunalnik(self):
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self._js("document.querySelector('[data-prostor=\"2\"]').click(), 1")
+        self.assertTrue(_cakaj(lambda: ("Upravljaj", "pc-1-control") in self.klici, 10), self.klici)
+        self.assertTrue(_cakaj(lambda: self.odprto() is False, 5))
+        self.assertIn("Pisarna", self._js("document.getElementById('obvestilo').textContent"))
+
+    def test_android_cel_zaslon_s_potrditvijo(self):
+        self.odgovori["OdpriTukaj"] = {"ok": True, "tu": True}
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self._js("document.querySelector('[data-prostor=\"3\"]').focus(), 1")
+        self._js("document.activeElement.click(), 1")
+        self.assertTrue(_cakaj(lambda: ("OdpriTukaj", "t-1-os", "safeer.cel.zaslon") in self.klici, 10), self.klici)
+        self.assertTrue(_cakaj(lambda: self.odprto() is False, 5))
+        self.assertEqual(self._js("document.getElementById('obvestilo').textContent"),
+                         "Na napravi Tablica potrdi deljenje zaslona – nato se odpre tukaj.")
+
+    def test_napaka_ostane_v_preklopniku(self):
+        self.odgovori["Upravljaj"] = {"ok": False, "koda": "ni_naslova", "message": "x"}
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self._js("document.querySelector('[data-prostor=\"2\"]').click(), 1")
+        self.assertTrue(_cakaj(lambda: self.NI_NASLOVA in (self._js("document.getElementById('prostoriStanje').textContent") or ""), 10))
+        self.assertTrue(self.odprto())
+
+    def test_brez_povezave_ne_klice(self):
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        pred = len(self.klici)
+        self._js("document.querySelector('[data-prostor=\"1\"]').click(), 1")
+        self.assertEqual(self._js("document.getElementById('prostoriStanje').textContent"),
+                         "Naprava Kuhinja zdaj ni povezana. Vklopi jo ali na njej odpri Safeer.")
+        _cakaj(lambda: False, 0.3)
+        self.assertFalse([k for k in self.klici[pred:] if k[0] != "Seznam"], self.klici[pred:])
+        self.assertTrue(self.odprto())
+
+    def test_plus_odpre_dodajanje_naprave(self):
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self._js("document.querySelector('[data-prostor=\"4\"]').click(), 1")
+        self.assertTrue(_cakaj(lambda: self.dejanja == ["nova-naprava"], 10), self.dejanja)
+        self.assertFalse(self.odprto())
+
+    def test_osvezitev_ne_zaganja_controla(self):
+        # Sprotna osvezitev odprtega preklopnika (vsakih 5 s) Controla ne zazene; zapomnjene naprave ostanejo.
+        pred = len(self.klici)
+        with mock.patch.object(so, "_control_na_vodilu", return_value=False):
+            izid = self.os._prostori(False)
+        self.assertEqual(izid["koda"], "ni_controla")
+        self.assertEqual(self.klici[pred:], [])
+        self.assertEqual([p["id"] for p in izid["prostori"]], ["tv-9-os"])
+        self.assertTrue(self.os._prostori(True)["ok"])
+        self.assertIn(("Seznam",), self.klici[pred:])
+
+    def test_stran_ne_odpre_tujega(self):
+        # Most: id izven ozjega kroga ali neznan id ne gre do Controla.
+        self.assertEqual(self.os._prostor_odpri("tuj"), {"ok": False, "koda": "ni_prostora"})
+        self.assertEqual(self.os._prostor_odpri("jaz-control")["koda"], "ni_prostora")
+        self.assertFalse([k for k in self.klici if k[0] in ("Upravljaj", "OdpriTukaj")])
+
+
+class ProstoriAngleski(Prostori):
+    JEZIK = "en"
+    NI_NASLOVA = "directly"
+
+    def test_gumb_odpre_ploscice_v_stalnem_redu(self):
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self.assertEqual(self._js("document.getElementById('prostoriNaslov').textContent"), "Spaces")
+        self.assertEqual(self.ploscice()[2], "Pisarna, computer, Connected")
+
+    def test_android_cel_zaslon_s_potrditvijo(self):
+        pass
+
+    def test_brez_povezave_ne_klice(self):
+        pass
+
+
+if __name__ == "__main__":
+    unittest.main()

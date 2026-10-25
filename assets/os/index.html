@@ -47,6 +47,9 @@
         <input id="iskanje" type="text" autocomplete="off" spellcheck="false" data-ph="isci" aria-keyshortcuts="Control+K">
         <kbd class="bliznjica-lupe" aria-hidden="true">Ctrl+K</kbd>
       </label>
+      <!-- Prostori (Safeer Link Spaces): zasloni povezanih naprav, en klik ali Super+Tab. -->
+      <button class="gumb-ikona prostori-gumb" id="gumbProstori" type="button" data-naslov="prostoriNamig" aria-haspopup="dialog"
+              aria-controls="slojProstori" aria-keyshortcuts="Meta+Tab"><svg data-ikona="prostori"></svg></button>
       <div class="presledek"></div>
       <button class="stanje" id="gumbStanje">
         <span id="stanjePovezava"><i class="pika siva"></i><span data-t="brezNaprav"></span></span>
@@ -953,6 +956,19 @@
     <div class="jf-vsebina" id="jfVsebina"></div>
     <div class="gumbi"><button type="button" class="gumb" id="jfOsvezi"><svg data-ikona="ponovno"></svg><span data-t="katOsvezi"></span></button><button type="button" class="gumb" id="jfZapri" data-t="zapri"></button></div>
   </div>
+</div>
+<!-- Prostori (Safeer Link Spaces, MVP): ta racunalnik in zasloni povezanih naprav (os.js prostori*, safeer_os._prostori,
+     core/link_prostori.py). Izbira odpre zaslon naprave po obstojeci poti (oddaljeni zaslon / deljenje zaslona). -->
+<div class="sloj" id="slojProstori"><div class="tancica"></div>
+  <section class="plosca prostori-plosca" role="dialog" aria-modal="true" aria-labelledby="prostoriNaslov" aria-describedby="prostoriPod">
+    <div class="prostori-glava">
+      <h3 id="prostoriNaslov" data-t="prostori"></h3>
+      <button type="button" class="gumb-ikona" id="prostoriZapri" data-naslov="zapri"><svg data-ikona="x"></svg></button>
+    </div>
+    <p class="drobno" id="prostoriPod" data-t="prostoriPod"></p>
+    <div class="prostori-trak" id="prostoriTrak" role="group" aria-labelledby="prostoriNaslov"></div>
+    <p class="drobno prostori-stanje" id="prostoriStanje" aria-live="polite"></p>
+  </section>
 </div>
 <div id="obvestilo"></div>
 <script src="besedila.js"></script>
