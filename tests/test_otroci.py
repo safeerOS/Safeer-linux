@@ -1,8 +1,14 @@
 """Nasi podprocesi v svoji skupini (core/otroci.py, nacrt stabilnosti P1, naloga 41).
 
 Pred popravkom je ob roku ali ustavitvi signal dobil samo glavni proces: vnuk (soffice.bin za oosplash, upodabljalnik
-Electrona, swaybg za sway) je ostal. Okolje procesa preizkusov se ne spreminja (AGENTS.md): podprocesi dobijo env=."""
+Electrona, swaybg za sway) je ostal. Okolje procesa preizkusov se ne spreminja (AGENTS.md): podprocesi dobijo env=.
+
+Varovalo signalov (tests/varovalo_signalov.py, conftest): signal sme samo potomcem procesa preizkusov. Vnuk osiroti, ko se
+sh konca, zato ga preizkus razglasi za svojega (lastni), dokler se tece; pospravljanje ubije samo isti proces (cas
+zagona), nikoli PID, ki ga je sistem ze pobral (25. 10. 2026: tek je padal na kill(9) koncanih procesov).
+"""
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -12,8 +18,10 @@ import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
+sys.path.insert(0, os.path.join(KOREN, "tests"))
 
 from core import os_pretvorba_datotek, otroci  # noqa: E402
+from varovalo_signalov import cas_zagona, lastni  # noqa: E402
 
 
 def zivi(pid: int) -> bool:
@@ -39,6 +47,28 @@ def pocakaj_datoteko(pot: str, rok: float = 5.0) -> int:
     raise AssertionError("ni datoteke " + pot)
 
 
+def zabelezi(pid: int):
+    """(pid, cas zagona) procesa, ki ga je zagnal preizkus (sh ali sleep), ali None, ce ga ni vec."""
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            program = os.path.basename(f.read().split(b"\0", 1)[0]).decode("utf-8", "replace")
+    except OSError:
+        return None
+    if program not in ("sh", "sleep"):
+        return None
+    cas = lastni(pid)
+    return None if cas is None else (pid, cas)
+
+
+def ubij_ce_isti(zapis) -> None:
+    """SIGKILL samo istemu procesu (enak cas zagona): PID koncanega procesa je lahko ze tuj."""
+    if zapis is not None and cas_zagona(zapis[0]) == zapis[1]:
+        try:
+            os.kill(zapis[0], signal.SIGKILL)
+        except OSError:
+            pass
+
+
 def pocakaj_konec(pid: int, rok: float = 5.0) -> bool:
     konec = time.monotonic() + rok
     while time.monotonic() < konec:
@@ -56,14 +86,14 @@ class Skupina(unittest.TestCase):
         self.pidi = []
 
     def tearDown(self):
-        for pid in self.pidi:          # pospravi tudi, ce preizkus pade
-            try:
-                os.kill(pid, 9)
-            except OSError:
-                pass
+        for zapis in self.pidi:        # pospravi tudi, ce preizkus pade
+            ubij_ce_isti(zapis)
         for ime in os.listdir(self.d):
             os.unlink(os.path.join(self.d, ime))
         os.rmdir(self.d)
+
+    def _zabelezi(self, *pidi: int) -> None:
+        self.pidi += [zabelezi(pid) for pid in pidi]
 
     def _ukaz_z_vnukom(self, cakaj: bool = True) -> list:
         # sh zazene vnuka (sleep) v isti skupini in ga caka - kot oosplash soffice.bin.
@@ -72,7 +102,7 @@ class Skupina(unittest.TestCase):
     def test_ustavitev_konca_otroka_in_vnuka(self):
         p = otroci.zazeni(self._ukaz_z_vnukom(), stdin=subprocess.DEVNULL)
         vnuk = pocakaj_datoteko(self.vnuk)
-        self.pidi += [p.pid, vnuk]
+        self._zabelezi(p.pid, vnuk)
         self.assertTrue(zivi(vnuk))
         otroci.ustavi(p, rok=2)
         self.assertIsNotNone(p.returncode)
@@ -81,23 +111,24 @@ class Skupina(unittest.TestCase):
     def test_rok_konca_celo_skupino(self):
         p = otroci.zazeni(self._ukaz_z_vnukom(), stdin=subprocess.DEVNULL)
         vnuk = pocakaj_datoteko(self.vnuk)
-        self.pidi += [p.pid, vnuk]
+        self._zabelezi(p.pid, vnuk)
         with self.assertRaises(subprocess.TimeoutExpired):
             otroci.pocakaj(p, rok=0.3, rok_konca=2)
         self.assertTrue(pocakaj_konec(vnuk))
 
     def test_vnuk_po_koncu_glavnega_ne_ostane(self):
         p = otroci.zazeni(self._ukaz_z_vnukom(cakaj=False), stdin=subprocess.DEVNULL)
-        self.assertEqual(otroci.pocakaj(p, rok=10, rok_konca=2), 0)
+        # sh zapise vnuka in se konca: vnuk osiroti (ni vec potomec), core/otroci pa mora pospraviti tudi njega.
         vnuk = pocakaj_datoteko(self.vnuk)
-        self.pidi.append(vnuk)
+        self._zabelezi(vnuk)
+        self.assertEqual(otroci.pocakaj(p, rok=10, rok_konca=2), 0)
         self.assertTrue(pocakaj_konec(vnuk))
 
     def test_sigkill_ce_skupina_ne_uboga(self):
         ukaz = ["sh", "-c", 'trap "" TERM; sleep 60 & echo $! > "$1"; while :; do sleep 0.1; done', "sh", self.vnuk]
         p = otroci.zazeni(ukaz, stdin=subprocess.DEVNULL)
         vnuk = pocakaj_datoteko(self.vnuk)
-        self.pidi += [p.pid, vnuk]
+        self._zabelezi(p.pid, vnuk)
         zacetek = time.monotonic()
         otroci.ustavi(p, rok=0.5)
         self.assertLess(time.monotonic() - zacetek, 5)
@@ -109,13 +140,13 @@ class Skupina(unittest.TestCase):
         with self.assertRaises(subprocess.TimeoutExpired):
             os_pretvorba_datotek._zazeni_s_koncem(self._ukaz_z_vnukom(), 0.5)
         vnuk = pocakaj_datoteko(self.vnuk)
-        self.pidi.append(vnuk)
+        self._zabelezi(vnuk)
         self.assertTrue(pocakaj_konec(vnuk), "soffice.bin (vnuk) je ostal po roku")
 
     def test_otrok_brez_svoje_skupine_samo_on(self):
         """Nikoli killpg na skupino Safeer OS: otrok brez start_new_session dobi signal sam."""
         p = subprocess.Popen(["sleep", "60"])
-        self.pidi.append(p.pid)
+        self._zabelezi(p.pid)
         self.assertIsNone(otroci._skupina(p))
         otroci.ustavi(p, rok=2)
         self.assertEqual(p.returncode, -15)
@@ -177,16 +208,15 @@ class Izhod(unittest.TestCase):
             with open(os.path.join(d, "pidi")) as f:
                 otrok, uporabniski = (int(x) for x in f.read().split())
             vnuk = pocakaj_datoteko(os.path.join(d, "vnuk"))
+            # Vsi trije so osiroteli (s.py se je koncal): pospravljanje samo istih procesov, ce se tecejo.
+            zapisi = [zabelezi(pid) for pid in (otrok, vnuk, uporabniski)]
             try:
                 self.assertTrue(pocakaj_konec(otrok), "dolgoziv otrok je ostal po izhodu")
                 self.assertTrue(pocakaj_konec(vnuk), "vnuk dolgozivega otroka je ostal po izhodu")
                 self.assertTrue(zivi(uporabniski), "uporabniski program je bil pospravljen")
             finally:
-                for pid in (otrok, vnuk, uporabniski):
-                    try:
-                        os.kill(pid, 9)
-                    except OSError:
-                        pass
+                for zapis in zapisi:
+                    ubij_ce_isti(zapis)
 
     def test_pospravi_vse(self):
         p = otroci.zazeni(["sleep", "60"], dolgoziv=True)

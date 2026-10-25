@@ -134,6 +134,28 @@ def test_signal_0_dovoljen(varovalo, tujec):
     assert not varovalo.krsitve
 
 
+def test_lastni_osiroteli_proces_samo_isti_in_v_tem_preizkusu(varovalo, tujec, monkeypatch):
+    """Vnuk, ki osiroti (tests/test_otroci.py), ni vec potomec: preizkus ga razglasi za svojega (lastni). Dovoljenje velja
+    samo za isti proces (cas zagona) in samo v tem preizkusu - ponovno uporabljen PID ali drug preizkus ga nima."""
+    import varovalo_signalov as vs
+    assert not varovalo.potomec(tujec)
+    assert vs.lastni(tujec) is not None and vs.lastni(tujec) == vs.cas_zagona(tujec)
+    assert varovalo.potomec(tujec)
+    assert varovalo._skupina_dovoljena(tujec)               # setsid: tujec je vodja svoje skupine (killpg)
+    with monkeypatch.context() as m:
+        m.setattr(vs, "cas_zagona", lambda pid: -1)          # drug proces z istim PID
+        assert not varovalo.potomec(tujec)
+    with monkeypatch.context() as m:
+        m.setattr(vs, "_preizkus", lambda: "tests/drug.py::Drug::test_drug")
+        assert not varovalo.potomec(tujec)
+    os.kill(tujec, signal.SIGTERM)
+    rok = time.monotonic() + 5
+    while _ziv(tujec) and time.monotonic() < rok:
+        time.sleep(0.02)
+    assert not _ziv(tujec)
+    assert not varovalo.krsitve
+
+
 def test_init_in_lastna_skupina_zavrnjena(varovalo):
     with pytest.raises(KrsitevSignala):
         os.kill(1, signal.SIGTERM)
