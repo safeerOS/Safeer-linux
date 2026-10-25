@@ -885,6 +885,9 @@ class Zaslon:
         `jedro`: jedro preverjenega kljuca naprave (zasciten screen.start); po njem straza preverja dostop."""
         if not self.vklopljeno:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
+        if not str(id_naprave or "").strip() and not jedro:
+            # Seja velja za napravo, ki jo je zacela (straza, screen.stop); brez nje je ne odpremo (pregled 11, N7).
+            raise RuntimeError("Seja zaslona brez naprave ni mogoca")
         if not self.ffmpeg:
             raise RuntimeError("Na tem racunalniku ni ffmpeg")
         from core import seja_prikaza
@@ -1495,21 +1498,25 @@ class Zaslon:
                 seja = self._seja_st     # ustavi samo to sejo, ne tiste, ki bi se zacela medtem
             if self._seja_st != seja or not (self._povezan or self._posluh is not None):
                 return False
-            naprava, jedro = self._naprava, self._jedro
+            # Cilj in loceni zaslon te seje beremo skupaj z napravo: po ustavi() ju lahko ze zamenja nova seja druge
+            # naprave, katere okna ne smemo zapreti (pregled 11, N13).
+            naprava, jedro, cilj, drugi = self._naprava, self._jedro, self._cilj, self.drugi
         if not naprava and not jedro:
             return False
         if self._dovoljeno(naprava, jedro):
             return False
         print("[zaslon] naprava nima vec upravljanja tega racunalnika (ozji krog), seja koncana", flush=True)
         self.ustavi(seja=seja, obvestilo={"konec": "dostop"})
-        if self._cilj == "apps" and self.drugi is not None and hasattr(self.drugi, "zapri_okna"):
+        if cilj == "apps" and drugi is not None and hasattr(drugi, "zapri_okna"):
             # Programi, ki jih je naprava odprla na locenem (nevidnem) zaslonu, ne tecejo naprej brez nje.
-            threading.Thread(target=self._zapri_locena_okna, name="safeer-zaslon-okna", daemon=True).start()
+            threading.Thread(target=self._zapri_locena_okna, args=(drugi,), name="safeer-zaslon-okna",
+                             daemon=True).start()
         return True
 
-    def _zapri_locena_okna(self) -> None:
+    @staticmethod
+    def _zapri_locena_okna(drugi) -> None:
         try:
-            self.drugi.zapri_okna()
+            drugi.zapri_okna()
         except Exception as e:  # noqa: BLE001
             print("[zaslon] okna locenega zaslona:", e, flush=True)
 

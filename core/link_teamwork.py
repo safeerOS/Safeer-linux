@@ -798,11 +798,15 @@ class Teamwork:
         st = 0
         for s in seje:
             with s.zaklep:
-                idji = [i for i in list(s.udelezenci) if pripada(i)]
-                for i in idji:
-                    s.udelezenci.pop(i, None)
-                if idji:
-                    st += len(idji)
+                kandidati = list(s.udelezenci)
+            # pripada() gre v link_dostop in krog (svoja zaklepa): klicemo ga brez zaklepa seje (pregled 11, N16).
+            idji = [i for i in kandidati if pripada(i)]
+            if not idji:
+                continue
+            with s.zaklep:
+                odjavljeni = [i for i in idji if s.udelezenci.pop(i, None) is not None]
+                if odjavljeni:
+                    st += len(odjavljeni)
                     self._posodobi_teamwork(s)
         return st
 

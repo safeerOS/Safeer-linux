@@ -2534,7 +2534,11 @@ class SafeerLink:
             if zaslon is not None and hasattr(zaslon, "preveri_dostop"):
                 self._preveri_sejo_zaslona(zaslon)
             datoteke = getattr(self, "datoteke", None)
-            if datoteke is not None and hasattr(datoteke, "preklici_napravo"):
+            # Zetone in Teamwork vzamemo samo napravi, ki datotek nima vec: odvzem programov ali predvajalnika ne sme
+            # prekiniti prenosa naprave, ki datoteke se sme (pregled 11, N2). Domaco mapo in tokove predvajalnika
+            # zapre preverba med posiljanjem (link_datoteke._Straza) sama.
+            if datoteke is not None and hasattr(datoteke, "preklici_napravo") and \
+                    not link_dostop.sme(jedro, link_dostop.DATOTEKE):
                 try:
                     datoteke.preklici_napravo(jedro)
                 except Exception as e:  # noqa: BLE001

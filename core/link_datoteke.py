@@ -83,7 +83,9 @@ def _v_ozjem_krogu(id_naprave: str) -> bool:
 
 
 def _je_dom(oznaka) -> bool:
-    return isinstance(oznaka, str) and oznaka.startswith("dom:")
+    """Oznaka, ki jo vidi samo ozji krog: domaca mapa (dom:) in ves disk (disk: - vsebuje tudi domaco mapo; pregled
+    11, V8: nastavitev »ves disk« ne sme obiti pravila domace mape)."""
+    return isinstance(oznaka, str) and (oznaka.startswith("dom:") or oznaka.startswith("disk:"))
 
 
 def _jedro_naprave(id_naprave: str) -> str:
@@ -246,45 +248,54 @@ def _realna(pot: str) -> Optional[str]:
 _SKRIVNOSTI_IMENA = frozenset(("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "id_ecdsa_sk", "id_ed25519_sk",
                                "wallet.dat", "credentials", "credentials.json", "client_secret.json", "deploy_key",
                                "netrc", "_netrc", "pgpass", "git-credentials", "login data", "login data for account",
-                               "web data", "cookies", "local state", "key3.db", "key4.db", "logins.json",
-                               "signons.sqlite", "cookies.sqlite", "cert9.db", "accesskeys.csv", "credentials.csv",
-                               "krb5.keytab", "secrets.json", "secrets.yaml", "secrets.yml"))
-_SKRIVNOSTI_KONCNICE = frozenset((".pem", ".key", ".p12", ".pfx", ".kdbx", ".kdb", ".jks", ".keystore", ".ppk",
-                                  ".gpg", ".pgp", ".asc", ".ovpn", ".kbx", ".keychain", ".keychain-db", ".opvault",
+                               "key3.db", "key4.db", "logins.json", "logins-backup.json", "signons.sqlite",
+                               "cookies.sqlite", "cert9.db", "accesskeys.csv", "credentials.csv", "krb5.keytab",
+                               "secrets.json", "secrets.yaml", "secrets.yml"))
+#: Imena profila brskalnika, ki so tudi obicajne besede (mapa receptov »Cookies«): skrivnost samo po vsebini (SQLite,
+#: os_crypt) - pregled 11, N8.
+_IMENA_PROFILA = frozenset(("cookies", "web data", "local state"))
+#: Spremljajoce datoteke SQLite profila (Login Data-journal, cookies.sqlite-wal): iste skrivnosti kot glavna (N9).
+_PRIPONE_PROFILA = ("-journal", "-wal", "-shm")
+#: .key (tudi predstavitev Keynote) in .asc (tudi javni kljuc ali podpis) nista vec skrivnost po koncnici - odloci
+#: vsebina (N8); .pem ostane po koncnici (potrdilo brez kljuca skrito po pomoti ni skoda).
+_SKRIVNOSTI_KONCNICE = frozenset((".pem", ".p12", ".pfx", ".kdbx", ".kdb", ".jks", ".keystore", ".ppk",
+                                  ".gpg", ".pgp", ".ovpn", ".kbx", ".keychain", ".keychain-db", ".opvault",
                                   ".1pif", ".psafe3", ".keytab", ".p8", ".pkcs8", ".pkcs12", ".jwk", ".tfstate",
                                   ".tfvars", ".env"))
-#: Kljuc SSH s pripono ali kopija (id_rsa.bak, id_ed25519_delo, github_rsa, deploy_ed25519~); javni (.pub) ni skrivnost.
-_KLJUC_SSH = re.compile(r"^(?:id_(?:rsa|dsa|ecdsa|ed25519)|.+_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?(?:[._~-].*)?$)")
-#: Izvozi gesel (Chrome Passwords.csv, bitwarden_export_*.json, gesla.txt): ime + vrsta besedila ali tabele.
+#: Kljuc SSH in kopija (id_rsa, id_rsa.bak, github_rsa, deploy_ed25519~); ne dokumenti (vaje_dsa.pdf, id_dsa_porocilo.pdf
+#: - pregled 11, N8). Drugace poimenovane kljuce brez koncnice (id_ed25519_delo) najde vsebina.
+_KLJUC_SSH = re.compile(r"^(?:id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|[\w.-]+_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?)"
+                        r"(?:\.(?:bak|old|orig|save|copy|key|pem|priv))?~?$")
+#: Izvozi gesel (Chrome Passwords.csv, bitwarden_export_*.json, gesla.txt, Gesla.docx): ime + vrsta besedila ali tabele.
 _IZVOZ_GESEL = re.compile(r"password|passwort|mot.de.passe|contrase|geslo|gesla|bitwarden|lastpass|1password|keepass|"
                           r"dashlane|nordpass|enpass")
-_KONCNICE_IZVOZA = frozenset((".csv", ".json", ".txt", ".xml", ".xlsx", ".ods", ".tsv"))
-#: Zacetek datoteke s skrivnostjo, ne glede na ime (prvih nekaj KB).
-_GLAVE_SKRIVNOSTI = (b"PuTTY-User-Key-File", b"\x03\xd9\xa2\x9a", b"openssh-key-v1")
+_KONCNICE_IZVOZA = frozenset((".csv", ".json", ".txt", ".xml", ".xlsx", ".xls", ".ods", ".tsv", ".docx", ".doc",
+                              ".odt", ".pdf"))
+#: Zacetek datoteke s skrivnostjo, ne glede na ime: PuTTY, KeePass, OpenSSH (surov), Java KeyStore (FEEDFEED).
+_GLAVE_SKRIVNOSTI = (b"PuTTY-User-Key-File", b"\x03\xd9\xa2\x9a", b"openssh-key-v1", b"\xfe\xed\xfe\xed")
+#: Koliko vsebine beremo: kljuc je lahko za dolgo verigo potrdil (N9) - pri datotekah potrdil in besedila vec.
+_GLAVA_B = 4096
+_GLAVA_KLJUCEV_B = 256 * 1024
+_KONCNICE_KLJUCEV = frozenset((".key", ".asc", ".crt", ".cer", ".der", ".txt", ".conf", ".cfg", ".yaml", ".yml", ""))
+#: Seznam mape vsebine ne bere pri datotekah teh vrst in vecjih od NAJVEC_ZA_SEZNAM_B (tisoc fotografij = tisoc branj,
+#: FUSE/omrezni disk, prebujanje USB - pregled 11, N5); prenos, slicico in odprtje pa preveri razresi pri vsaki datoteki.
+_VARNE_KONCNICE = frozenset((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".avif", ".tif", ".tiff",
+                             ".raw", ".cr2", ".nef", ".dng", ".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".ts",
+                             ".m2ts", ".mpg", ".mpeg", ".3gp", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".oga",
+                             ".opus", ".wav", ".wma", ".svg", ".epub", ".iso"))
+NAJVEC_ZA_SEZNAM_B = 64 * 1024
+_vsebina_spomin: "collections.OrderedDict[tuple, bool]" = collections.OrderedDict()
+_vsebina_kljuc = threading.Lock()
+_NAJVEC_SPOMINA = 8192
 
 
-def _vsebina_skrivnost(pot: str) -> bool:
-    """Ali je datoteka po vsebini skrivnost: zasebni kljuc PEM/OpenSSH/PuTTY, zbirka KeePass, kljuci AWS. Datoteke, ki
-    je ni mogoce prebrati, ne damo itak (razresi/prenos pade) - tu ni skrivnost."""
-    try:
-        if not stat.S_ISREG(os.stat(pot).st_mode):
-            return False
-        with open(pot, "rb") as f:
-            glava = f.read(4096)
-    except (OSError, ValueError):
-        return False
-    if glava.startswith(_GLAVE_SKRIVNOSTI):
-        return True
-    if b"-----BEGIN" in glava and (b"PRIVATE KEY" in glava or b"PGP PRIVATE KEY BLOCK" in glava):
-        return True
-    return b"aws_secret_access_key" in glava.lower()
-
-
-def _skrivnost(pot: str) -> bool:
-    """Datoteka s skrivnostjo po imenu (kljuc, potrdilo s kljucem, zbirka gesel, nastavitve VPN s kljucem, izvoz gesel)
-    in - kadar je `pot` absolutna pot do datoteke - po vsebini (_vsebina_skrivnost)."""
-    pot = str(pot or "")
-    ime = os.path.basename(pot).lower()
+def _ime_skrivnosti(ime: str) -> bool:
+    """Skrivnost po imenu datoteke (ne mape): kljuc, zbirka gesel, izvoz gesel, Kerberos."""
+    ime = ime.lower()
+    for pripona in _PRIPONE_PROFILA:
+        if ime.endswith(pripona):
+            ime = ime[:-len(pripona)]
+            break
     koncnica = os.path.splitext(ime)[1]
     if ime in _SKRIVNOSTI_IMENA or koncnica in _SKRIVNOSTI_KONCNICE:
         return True
@@ -292,9 +303,69 @@ def _skrivnost(pot: str) -> bool:
         return True
     if koncnica in _KONCNICE_IZVOZA and _IZVOZ_GESEL.search(ime):
         return True
-    if ime.startswith("krb5cc"):
-        return True                     # predpomnilnik vstopnic Kerberos (/tmp/krb5cc_<uid>)
-    return os.path.isabs(pot) and _vsebina_skrivnost(pot)
+    return ime.startswith("krb5cc")     # predpomnilnik vstopnic Kerberos (/tmp/krb5cc_<uid>)
+
+
+def _vsebina_skrivnost(pot: str, hitro: bool = False) -> bool:
+    """Ali je datoteka po vsebini skrivnost: zasebni kljuc (PEM, OpenSSH, PuTTY, PGP, kubeconfig), KeePass, JKS, kljuci
+    AWS, profil brskalnika (SQLite, os_crypt). Odpre se brez sledenja povezavi in brez cakanja (cev FIFO, N10), vrsta se
+    preveri na odprti datoteki. Napaka branja razen »ni« in »ni pravic« pomeni »ne vem« = skrivnost (N9). `hitro`
+    (seznam mape): brez branja pri varnih vrstah in vecjih datotekah (N5). Izid je v spominu po (naprava, inode, cas,
+    velikost)."""
+    ime = os.path.basename(pot).lower()
+    koncnica = os.path.splitext(ime)[1]
+    profil = ime in _IMENA_PROFILA
+    try:
+        st = os.stat(pot)
+    except (FileNotFoundError, PermissionError, NotADirectoryError):
+        return False
+    except (OSError, ValueError):
+        return True
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    if hitro and not profil and (koncnica in _VARNE_KONCNICE or st.st_size > NAJVEC_ZA_SEZNAM_B):
+        return False
+    kljuc = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
+    with _vsebina_kljuc:
+        znano = _vsebina_spomin.get(kljuc)
+    if znano is not None:
+        return znano
+    koliko = _GLAVA_KLJUCEV_B if koncnica in _KONCNICE_KLJUCEV else _GLAVA_B
+    zastavice = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0))
+    try:
+        rocaj = os.open(pot, zastavice)
+        try:
+            if not stat.S_ISREG(os.fstat(rocaj).st_mode):
+                return False
+            glava = os.read(rocaj, koliko)
+        finally:
+            os.close(rocaj)
+    except (FileNotFoundError, PermissionError):
+        return False
+    except (OSError, ValueError):
+        return True
+    nizka = glava.lower()
+    izid = (glava.startswith(_GLAVE_SKRIVNOSTI) or b"PRIVATE KEY-----" in glava or b"PGP PRIVATE KEY BLOCK" in glava
+            or b"aws_secret_access_key" in nizka or b"client-key-data:" in glava
+            or (profil and (glava.startswith(b"SQLite format 3\x00") or b'"os_crypt"' in glava)))
+    with _vsebina_kljuc:
+        _vsebina_spomin[kljuc] = izid
+        while len(_vsebina_spomin) > _NAJVEC_SPOMINA:
+            _vsebina_spomin.popitem(last=False)
+    return izid
+
+
+def _skrivnost(pot: str, hitro: bool = False) -> bool:
+    """Datoteka s skrivnostjo po imenu in - kadar je `pot` absolutna pot - po vsebini (_vsebina_skrivnost). Mape niso
+    skrivnost po imenu (pregled 11, N8: mapa »projekt_rsa« je izginila, njene datoteke pa so ostale dosegljive); v njih
+    se preveri vsaka datoteka posebej. `hitro`: za seznam mape (glej _vsebina_skrivnost)."""
+    pot = str(pot or "")
+    if os.path.isabs(pot) and os.path.isdir(pot):
+        return False
+    if _ime_skrivnosti(os.path.basename(pot)):
+        return True
+    return os.path.isabs(pot) and _vsebina_skrivnost(pot, hitro)
 
 
 #: Mape s profili programov brez pike v imenu (gesla, piskotki): ~/snap/<program>/... - Chromium iz snapa hrani Login
@@ -496,7 +567,7 @@ class DeljeneMape:
         vnosi: List[dict] = []
         zasebni_koren = _zasebna(koren)
         for ime in imena:
-            if ime.startswith(".") or _skrivnost(ime):
+            if ime.startswith("."):
                 continue
             cela = os.path.join(pot, ime)
             if _skrita_windows(cela, pot):
@@ -508,7 +579,7 @@ class DeljeneMape:
                 realna = os.path.realpath(cela)
                 if _sistemska(realna):
                     continue  # /proc, /etc ... (deljen koren ali povezava tja)
-                if _skrivnost(realna) or (_zasebna(realna) and not zasebni_koren):
+                if (not mapa and _skrivnost(realna, hitro=True)) or (_zasebna(realna) and not zasebni_koren):
                     continue  # razresi je tudi ne da
                 rel = os.path.relpath(realna, koren).replace(os.sep, "/")
                 if rel.startswith(".."):
@@ -534,7 +605,7 @@ class DeljeneMape:
             return None
         vnosi: List[dict] = []
         for ime in imena:
-            if ime.startswith(".") or _skrivnost(ime):
+            if ime.startswith("."):
                 continue
             cela = os.path.join(pot, ime)
             if _skrita_windows(cela, pot):
@@ -547,7 +618,7 @@ class DeljeneMape:
                 if realna != koren and not realna.startswith(koren + os.sep):
                     continue          # povezava ven iz domace mape
                 rel = os.path.relpath(realna, koren).replace(os.sep, "/")
-                if _skrita(rel) or _sistemska(realna) or _skrivnost(realna) or _zasebna(realna):
+                if _skrita(rel) or _sistemska(realna) or _zasebna(realna) or (not mapa and _skrivnost(realna, hitro=True)):
                     continue
                 v = {"id": "dom:" + rel, "name": ime, "type": "folder" if mapa else vrsta_datoteke(ime),
                      "modified": int(os.path.getmtime(cela))}
@@ -574,8 +645,6 @@ class DeljeneMape:
                 continue
             if na_korenu and (ime in self.SISTEMSKE or ime in SISTEMSKA_DREVESA_DISKA):
                 continue
-            if _skrivnost(ime):
-                continue
             cela = os.path.join(pot, ime)
             if _skrita_windows(cela, pot):
                 continue
@@ -584,7 +653,8 @@ class DeljeneMape:
                 if not mapa and not os.path.isfile(cela):
                     continue
                 realna = os.path.realpath(cela)
-                if _skrita(realna) or _sistemska_disk(realna) or _skrivnost(realna) or _zasebna(realna):
+                if (_skrita(realna) or _sistemska_disk(realna) or _zasebna(realna)
+                        or (not mapa and _skrivnost(realna, hitro=True))):
                     continue  # povezava v skrito mapo ali sistemsko drevo, skrivnost: oznaka ne bi veljala
                 v = {"id": "disk:" + realna, "name": ime,
                      "type": "folder" if mapa else vrsta_datoteke(ime), "modified": int(os.path.getmtime(cela))}
@@ -1114,6 +1184,26 @@ def postrezi_pot(obravnava, streznik: "StreznikDatotek", pot: str, samo_glava: b
     postrezi_datoteko(obravnava, streznik, urllib.parse.unquote(pot[3:]), samo_glava)
 
 
+def _mape_zagona() -> set:
+    """Mape, iz katerih se ob prijavi kaj zazene: koren domace mape (zagonske datoteke lupine), ~/bin in ~/.local/bin
+    (tudi kot simbolna povezava) in vse mape na PATH znotraj domace mape (pregled 11, N11)."""
+    dom = os.path.realpath(os.path.expanduser("~"))
+    mape = {dom, os.path.realpath(os.path.join(dom, "bin")), os.path.realpath(os.path.join(dom, ".local", "bin"))}
+    for p in (os.environ.get("PATH") or "").split(os.pathsep):
+        if p:
+            r = os.path.realpath(os.path.expanduser(p))
+            if r.startswith(dom + os.sep):
+                mape.add(r)
+    return mape
+
+
+def _mapa_namizja(mapa: str) -> bool:
+    """Namizje (zaganjalniki .desktop se tam pokazejo in jim namizje lahko zaupa)."""
+    dom = os.path.realpath(os.path.expanduser("~"))
+    r = os.path.realpath(mapa)
+    return os.path.dirname(r) == dom and os.path.basename(r).lower() in ("desktop", "namizje")
+
+
 def _ime_za_zagon(ime: str, mapa: str) -> bool:
     """Ime, ki ga naprava ne sme dati: skrita datoteka ali mapa (.bash_profile, .xprofile, .config ...), ime s
     skrivnostjo in ~/bin (na PATH ob prijavi). Prej je naprava z urejanjem lahko naredila datoteko, ki se izvede ob
@@ -1125,10 +1215,8 @@ def _ime_za_zagon(ime: str, mapa: str) -> bool:
 
 
 def _mapa_za_zagon(mapa: str) -> bool:
-    """Mape, v katere naprava nicesar ne premakne: koren domace mape (zagonske datoteke lupine) in ~/bin (PATH)."""
-    dom = os.path.realpath(os.path.expanduser("~"))
-    pot = os.path.realpath(mapa)
-    return pot in (dom, os.path.join(dom, "bin"))
+    """Mape, v katere naprava nicesar ne premakne (_mape_zagona)."""
+    return os.path.realpath(mapa) in _mape_zagona()
 
 
 def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
@@ -1156,7 +1244,8 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
     except (ValueError, UnicodeDecodeError):
         _napaka_http(obravnava, 400, "telo ni JSON")
         return
-    koda, odgovor = streznik.uredi(urllib.parse.unquote(pot[3:]), zahteva, naprava=streznik.naprava_zetona(z.strip()))
+    koda, odgovor = streznik.uredi(urllib.parse.unquote(pot[3:]), zahteva,
+                                   naprava=streznik.naprava_zetona((z or "").strip()) or None)
     telo = json.dumps(odgovor).encode("utf-8")
     obravnava.send_response(koda)
     obravnava.send_header("Content-Type", "application/json")
@@ -1735,8 +1824,8 @@ class StreznikDatotek:
         ukaz = str(zahteva.get("op") or "")
         if ukaz not in UKAZI:
             return 400, {"ok": False, "napaka": "neznan_ukaz"}
-        if naprava is not None and (_je_dom(oznaka) or _je_dom(zahteva.get("folder"))) and not self.v_ozjem_krogu(naprava):
-            return 404, {"ok": False, "napaka": "ni_datoteke"}
+        if (_je_dom(oznaka) or _je_dom(zahteva.get("folder"))) and not (naprava and self.v_ozjem_krogu(naprava)):
+            return 404, {"ok": False, "napaka": "ni_datoteke"}     # neznana naprava: ne (pregled 11, N12)
         r = self.mape.razresi(oznaka)
         if r is None:
             return 404, {"ok": False, "napaka": "ni_datoteke"}
@@ -1770,6 +1859,8 @@ class StreznikDatotek:
                     return 404, {"ok": False, "napaka": "ni_mape"}
                 if _mapa_za_zagon(cilj[1]) or _ime_za_zagon(os.path.basename(pot), cilj[1]):
                     return 403, {"ok": False, "napaka": "ni_dovoljeno"}
+                if _mapa_namizja(cilj[1]) and not os.path.isdir(pot) and je_nevarno_ime(os.path.basename(pot)):
+                    return 403, {"ok": False, "napaka": "nevarna_vrsta"}
                 nova = link_urejanje.premakni(pot, cilj[1])
             else:
                 if os.path.isdir(pot) or vrsta_datoteke(pot) != "image":
@@ -1891,17 +1982,18 @@ class Datoteke:
         ce je kaj datotek za prenasati - streznik se zazene sele takrat.
         """
         oznaka = str(oznaka or "")
-        # Domaco mapo vidi samo naprava v ozjem krogu: drugim je, kot da je ni (sedmi pregled, naloga 6).
-        dom = self.mape.dom and _v_ozjem_krogu(id_naprave)
+        # Domaco mapo in ves disk vidi samo naprava v ozjem krogu: drugim je, kot da ju ni (pregled 6 in 11).
+        ozji = _v_ozjem_krogu(id_naprave)
+        dom, disk = self.mape.dom and ozji, self.mape.ves_disk and ozji
         # Brez izbranih map, brez dovoljenja za cel racunalnik in brez domace mape za ozji krog ni kaj pokazati.
-        if not self.mape.poti and not self.mape.ves_disk and not dom:
+        if not self.mape.poti and not disk and not dom:
             return {"items": [], "folder": "", "shared": False}
-        if _je_dom(oznaka) and not dom:
+        if _je_dom(oznaka) and not ozji:
             raise FileNotFoundError("Te mape ni (vec) med deljenimi")
         vnosi = self.mape.seznam(oznaka)
         if vnosi is None:
             raise FileNotFoundError("Te mape ni (vec) med deljenimi")
-        if not dom:
+        if not ozji:
             vnosi = [v for v in vnosi if not _je_dom(v.get("id"))]
         self.mape.dodaj_podnapise(vnosi)
         # `edit`: naprava sme datoteke te mape brisati (v Smeti), preimenovati, premakniti in vrteti slike (POST /d/<id>).

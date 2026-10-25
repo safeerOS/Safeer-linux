@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import queue
 import re
+import socket
 import struct
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Callable, Dict, Iterable, Optional, Tuple
 from urllib.parse import quote, urlparse
 
@@ -128,6 +129,18 @@ def prenesi_https(streznik: dict, oznaka: str, rob: int = ROB, rok_s: float = RO
     konec = time.monotonic() + rok_s
     u = urlparse(str(streznik.get("base_url")))
     povezava = link_tls._PripetaHttps(u.hostname, u.port or 443, str(streznik.get("fp") or ""), rok_s)
+
+    def prekini() -> None:
+        # Ob roku prekinemo tudi branje, ki ravno caka (en read lahko sestavlja vec recv - pregled 11, N6).
+        sock = getattr(povezava, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+    casovnik = threading.Timer(rok_s, prekini)
+    casovnik.daemon = True
+    casovnik.start()
     try:
         pot = (u.path.rstrip("/") + "/thumb/" + quote(str(oznaka), safe="")) + "?s=%d" % int(rob)
         povezava.request("GET", pot, headers={"X-Safeer-Token": str(streznik.get("token") or "")})
@@ -145,8 +158,13 @@ def prenesi_https(streznik: dict, oznaka: str, rob: int = ROB, rok_s: float = RO
             if not kos:
                 break
             bajti += kos
+        if time.monotonic() >= konec:
+            return None
         return bytes(bajti) if len(bajti) <= NAJVEC_ODGOVOR else None
+    except OSError:
+        return None                     # tudi prekinitev ob roku
     finally:
+        casovnik.cancel()
         povezava.close()
 
 
@@ -218,21 +236,36 @@ class Slicice:
             except OSError as e:          # poln disk, mapa ni dosegljiva: ikona ostane, klicatelj ne dobi izjeme
                 print("[SafeerOS] slicice naprave ni bilo mogoce shraniti:", type(e).__name__, flush=True)
                 return None
-        # Skupen rok `rok` za klicatelja: pocasna naprava ga ne zadrzi (prej je cakal na vse niti). Prenos, ki do roka
-        # ni koncan, tece v ozadju do svojega roka (ROK_S) in je v predpomnilniku ob naslednjem klicu.
-        delavci = ThreadPoolExecutor(max_workers=HKRATI, thread_name_prefix="safeer-slicice-naprav")
-        try:
-            prihodnosti = [delavci.submit(eno, par) for par in manjka]
-            koncane, _ = wait(prihodnosti, timeout=max(0.0, konec - time.monotonic()))
-            for f in koncane:
+        # Skupen rok `rok` za klicatelja: pocasna naprava ga ne zadrzi. Prenos, ki do roka ni koncan, tece v ozadju do
+        # svojega roka (ROK_S, prekine ga casovnik) in je v predpomnilniku ob naslednjem klicu. Niti so demonske in ne
+        # vzamejo novih nalog po roku: zapiranje Safeer OS ne caka nanje (pregled 11, N6).
+        vrsta: "queue.Queue" = queue.Queue()
+        for par in manjka:
+            vrsta.put(par)
+        koncane: Dict[str, str] = {}
+        zaklep = threading.Lock()
+
+        def delavec() -> None:
+            while time.monotonic() < konec:
                 try:
-                    r = f.result()
+                    par = vrsta.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    r = eno(par)
                 except Exception:  # noqa: BLE001 - ena slicica ne podre ostalih
                     r = None
                 if r:
-                    izid[r[0]] = r[1]
-        finally:
-            delavci.shutdown(wait=False, cancel_futures=True)
+                    with zaklep:
+                        koncane[r[0]] = r[1]
+        niti = [threading.Thread(target=delavec, name="safeer-slicice-naprav", daemon=True)
+                for _ in range(min(HKRATI, len(manjka)))]
+        for n in niti:
+            n.start()
+        for n in niti:
+            n.join(max(0.0, konec - time.monotonic()))
+        with zaklep:
+            izid.update(koncane)
         return izid
 
     def _shrani(self, k: str, konc: str, bajti: bytes) -> str:

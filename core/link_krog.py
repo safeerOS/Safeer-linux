@@ -523,10 +523,11 @@ class Krog:
             return False
         spremenjeno = False
         umaknjena: set = set()
+        vracajo: set = set()
         with self._zaklep:
             # Krog te naprave (ne preizkusni ali zacasni): katere naprave (jedra kljucev) so bile clan pred zdruzitvijo -
             # ki niso vec, izgubijo dostop do vsebin tega racunalnika (core/link_dostop.ob_umiku_iz_kroga).
-            jedra_prej = self.znani()[0] if self is _krog else set()
+            jedra_prej = self.znani()[0] if self is _krog else None
             for i, u in (tuj.get("umiki") or {}).items():
                 if not isinstance(u, dict):
                     continue
@@ -589,14 +590,21 @@ class Krog:
                 if c and c["dodano"] > self.umiki[i]["umaknjeno"]:
                     del self.umiki[i]
                     spremenjeno = True
+                    if jedra_prej is not None:
+                        # Naprava se vraca po umiku: dostop do vsebin tega racunalnika samo z novo privolitvijo -
+                        # tudi ce zapis umika takrat ni uspel (pregled 11, N3).
+                        try:
+                            vracajo.add(id_iz_kljuca(c["kljuc"]))
+                        except Exception as e:  # noqa: BLE001 - pokvarjen vnos preskocimo
+                            print(f"[SafeerKrog] naprave, ki se vraca, ni mogoce prepoznati: {e}", flush=True)
             if spremenjeno and shrani:
                 self._shrani()
             if spremenjeno:
                 _ob_spremembi()
                 if jedra_prej:
                     umaknjena = jedra_prej - self.znani()[0]
-        if umaknjena:
-            _po_umiku(umaknjena, self._zaklep)
+        if umaknjena or vracajo:
+            _po_umiku(umaknjena | vracajo, self._zaklep)
         return spremenjeno
 
     def _shrani(self) -> None:
@@ -635,11 +643,12 @@ def _po_umiku(jedra: set, zaklep_kroga=None) -> None:
             link_dostop.ob_umiku_iz_kroga(set(jedra))
         except Exception as e:  # noqa: BLE001 - umik iz kroga velja tudi, ce zapisa dovoljenj ni mogoce spremeniti
             print(f"[SafeerKrog] dostopa umaknjenih naprav ni bilo mogoce vzeti: {e}", flush=True)
-    drzi = False
+    # Tudi modulski zaklep (navaden Lock: zaseden pomeni, da ga morda drzi klicatelj) - pregled 11, N16.
+    drzi = _zaklep.locked()
     try:
-        drzi = bool(zaklep_kroga is not None and zaklep_kroga._is_owned())
+        drzi = drzi or bool(zaklep_kroga is not None and zaklep_kroga._is_owned())
     except Exception:  # noqa: BLE001 - zaklep brez _is_owned: varneje v svoji niti
-        drzi = zaklep_kroga is not None
+        drzi = True
     if drzi:
         threading.Thread(target=klic, name="safeer-umik-dostopa", daemon=True).start()
     else:
