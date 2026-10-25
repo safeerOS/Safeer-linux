@@ -241,6 +241,9 @@ KODE: Dict[str, int] = {
     "Control_L": 29, "Shift_L": 42, "Alt_L": 56, "Super_L": 125,
     "a": 30, "b": 48, "c": 46, "f": 33, "i": 23, "p": 25, "s": 31, "t": 20, "u": 22, "v": 47, "w": 17,
     "x": 45, "y": 21, "z": 44,
+    # Ostale crke in stevke (link_vnos.TIPKE): drug racunalnik poslje vsako tipko posebej (linux/input-event-codes.h).
+    "d": 32, "e": 18, "g": 34, "h": 35, "j": 36, "k": 37, "l": 38, "m": 50, "n": 49, "o": 24, "q": 16, "r": 19,
+    "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10, "0": 11,
 }
 #: Maske krmilk v razporedu (Shift, Control, Mod1 = Alt, Mod4 = Super).
 MASKE = {29: 4, 42: 1, 56: 8, 125: 64}
@@ -356,7 +359,12 @@ class SwayVnos:
         vrsta = str(dogodek.get("vrsta", "") or "")
         ok = False
         if vrsta == "tipka":
-            kode = self._kode(str(dogodek.get("tipka", "") or ""))
+            oznaka = str(dogodek.get("tipka", "") or "")
+            fokus = getattr(self.drugi, "fokus", None)
+            if oznaka.strip().lower() == "nazaj" and fokus is not None and fokus.brskalnik_na_strani():
+                # Nazaj na daljincu v brskalniku: prejsnja stran, kot v brskalniku na televizorju.
+                oznaka = "brskalnik_nazaj"
+            kode = self._kode(oznaka)
             if kode:
                 for k in kode:
                     self._tipko(k, True)
@@ -552,18 +560,26 @@ BARVE_BRSKALNIK = {"rdeca": "brskalnik_nazaj", "zelena": "brskalnik_naprej",
 KORAK_KAZALCA = 24
 
 BRSKALNIKI = ("brave", "chrome", "chromium", "msedge", "microsoft-edge", "vivaldi", "opera")
+#: Druzina Firefox: ni med BRSKALNIKI (ti dobijo zastavice Chromiuma in se ob koncu seje zaprejo
+#: posebej), je pa spletni brskalnik - barvne tipke in Nazaj v njem delujejo enako.
+FIREFOXI = ("firefox", "librewolf", "waterfox", "floorp")
 
 
-def _ime_brskalnika(pot: str) -> bool:
+def _ime_brskalnika(pot: str, imena=BRSKALNIKI) -> bool:
     ime = os.path.basename(str(pot or "")).lower()
-    return any(b in ime for b in BRSKALNIKI)
+    return any(b in ime for b in imena)
 
 
-def _je_brskalnik(pid: int) -> bool:
+def _je_spletni_brskalnik(pid: int) -> bool:
+    """Katerikoli spletni brskalnik (Chromium ali Firefox) - za profil daljinca."""
+    return _je_brskalnik(pid, BRSKALNIKI + FIREFOXI)
+
+
+def _je_brskalnik(pid: int, imena=BRSKALNIKI) -> bool:
     # Chromium si ukazno vrstico prepise v en niz s presledki, zato najprej pogledamo izvrsljivo
     # datoteko, sele nato prvo besedo ukazne vrstice.
     try:
-        if _ime_brskalnika(os.readlink("/proc/%d/exe" % pid)):
+        if _ime_brskalnika(os.readlink("/proc/%d/exe" % pid), imena):
             return True
     except OSError:
         pass
@@ -572,7 +588,7 @@ def _je_brskalnik(pid: int) -> bool:
             prvi = f.read().split(b"\0")[0].decode("utf-8", "replace").split(" ")[0]
     except OSError:
         return False
-    return _ime_brskalnika(prvi)
+    return _ime_brskalnika(prvi, imena)
 
 
 def _namizje_x11() -> bool:

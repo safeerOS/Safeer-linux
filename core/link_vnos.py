@@ -39,6 +39,11 @@ TIPKE: Dict[str, str] = {
     "natisni": "ctrl+p", "iskanje_naprej": "F3",
     "f1": "F1", "f2": "F2", "f3": "F3", "f4": "F4", "f5": "F5", "f6": "F6",
     "f7": "F7", "f8": "F8", "f9": "F9", "f10": "F10", "f11": "F11", "f12": "F12",
+    # Imena, ki jih poslje drug racunalnik (Safeer Link PC <-> PC, oddaljeni zaslon Windows): krmilke posebej za
+    # bliznjice (Ctrl+C ...) ter crke in stevke. Gostitelj Linux jih potrebuje enako kot gostitelj Windows.
+    "krmilka": "Control_L", "dvigalka": "Shift_L", "sistemska": "Super_L",
+    **{chr(k): chr(k) for k in range(ord("a"), ord("z") + 1)},
+    **{str(k): str(k) for k in range(10)},
 }
 
 #: Gumbi miske: levi, srednji, desni in kolesce (4 gor, 5 dol).
