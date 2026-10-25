@@ -582,6 +582,13 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 # Oddaljeno namizje z druge naprave: brez locenega zaslona programa ne odpremo na namizju uporabnika.
                 koncaj(izid(False, "Računalnik nima ločenega zaslona", koda="ni_locenega_zaslona"))
                 return
+            drugi = getattr(programi, "drugi", None)
+            if isinstance(parametri.get("view"), dict) and drugi is not None and hasattr(drugi, "pripravi_za_gledalca"):
+                # Navidezno namizje v locljivosti in DPI gledalca ze pred zagonom programa (link_sway.razdeli_merilo).
+                try:
+                    drugi.pripravi_za_gledalca(parametri["view"])
+                except Exception as e:  # noqa: BLE001 - program se odpre tudi brez tega (velikost dobi ob screen.start)
+                    print("[daljinec] pogled pred zagonom:", e, flush=True)
             if programi.zazeni(oznaka):
                 koncaj(izid(True, "Program se zaganja"))
             else:
