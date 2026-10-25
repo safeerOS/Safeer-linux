@@ -140,7 +140,8 @@ DESKRIPTORJEV_NITI_TEAMWORK = 1
 POMNILNIK_NITI_TEAMWORK = 1024 * 1024
 DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.launch_locen", "apps.close", "apps.running"]
 DEJANJA_HOST = ["host.info"]
-DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
+#: screen.thumb: majhen posnetek namizja za preklopnik Prostori na drugi napravi (core/link_zaslon.Zaslon.slicica).
+DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status", "screen.thumb"]
 #: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
 DEJANJA_MAGNET = ["magnet.open"]
 #: Telefon ali tablica kot mikrofon: kar uporabnik pove v daljinec, isce iskalna lupa Safeer OS na tem racunalniku.
@@ -432,6 +433,23 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 return
             if d == "screen.status":
                 koncaj(izid(True, "Stanje zaslona", {**zaslon.na_voljo(), **zaslon.stanje()}))
+                return
+            if d == "screen.thumb":
+                # Zajem traja ~0,1-0,3 s (ffmpeg): ne v niti, ki sprejema ukaze Linka.
+                import threading
+
+                def slicica() -> None:
+                    try:
+                        sirina = parametri.get("width")
+                        s = zaslon.slicica(sirina if isinstance(sirina, int) and not isinstance(sirina, bool) else 320)
+                    except Exception as e:  # noqa: BLE001 - izid mora vedno priti nazaj
+                        koncaj(_izid_napake("Posnetka ni bilo mogoce narediti", e))
+                        return
+                    if s.get("ok"):
+                        koncaj(izid(True, "Slicica namizja", s.get("data")))
+                    else:
+                        koncaj(izid(False, "Slicice ni", koda=str(s.get("koda") or "napaka")))
+                threading.Thread(target=slicica, name="safeer-slicica-zaslona", daemon=True).start()
                 return
             if d == "screen.stop":
                 # Uporabnik je na televizorju koncal program: zapremo ga tudi na racunalniku

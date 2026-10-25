@@ -557,6 +557,20 @@ def privzeti_monitor() -> Optional[str]:
     return None
 
 
+#: Slicica namizja za preklopnik Prostori (screen.thumb): sirina v px, kakovost JPEG (2 = najboljsa, 31 = najslabsa),
+#: rok zajema (s) in kako dolgo velja zadnja (s) - vec naprav, ki gledajo hkrati, ne zajema vsaka zase.
+SLICICA_SIRINA, SLICICA_KAKOVOST, SLICICA_ROK_S, SLICICA_VELJA_S = 320, 7, 4.0, 1.5
+
+
+def ukaz_slicice(ffmpeg: str, display: str, sirina: int = SLICICA_SIRINA) -> List[str]:
+    """En okvir namizja X11, pomanjsan na `sirina` (visina po razmerju, soda), kot JPEG na stdout. Brez kazalca in
+    brez -video_size: x11grab vzame cel zaslon (vse monitorje), kot ga vidi uporabnik."""
+    sirina = max(64, min(640, int(sirina)))
+    return [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "x11grab", "-draw_mouse", "0",
+            "-i", display, "-frames:v", "1", "-vf", "scale=%d:-2:flags=bilinear" % sirina,
+            "-q:v", str(SLICICA_KAKOVOST), "-f", "image2pipe", "-c:v", "mjpeg", "-"]
+
+
 def _okvir(vrsta: int, vsebina: bytes) -> bytes:
     """Okvir pretoka: bajt vrste, stirje bajti dolzine, vsebina."""
     return bytes([vrsta]) + len(vsebina).to_bytes(4, "big") + vsebina
@@ -671,6 +685,9 @@ class Zaslon:
         #: Meritve tekoce seje (core/link_zaslon_meritve.Meritve) ali None, dokler gledalec ni povezan.
         self._meritve: Optional[link_zaslon_meritve.Meritve] = None
         self._kljucavnica = threading.Lock()
+        #: Slicica za Prostore: en zajem naenkrat in zadnja (monotonic, izid) za SLICICA_VELJA_S.
+        self._slicica_zaklep = threading.Lock()
+        self._slicica_zadnja: tuple = (0.0, None)
 
     # ------------------------------------------------------------------ stanje
 
@@ -725,6 +742,54 @@ class Zaslon:
             s["meritve"] = meritve.posnetek()
             s["kodirnik"] = meritve.opis.get("kodirnik")
         return s
+
+    def slicica(self, sirina: int = SLICICA_SIRINA, zazeni=subprocess.run) -> dict:
+        """Majhen posnetek namizja (JPEG, data URL) za preklopnik Prostori na drugi napravi v krogu (`screen.thumb`).
+
+        Velja isto dovoljenje kot za deljenje zaslona (uporabnik ga vklopi v Controlu; dostop do dejanja preveri
+        core/link_dostop: zmoznost zaslona, ozji krog). Samo X11: na Waylandu bi portal za vsak posnetek odprl
+        dialog - takrat `ni_brez_potrditve` in ploscica ostane pri ikoni. Brez seje, brez zvoka, brez vnosa."""
+        if not self.vklopljeno:
+            return {"ok": False, "koda": "ni_dovoljeno"}
+        from core import seja_prikaza
+        if seja_prikaza.je_wayland():
+            return {"ok": False, "koda": "ni_brez_potrditve"}
+        display = os.environ.get("DISPLAY", "")
+        if not display or not self.ffmpeg:
+            return {"ok": False, "koda": "ni_zajema"}
+        if not self._slicica_zaklep.acquire(blocking=False):
+            return {"ok": False, "koda": "zasedeno"}
+        try:
+            cas, zadnja = self._slicica_zadnja
+            if zadnja is not None and time.monotonic() - cas < SLICICA_VELJA_S:
+                return zadnja
+            try:
+                r = zazeni(ukaz_slicice(self.ffmpeg, display, sirina), capture_output=True, timeout=SLICICA_ROK_S)
+            except (OSError, subprocess.SubprocessError) as e:
+                print("[zaslon] slicica:", e, flush=True)
+                return {"ok": False, "koda": "napaka"}
+            slika = bytes(getattr(r, "stdout", b"") or b"")
+            if getattr(r, "returncode", 1) != 0 or not slika.startswith(b"\xff\xd8") or len(slika) > 180_000:
+                return {"ok": False, "koda": "napaka"}
+            import base64
+            visina = 0
+            # Visina iz glave JPEG (SOF0/SOF2), da gledalec ve razmerje brez dekodiranja.
+            i = 2
+            while i + 9 < len(slika):
+                if slika[i] != 0xFF:
+                    break
+                oznaka, dolzina = slika[i + 1], int.from_bytes(slika[i + 2:i + 4], "big")
+                if oznaka in (0xC0, 0xC2):
+                    visina = int.from_bytes(slika[i + 5:i + 7], "big")
+                    sirina = int.from_bytes(slika[i + 7:i + 9], "big")
+                    break
+                i += 2 + dolzina
+            izid = {"ok": True, "data": {"image": "data:image/jpeg;base64," + base64.b64encode(slika).decode("ascii"),
+                                         "width": int(sirina), "height": int(visina)}}
+            self._slicica_zadnja = (time.monotonic(), izid)
+            return izid
+        finally:
+            self._slicica_zaklep.release()
 
     # ------------------------------------------------------------------ zagon
 

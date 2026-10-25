@@ -328,7 +328,8 @@ class Slicice:
             r = {"ok": False, "koda": "napaka", "message": str(e)}
         r = r if isinstance(r, dict) else {}
         slika = veljavna_slicica(r.get("data")) if r.get("ok") else None
-        koda = "" if slika else str(r.get("koda") or ("napacna_slika" if r.get("ok") else "napaka"))[:32]
+        # Odgovor naprave prek Linka ima kodo v "code" (link_daljinec.izid), Control sam pa v "koda".
+        koda = "" if slika else str(r.get("koda") or r.get("code") or ("napacna_slika" if r.get("ok") else "napaka"))[:32]
         with self._zaklep:
             z["tece"] = False
             z["naslednjic"] = self._ura() + (SLICICA_NI_S if koda in _KODE_NI else SLICICA_VSAKIH_S)
