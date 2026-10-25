@@ -365,6 +365,8 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .spor-meni button { display:flex; align-items:center; gap:16px; }
 .spor-meni button kbd { margin-left:auto; color:var(--medlo); font:inherit; font-size:12px; }
 .spor-meni .drobno { margin:8px 12px; }
+/* Izbris sporocila: drugi klik potrdi (lastnik 23. 10. 2026). */
+.spor-meni button.potrdi { background: color-mix(in srgb, var(--rdeca) 16%, transparent); color: var(--rdeca); font-weight: 600; }
 .pogovor-okno { display:flex; flex-direction:column; min-width:0; max-height:58vh; }
 .pogovor-naslov { padding:17px 20px; border-bottom:1px solid var(--rob); font-weight:700; }
 .pogovor-vsebina { flex:1; overflow-y:auto; overscroll-behavior: contain; padding:20px; display:flex; flex-direction:column; gap:10px; }

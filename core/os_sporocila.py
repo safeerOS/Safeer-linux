@@ -22,6 +22,7 @@ from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
 from .sporocila import vklop as _vklop
+from .sporocila import izbris_linka as _izbris
 from . import predogled_datotek, splet_prenosi
 from .sporocila import predpomnilnik
 from .sporocila import slike as _slike
@@ -133,6 +134,24 @@ def _sporoci() -> None:
             print("[Sporocila] poslusalec:", e, flush=True)
 
 
+def cakajo_brisanja(pot=None) -> bool:
+    """Ali v bazi Sporocil cakajo izbrisi za druge naprave - hitro, samo za branje, brez nalaganja kanalov (Safeer Control
+    ob vsaki spremembi seznama naprav)."""
+    import sqlite3
+    from .sporocila.identiteta import PRIVZETA_POT
+    pot = Path(pot or PRIVZETA_POT)
+    if not pot.exists():
+        return False
+    try:
+        db = sqlite3.connect("file:%s?mode=ro" % pot, uri=True, timeout=1.0)
+        try:
+            return db.execute("SELECT 1 FROM klepet_brisanja LIMIT 1").fetchone() is not None
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return False
+
+
 class SporocilaOS:
     #: Osnutke shranjujejo, brisejo in usklajujejo locene niti mostu (safeer_os.py, ozadje): brez zaklepa
     #: branje-sprememba-zapis osnutki.json in IMAP APPEND/brisanje izgubijo, podvojijo ali obudijo osnutek
@@ -145,12 +164,15 @@ class SporocilaOS:
         self.poslji_klepet: Optional[Callable[[str, str, str], str]] = None
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
+        #: Izbris na vseh mojih napravah (nastavi gostitelj): (naprava, skupni id) -> "accepted"/"queued"/koda napake
+        self.izbrisi_klepet: Optional[Callable[[str, str], str]] = None
         self.storitev.ob_sinhronizaciji = self._po_sinhronizaciji
         #: Obvestilo namizja o novem pismu (nastavi gostitelj): (kanal_id, pogovor_id, naslov, besedilo). Klic je iz
         #: niti kanala; gostitelj sam presodi, ali je uporabnik pogovor ze gleda (takrat obvestila ni).
         self.obvesti_novo: Optional[Callable[[str, str, str, str], None]] = None
         self.storitev.ob_novih = self._ob_novih
         self._samodejno = bool(zazeni)
+        self._pripravi_izbris()
         self._nalozi()
         # Izklopljena Sporocila (core/sporocila/vklop.py): storitev ne tece, nic ne preverja poste.
         if zazeni and self.storitev.adapterji and _vklop.sporocila_vklopljena():
@@ -421,6 +443,9 @@ class SporocilaOS:
             k["priloge"] = "priloge" in getattr(self.storitev.adapterji.get(kid), "zmore", set())
             # Dejanja v seznamu (os.js pokaze samo ta): e-posta na strezniku, klepeti lokalno.
             k["dejanja"] = list(self.storitev.dejanja_kanala(kid))
+            if kid == KANAL_LINKA:
+                # Izbris celega pogovora (lastnik 23. 10. 2026): samo na tej napravi, brez Kosa; druga naprava ga obdrzi.
+                k["dejanja"] = ["izbrisi_pogovor"] + [d for d in k["dejanja"] if d != "izbrisi_pogovor"]
         for s in skupine:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
@@ -463,6 +488,11 @@ class SporocilaOS:
             if isinstance(c, (list, tuple)) and len(c) == 2:
                 po_kanalih.setdefault(str(c[0]), []).append(str(c[1]))
         for kid, pogovori in po_kanalih.items():
+            if kid == KANAL_LINKA and dejanje == "izbrisi_pogovor":
+                for pid in pogovori:
+                    self._izbrisi_pogovor_linka(pid)
+                _sporoci()
+                continue
             try:
                 self.storitev.dejanje_vec(kid, pogovori, str(dejanje), str(mapa or ""))
             except Exception as e:  # noqa: BLE001
@@ -724,6 +754,9 @@ class SporocilaOS:
         with st._zaklep:
             if st.db.execute("SELECT 1 FROM sporocila WHERE id=? AND kanal_id=?", (sid, KANAL_LINKA)).fetchone():
                 return False
+        # Izbrisano (pri meni ali na zahtevo posiljatelja): ponovna dostava iz vrste sredisca ga ne obudi.
+        if self._izbrisano(sid) or self._porabi_vnaprej(sid, od):
+            return False
         cas = _cas_klepeta(cas)
         with st._zaklep, st.db:
             st.db.execute("INSERT OR REPLACE INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje) "
@@ -754,10 +787,14 @@ class SporocilaOS:
         if self.poslji_klepet is None:
             raise ValueError(NAPAKE_KLEPETA["ni_controla"])
         cas = _cas_zdaj()
-        izid = str(self.poslji_klepet(naprava_id, besedilo, cas) or "")
+        odgovor = self.poslji_klepet(naprava_id, besedilo, cas)
+        # Control vrne stanje in skupni id sporocila (UUID, pod katerim ga hrani prejemnik - izbris na vseh napravah);
+        # starejsi Control samo stanje (niz): sporocilo dobi krajevni id, izbrisa drugje zanj ni.
+        izid = str((odgovor.get("stanje") if isinstance(odgovor, dict) else odgovor) or "")
+        skupni = str(odgovor.get("id") or "") if isinstance(odgovor, dict) else ""
         if izid not in ("accepted", "queued"):
             raise ValueError(NAPAKE_KLEPETA.get(izid, "Sporočila ni bilo mogoče poslati."))
-        sid = "chat:ven:" + uuid.uuid4().hex
+        sid = _izbris.PREDPONA_POSLANO + (skupni if _izbris.je_uuid(skupni) else uuid.uuid4().hex)
         st = self.storitev
         with st._zaklep, st.db:
             st.db.execute("INSERT OR REPLACE INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje) "
@@ -768,6 +805,139 @@ class SporocilaOS:
                           (besedilo[:240], cas, naprava_id, KANAL_LINKA))
         return {"id": sid, "pogovor_id": naprava_id, "smer": "ven", "besedilo": besedilo, "cas": cas,
                 "stanje": "caka" if izid == "queued" else "poslano", "caka": izid == "queued"}
+
+    # ------------------------------------------------------------------ izbris sporocil Safeer Chat (lastnik 23. 10.)
+    def _pripravi_izbris(self) -> None:
+        """Tabele izbrisa (isto bazo odpre tudi Safeer Control, ki sprejema klepet): izbrisana sporocila (ponovna
+        dostava iz vrste sredisca jih ne obudi), zahteve, ki so prisle pred sporocilom, in cakajoci izbrisi na drugih
+        napravah (naprava brez povezave)."""
+        st = self.storitev
+        with st._zaklep, st.db:
+            st.db.executescript("""
+              CREATE TABLE IF NOT EXISTS klepet_izbrisano(kanal_id TEXT, id TEXT, cas REAL, PRIMARY KEY(kanal_id, id));
+              CREATE TABLE IF NOT EXISTS klepet_vnaprej(kanal_id TEXT, id TEXT, od TEXT, potece REAL,
+                PRIMARY KEY(kanal_id, id));
+              CREATE TABLE IF NOT EXISTS klepet_brisanja(id TEXT PRIMARY KEY, cilj TEXT, zapisano REAL);
+            """)
+
+    #: Izbrisana sporocila hranimo toliko casa (sredisce hrani sporocila za nepovezano napravo krajse).
+    IZBRISANO_VELJA_S = 60 * 24 * 3600.0
+
+    def _izbrisi_vrstice(self, pogovor_id: str, ids: list) -> None:
+        """Izbrise sporocila Linka in si jih zapomni; zadnje sporocilo pogovora je potem najnovejse preostalo."""
+        st, zdaj = self.storitev, time.time()
+        with st._zaklep, st.db:
+            for sid in ids:
+                st.db.execute("DELETE FROM sporocila WHERE id=? AND kanal_id=?", (sid, KANAL_LINKA))
+                st.db.execute("INSERT OR REPLACE INTO klepet_izbrisano VALUES(?,?,?)", (KANAL_LINKA, sid, zdaj))
+            st.db.execute("DELETE FROM klepet_izbrisano WHERE cas<?", (zdaj - self.IZBRISANO_VELJA_S,))
+            zadnje = st.db.execute("SELECT besedilo FROM sporocila WHERE kanal_id=? AND pogovor_id=? "
+                                   "ORDER BY cas DESC, rowid DESC LIMIT 1", (KANAL_LINKA, pogovor_id)).fetchone()
+            # Izbrisano neprebrano se ne steje vec (stevec ne naraste - tiho shranjena sporocila ostanejo nesteta).
+            st.db.execute("UPDATE pogovori SET zadnje_sporocilo=?, neprebrano=MIN(COALESCE(neprebrano, 0), "
+                          "(SELECT COUNT(*) FROM sporocila s WHERE s.kanal_id=? AND s.pogovor_id=? AND s.smer='noter' "
+                          "AND s.stanje='prejeto')) WHERE id=? AND kanal_id=?",
+                          ((zadnje[0] if zadnje else "").replace("\n", " ")[:240], KANAL_LINKA, pogovor_id,
+                           pogovor_id, KANAL_LINKA))
+
+    def _izbrisano(self, sid: str) -> bool:
+        with self.storitev._zaklep:
+            return self.storitev.db.execute("SELECT 1 FROM klepet_izbrisano WHERE kanal_id=? AND id=?",
+                                            (KANAL_LINKA, sid)).fetchone() is not None
+
+    def izbrisi_sporocilo(self, kanal_id: str, pogovor_id: str, sporocilo_id: str, na_vseh: bool = False) -> dict:
+        """»Izbrisi pri meni« (samo na tej napravi) ali pri lastnem poslanem »Izbrisi na vseh mojih napravah«: izbrise
+        ga tu in napravi, ki ga je prejela, poslje zahtevo (Safeer Chat je pogovor dveh naprav). Vrne pogovor in izid
+        izbrisa drugje: "koncano", "caka" (naprava ni povezana ali izbrisa se ne javi - poslje se ob povezavi) ali ""."""
+        if kanal_id != KANAL_LINKA:
+            raise ValueError("ni_podprto")
+        s = self.storitev.sporocilo(KANAL_LINKA, str(sporocilo_id))
+        if s is None or s.pogovor_id != str(pogovor_id):
+            raise ValueError("ni_sporocila")
+        skupni = _izbris.skupni_id(s.id, s.smer) if na_vseh else None
+        if na_vseh and skupni is None:
+            raise ValueError("ni_podprto")
+        self._izbrisi_vrstice(s.pogovor_id, [s.id])
+        izid = ""
+        if skupni:
+            with self.storitev._zaklep, self.storitev.db:
+                self.storitev.db.execute("INSERT OR REPLACE INTO klepet_brisanja VALUES(?,?,?)",
+                                         (skupni, s.pogovor_id, time.time()))
+            izid = "koncano" if self._poslji_brisanje(skupni, s.pogovor_id, time.time()) == _izbris.KONCANO else "caka"
+        _sporoci()
+        return {"sporocila": self.pogovor(KANAL_LINKA, s.pogovor_id, oznaci=False), "izbris": izid}
+
+    def _izbrisi_pogovor_linka(self, pogovor_id: str) -> None:
+        """Izbris celega pogovora (samo tukaj): sporocila si zapomnimo (ponovna dostava jih ne vrne), novo sporocilo
+        te naprave pogovor odpre znova (kot Android, pregled D3)."""
+        st = self.storitev
+        with st._zaklep:
+            ids = [r[0] for r in st.db.execute("SELECT id FROM sporocila WHERE kanal_id=? AND pogovor_id=?",
+                                               (KANAL_LINKA, pogovor_id))]
+        self._izbrisi_vrstice(pogovor_id, ids)
+        with st._zaklep, st.db:
+            st.db.execute("DELETE FROM pogovori WHERE id=? AND kanal_id=?", (pogovor_id, KANAL_LINKA))
+            st.db.execute("DELETE FROM zvezdice WHERE kanal_id=? AND pogovor_id=?", (KANAL_LINKA, pogovor_id))
+            st.db.execute("DELETE FROM oznake WHERE kanal_id=? AND pogovor_id=?", (KANAL_LINKA, pogovor_id))
+
+    def prejmi_izbris(self, od: str, skupni: str) -> bool:
+        """Zahteva naprave [od] (payload.delete), naj izbrisemo njeno sporocilo s skupnim id-jem [skupni]: velja samo za
+        prejeto sporocilo v pogovoru te naprave. Ze izbrisano se prezre; se neznano (zahteva je prisla pred njim) pusti
+        zapis, da se izvirnik ob prihodu ne shrani. Vrne True, ce je bilo kaj izbrisano."""
+        od, skupni = str(od or "").strip(), str(skupni or "").strip()[:64]
+        if not od or not skupni:
+            return False
+        self._zagotovi_kanal_linka()
+        sid = _izbris.prejeti_id(skupni)
+        s = self.storitev.sporocilo(KANAL_LINKA, sid)
+        if s is None:
+            if not self._izbrisano(sid) and _izbris.sme_zapisati_vnaprej(od, skupni):
+                st, zdaj = self.storitev, time.time()
+                with st._zaklep, st.db:
+                    st.db.execute("INSERT OR REPLACE INTO klepet_vnaprej VALUES(?,?,?,?)",
+                                  (KANAL_LINKA, sid, od, zdaj + _izbris.VNAPREJ_VELJA_S))
+                    st.db.execute("DELETE FROM klepet_vnaprej WHERE potece<? OR potece>?",
+                                  (zdaj, zdaj + _izbris.VNAPREJ_VELJA_S))
+                    st.db.execute("DELETE FROM klepet_vnaprej WHERE rowid NOT IN (SELECT rowid FROM klepet_vnaprej "
+                                  "ORDER BY potece DESC LIMIT ?)", (_izbris.VNAPREJ_NAJVEC,))
+            return False
+        if not _izbris.zahteva_velja(s.smer, s.pogovor_id, od):
+            return False
+        self._izbrisi_vrstice(s.pogovor_id, [s.id])
+        _sporoci()
+        return True
+
+    def _porabi_vnaprej(self, sid: str, od: str) -> bool:
+        """Posiljatelj je sporocilo izbrisal, se preden je prislo: ne shranimo ga (zapis porabimo)."""
+        st, zdaj = self.storitev, time.time()
+        with st._zaklep, st.db:
+            r = st.db.execute("SELECT od, potece FROM klepet_vnaprej WHERE kanal_id=? AND id=?", (KANAL_LINKA, sid)).fetchone()
+            if r is None or r[0] != od or not _izbris.vnaprej_velja(float(r[1] or 0), zdaj):
+                return False
+            st.db.execute("DELETE FROM klepet_vnaprej WHERE kanal_id=? AND id=?", (KANAL_LINKA, sid))
+            st.db.execute("INSERT OR REPLACE INTO klepet_izbrisano VALUES(?,?,?)", (KANAL_LINKA, sid, zdaj))
+        return True
+
+    def _poslji_brisanje(self, skupni: str, cilj: str, zapisano: float) -> int:
+        """Poslje cakajoco zahtevo za izbris; odlocitev (_izbris.KONCANO/PONOVI/OPUSTI) - koncana in opuscena gre iz vrste."""
+        if self.izbrisi_klepet is None:
+            return _izbris.PONOVI
+        try:
+            izid = str(self.izbrisi_klepet(cilj, skupni) or "")
+        except Exception as e:  # noqa: BLE001 - zahteva ostane v vrsti, poskusimo ob naslednji priloznosti
+            print("[Sporocila] izbris na drugi napravi:", type(e).__name__, flush=True)
+            izid = "napaka"
+        odlocitev = _izbris.izid_brisanja(izid, zapisano, time.time())
+        if odlocitev != _izbris.PONOVI:
+            with self.storitev._zaklep, self.storitev.db:
+                self.storitev.db.execute("DELETE FROM klepet_brisanja WHERE id=?", (skupni,))
+        return odlocitev
+
+    def poslji_cakajoca_brisanja(self) -> int:
+        """Vse cakajoce izbrise poskusi poslati znova (Control ob spremembi seznama naprav). Vrne stevilo koncanih."""
+        with self.storitev._zaklep:
+            vrsta = [tuple(r) for r in self.storitev.db.execute("SELECT id, cilj, zapisano FROM klepet_brisanja")]
+        return sum(1 for b in vrsta if self._poslji_brisanje(b[0], b[1], float(b[2] or 0)) == _izbris.KONCANO)
 
     # ------------------------------------------------------------------ priponke (prenos, predogled, slicice)
     def _najdi_priponko(self, kanal_id: str, sporocilo_id: str, kljuc: str):

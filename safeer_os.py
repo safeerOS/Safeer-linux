@@ -1866,10 +1866,14 @@ class SafeerOS(Gtk.Application):
             predpomnilnik.pocisti()
             predogled_datotek.pocisti_predpomnilnik()
         threading.Thread(target=_pocisti_predpomnilnika, name="safeer-priponke-ciscenje", daemon=True).start()
-        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
-        self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
-            or _control_naprave_koda("Klepet")
+        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus). Odgovor nosi tudi skupni id sporocila (izbris na
+        # vseh napravah); brez stanja (Control ne tece) ostane koda napake.
+        self.sporocila.poslji_klepet = lambda n, b, c: (lambda r: r if r.get("stanje") else _control_naprave_koda("Klepet"))(
+            _control_naprave("Klepet", n, b, c))
         self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
+        # »Izbrisi na vseh mojih napravah« (lastnik 23. 10. 2026): zahtevo poslje Control; stari Control je ne pozna.
+        self.sporocila.izbrisi_klepet = lambda n, i: _control_naprave("KlepetIzbrisi", n, i).get("stanje") \
+            or _control_naprave_koda("KlepetIzbrisi")
         # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
         # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
         os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
@@ -4991,6 +4995,9 @@ class SafeerOS(Gtk.Application):
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
             "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1]), a[2] is not False if len(a) > 2 else True),
             "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
+            # Izbris sporocila Safeer Chat: [kanal, pogovor, sporocilo, na_vseh] - pri meni ali na vseh mojih napravah.
+            "sporocilaIzbrisi": lambda: self.sporocila.izbrisi_sporocilo(str(a[0]), str(a[1]), str(a[2]),
+                                                                         bool(a[3]) if len(a) > 3 else False),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),

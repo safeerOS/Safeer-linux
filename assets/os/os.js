@@ -4688,7 +4688,9 @@
   // Lastnik, 17. 10. 2026: urejanje e-poste ze v seznamu (ikone ob prehodu, desni klik, tipke kot v Gmailu/Outlooku,
   // vec izbranih) in hitri odgovor pod vrstico. Streznik (IMAP) dela v niti ozadja Safeer OS; seznam se spremeni
   // takoj, ob napaki se vrne. Arhiv/izbris/premik odide sele po 5 s - do takrat ga »Razveljavi« preprosto preklice.
-  var DEJANJA_PREMIK = { arhiv: "dejanjeArhivirano", izbrisi: "dejanjeIzbrisano", nezeleno: "dejanjeNezelenoOk", mapa: "dejanjePremaknjeno" };
+  // izbrisi_pogovor: pogovor Safeer Linka (samo na tej napravi, brez Kosa) - lastnik 23. 10. 2026.
+  var DEJANJA_PREMIK = { arhiv: "dejanjeArhivirano", izbrisi: "dejanjeIzbrisano", nezeleno: "dejanjeNezelenoOk", mapa: "dejanjePremaknjeno",
+    izbrisi_pogovor: "dejanjePogovorIzbrisan" };
   var razveljaviZadnje = null;
   function kljucPogovora(p) { return p.kanal_id + "\u0001" + p.id; }
   function zmoreDejanje(p, dejanje) { return ((p.kanal || {}).dejanja || []).indexOf(dejanje) >= 0; }
@@ -4725,6 +4727,7 @@
     o.appendChild(gumbDejanja("poslji", t("dejanjeOdgovori"), "R", function () { odpriHitriOdgovor(v); }));
     dodaj("arhiv", "arhiv", "dejanjeArhiviraj", "E");
     dodaj("izbrisi", "kos", "dejanjeIzbrisi", "Delete");
+    dodaj("izbrisi_pogovor", "kos", "dejanjeIzbrisiPogovor", "Delete");
     if (p.neprebrano) dodaj("prebrano", "kljukica", "dejanjePrebrano", "U");
     else dodaj("neprebrano", "sporocila", "dejanjeNeprebrano", "U");
     // Zvezdica, neželeno, mapa in oznake so v meniju »Vec« (stolpec seznama je ozek: ime in cas ostaneta vidna).
@@ -4740,6 +4743,7 @@
     var izbrane = izbraneVrstice();
     var vsi = function (d) { return izbrane.some(function (v) { return zmoreDejanje(v.p, d); }); };
     [["arhiv", "arhiv", "dejanjeArhiviraj", "E"], ["izbrisi", "kos", "dejanjeIzbrisi", "Delete"],
+     ["izbrisi_pogovor", "kos", "dejanjeIzbrisiPogovor", "Delete"],
      ["prebrano", "kljukica", "dejanjePrebrano", ""], ["zvezdica", "zvezda", "dejanjeZvezdica", "S"]].forEach(function (d) {
       if (!vsi(d[0])) return;
       var g = gumbDejanja(d[1], t(d[2]), d[3], function () { izvediDejanje(izbraneVrstice(), d[0]); }); g.tabIndex = 0; o.appendChild(g);
@@ -4839,6 +4843,7 @@
     if (vsaj("zvezdica")) postavka(t(vsiZvezda ? "dejanjeBrezZvezdice" : "dejanjeZvezdica"), "S", function () { izvediDejanje(vrstice, vsiZvezda ? "brez_zvezdice" : "zvezdica"); });
     if (vsaj("arhiv")) postavka(t("dejanjeArhiviraj"), "E", function () { izvediDejanje(vrstice, "arhiv"); });
     if (vsaj("izbrisi")) postavka(t("dejanjeIzbrisi"), "#", function () { izvediDejanje(vrstice, "izbrisi"); });
+    if (vsaj("izbrisi_pogovor")) postavka(t("dejanjeIzbrisiPogovor"), "#", function () { izvediDejanje(vrstice, "izbrisi_pogovor"); });
     if (vsaj("nezeleno")) postavka(t("dejanjeNezeleno"), "", function () { izvediDejanje(vrstice, "nezeleno"); });
     var kanali = {}; vrstice.forEach(function (v) { kanali[v.p.kanal_id] = 1; });
     if (vsaj("mapa") && Object.keys(kanali).length === 1) postavka(t("dejanjePremakni"), "", function () { meniMap(vrstice, x, y, za); });
@@ -4953,7 +4958,11 @@
     var cilji = ciljiDejanja(v), kljucTipke = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     var prvi = cilji[0] ? cilji[0].p : v.p, opravljeno = true;
     if (kljucTipke === "e") izvediDejanje(cilji, "arhiv");
-    else if (e.key === "#" || e.key === "Delete") izvediDejanje(cilji, "izbrisi");
+    else if (e.key === "#" || e.key === "Delete") {
+      // Pogovor Safeer Linka nima Kosa: brise se samo tu (izbrisi_pogovor); e-posta gre v Kos.
+      var vKos = cilji.some(function (v) { return zmoreDejanje(v.p, "izbrisi"); });
+      izvediDejanje(cilji, vKos ? "izbrisi" : "izbrisi_pogovor");
+    }
     else if (kljucTipke === "u") izvediDejanje(cilji, prvi.neprebrano ? "prebrano" : "neprebrano");
     else if (kljucTipke === "s") izvediDejanje(cilji, prvi.zvezdica ? "brez_zvezdice" : "zvezdica");
     else if (kljucTipke === "r") odpriHitriOdgovor(v);
@@ -5188,7 +5197,7 @@
   }
   function mehurcekSporocila(s) {
     var m = el("div", "mehurcek " + (s.smer === "ven" ? "ven" : "noter")), b = el("span", "mehurcek-besedilo");
-    m._besedilo = s.besedilo || ""; m._podpis = podpisSporocila(s); m._id = s.id; m.tabIndex = -1;
+    m._besedilo = s.besedilo || ""; m._podpis = podpisSporocila(s); m._id = s.id; m._smer = s.smer; m.tabIndex = -1;
     var deli = razdeliKodo(m._besedilo);
     b.textContent = deli[0];
     if (deli[0]) m.appendChild(b);
@@ -5472,9 +5481,26 @@
     m.hidden = true; m.innerHTML = ""; m._za = null;
     return true;
   }
+  // Izbris sporocila Safeer Linka (lastnik 23. 10. 2026): »pri meni« vedno, pri lastnem poslanem s skupnim id-jem tudi
+  // »na vseh mojih napravah« (zahteva gre napravi, ki ga je prejela - core/sporocila/izbris_linka.py).
+  var SKUPNI_ID_POSLANEGA = /^chat:ven:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function postavkeIzbrisaSporocila(mehurcek) {
+    var a = S.sporocilaAktivni || {}, p = [];
+    if (a.kanal_id !== "safeer-link" || !mehurcek._id) return p;
+    p.push(["sporIzbrisiPriMeni", "izbrisi", mehurcek._id]);
+    if (mehurcek._smer === "ven" && SKUPNI_ID_POSLANEGA.test(mehurcek._id)) p.push(["sporIzbrisiNaVseh", "izbrisi_vse", mehurcek._id]);
+    return p;
+  }
+  function izbrisiSporocilo(id, naVseh) {
+    var a = S.sporocilaAktivni; if (!a) return;
+    klic("sporocilaIzbrisi", [a.kanal_id, a.id, id, !!naVseh]).then(function (r) {
+      obvesti(t(!naVseh ? "sporIzbrisano" : (r && r.izbris === "caka" ? "sporIzbrisanoCaka" : "sporIzbrisanoNaVseh")));
+      naloziVsebinoPogovora(a); naloziSporocila();
+    }, function () { obvesti(t("niUspelo")); });
+  }
   function pokaziMeniSporocila(mehurcek, x, y, sTipkovnico) {
     var m = $("sporocilaMeni"); if (!m || !mehurcek) return;
-    var postavke = postavkeMenijaSporocila(mehurcek._besedilo || "", izbranoVSporocilih());
+    var postavke = postavkeMenijaSporocila(mehurcek._besedilo || "", izbranoVSporocilih()).concat(postavkeIzbrisaSporocila(mehurcek));
     m.innerHTML = ""; m._za = mehurcek; meniSporocilaOb = Date.now();
     if (!postavke.length) { m.hidden = true; return; }
     postavke.forEach(function (p) {
@@ -5482,12 +5508,19 @@
       // Pritisk na postavko ne sme podreti izbora v sporocilu, dokler dejanje ni izvedeno.
       g.addEventListener("mousedown", function (e) { e.preventDefault(); });
       g.addEventListener("click", function () {
+        // Izbris je dokoncen: prvi klik vprasa (postavka postane »Res izbrisem?«), drugi izvede.
+        if ((p[1] === "izbrisi" || p[1] === "izbrisi_vse") && !g.classList.contains("potrdi")) {
+          Array.prototype.forEach.call(m.querySelectorAll("button.potrdi"), function (b) { b.classList.remove("potrdi"); b.textContent = b._prej; });
+          g._prej = g.textContent; g.textContent = t("sporIzbrisiPotrdi"); g.classList.add("potrdi");
+          return;
+        }
         // S tipkovnico je fokus na postavki, ki z menijem izgine: vrnemo ga na sporocilo (sicer pade na telo strani
         // in puscice ne hodijo vec po sporocilih). Z misko fokusa ne premikamo - izbor cez vec sporocil ostane.
         var za = m._za, sTipk = m.contains(document.activeElement);
         zapriMeniSporocila();
         if (sTipk) fokusNaMehurcek(null, za);
         if (p[1] === "odpri") odpriPovezavoSporocila(p[2]);
+        else if (p[1] === "izbrisi" || p[1] === "izbrisi_vse") izbrisiSporocilo(p[2], p[1] === "izbrisi_vse");
         else kopirajBesedilo(p[2]);
       });
       m.appendChild(g);
