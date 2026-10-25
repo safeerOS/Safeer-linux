@@ -6049,10 +6049,48 @@
     klic("mediaDebrid", ["aktivna", v === "brez" ? "" : v]).then(function (s) { debridStanje = s; narisiDebrid(true); })
       .catch(function () {});
   }
+  // Lastnik 25. 10. 2026 (kot Android d1fdecc): vrstica pove, ali kljuc VELJA (storitev ga je potrdila), ne samo, da je
+  // vpisan. Kljuc brez stanja (iz prejsnje razlicice) ali nepreverjen (izpad ob vpisu) jedro po odprtju okna preveri
+  // (["preveri"], najvec na 10 min); vrstice se osvezijo na mestu - polja, ki jih uporabnik ravno tipka, ostanejo.
+  // debridRazlicica: vpis ali odstranitev med preverbo - zastarel odgovor preverbe ne prepise novejsega stanja.
+  var debridRazlicica = 0;
+  function opisStanjaKljuca(stanje) {
+    return t(stanje === "velja" ? "debridVelja" : stanje === "ne_velja" ? "debridNeVelja" : "debridNepreverjen");
+  }
+  function opisDebrida(x) {
+    if (!x.kljuc) return t("debridKje", { kje: x.kje });
+    return opisStanjaKljuca(x.stanje) + (x.stanje === "velja" && x.paket ? " · " + t("debridPaket", { paket: x.paket }) : "")
+      + (x.meritev ? " · " + x.meritev : "");
+  }
+  function opisUseneta(u) {
+    if (!u.gostitelj) return t("usenetPojasnilo") + " " + t("usenetKje");
+    return t("usenetVpisan", { gostitelj: u.gostitelj }) + " · " + opisStanjaKljuca(u.stanje)
+      + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "");
+  }
+  function nepreverjeniDebrid(s) {
+    return !!s && ((s.storitve || []).some(function (x) { return x.kljuc && x.stanje === "nepreverjen"; })
+      || !!(s.usenet && s.usenet.gostitelj && s.usenet.stanje === "nepreverjen"));
+  }
+  function osveziOpiseDebrid(s) {
+    if (!s || !$("slojDebrid").classList.contains("viden")) return;
+    debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
+    (s.storitve || []).forEach(function (x) {
+      var m = document.querySelector('#debridSeznam [data-id="' + x.id + '"] small');
+      if (m) m.textContent = opisDebrida(x);
+    });
+    var mu = document.querySelector('#debridSeznam [data-id="usenet"] small');
+    if (mu) mu.textContent = opisUseneta(s.usenet || {});
+  }
   function odpriDebrid() {
     $("slojDebrid").classList.add("viden");
     $("debridStanjeVnosa").textContent = "";
-    klic("mediaDebrid", []).then(narisiDebridOkno).catch(function () {});
+    klic("mediaDebrid", []).then(function (s) {
+      narisiDebridOkno(s);
+      if (!nepreverjeniDebrid(s)) return;
+      var r = debridRazlicica;
+      klic("mediaDebrid", ["preveri"]).then(function (o) { if (r === debridRazlicica) osveziOpiseDebrid(o); })
+        .catch(function () {});
+    }).catch(function () {});
   }
   // Lastnik 25. 10. 2026 (TorBox in NZBFinder na prenosniku kot na TV): kljuc se ob vnosu preveri pri storitvi (TorBox
   // »user/me«, indeksator z enim iskanjem) - jedro vrne samo izid in ime paketa, nikoli kljuca. Med preverbo (do 8 s) sta
@@ -6068,12 +6106,15 @@
         var m = o.paket ? t("debridVeljavenPaket", { ime: x.ime, paket: o.paket }) : t("debridVeljaven", { ime: x.ime });
         return m + (x.id === "torbox" && o.paket && o.paket !== "Pro" ? " " + t("usenetBrezPro") + "." : "");
       }
-      return t(p ? "debridNiPreverjen" : "debridShranjen", { ime: x.ime });
+      // Vsi trije (TorBox, Real-Debrid, AllDebrid) se ob vnosu preverijo: shranjen brez potrditve je nepreverjen.
+      return t("debridNiPreverjen", { ime: x.ime });
     }
-    return p === "neveljaven" ? t("debridZavrnjen", { ime: x.ime, kje: x.kje }) : t("debridNiKljuc", { ime: x.ime });
+    // »oblika«: ne kljuc ali vzorec iz navodil (»XXXXXXXX-XXXX-…«) - jedro ga zavrne brez klica storitve.
+    return p === "neveljaven" ? t("debridZavrnjen", { ime: x.ime, kje: x.kje }) : t("debridNiKljuc", { ime: x.ime, kje: x.kje });
   }
   function preveriInShrani(ukaz, polja, gumb, x, usenet, poUspehu) {
     var stanje = $("debridStanjeVnosa");
+    debridRazlicica++;
     polja.concat([gumb]).forEach(function (e) { e.disabled = true; });
     gumb.setAttribute("aria-busy", "true");
     stanje.textContent = t("debridPreverjam");
@@ -6102,8 +6143,7 @@
       var vrsta = el("div", "debrid-vrstica"); vrsta.dataset.id = x.id;
       var opis = el("div", "debrid-opis");
       opis.appendChild(el("strong", "", ubezi(x.ime)));
-      opis.appendChild(el("small", "", ubezi(x.kljuc ? t("debridVpisan") + (x.paket ? " · " + t("debridPaket", { paket: x.paket }) : "")
-        + (x.meritev ? " · " + x.meritev : "") : t("debridKje", { kje: x.kje }))));
+      opis.appendChild(el("small", "", ubezi(opisDebrida(x))));
       vrsta.appendChild(opis);
       var polje = el("input", ""); polje.type = "password"; polje.autocomplete = "off"; polje.spellcheck = false;
       polje.placeholder = t("debridKljuc"); polje.setAttribute("aria-label", t("debridKljuc") + " – " + x.ime);
@@ -6116,6 +6156,7 @@
         var odstrani = el("button", "gumb", ubezi(t("debridOdstrani"))); odstrani.type = "button";
         odstrani.setAttribute("aria-label", t("debridOdstrani") + " – " + x.ime);
         odstrani.addEventListener("click", function () {
+          debridRazlicica++;
           klic("mediaDebrid", ["pozabi", x.id]).then(function (o) {
             $("debridStanjeVnosa").textContent = t("debridOdstranjen", { ime: x.ime });
             narisiDebridOkno(o);
@@ -6132,9 +6173,7 @@
     var u = s.usenet || {}, uv = el("div", "debrid-vrstica"); uv.dataset.id = "usenet";
     var uo = el("div", "debrid-opis");
     uo.appendChild(el("strong", "", ubezi(t("usenetIme"))));
-    uo.appendChild(el("small", "", ubezi(u.gostitelj ? t("usenetVpisan", { gostitelj: u.gostitelj })
-      + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "")
-      : t("usenetPojasnilo") + " " + t("usenetKje"))));
+    uo.appendChild(el("small", "", ubezi(opisUseneta(u))));
     uv.appendChild(uo);
     var un = el("input", ""); un.type = "url"; un.autocomplete = "off"; un.spellcheck = false;
     un.placeholder = t("usenetNaslov"); un.setAttribute("aria-label", t("usenetNaslov"));
@@ -6151,6 +6190,7 @@
       var uod = el("button", "gumb", ubezi(t("debridOdstrani"))); uod.type = "button";
       uod.setAttribute("aria-label", t("debridOdstrani") + " – " + t("usenetIme"));
       uod.addEventListener("click", function () {
+        debridRazlicica++;
         klic("mediaDebrid", ["pozabi_usenet"]).then(function (o) {
           $("debridStanjeVnosa").textContent = t("usenetOdstranjen");
           narisiDebridOkno(o);

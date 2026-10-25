@@ -2,10 +2,14 @@
 PRAVI most core/debrid.most: klic strani gre v Python (delovna nit, kot os_katalog.izvedi), odgovor nazaj v stran.
 
 Lastnik 25. 10. 2026: kljuc TorBox in indeksator Usenet (NZBFinder) na prenosniku kot na TV, s preverbo ob vnosu.
+Vrstica pove stanje kljuca (Android d1fdecc): »ključ velja ✓«, »ključ ne velja – vpiši znova« (401 med uporabo) ali
+»ključ še ni preverjen« (izpad ob vpisu); nepreverjen se po odprtju okna preveri in vrstica osvezi NA MESTU (polje, ki ga
+uporabnik tipka, ostane). Vzorec iz navodil se zavrne brez klica storitve.
 Preizkus tipka kljuc (Enter), med preverbo sta polje in gumb zaklenjena, izid je v vrstici stanja (role=status), fokus
 se vrne v polje, kljuc ne ostane v strani. Kljuci so izmisljeni; zbirka skrivnosti je v pomnilniku.
-Storitvi sta privzeto ponaredka; SAFEER_ZIVO_KLJUCI=1 vprasa PRAVI TorBox in nzbfinder.ws (izmisljen kljuc mora biti
-zavrnjen). Zagon: xvfb-run -a python3 -m pytest -q tests/test_debrid_vnos_zivo.py"""
+Storitve so privzeto ponaredki; SAFEER_ZIVO_KLJUCI=1 vprasa PRAVI TorBox, Real-Debrid, AllDebrid in nzbfinder.ws
+(izmisljen kljuc mora biti zavrnjen). Zagon (nas WebKit): ./tools/nas_webkit.sh xvfb-run -a python3 -m pytest -q
+tests/test_debrid_vnos_zivo.py"""
 import json
 import os
 import threading
@@ -27,7 +31,9 @@ except (ImportError, ValueError) as _napaka:  # pragma: no cover - okolje brez G
 from core import debrid, debrid_pravila as P  # noqa: E402
 
 ZIVO = os.environ.get("SAFEER_ZIVO_KLJUCI") == "1"
-KLJUC_TB = "0f0e0d0c-0b0a-0908-0706-050403020100"
+KLJUC_TB = "7c1e9a4b-2f6d-4e8a-b3c5-9d0f1a2e6b74"     # izmisljen (prejsnji je bil vzorec - P.je_vzorec_kljuca)
+KLJUC_RD = "R7mK2pX9vL4qT8wN3zB6cH1jF5dS0gY2aE7uI4oP9kM3nV8bQ6xZ"
+KLJUC_AD = "aB3dE5gH7jK9mN1pQ3sT"
 KLJUC_IX = "0123456789abcdef0123456789abcdef"
 
 #: Most strani: mediaDebrid gre v vrsto, ki jo preizkus izvede v Pythonu; ostalo vrne null (kot prazen katalog).
@@ -85,12 +91,16 @@ class DebridVnos(unittest.TestCase):
         self.pogled.load_uri("file://" + os.path.join(KOREN, "assets", "os", "index.html") + "?predvajalnik=1&jezik=sl")
         # Stran je povezala dogodke (poveziDogodke), ko so gumbi kategorij Medijskega centra narisani.
         self.assertTrue(_cakaj(lambda: self._js("!!document.querySelector('#mediaNavKategorije [data-kategorija]')")))
-        # Odpri okno, kot ga odpre izbira »Nastavitve debrida …« ob zvrsteh.
-        self._js("(function () { var s = document.getElementById('mediaDebrid'); s.add(new Option('x', 'nastavitve'));"
-                 " s.value = 'nastavitve'; s.dispatchEvent(new Event('change')); return 1; })()")
+        self._odpri()
         self._streži()
         self.assertTrue(_cakaj(lambda: self._js("!!document.querySelector('#debridSeznam [data-id=\"torbox\"] input')")))
         self.assertTrue(self._js("document.getElementById('slojDebrid').classList.contains('viden')"))
+
+    def _odpri(self):
+        """Odpre okno, kot ga odpre izbira »Nastavitve debrida …« ob zvrsteh (zaprto okno najprej zapre)."""
+        self._js("(function () { document.getElementById('slojDebrid').classList.remove('viden');"
+                 " var s = document.getElementById('mediaDebrid'); s.add(new Option('x', 'nastavitve'));"
+                 " s.value = 'nastavitve'; s.dispatchEvent(new Event('change')); return 1; })()")
 
     def _js(self, koda):
         izid = {}
@@ -108,16 +118,20 @@ class DebridVnos(unittest.TestCase):
         """Izvede cakajoce klice mediaDebrid v pravem mostu (delovna nit) in odgovor vrne strani."""
         konec = time.monotonic() + cas
         while time.monotonic() < konec:
-            zahteve = self._js("window.__zahteve.splice(0)") or []
-            if not zahteve:
+            if not self._postrezi_cakajoce():
                 return
-            for z in zahteve:
-                izid = {}
-                nit = threading.Thread(target=lambda a=z["a"]: izid.__setitem__("v", debrid.most(self.d, list(a))))
-                nit.start()
-                _cakaj(lambda: not nit.is_alive(), 20)
-                self._js("(window.__odg[%d](%s), 1)" % (z["id"], json.dumps(izid.get("v"))))
             _cakaj(lambda: False, 0.1)
+
+    def _postrezi_cakajoce(self) -> list:
+        """En krog: klici, ki ta trenutek cakajo (brez tistih, ki jih stran poslje po odgovoru). Vrne njihove ukaze."""
+        zahteve = self._js("window.__zahteve.splice(0)") or []
+        for z in zahteve:
+            izid = {}
+            nit = threading.Thread(target=lambda a=z["a"]: izid.__setitem__("v", debrid.most(self.d, list(a))))
+            nit.start()
+            _cakaj(lambda: not nit.is_alive(), 20)
+            self._js("(window.__odg[%d](%s), 1)" % (z["id"], json.dumps(izid.get("v"))))
+        return [z["a"] for z in zahteve]
 
     def _vpisi(self, vrstica, vrednosti):
         """Vpise vrednosti v polja vrstice in pritisne Enter v zadnjem (kot uporabnik s tipkovnico)."""
@@ -160,7 +174,7 @@ class DebridVnos(unittest.TestCase):
             self._streži()
         po = self._po("torbox")
         self.assertEqual(po["stanje"], "Ključ TorBox je veljaven in shranjen (šifriran) · paket Pro.")
-        self.assertEqual(po["opis"], "ključ vpisan ✓ · paket Pro")
+        self.assertEqual(po["opis"], "ključ velja ✓ · paket Pro")
         self.assertEqual(list(self.zbirka.z.values()), [KLJUC_TB])
         self.assertNotIn(KLJUC_TB, po["html"])
         self.assertEqual(po["gumbi"][1][:2], ["Odstrani ključ", "Odstrani ključ – TorBox"])
@@ -184,6 +198,84 @@ class DebridVnos(unittest.TestCase):
         self.assertIn("nzbfinder.ws/profile", po["opis"])
         self.assertEqual(self.zbirka.z, {})
         self.assertNotIn(KLJUC_IX, po["html"])
+
+    def test_vzorec_zavrnjen_brez_klica_storitve(self):
+        """Lastnik 25. 10. 2026: vzorec »XXXXXXXX-XXXX-…« iz navodil se je shranil kot »ključ vpisan ✓«."""
+        self._vpisi("torbox", ["XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"])
+        with mock.patch.object(debrid, "klic", side_effect=AssertionError("vzorec ne gre do storitve")) as k:
+            self._streži()
+        po = self._po("torbox")
+        self.assertEqual(k.call_count, 0)
+        self.assertEqual(po["stanje"], "To ni ključ TorBox – prilepi svoj ključ s strani torbox.app → Settings → API, "
+                                       "brez presledkov (vzorec iz navodil ni ključ).")
+        self.assertEqual((self.zbirka.z, po["vrednosti"]), ({}, [""]))
+
+    def test_vrstica_nepreverjen_in_ne_velja(self):
+        """Izpad ob vpisu: »še ni preverjen« (prej »vpisan ✓«); 401 med uporabo: »ne velja – vpiši znova«."""
+        self._vpisi("torbox", [KLJUC_TB])
+        with (mock.MagicMock() if ZIVO else mock.patch.object(debrid, "torbox_preveri",
+                                                              return_value=(P.PREVERBA_NI_ODGOVORA, None))):
+            self._streži()
+        if ZIVO:
+            self.skipTest("pravi TorBox izmisljen kljuc zavrne - izpad tu ni mogoc")
+        po = self._po("torbox")
+        self.assertEqual(po["opis"], "ključ še ni preverjen")
+        self.assertTrue(po["stanje"].startswith("Ključ TorBox je shranjen (šifriran), a ga TorBox zdaj ni mogel potrditi"))
+        with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(napaka=P.NAPAKA_KLJUC, ponudnik=P.TORBOX)):
+            self.d.tok("b" * 40)                           # predvajanje: TorBox kljuc zavrne (401)
+        self._odpri()
+        with mock.patch.object(debrid, "torbox_preveri", side_effect=AssertionError("ne velja se ne preverja znova")):
+            self._streži()
+        self.assertEqual(self._po("torbox")["opis"], "ključ ne velja – vpiši znova")
+        self.assertNotIn(KLJUC_TB, self._po("torbox")["html"])
+
+    def test_nepreverjen_preverjen_po_odprtju_vrstica_na_mestu(self):
+        """Kljuc iz prejsnje razlicice (brez stanja): okno ga preveri; vrstica se osvezi, polje drugega kljuca ostane."""
+        self.d.nastavi_kljuc(P.TORBOX, KLJUC_TB)
+        self.d.nastavi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+        self._odpri()
+        self.assertEqual(self._postrezi_cakajoce(), [[]])
+        self.assertEqual(self._po("torbox")["opis"], "ključ še ni preverjen")
+        self.assertTrue(_cakaj(lambda: self._js("window.__zahteve.length") == 1, 5))
+        # Uporabnik medtem tipka kljuc Real-Debrid: osvezitev vrstic ga ne sme pobrisati.
+        self._js("(function () { var p = document.querySelector('#debridSeznam [data-id=\"realdebrid\"] input');"
+                 " p.focus(); p.value = 'tipkam'; return 1; })()")
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)) as tb, \
+                mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_NEVELJAVEN) as ix:
+            self.assertEqual(self._postrezi_cakajoce(), [["preveri"]])
+        self.assertEqual((tb.call_count, ix.call_count), (1, 1))
+        _cakaj(lambda: False, 0.2)
+        self.assertEqual(self._po("torbox")["opis"], "ključ velja ✓ · paket Pro")
+        self.assertEqual(self._po("usenet")["opis"], "Indeksator: nzbfinder.ws · ključ ne velja – vpiši znova")
+        rd = self._po("realdebrid")
+        self.assertEqual((rd["vrednosti"], rd["fokus_v_vrstici"]), (["tipkam"], True))
+        self.assertEqual(self._js("window.__zahteve.length"), 0)
+
+    def test_real_debrid_in_alldebrid_preverjena(self):
+        """Prej sta se RD in AD shranila brez preverbe (»Ključ … je shranjen«), tudi zavrnjen kljuc."""
+        self._vpisi("realdebrid", [KLJUC_RD])
+        with (mock.MagicMock() if ZIVO else mock.patch.object(
+                debrid, "klic", return_value=debrid.Odgovor(401, '{"error": "bad_token", "error_code": 8}'))):
+            self._streži()
+        po = self._po("realdebrid")
+        self.assertEqual(po["stanje"], "Real-Debrid je ta ključ zavrnil – ni shranjen. Preveri ga na real-debrid.com/apitoken.")
+        self.assertEqual(self.zbirka.z, {})
+        self._vpisi("alldebrid", [KLJUC_AD])
+        with (mock.MagicMock() if ZIVO else mock.patch.object(
+                debrid, "klic", return_value=debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BAD_APIKEY"}}'))):
+            self._streži()
+        self.assertEqual(self._po("alldebrid")["stanje"],
+                         "AllDebrid je ta ključ zavrnil – ni shranjen. Preveri ga na alldebrid.com/apikeys.")
+        self.assertEqual(self.zbirka.z, {})
+        if ZIVO:
+            return
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 1, "username": "u", "email": "e@primer.test"}')):
+            self._vpisi("realdebrid", [KLJUC_RD])
+            self._streži()
+        po = self._po("realdebrid")
+        self.assertEqual((po["stanje"], po["opis"]), ("Ključ Real-Debrid je veljaven in shranjen (šifriran).", "ključ velja ✓"))
+        for skrito in (KLJUC_RD, "e@primer.test"):
+            self.assertNotIn(skrito, po["html"])
 
 
 if __name__ == "__main__":
