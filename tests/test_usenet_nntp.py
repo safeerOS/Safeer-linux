@@ -402,6 +402,30 @@ class Nntp(unittest.TestCase):
         with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1000):
             self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
 
+    def test_zapiranje_prekine_zahtevo_v_teku(self):
+        s = self.streznik()
+        b = self.bazen(s, rok=20.0)
+        izid = []
+
+        def delo():
+            try:
+                b.telo(ID_ROK)
+            except N.NapakaNntp as e:
+                izid.append(e.izid)
+        t = threading.Thread(target=delo)
+        t.start()
+        for _ in range(100):
+            if any(u.startswith("BODY") for u in s.ukazi):
+                break
+            time.sleep(0.02)
+        zacetek = time.monotonic()
+        b.zapri()
+        t.join(5)
+        self.assertFalse(t.is_alive())
+        self.assertLess(time.monotonic() - zacetek, 2.0, "zapiranje ne caka na rok zahteve")
+        self.assertEqual(izid, [N.ZAPRTO])
+        self.assertEqual(s.sprejete, 1, "po zaprtju nobene nove povezave")
+
     def test_zaprt_bazen(self):
         s = self.streznik()
         b = self.bazen(s)

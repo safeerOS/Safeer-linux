@@ -168,6 +168,8 @@ class Povezava:
         self._rok_povezave = float(rok_povezave)
         self._rok = float(rok)
         self._sock: Optional[ssl.SSLSocket] = None
+        self._surov: Optional[socket.socket] = None  # med rokovanjem TLS (da ga prekini() lahko zbudi)
+        self._prekinjeno = False
         self._medpomnilnik = bytearray()
         self.prijavljen = False
 
@@ -189,6 +191,8 @@ class Povezava:
         return NapakaNntp(izid, koda)
 
     def _beri(self, konec: float) -> None:
+        if self._prekinjeno:
+            raise self._napaka(ZAPRTO)
         ostane = konec - time.monotonic()
         if ostane <= 0:
             raise self._napaka(ROK)
@@ -204,6 +208,8 @@ class Povezava:
         self._medpomnilnik += kos
 
     def _poslji(self, podatki: bytes, konec: float) -> None:
+        if self._prekinjeno:
+            raise self._napaka(ZAPRTO)
         ostane = konec - time.monotonic()
         if ostane <= 0:
             raise self._napaka(ROK)
@@ -259,8 +265,14 @@ class Povezava:
             raise self._napaka(ROK, vzrok=e) from None
         except OSError as e:
             raise self._napaka(OMREZJE, vzrok=e) from None
+        self._surov = surov
         try:
+            if self._prekinjeno:
+                raise self._napaka(ZAPRTO)
             self._sock = self._kontekst.wrap_socket(surov, server_hostname=self.gostitelj)
+        except NapakaNntp:
+            surov.close()
+            raise
         except ssl.SSLCertVerificationError as e:
             surov.close()
             raise self._napaka(POTRDILO, vzrok=e) from None
@@ -269,7 +281,9 @@ class Povezava:
             raise self._napaka(ROK, vzrok=e) from None
         except OSError as e:
             surov.close()
-            raise self._napaka(OMREZJE, vzrok=e) from None
+            raise self._napaka(ZAPRTO if self._prekinjeno else OMREZJE, vzrok=e) from None
+        finally:
+            self._surov = None
         izid, koda = self._odgovor("POZDRAV", konec)
         if izid != OK:
             raise self._napaka(izid, koda)
@@ -287,6 +301,17 @@ class Povezava:
         if izid != OK:
             raise self._napaka(izid, koda)
         self.prijavljen = True
+
+    def prekini(self) -> None:
+        """Iz druge niti: zbudi branje ali pisanje, ki caka na streznik (zapiranje bazena ne caka na rok zahteve).
+        shutdown na ravni vticnika - SSLSocket.shutdown bi med branjem druge niti zamenjal _sslobj."""
+        self._prekinjeno = True
+        for s in (self._sock, self._surov):
+            if s is not None:
+                try:
+                    socket.socket.shutdown(s, socket.SHUT_RDWR)
+                except OSError:
+                    pass
 
     def zapri(self, vljudno: bool = False) -> None:
         s, self._sock = self._sock, None
@@ -356,6 +381,7 @@ class Bazen:
         self.__nova: Callable[[], Povezava] = lambda: Povezava(gostitelj, vrata, uporabnik, geslo, kontekst,
                                                                  rok_povezave, rok)
         self._proste: list = []
+        self._v_rabi: set = set()
         self._zaklep = threading.Lock()
         self._mesta = threading.Semaphore(self.najvec)
         self._zaprt = False
@@ -372,6 +398,7 @@ class Bazen:
 
     def _vrni(self, p: Povezava) -> None:
         with self._zaklep:
+            self._v_rabi.discard(p)
             if not self._zaprt and p.odprta:
                 self._proste.append(p)
                 return
@@ -388,9 +415,12 @@ class Bazen:
         try:
             for poskus in (0, 1):
                 with self._zaklep:
+                    if self._zaprt:
+                        raise NapakaNntp(ZAPRTO)
                     p = self._proste.pop() if self._proste else None
-                stara = p is not None
-                p = p or self.__nova()
+                    stara = p is not None
+                    p = p or self.__nova()
+                    self._v_rabi.add(p)
                 try:
                     izid = delo(p)
                 except NapakaNntp as e:
@@ -398,6 +428,9 @@ class Bazen:
                         self._vrni(p)
                         raise
                     p.zapri()
+                    self._vrni(p)
+                    if self._zaprt:
+                        raise NapakaNntp(ZAPRTO) from None  # bazen zaprt med zahtevo: ne odpiramo nove povezave
                     if e.izid == PRIJAVA:
                         self._prijava_zavrnjena = True
                         raise
@@ -411,6 +444,7 @@ class Bazen:
                     raise
                 except BaseException:
                     p.zapri()  # nepricakovana napaka sredi zahteve: v medpomnilniku je lahko pol odgovora
+                    self._vrni(p)
                     raise
                 self._vrni(p)
                 return izid
@@ -434,8 +468,12 @@ class Bazen:
         self._izvedi(odpri)
 
     def zapri(self) -> None:
+        """Zapre proste povezave in prekine zahteve v teku (te vrnejo ZAPRTO) - zapiranje ne caka na rok."""
         with self._zaklep:
             self._zaprt = True
             proste, self._proste = self._proste, []
+            v_rabi = list(self._v_rabi)
         for p in proste:
             p.zapri(vljudno=True)
+        for p in v_rabi:
+            p.prekini()
