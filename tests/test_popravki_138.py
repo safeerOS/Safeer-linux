@@ -32,21 +32,28 @@ class TestCiBrezAppImage(unittest.TestCase):
             self.skipTest("brez python3-yaml")
         self.wf = yaml.safe_load(beri(".github", "workflows", "linux-packages.yml"))
 
-    def test_appimage_koraki_izklopljeni(self):
-        self.assertEqual(self.wf["env"]["SAFEER_APPIMAGE"], "0")
+    def test_appimage_koraki_odstranjeni(self):
+        """Od 25. 10. 2026 CI AppImage sploh ne gradi (prej koraki z if: env.SAFEER_APPIMAGE == '1' - in v oktobru 12
+        padcev posla z AppImage). Skripte gradnje ostanejo v packaging/ za ponovni vklop z nasim WebKitom."""
+        self.assertNotIn("SAFEER_APPIMAGE", self.wf.get("env") or {})
         koraki = [k for posel in self.wf["jobs"].values() for k in posel.get("steps", [])
-                  if any(x in (k.get("run") or "") for x in ("build_appimage", "build_os_appimage", "fetch_linuxdeploy"))]
-        self.assertGreaterEqual(len(koraki), 3)       # Browser AppImage, Fetch linuxdeploy, Safeer OS AppImage
-        for k in koraki:
-            with self.subTest(korak=k.get("name")):
-                self.assertEqual(k.get("if"), "env.SAFEER_APPIMAGE == '1'")
+                  if any(x in (k.get("run") or "") for x in ("build_appimage", "build_os_appimage", "fetch_linuxdeploy",
+                                                              "test_appimage", "appimage-extract"))]
+        self.assertEqual(koraki, [])
+        for ime, posel in self.wf["jobs"].items():
+            for k in posel.get("steps", []):
+                self.assertNotIn(".AppImage", str((k.get("with") or {}).get("path", "")), ime)
+        self.assertTrue(os.path.isfile(os.path.join(KOREN, "packaging", "build_os_appimage.sh")))
 
     def test_izdaja_brez_appimage(self):
         koraki = [k for posel in self.wf["jobs"].values() for k in posel.get("steps", [])
                   if "sha256sum -- * > SHA256SUMS" in (k.get("run") or "")]
         self.assertEqual(len(koraki), 2)              # stabilna in beta izdaja
         for k in koraki:
-            self.assertIn('if [ "$SAFEER_APPIMAGE" != 1 ] && ls release/*.AppImage', k["run"])
+            # AppImage med artefakti ustavi izdajo, preden se karkoli premakne v izdajo; v izdajo gredo samo .deb in .flatpak.
+            self.assertIn("if find artifacts -type f -name '*.AppImage' | grep .; then", k["run"])
+            self.assertLess(k["run"].index("-name '*.AppImage' | grep ."), k["run"].index("-exec mv -t release"))
+            self.assertIn("\\( -name '*.deb' -o -name '*.flatpak' \\)", k["run"])
 
     def test_readme_ne_ponuja_appimage(self):
         for ime in ("README.md", "README.sl.md"):

@@ -1,0 +1,5 @@
+# Preizkusi, ki WebKit (WebKit, JavaScriptCore, Soup) nalozijo sele med izvajanjem in jih staticna analiza
+# tests/razvrstitev_webkit.py ne vidi (npr. lenoben uvoz v funkciji modula core ali podproces z ukazom iz spremenljivke).
+# Ena datoteka na vrstico, pot od korena repozitorija. Te datoteke tecejo v poslu preizkusi-webkit z nasim WebKitom,
+# ne v hitrih vratih. Kdaj dopisati: ko straza hitrih vrat preizkus podre (poskus nalaganja ali preskok »potrebuje
+# WebKit«) - povzetek teka pytest izpise datoteke pod »Poskusi nalaganja WebKita«.

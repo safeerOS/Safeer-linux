@@ -223,15 +223,16 @@ class Skladnost(unittest.TestCase):
     def test_ci_vgradi_v_vse_pakete_in_preveri(self):
         wf = (KOREN / ".github" / "workflows" / "linux-packages.yml").read_text(encoding="utf-8")
         self.assertEqual(wf.count("run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm"), 2)
-        for gradnja in ("bash build_deb.sh", "bash build_os_deb.sh", "bash packaging/build_appimage.sh",
-                        "bash packaging/build_os_appimage.sh"):
+        # AppImage CI od 25. 10. 2026 ne gradi (opuscen); skripti AppImage Safeer DRM se vedno vgradita (spodaj).
+        self.assertNotIn("build_appimage.sh", wf)
+        self.assertNotIn("build_os_appimage.sh", wf)
+        for gradnja in ("bash build_deb.sh", "bash build_os_deb.sh"):
             vrstica = next(v for v in wf.splitlines() if v.rstrip().endswith(gradnja))
             self.assertIn('SAFEER_DRM_TOVOR="$PWD/build/safeer-drm"', vrstica, gradnja)
         for preverba in ("python3 packaging/safeer_drm_paket.py preveri /usr/lib/safeer-browser/safeer-drm",
                          "python3 packaging/safeer_drm_paket.py preveri /usr/lib/safeer-os/safeer-drm",
                          '"$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-browser/safeer-drm',
-                         '"$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm',
-                         "python3 packaging/safeer_drm_paket.py preveri build/os-appimage-x/squashfs-root/opt/safeer-drm"):
+                         '"$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm'):
             self.assertIn(preverba, wf)
         # CDM ni v paketih .deb (preverba), pin CDM in porocilo o novejsem CDM sta odpadla.
         self.assertEqual(wf.count("grep -E 'WidevineCdm|libwidevinecdm'; then echo \"::error::Widevine CDM je v paketu\""), 2)

@@ -371,8 +371,8 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('webkit-pgo-brskalnik',posli)
         profil=posli['webkit-pgo-profil']
         self.assertIn('python3 packaging/webkit/pgo.py kljuc',profil)
-        self.assertIn('actions/artifacts?name=$IME',profil)
-        self.assertIn('IME="webkit-pgo-profraw-$KLJUC"',profil)
+        # Vir profila po pravilih tools/ci_artefakt.py (neodvisni pregled 25. 10. 2026; preizkus koraka v test_ci_artefakt.py).
+        self.assertIn('python3 tools/ci_artefakt.py najdi "webkit-pgo-profraw-$KLJUC" --tek "$TEK"',profil)
         ucenje=posli['webkit-pgo-ucenje']
         self.assertIn("    needs: webkit-pgo-profil\n    if: needs.webkit-pgo-profil.outputs.run_id == ''\n",ucenje)
         self.assertIn('name: webkit-pgo-profraw-${{ needs.webkit-pgo-profil.outputs.kljuc }}',ucenje)
@@ -577,9 +577,14 @@ class DebWebkitTests(unittest.TestCase):
         profil=potek.split('\n  webkit-deb-profil:\n',1)[1].split('\n  webkit-deb:\n',1)[0]
         posel=potek.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
         self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1 \\\n',posel)
-        self.assertEqual(posel.count('key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('),2)
+        # Kljuca izracuna posel webkit-kljuc (od 25. 10. 2026: isti za predpomnilnik veje in artefakt za vse veje).
+        kljuc=potek.split('\n  webkit-kljuc:\n',1)[1].split('\n  webkit-deb-profil:\n',1)[0]
+        kljuc_wk=next(v for v in kljuc.splitlines() if 'echo "webkit=${{ hashFiles(' in v)
+        kljuc_profil=next(v for v in kljuc.splitlines() if 'echo "profil=${{ hashFiles(' in v)
+        self.assertEqual(posel.count('key: webkit-deb-pgo-bolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.webkit }}'),2)
         for datoteka in ('packaging/webkit-deb/bolt.sh','packaging/webkit-deb/bolt_trening.py'):
-            self.assertEqual(posel.count("'%s'"%datoteka),2,datoteka)
+            self.assertIn("'%s'"%datoteka,kljuc_wk)
+            self.assertNotIn("'%s'"%datoteka,kljuc_profil)
         self.assertNotIn('bolt',profil.lower())
         self.assertIn('python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps git',posel)
         self.assertIn("grep -q '^bolt: da (llvm-bolt 22\\.' gradnja.txt",posel)
@@ -603,11 +608,12 @@ class DebWebkitTests(unittest.TestCase):
             self.assertIn(niz,nadaljuj)
         self.assertNotIn('ninja',nadaljuj.replace('build.ninja',''))
         self.assertIn('SAFEER_BOLT_PREDBOLT',bolt)
-        self.assertEqual(posel.count('key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('),2)
+        self.assertEqual(posel.count('key: webkit-deb-predbolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.profil }}'),2)
         self.assertIn("if: always() && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'"
                       " && hashFiles('build/webkit-predbolt.tar.zst') != ''",posel)
         self.assertIn('bash packaging/webkit-deb/nadaljuj.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst',posel)
-        self.assertEqual(posel.count("'packaging/webkit-deb/nadaljuj.sh'"),2)
+        self.assertIn("'packaging/webkit-deb/nadaljuj.sh'",kljuc_wk)
+        self.assertNotIn("'packaging/webkit-deb/nadaljuj.sh'",kljuc_profil)
         # Zapis gradnje v nadaljuj.sh je enak kot v zgradi.sh (iste vrstice za webkitgtk, libsoup, popravke, sistem).
         zgradi_zapis=zgradi.split('> "$d/gradnja.txt"')[0].rsplit('{\n',1)[1]
         for vrstica in zgradi_zapis.splitlines()[-6:]:
@@ -995,7 +1001,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('name: dav1d-deb',posel)
         # dav1ddec gre enkrat v paket safeer-webkit (posel webkit-deb); programa ga dobita z odvisnostjo.
         wk=potek.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
-        self.assertIn('needs: [webkit-deb-profil, dav1d-deb]\n',wk)
+        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]\n',wk)
         self.assertIn('name: dav1d-deb\n          path: build/dav1d',wk)
         self.assertIn('SAFEER_DAV1D=build/dav1d bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst .',wk)
         self.assertIn("grep -F './usr/lib/safeer-webkit/lib/gstreamer-1.0/libgstdav1d.so'",wk)
@@ -1355,7 +1361,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertNotIn('matrix',profil)
         self.assertIn('image: ubuntu:24.04',posel)
         # PGO je privzet (lastnik, 15. 10. 2026): lasten ucni tek gradnje noble, profil v predpomnilniku.
-        self.assertIn('needs: [webkit-deb-profil, dav1d-deb]',posel)
+        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]',posel)
         self.assertIn('SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit\n',profil)
         self.assertIn('bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-webkit build/pgo/profraw',profil)
         self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1',posel)
@@ -1367,14 +1373,22 @@ class DebWebkitTests(unittest.TestCase):
         for staro in ('zgradi.sh /usr/lib/safeer-os','zgradi.sh /usr/lib/safeer-browser','webkit-deb-safeer-','SAFEER_WEBKIT_TAR',
                       'build/webkit-safeer-'):
             self.assertNotIn(staro,potek)
-        # Kljuca predpomnilnika iz vseh datotek gradnje in ucnega teka; brez restore-keys (star WebKit ne sme v paket).
+        # Kljuca predpomnilnika (in artefakta za vse veje) iz vseh datotek gradnje in ucnega teka; brez restore-keys (star
+        # WebKit ne sme v paket). Od 25. 10. 2026 ju izracuna posel webkit-kljuc enkrat: koncni arhiv (webkit) ter profil in
+        # stanje pred BOLT (profil, nadaljevanje po padcu BOLT, lastnik 19. 10. 2026).
+        kljuc=potek.split('\n  webkit-kljuc:\n',1)[1].split('\n  webkit-deb-profil:\n',1)[0]
         for datoteka in ('packaging/webkit/webkitgtk6-safeer.yml','packaging/webkit/*.patch','packaging/libsoup/**',
                          'packaging/webkit-deb/zgradi.sh','packaging/webkit-deb/modul.py','packaging/webkit-deb/typelibi.py',
                          'packaging/webkit-deb/odvisnosti.sh','packaging/webkit/pgo_trening.py','packaging/webkit-deb/ucni_tek.sh'):
-            # Koncni arhiv (2x) in stanje pred BOLT (2x, nadaljevanje po padcu BOLT, lastnik 19. 10. 2026).
-            self.assertEqual(posel.count("'%s'"%datoteka),4,datoteka)
-            self.assertEqual(profil.count("'%s'"%datoteka),2,datoteka)
-        self.assertNotIn('restore-keys',posel+profil)
+            self.assertEqual(kljuc.count("'%s'"%datoteka),2,datoteka)
+            self.assertEqual(posel.count("'%s'"%datoteka)+profil.count("'%s'"%datoteka),0,datoteka)
+        self.assertEqual(posel.count('${{ needs.webkit-kljuc.outputs.webkit }}'),4)       # 2 kljuca + 2 imeni artefakta
+        self.assertEqual(profil.count('key: webkit-deb-profil-${{ needs.webkit-kljuc.outputs.profil }}'),2)
+        self.assertNotIn('restore-keys',posel+profil+kljuc)
+        # Artefakt drugega teka: samo iz tools/ci_artefakt.py (zaupanja vreden tek) in s preverbo SHA-256 pred uporabo.
+        self.assertIn('python3 tools/ci_artefakt.py najdi "safeer-webkit-tar-${{ steps.kljuc.outputs.webkit }}"',kljuc)
+        self.assertLess(posel.index('sha256sum -c safeer-webkit.tar.zst.sha256'),posel.index('run: zstd -q -t build/safeer-webkit.tar.zst'))
+        self.assertLess(posel.index('bash tools/preveri_utrjenost.sh'),posel.rindex('name: safeer-webkit-tar-${{ needs.webkit-kljuc.outputs.webkit }}'))
         # Paket safeer-webkit iz arhiva (tudi iz predpomnilnika: pakiranje ni v kljucu, traja minute) kot artefakt.
         self.assertLess(posel.index('run: zstd -q -t build/safeer-webkit.tar.zst'),posel.index('bash packaging/webkit-deb/paket.sh'))
         self.assertIn('run: bash packaging/webkit-deb/knjiznice.sh',posel)
@@ -1630,11 +1644,9 @@ class RqbitPaketTests(unittest.TestCase):
         self.assertLess(appimage.index('mv "$APPDIR/usr/lib/safeer-os/rqbit" "$APPDIR/opt/rqbit"'),appimage.index('"$LINUXDEPLOY"'))
         self.assertIn('elif [ -n "${CI:-}" ]; then\n    echo "manjka SAFEER_RQBIT_TOVOR',appimage)
         self.assertIn('export SAFEER_RQBIT="$APPDIR/opt/rqbit/rqbit"',(ROOT/'packaging/AppRun-os').read_text())
+        # CI AppImage od 25. 10. 2026 ne gradi (opuscen, dokler ne nosi nasega WebKita); skripta ostane pripravljena.
         os_=potek.split('\n  safeer-os:\n',1)[1].split('\n  qt-xcb:\n',1)[0]
-        vrstica=next(v for v in os_.splitlines() if v.rstrip().endswith('bash packaging/build_os_appimage.sh'))
-        self.assertIn('SAFEER_RQBIT_TOVOR="$PWD/build/rqbit"',vrstica)
-        self.assertIn('RQ=build/os-appimage-x/squashfs-root/opt/rqbit/rqbit',os_)
-        self.assertIn("grep -F 'export SAFEER_RQBIT=\"$APPDIR/opt/rqbit/rqbit\"' build/os-appimage-x/squashfs-root/AppRun",os_)
+        self.assertNotIn('build_os_appimage.sh',os_)
         # Kot jo postavi Flatpak (predpona /app): core najde program iz Safeer OS in Safeer Control.
         cc=shutil.which('cc') or shutil.which('gcc')
         import platform
@@ -1758,38 +1770,6 @@ sys.exit("neznan ukaz")
         r=subprocess.run(['bash','-e','-c',skripta],cwd=d,env=env,capture_output=True,text=True)
         return r.returncode,dict(v.split('=',1) for v in izhod.read_text().splitlines() if '=' in v),r.stdout+r.stderr
 
-    def test_profil_pgo_samo_iz_zaupanja_vrednega_teka(self):
-        skripta=self._korak('webkit-pgo-profil','Profile with this key (artifact of an earlier trusted run)')['run']
-        artefakti=lambda *teki: {'artifacts':[{'expired':t==1,'created_at':'2026-10-1%dT10:00:00Z'%t,'workflow_run':{'id':t}}
-                                             for t in teki]}
-        runs=lambda t,dogodek,repo,veja: {'event':dogodek,'head_repository':{'id':repo},'head_branch':veja}
-        osnova={'repos/lastnik/repo/actions/runs/1':runs(1,'push',42,'main'),
-                'repos/lastnik/repo/actions/runs/2':runs(2,'push',42,'nova-funkcija'),
-                'repos/lastnik/repo/actions/runs/3':runs(3,'pull_request',999,'main'),
-                'repos/lastnik/repo/actions/runs/4':runs(4,'push',42,'gtk4-deb-webkit'),
-                'repos/lastnik/repo/actions/runs/5':runs(5,'pull_request',42,'main')}
-        ime='repos/lastnik/repo/actions/artifacts?name=webkit-pgo-profraw-K&per_page=100'
-        primeri=[  # (teki z artefaktom, izdaja, izbran tek, pricakovana koda, pricakovan run_id)
-            ((1,2,3),'false','',0,'2'),      # fork PR (3) in iztekel (1) izpuscena; veja istega repozitorija je OK
-            ((1,2,3),'true','',0,None),      # izdaja: veja nova-funkcija ni dovoljena -> ucni tek v tem teku
-            ((2,3,4,5),'true','',0,'4'),     # izdaja: najnovejsi zaupanja vreden (5 je pull_request)
-            ((2,3,4),'false','3',1,None),    # izrecno izbran tek iz forka: napaka, ne tiho
-            ((2,3,4),'true','2',1,None),     # izrecno izbran tek z druge veje pri izdaji: napaka
-            ((2,3,4),'false','4',0,'4'),
-        ]
-        for teki,izdaja,tek,koda,run_id in primeri:
-            with self.subTest(teki=teki,izdaja=izdaja,tek=tek), tempfile.TemporaryDirectory() as d:
-                pot=self._gh(d,dict(osnova,**{ime:artefakti(*teki)}))
-                k,izhod,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'',
-                                                     'TEK':tek,'REPO_ID':'42','IZDAJA':izdaja})
-                self.assertEqual(k,koda,izpis)
-                self.assertEqual(izhod.get('run_id'),run_id,izpis)
-        with tempfile.TemporaryDirectory() as d:   # napaka API ustavi korak (ne tiho ucni tek)
-            pot=self._gh(d,osnova)
-            k,_i,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'','TEK':'',
-                                              'REPO_ID':'42','IZDAJA':'true'})
-            self.assertNotEqual(k,0,izpis)
-
     def test_nadgradnja_ni_tiho_preskocena(self):
         skripta=self._korak('mint','Packages of the last published release (for the upgrade test)')['run']
         self.assertNotIn('|| echo',skripta)
@@ -1842,7 +1822,8 @@ sys.exit("neznan ukaz")
         preveri=posel.index('run: zstd -q -t build/safeer-webkit.tar.zst')
         shrani=posel.index('- name: Save our WebKitGTK')
         self.assertLess(preveri,shrani)
-        self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true'\n",posel[shrani:])
+        self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true' && needs.webkit-kljuc.outputs.webkit_run == ''\n",
+                      posel[shrani:])
         # always() samo za stanje pred BOLT (nadaljevanje po padcu BOLT): bolt.sh ga zapise pod koncnim imenom sele po
         # zstd -t, zato prirezan arhiv ne pride v predpomnilnik.
         self.assertEqual(posel.count('if: always()'),1)

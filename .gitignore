@@ -35,6 +35,9 @@ tests/*
 !tests/skupni-primeri/
 !tests/varovalo_signalov.py
 !tests/varovalo_programov.py
+!tests/razvrstitev_webkit.py
+!tests/webkit_preizkusi.txt
+!tests/trajanja_preizkusov.json
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/
