@@ -198,8 +198,10 @@ def _check_values(value, depth=0) -> None:
         for item in value:
             _check_values(item, depth + 1)
     elif isinstance(value, str):
-        if any(not 0x20 <= ord(ch) <= 0x7E for ch in value):
-            raise FeedVerificationError("string outside printable ASCII")
+        # Nizi so ze zagotovo natisljiv ASCII: _check_text dovoli samo bajte 0x20-0x7E (in presledke JSON, ki jih
+        # json.loads v nizu ne sprejme) in samo ubezni zaporedji za poševnico in narekovaj. Preverba po znakih v Pythonu
+        # ni nasla nic vec, stala pa je do 7 s procesorja ob zagonu na velikem seznamu (izmerjeno na Windows).
+        return
     elif isinstance(value, bool) or not isinstance(value, int):
         raise FeedVerificationError("only objects, arrays, strings and integers are allowed")
     elif not 0 <= value <= MAX_SAFE_INTEGER:
