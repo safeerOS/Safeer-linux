@@ -1095,13 +1095,53 @@ class SafeerLink:
         g = getattr(self, "_hub_gostitelj", None)
         if g is None:
             ime = "Safeer Control (" + link_hub._ime_naprave().split(".")[0] + ")"
-            g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime)
+            # Izvolitev in samodejna rezerva (neodvisni pregled OpenAI 1.0.129): oglasi Hubov iz mDNS (samo clani kroga,
+            # katerih potrdilo nosi kljuc iz kroga), clanstvo in nas id. Brez njih je tuj Hub v istem omrezju (drug krog)
+            # po 60 s sprozil rezervo in racunalnik bi nehal gostiti.
+            preverjeni = link_hub_streznik.PreverjeniHubi(self._kljuc_clana_kroga)
+            g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime,
+                                               hubi=lambda: preverjeni.filtriraj(link_hub.poisci_hube_mdns(1.5)),
+                                               clan=lambda hid: bool(self._kljuc_clana_kroga(hid)),
+                                               nas_id=link_hub_streznik.id_za_oglas)
             # Deljene mape tudi prek Huba (/cast/d/): po Global Linku pride samo povezava do vrat Huba.
             g.streznik.datoteke = lambda: getattr(self.datoteke, "streznik", None)
             # Slika zaslona tudi prek Huba (/cast/desktop), za gledalca, ki je zdoma.
             g.streznik.zaslon = lambda: self.zaslon
             self._hub_gostitelj = g
+            if getattr(self, "control", False) and link_hub_streznik.SAMODEJNA_REZERVA:
+                # Samodejna rezerva in vrnitev iz nje potrebujeta reden pregled (prej ga ni bilo).
+                g.zacni_nadzor(ob_spremembi=self._ob_spremembi_gostovanja)
         return g
+
+    @staticmethod
+    def _kljuc_clana_kroga(hid: str) -> str:
+        """Javni kljuc clana kroga zaupanja s tem id-jem ("" = ni clan ali je umaknjen)."""
+        try:
+            if not hid or link_krog.je_umaknjen(hid):
+                return ""
+            c = link_krog.krog().clan_za_id(hid)
+            return str((c or {}).get("kljuc") or "")
+        except Exception:  # noqa: BLE001 - krog ni berljiv: oglas ne steje
+            return ""
+
+    def _ob_spremembi_gostovanja(self, prej: tuple, zdaj: tuple) -> None:
+        """Nadzor gostovanja (HubGostitelj.zacni_nadzor): nacin ali gostovanje se je spremenilo."""
+        nacin, gostimo = zdaj
+        print("[SafeerLink] gostovanje: %s/%s -> %s/%s" % (prej[0], "gosti" if prej[1] else "ne gosti",
+                                                           nacin, "gosti" if gostimo else "ne gosti"), flush=True)
+        if nacin == "mesh":
+            # Vrnitev iz rezerve: spet na svoj Hub, do drugih naprav nas peljejo sosedje.
+            self._v_ozadju(self._na_lastni_hub)
+        elif not gostimo:
+            # Rezerva, izvoljen je drug Hub: povezava na nasega se je zaprla - povezemo se na izvoljenega.
+            self._v_ozadju(lambda: self._poisci_hub(tiho=True))
+
+    def _na_lastni_hub(self) -> None:
+        self._mesh_lastni_hub()
+        p = self.povezava
+        if p is not None and getattr(p, "aktivna", False) and getattr(p, "ws_naslov", "") == self._hub():
+            return
+        self._povezi()
 
     def _prevzemi_gostovanje(self) -> bool:
         """Ce Huba ni nikjer, ga zazenemo sami in se nanj povezemo.
@@ -1587,7 +1627,13 @@ class SafeerLink:
             return
         g = getattr(self, "_hub_gostitelj", None)
         if g is not None and g.v_rezervi():
-            return
+            # Rezerva: preveri() vodi preizkus Mesha v ozadju in vrnitev (prej se tu ni klical - iz rezerve ni bilo poti).
+            try:
+                g.preveri()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerLink] rezerva: pregled ni uspel:", type(e).__name__)
+            if g.v_rezervi():
+                return
         try:
             g = self._gostitelj()
             if not g.gostimo():
