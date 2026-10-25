@@ -46,6 +46,22 @@ class Ukazi(unittest.TestCase):
         self.assertIsNotNone(self.v.razlog_lupine("echo $(sudo cat /etc/shadow)"))
         self.assertIsNone(self.v.razlog_lupine("command -v ls >/dev/null; echo 'pkexec je samo besedilo'"))
 
+    def test_spletni_motor_dovoljen_drugo_pod_safeer_ne(self):
+        """Pomozni procesi nasega WebKita (preizkusi tecejo samo z njim): dovoljeni; vse drugo ostane prepovedano."""
+        for pot in ("/usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess",
+                    "/usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitNetworkProcess",
+                    "/usr/lib/safeer-browser/webkit-vgrajen/libexec/webkitgtk-6.0/WebKitWebProcess",
+                    "/usr/lib/safeer-os/webkit-vgrajen/libexec/webkitgtk-6.0/WebKitGPUProcess"):
+            self.assertIsNone(self.v.prepovedana_pot(pot), pot)
+            self.assertIsNone(self.v.razlog_ukaza([pot, "7", "8"]), pot)
+        for pot in ("/usr/lib/safeer-webkit/libexec/webkitgtk-6.0/jsc",
+                    "/usr/lib/safeer-webkit/libexec/webkitgtk-6.0/safeer-cinnamon",
+                    "/usr/lib/safeer-webkit/libexec/WebKitWebProcess",
+                    "/usr/lib/safeer-os/libexec/webkitgtk-6.0/WebKitWebProcess",
+                    "/usr/lib/safeer-webkit/libexec/webkitgtk-6.0/../../../safeer-os/safeer_os.py",
+                    "/usr/lib/safeer-os/safeer_os.py", "/usr/bin/safeer-cinnamon", "/usr/bin/pkexec"):
+            self.assertIsNotNone(self.v.prepovedana_pot(pot), pot)
+
     def test_lazni_v_zacasni_mapi_in_navadni_programi(self):
         lazni = os.path.join(self.mapa, "pkexec")
         with open(lazni, "w", encoding="utf-8") as f:
@@ -119,6 +135,48 @@ class Potomci(unittest.TestCase):
                 v.odstrani()
         self.assertEqual(koda, -signal.SIGKILL)
         self.assertTrue(any("potomec" in k and "safeer-cinnamon" in k for k in v.krsitve), v.krsitve)
+
+    def test_spletni_motor_prezivi_safeer_in_pkexec_ne(self):
+        """Pravi procesi (kopije programa sleep) v laznem korenu sistema: WebKitWebProcess nasega WebKita nit pusti,
+        safeer-cinnamon in pkexec ubije. 25. 10. 2026 15:12 je varovalo ubijalo WebKitWebProcess nasega WebKita."""
+        mapa = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, mapa, True)
+        koren = os.path.join(mapa, "koren")
+        motor = os.path.join(koren, "usr/lib/safeer-webkit/libexec/webkitgtk-6.0")
+        bin_ = os.path.join(koren, "usr/bin")
+        os.makedirs(motor)
+        os.makedirs(bin_)
+        spanje = shutil.which("sleep")
+        programi = {}
+        for ime, pot in (("splet", os.path.join(motor, "WebKitWebProcess")),
+                         ("safeer", os.path.join(bin_, "safeer-cinnamon")), ("pkexec", os.path.join(bin_, "pkexec"))):
+            shutil.copy2(spanje, pot)
+            programi[ime] = pot
+        # Ta primerek: zacasna mapa teka NI dovoljena, »sistem« je lazni koren.
+        v = vp.Varovalo(dovoljeno=os.path.join(mapa, "drugje"), dnevnik=os.devnull)
+        procesi = {}
+        with mock.patch.object(vp, "PREDPONE", (os.path.join(bin_, "safeer"), os.path.join(koren, "usr/lib/safeer"))), \
+                mock.patch.object(vp, "SPLETNI_MOTOR_MAPE", (motor,), create=True):
+            v.namesti()
+            try:
+                for ime, pot in programi.items():
+                    # Mimo Pythona (kot WebKit prek GLib): lupina zazene program, Python vidi samo /bin/sh -c.
+                    procesi[ime] = subprocess.Popen(["/bin/sh", "-c", 'exec "$0" 30', pot])
+                konec = time.monotonic() + 3.0
+                while time.monotonic() < konec and (procesi["safeer"].poll() is None or procesi["pkexec"].poll() is None):
+                    time.sleep(0.05)
+                time.sleep(10 * vp.PREGLED_S)      # se deset pregledov za spletni motor
+                splet_zivi = procesi["splet"].poll() is None
+            finally:
+                v.odstrani()
+                for p in procesi.values():
+                    if p.poll() is None:
+                        p.kill()
+                    p.wait()
+        self.assertTrue(splet_zivi, "WebKitWebProcess nasega WebKita je ubit: %s" % v.krsitve)
+        self.assertEqual(procesi["safeer"].returncode, -signal.SIGKILL, v.krsitve)
+        self.assertEqual(procesi["pkexec"].returncode, -signal.SIGKILL, v.krsitve)
+        self.assertFalse(any("WebKitWebProcess" in k for k in v.krsitve), v.krsitve)
 
     def test_program_s_setuid_po_imenu(self):
         """pkexec/sudo imata setuid: exe ni berljiv, odloci ime v cmdline."""

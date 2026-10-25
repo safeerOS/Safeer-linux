@@ -1,5 +1,6 @@
 """Varovalo programov: preizkus ne sme zagnati pravega programa za skrbniske pravice (pkexec, sudo, su, doas, run0) ne
-namescenega Safeerja (/usr/bin/safeer*, /usr/lib/safeer*, Flatpak io.github.memelandfaner.*).
+namescenega Safeerja (/usr/bin/safeer*, /usr/lib/safeer*, Flatpak io.github.memelandfaner.*). Izjema so samo pomozni
+procesi nasega spletnega motorja (WebKit*Process v SPLETNI_MOTOR_MAPE), s katerim tecejo vsi zivi preizkusi.
 
 Zakaj (25. 10. 2026 14:25): tests/test_sistemski_programi.py::OvojiFlatpak je na lastnikovem prenosniku prek ovoja
 Flatpak (packaging/flatpak_host_wrappers.sh) zagnal pravi /usr/bin/safeer-cinnamon --od-vklopa -> pkexec: dvakrat okno
@@ -36,6 +37,15 @@ IMENA = frozenset(("pkexec", "sudo", "su", "doas", "run0"))
 PREDPONE = ("/usr/bin/safeer", "/usr/sbin/safeer", "/usr/local/bin/safeer", "/usr/local/sbin/safeer", "/usr/lib/safeer",
             "/usr/libexec/safeer", "/usr/local/lib/safeer", "/usr/share/safeer", "/opt/safeer")
 FLATPAK_ID = "io.github.memelandfaner."
+#: Izjema: pomozni procesi NASEGA spletnega motorja. Preizkusi tecejo samo z nasim WebKitom (AGENTS.md, lastnik 21. 10.
+#: 2026; tools/nas_webkit.sh -> /usr/lib/safeer-webkit), WebKitGTK pa za vsako stran zazene WebKitWebProcess in
+#: WebKitNetworkProcess iz libexec. Skrbniskih pravic in stanja namescenega Safeerja nimajo. 25. 10. 2026 15:12 jih je
+#: varovalo ubijalo: vsak zivi preizkus z WebKitom je padel (»Connection: failed to receive credentials«, SIGTRAP).
+#: Dovoljeni so samo ti programi v teh mapah (realpath); jsc in vse drugo pod PREDPONE ostane prepovedano.
+SPLETNI_MOTOR_MAPE = ("/usr/lib/safeer-webkit/libexec/webkitgtk-6.0",
+                      "/usr/lib/safeer-browser/webkit-vgrajen/libexec/webkitgtk-6.0",
+                      "/usr/lib/safeer-os/webkit-vgrajen/libexec/webkitgtk-6.0")
+SPLETNI_MOTOR_PROGRAMI = frozenset(("WebKitWebProcess", "WebKitNetworkProcess", "WebKitGPUProcess"))
 _LUPINE = ("sh", "bash", "dash", "zsh", "ksh", "mksh", "ash")
 _TOLMACI = re.compile(r"^(python[0-9.]*|perl|ruby|node|lua[0-9.]*)$")
 _OVOJI = {
@@ -100,12 +110,17 @@ class Varovalo:
     def _v_zacasni(self, pot):
         return pot == self.dovoljeno or pot.startswith(self.dovoljeno + os.sep)
 
+    @staticmethod
+    def spletni_motor(pravi):
+        """Je program (realpath) pomozni proces nasega WebKita (SPLETNI_MOTOR_MAPE)?"""
+        return os.path.dirname(pravi) in SPLETNI_MOTOR_MAPE and os.path.basename(pravi) in SPLETNI_MOTOR_PROGRAMI
+
     def prepovedana_pot(self, pot):
         """Razlog, ce je program na tej poti prepovedan, sicer None. Pot je absolutna (realpath)."""
         if not pot:
             return None
         pravi = os.path.realpath(pot)
-        if self._v_zacasni(pravi):
+        if self._v_zacasni(pravi) or self.spletni_motor(pravi):
             return None
         for p in (pot, pravi):
             if os.path.basename(p) in IMENA:
