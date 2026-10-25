@@ -680,6 +680,9 @@ class Debrid:
         self._zaklep = threading.Lock()
         self._kljuci: dict = {}          # predpomnilnik desifriranih kljucev (samo v pomnilniku)
         self._povezave_nzb: dict = {}    # id toka »usenet:…« -> povezava NZB s kljucem (samo v pomnilniku)
+        # Zadnji prenesen NZB (id toka -> (cas, bajti)): preverba »pripravljen« in nato poskus s cakanjem za isto izdajo
+        # ne preneseta NZB dvakrat (indeksatorji stejejo prenose NZB na dan).
+        self._nzb: "OrderedDict[str, tuple]" = OrderedDict()
 
     def _nastavitve(self) -> dict:
         d = self._beri()
@@ -769,8 +772,32 @@ class Debrid:
                            "vir": "Usenet", "usenet": True})
         return tokovi
 
+    #: Predpomnilnik NZB: najvec toliko izdaj, bajtov skupaj in sekund (NZB filma je obicajno 1-5 MB).
+    NZB_NAJVEC = 3
+    NZB_NAJVEC_BAJTOV = 30 * 1024 * 1024
+    NZB_VELJA_S = 900.0
+
+    def _nzb_zapomnjen(self, id_toka: str) -> Optional[bytes]:
+        with self._zaklep:
+            v = self._nzb.get(id_toka)
+            if v is None:
+                return None
+            if time.monotonic() - v[0] > self.NZB_VELJA_S:
+                self._nzb.pop(id_toka, None)
+                return None
+            return v[1]
+
+    def _zapomni_nzb(self, id_toka: str, nzb: bytes) -> None:
+        with self._zaklep:
+            self._nzb.pop(id_toka, None)
+            self._nzb[id_toka] = (time.monotonic(), nzb)
+            while self._nzb and (len(self._nzb) > self.NZB_NAJVEC
+                                 or sum(len(b) for _c, b in self._nzb.values()) > self.NZB_NAJVEC_BAJTOV):
+                self._nzb.popitem(last=False)
+
     def usenet_tok(self, id_toka: str, ime_izdaje: str, indeks: Optional[int] = None,
-                   samo_takoj: bool = False, rok_cakanja: float = U.CAKAJ_PRENOSA_S) -> Izid:
+                   samo_takoj: bool = False, rok_cakanja: float = U.CAKAJ_PRENOSA_S,
+                   preklic: Optional[threading.Event] = None) -> Izid:
         """NZB od indeksatorja (ta racunalnik), nato TorBox. Napaka indeksatorja je U.NAPAKA_INDEKSATOR."""
         k = self.kljuc(P.TORBOX)
         if not k:
@@ -779,10 +806,37 @@ class Debrid:
             povezava = self._povezave_nzb.get(id_toka)
         if not povezava:
             return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
-        nzb, _napaka = usenet_nzb(povezava)
+        nzb = self._nzb_zapomnjen(id_toka)
         if nzb is None:
-            return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
-        return torbox_usenet(k, nzb, ime_izdaje, indeks, samo_takoj, rok_cakanja=rok_cakanja)
+            nzb, _napaka = usenet_nzb(povezava)
+            if nzb is None:
+                return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
+            self._zapomni_nzb(id_toka, nzb)
+        return torbox_usenet(k, nzb, ime_izdaje, indeks, samo_takoj, rok_cakanja=rok_cakanja, preklic=preklic)
+
+    def usenet_takoj(self, tokovi: Sequence[dict], rok: float = U.TAKOJ_ROK_S) -> Optional[tuple]:
+        """Lastnik 25. 10. 2026: Usenet, ki ga ima TorBox ze pripravljenega, gre pred vse druge vire. Prve U.TAKOJ_IZDAJ izdaj
+        [tokovi] (po kakovosti, najboljsa prva) preverimo hkrati (add_only_if_cached) z rokom [rok]; zmaga najboljsa
+        pripravljena. Vrne (indeks v [tokovi], Izid) ali None. Kar zamudi rok, ne doda nicesar (preklic)."""
+        izbrani = U.za_takojsnjo([float(t.get("gb") or 0.0) for t in tokovi])
+        if not izbrani:
+            return None
+        konec = time.monotonic() + max(0.1, rok)
+        preklic = threading.Event()
+        niti = [(i, v_ozadju(self.usenet_tok, str(tokovi[i].get("url") or ""), str(tokovi[i].get("naslov") or ""),
+                             None, True, P.CAKAJ_NOVEGA_S, preklic)) for i in izbrani]
+        try:
+            pripravljene = []
+            for _i, f in niti:
+                izid = _izid_do(f, konec)
+                pripravljene.append(izid if isinstance(izid, Izid) and izid.url else None)
+                if pripravljene[-1] is not None:
+                    break           # najboljsa pripravljena po kakovosti: slabsih ne cakamo
+        finally:
+            preklic.set()
+        k = U.najboljsa_pripravljena([x is not None for x in pripravljene])
+        _log.info("usenet takoj: %s", "izdaja %d pripravljena" % k if k >= 0 else "nobena pripravljena")
+        return (izbrani[k], pripravljene[k]) if k >= 0 else None
 
     # ---- nastavitve
     def samo_takoj(self) -> bool:
