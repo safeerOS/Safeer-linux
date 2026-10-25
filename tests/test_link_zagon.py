@@ -82,6 +82,21 @@ class OknaNamizja(unittest.TestCase):
                                                     ["/usr/bin/flatpak", "run", "--branch=stable", "--command=igra", "net.primer.Igra"]),
                          ["net.primer.igra"])
         self.assertEqual(link_programi.razredi_okna("gimp.desktop", "", ["env", "X=1", "gimp-2.10", "%U"]), ["gimp", "gimp-2.10"])
+        # Snap: nastavitev okolja s potjo (ime datoteke po zadnji posevnici je `x_x.desktop`) ni program.
+        self.assertEqual(link_programi.razredi_okna(
+            "igra_igra.desktop", "",
+            ["env", "BAMF_DESKTOP_FILE_HINT=/var/lib/snapd/desktop/applications/igra_igra.desktop", "/snap/bin/igra"]),
+            ["igra_igra", "igra"])
+
+    def test_razredi_electron_ene_instance(self):
+        """Claude (deb): StartupWMClass com.anthropic.Claude, okno X com.anthropic.claude.com.anthropic.Claude -
+        izmerjeno na prenosniku 25. 10. 2026 (wmctrl -lpx)."""
+        razredi = link_programi.razredi_okna("com.anthropic.Claude.desktop", "com.anthropic.Claude", ["claude-desktop"])
+        self.assertEqual(razredi, ["com.anthropic.claude", "claude-desktop"])
+        okna = link_sway.razberi_okna("0x03c00004  0 5088   com.anthropic.claude.com.anthropic.Claude  prenosnik Claude\n"
+                                      "0x05600006  0 383867 gnome-terminal-server.Gnome-terminal  prenosnik terminal\n")
+        self.assertEqual(link_sway.okno_programa(okna, set(), razredi), "0x03c00004")
+        self.assertEqual(link_sway.okno_programa(okna, {5088}, []), "0x03c00004")
 
 
 class IzidZagona(unittest.TestCase):
@@ -162,11 +177,30 @@ class IzidZagona(unittest.TestCase):
         d = self._drugi({"zeton": "a1", "cas": time.monotonic() - 10, "pidi": lambda: [], "razredi": ["drugo"]})
         with mock.patch.object(link_sway, "zivi_zagon", return_value=False), \
                 mock.patch.object(link_sway, "_okna_namizja", return_value=okna):
+            # takoj po koncu rodu se cakamo na okno (ZAGON_OKNO_POCAKAJ_S), po roku pa »koncan«
+            self.assertEqual(d.izid_zagona(), "")
+            d._zagon["konec_od"] -= link_sway.ZAGON_OKNO_POCAKAJ_S + 0.1
             self.assertEqual(d.izid_zagona(), "koncan")
-        # namizja ne moremo pogledati (ni wmctrl): vemo samo, da je rod koncal
+        # namizja ne moremo pogledati (ni wmctrl): vemo samo, da je rod koncal - cakanje nima smisla
+        d = self._drugi({"zeton": "a1", "cas": time.monotonic() - 10, "pidi": lambda: [], "razredi": ["drugo"]})
         with mock.patch.object(link_sway, "zivi_zagon", return_value=False), \
                 mock.patch.object(link_sway, "_okna_namizja", return_value=None):
             self.assertEqual(d.izid_zagona(), "koncan")
+
+    def test_okno_na_namizju_z_zamikom(self):
+        """Zaganjalnik je koncal, okno programa na namizju se pokaze za hip pozneje: ne »ni okna«, ampak preklop.
+        Po koncu rodu /proc ne beremo vec (na obremenjenem racunalniku je to drago)."""
+        okna = link_sway.razberi_okna(OknaNamizja.IZPIS)
+        pozneje = okna + link_sway.razberi_okna("0x07000001  0 4444    gimp.Gimp  racunalnik GIMP\n")
+        d = self._drugi({"zeton": "a1", "cas": time.monotonic() - 10, "pidi": lambda: [4444], "razredi": [],
+                         "okna_pred": {o["id"] for o in okna}})
+        with mock.patch.object(link_sway, "zivi_zagon", return_value=False) as zivi, \
+                mock.patch.object(link_sway, "_okna_namizja", side_effect=[okna, okna, pozneje]):
+            self.assertEqual(d.izid_zagona(), "")
+            self.assertEqual(d.izid_zagona(), "")
+            self.assertEqual(d.izid_zagona(), "na_namizju")
+        self.assertEqual(d._zagon["okno"], "0x07000001")
+        self.assertEqual(zivi.call_count, 2)        # samo prvi pogled (in njegova potrditev)
 
     def test_zagon_dobi_oznako_in_opis(self):
         d = link_sway.DrugiZaslon(mapa=tempfile.mkdtemp())
@@ -282,6 +316,23 @@ class UkazZaslona(unittest.TestCase):
                 break
             time.sleep(0.01)
         self.assertEqual(pokazano, [True])
+
+
+class VzorciProcesa(unittest.TestCase):
+    def _programi(self, exec_):
+        mapa = tempfile.mkdtemp()
+        with open(os.path.join(mapa, "igra.desktop"), "w", encoding="utf-8") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=Igra\nExec=%s\n" % exec_)
+        p = link_programi.Programi(vklopljeno=True, mape=[mapa])
+        p._vnosi = p._preberi()
+        return p
+
+    def test_nastavitev_okolja_ni_program(self):
+        """`env X=1 program`: prej je bil vzorec `X=1` - procesa programa ni nasel (ne pokazi ne zapri)."""
+        self.assertEqual(self._programi("env X=1 gimp-2.10 %U")._iskani_vzorci("igra.desktop"), ["gimp-2.10"])
+        p = self._programi("env BAMF_DESKTOP_FILE_HINT=/var/lib/snapd/desktop/applications/igra_igra.desktop "
+                           "/snap/bin/igra %U")
+        self.assertEqual(p._iskani_vzorci("igra.desktop"), ["igra"])
 
 
 if __name__ == "__main__":
