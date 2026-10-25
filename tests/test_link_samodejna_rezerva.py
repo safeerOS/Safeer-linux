@@ -267,3 +267,16 @@ def test_nadzor_zacne_samo_control_s_samodejno_rezervo():
         finally:
             g.koncaj()
     assert threading.active_count() >= 1
+
+
+def test_redni_pregled_v_mesh_brez_iskanja_tujega_huba(vklopljena):
+    """Pregled vsakih 20 s v Mesh ne isce tujega Huba (mDNS + preverbe HTTP/TLS, vec sekund): clane povedo oglasi."""
+    klici = []
+    g = H.HubGostitelj(poisci=lambda: klici.append(1), hubi=lambda: [], clan=lambda hid: True, nas_id=lambda: "pc1",
+                       streznik=Streznik(), oglas=Oglas(), sosedje=lambda: [], ura=lambda: 100.0)
+    assert g.preveri() and g.preveri()
+    assert klici == []
+    g._nacin = "rezerva"                     # v rezervi iskanje ostane (naj_gostimo brez oglasov)
+    g.preveri()
+    assert klici == [1]
+    g.koncaj()

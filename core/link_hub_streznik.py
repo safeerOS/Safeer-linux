@@ -4743,8 +4743,11 @@ class HubGostitelj:
 
     def preveri(self) -> bool:
         """En pregled: preveri nacin (Mesh ali rezerva), stanje streznika in izvolitev."""
+        # V Mesh racunalnik gosti vedno; clane kroga v omrezju povedo preverjeni oglasi (hubi). Iskanje tujega Huba
+        # (mDNS + preverbe HTTP/TLS, vec sekund) je tam odvec - redni pregled (zacni_nadzor) je zato poceni.
+        v_mesh = self._nacin == "mesh" and self.hubi is not None and mesh_vklopljen()
         try:
-            najden = self.poisci()
+            najden = None if v_mesh else self.poisci()
         except Exception:
             najden = None
         try:
