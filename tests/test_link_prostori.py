@@ -190,5 +190,115 @@ class Odpiranje(unittest.TestCase):
         self.assertEqual(lp.ZMOZNOST_DELI_ZASLON, "zaslon.deli")  # Android link/Daljinec.ZMOZNOST_DELI_ZASLON
 
 
+class NaciniPrikaza(unittest.TestCase):
+    """Meni »+« (krog 2): zrcaljenje, samo ena aplikacija, namizni nacin - program izbere Python, ne stran."""
+
+    def test_nacini(self):
+        z = lp.zive_s_prostorom([PC, TABLICA, naprava("t-2-os", "Telefon", ["zaslon.deli"], "phone")])
+        self.assertEqual(lp.nacini_prikaza(z["pc-1"]), ["zrcaljenje", "aplikacija"])
+        self.assertEqual(lp.nacini_prikaza(z["t-2"]), ["zrcaljenje"])
+        self.assertEqual(lp.nacini_prikaza(None), [])
+        p = lp.prostori([], [PC])
+        self.assertEqual(p, [])
+        p = lp.prostori(lp.zapomni([], [PC], 10), [PC])
+        self.assertEqual(p[0]["nacini"], ["zrcaljenje", "aplikacija"])
+        brez = lp.prostori(lp.zapomni([], [PC], 10), [])
+        self.assertEqual(brez[0]["nacini"], [], "brez povezave ni nacinov")
+
+    def test_namizni_samo_ce_ga_naprava_sporoca(self):
+        tablica = naprava("t-3-os", "Tablica", ["zaslon.deli", lp.ZMOZNOST_NAMIZNI], "tablet")
+        z = lp.zive_s_prostorom([tablica])
+        self.assertEqual(lp.nacini_prikaza(z["t-3"]), ["zrcaljenje", "namizni"])
+        self.assertEqual(lp.program_za(z["t-3"], "namizni"), lp.PROGRAM_NAMIZNI)
+        self.assertEqual(lp.program_za(z["t-3"], "zrcaljenje"), lp.CEL_ZASLON)
+        # Zmoznost pri sorodniku, ki ukaza ne dobi, ne velja (ukaz gre clanu z zaslonom).
+        z2 = lp.zive_s_prostorom([naprava("t-4", "T", [lp.ZMOZNOST_NAMIZNI], "tablet"),
+                                  naprava("t-4-os", "T", ["zaslon.deli", "remote"], "tablet")])
+        self.assertIsNone(lp.program_za(z2["t-4"], "namizni"))
+        # Racunalnik namiznega nacina nima (je ze namizje).
+        self.assertIsNone(lp.program_za(dict(lp.zive_s_prostorom([PC])["pc-1"], namizni=True), "namizni"))
+
+    def test_program_za_zavrne_tuje(self):
+        z = lp.zive_s_prostorom([PC, TABLICA])
+        self.assertEqual(lp.program_za(z["pc-1"], "zrcaljenje"), "")
+        for slabo in ("aplikacija", "razsirjen", "", None, "safeer.cel.zaslon"):
+            self.assertIsNone(lp.program_za(z["t-1"], slabo), slabo)
+        self.assertIsNone(lp.program_za(None, "zrcaljenje"))
+
+
+class _Ura:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+SLIKA = {"image": lp.PREDPONA_SLICICE + "/9j/AAAA", "width": 320, "height": 180}
+
+
+class SlicicevZivo(unittest.TestCase):
+    def test_veljavna(self):
+        self.assertEqual(lp.veljavna_slicica(SLIKA), {"slika": SLIKA["image"], "w": 320, "h": 180})
+        for slabo in (None, {}, {"image": "data:image/png;base64,AAAA"}, {"image": "javascript:alert(1)"},
+                      {"image": lp.PREDPONA_SLICICE + '"><img src=x onerror=alert(1)>'},
+                      {"image": lp.PREDPONA_SLICICE + "A" * lp.SLICICA_NAJVEC}, {"image": lp.PREDPONA_SLICICE}):
+            self.assertIsNone(lp.veljavna_slicica(slabo), str(slabo)[:60])
+        self.assertEqual(lp.veljavna_slicica(dict(SLIKA, width=True, height=99999))["w"], 0)
+
+    def test_premor_in_zadnja_slika(self):
+        ura, klici = _Ura(), []
+        s = lp.Slicice(ura)
+
+        def vprasaj():
+            klici.append(ura.t)
+            return {"ok": True, "data": SLIKA}
+        self.assertTrue(s.dobi("pc", vprasaj)["ok"])
+        ura.t += 1
+        self.assertEqual(s.dobi("pc", vprasaj)["slika"], SLIKA["image"], "vmes zadnja slika")
+        self.assertEqual(len(klici), 1)
+        ura.t += lp.SLICICA_VSAKIH_S
+        s.dobi("pc", vprasaj)
+        self.assertEqual(len(klici), 2)
+        # Kratka napaka: zadnja dobra slika ostane (ploscica ne utripa).
+        ura.t += lp.SLICICA_VSAKIH_S
+        self.assertTrue(s.dobi("pc", lambda: {"ok": False, "koda": "cas"})["ok"])
+
+    def test_naprava_brez_dejanja_dolgo_ne(self):
+        ura, klici = _Ura(), []
+        s = lp.Slicice(ura)
+
+        def staro():
+            klici.append(1)
+            return {"ok": False, "koda": "neznano_dejanje"}
+        self.assertEqual(s.dobi("win", staro), {"ok": False, "koda": "neznano_dejanje"})
+        ura.t += lp.SLICICA_NI_S - 1
+        s.dobi("win", staro)
+        self.assertEqual(len(klici), 1)
+        ura.t += 2
+        s.dobi("win", staro)
+        self.assertEqual(len(klici), 2)
+
+    def test_ne_dvakrat_hkrati_in_izjema(self):
+        s = lp.Slicice(_Ura())
+        vmes = []
+
+        def pocasi():
+            vmes.append(s.dobi("pc", lambda: {"ok": True, "data": SLIKA}))
+            return {"ok": True, "data": SLIKA}
+        s.dobi("pc", pocasi)
+        self.assertEqual(vmes, [{"ok": False, "koda": "pocakaj"}], "drugi klic med prvim ne vprasa naprave")
+
+        def pade():
+            raise OSError("ni povezave")
+        self.assertEqual(s.dobi("tv", pade), {"ok": False, "koda": "napaka"})
+
+    def test_meja_naprav(self):
+        s = lp.Slicice(_Ura())
+        for i in range(lp.SLICICA_NAPRAV + 5):
+            s.dobi("n%d" % i, lambda: {"ok": True, "data": SLIKA})
+        self.assertLessEqual(len(s._z), lp.SLICICA_NAPRAV)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,14 +25,19 @@ Pravila (enaka kot os/SeznamZaslonov.kt na Androidu, kjer je smiselno):
   * vrstni red je STALEN (po tem, kdaj je bila naprava prvic prostor): mesto prostora se ne spreminja, ko naprave
     pridejo in odidejo - tako kot pri navideznih namizjih uporabnik ve, kje je kaj (Super+Tab, puscice).
 
-Slicice v zivo (cilj 60 fps) v MVP NISO: naprave danes ne ponujajo posnetka celega zaslona brez potrditve (Android
-`screenshot` je samo posnetek odprtega brskalnika, MediaProjection zahteva potrditev za vsako sejo). Ploscica zato
-pokaze vrsto naprave (ikona), ime, stanje povezave in kdaj je bila nazadnje videna. Glej nacrti/safeer-link-spaces-adr.md.
+Slicice v zivo (krog 2, 25. 10. 2026): RACUNALNIK v krogu (Linux; Windows, ko dobi isto dejanje) na zahtevo vrne
+majhen posnetek namizja (`screen.thumb`, core/link_zaslon.Zaslon.slicica) - samo ce je deljenje zaslona tam vklopljeno
+in samo na X11 (na Waylandu bi portal vsakic vprasal). Preklopnik ga zahteva vsakih nekaj sekund SAMO, dokler je odprt
+(razred Slicice spodaj: najvec en klic na napravo hkrati, premor, daljsi premor za napravo, ki dejanja ne zna). Naprave
+Android ostanejo pri ikoni: posnetka celega zaslona brez potrditve MediaProjection za vsako sejo ni (omejitev sistema).
+Glej nacrti/safeer-link-spaces-adr.md.
 """
 from __future__ import annotations
 
 import re
-from typing import Dict, Iterable, List, Optional
+import threading
+import time
+from typing import Callable, Dict, Iterable, List, Optional
 
 #: Zmoznost racunalnika, ki deli namizje (Safeer Control na Linuxu in Windows).
 ZMOZNOST_NAMIZJE = "desktop"
@@ -40,6 +45,15 @@ ZMOZNOST_NAMIZJE = "desktop"
 ZMOZNOST_DELI_ZASLON = "zaslon.deli"
 #: »Program«, ki pomeni »deli cel zaslon, nicesar ne odpri« (Android link/Daljinec.CEL_ZASLON).
 CEL_ZASLON = "safeer.cel.zaslon"
+#: Kljuka za NAMIZNI NACIN naprave Android (lasten zaganjalnik na navideznem zaslonu; Android veja »zaganjalnik«): naprava,
+#: ki ga zna, to pove s to zmoznostjo, program PROGRAM_NAMIZNI pa ji pove, naj deli namizje zaganjalnika namesto zrcaljenja.
+#: Dokler je nobena naprava ne sporoca, menija »Namizni nacin« ni (ne obljubljamo, cesar ni).
+ZMOZNOST_NAMIZNI = "zaslon.namizje"
+PROGRAM_NAMIZNI = "safeer.namizni.nacin"
+#: Nacini prikaza v meniju »+« (lastnik 19. 10.: zrcaljenje / samo ena aplikacija / namizni nacin). Razsirjen zaslon
+#: (naprava kot drugi monitor) ni mogoc brez navideznega monitorja - omejitev v ADR, ne gumb.
+PRIKAZ_ZRCALJENJE, PRIKAZ_APLIKACIJA, PRIKAZ_NAMIZNI = "zrcaljenje", "aplikacija", "namizni"
+PRIKAZI = (PRIKAZ_ZRCALJENJE, PRIKAZ_APLIKACIJA, PRIKAZ_NAMIZNI)
 
 #: Kako se prostor odpre: oddaljeni zaslon racunalnika (Upravljaj) ali deljenje zaslona naprave (OdpriTukaj).
 NACIN_RACUNALNIK = "racunalnik"
@@ -153,7 +167,9 @@ def zive_s_prostorom(zive: Iterable[dict]) -> Dict[str, dict]:
         for c in clani:
             vse_zm.update(zmoznosti(c))
         izhod[k] = {"kljuc": k, "id": _niz(izbran.get("id"), _NAJDALJSI_ID), "ime": ime, "vrsta": vrsta(izbran),
-                    "nacin": nc, "aplikacije": bool({"apps", "remote"} & vse_zm)}
+                    "nacin": nc, "aplikacije": bool({"apps", "remote"} & vse_zm),
+                    # Namizni nacin mora znati ISTI clan, ki dobi ukaz (ne kateri koli sorodnik).
+                    "namizni": nc == NACIN_ZASLON and ZMOZNOST_NAMIZNI in zmoznosti(izbran)}
     return izhod
 
 
@@ -220,8 +236,110 @@ def prostori(znane: List[dict], zive: Iterable[dict]) -> List[dict]:
         ziv = s_prostorom.get(z["kljuc"])
         izhod.append({"id": (ziv or z)["id"], "ime": (ziv or z)["ime"], "vrsta": (ziv or z)["vrsta"],
                       "nacin": (ziv or z)["nacin"], "povezana": ziv is not None,
-                      "aplikacije": bool(ziv and ziv["aplikacije"]), "videna": z["videna"]})
+                      "aplikacije": bool(ziv and ziv["aplikacije"]), "videna": z["videna"],
+                      "nacini": nacini_prikaza(ziv)})
     return izhod
+
+
+def nacini_prikaza(p: Optional[dict]) -> List[str]:
+    """Nacini prikaza povezanega prostora za meni »+«: zrcaljenje vedno, »samo ena aplikacija«, ce naprava deli
+    programe, namizni nacin samo, ce ga naprava sama sporoca (ZMOZNOST_NAMIZNI)."""
+    if not p:
+        return []
+    izhod = [PRIKAZ_ZRCALJENJE]
+    if p.get("aplikacije"):
+        izhod.append(PRIKAZ_APLIKACIJA)
+    if p.get("namizni"):
+        izhod.append(PRIKAZ_NAMIZNI)
+    return izhod
+
+
+def program_za(p: Optional[dict], prikaz: str) -> Optional[str]:
+    """Kaj Control odpre za prostor (iz za_odpiranje) v nacinu `prikaz`; None = ta nacin tu ni mogoc.
+
+    Racunalnik: "" (oddaljeni zaslon, Upravljaj) samo za zrcaljenje. Android: CEL_ZASLON ali PROGRAM_NAMIZNI (samo,
+    ce ga naprava zna). »Samo ena aplikacija« ni ukaz zaslona - gre po poti Programi -> Odpri tukaj. Nacin preveri
+    Python: stran ne more izbrati programa ali nacina, ki ga naprava ni sporocila."""
+    if not p or prikaz not in (PRIKAZ_ZRCALJENJE, PRIKAZ_NAMIZNI):
+        return None
+    if p.get("nacin") == NACIN_RACUNALNIK:
+        return "" if prikaz == PRIKAZ_ZRCALJENJE else None
+    if prikaz == PRIKAZ_NAMIZNI:
+        return PROGRAM_NAMIZNI if p.get("namizni") else None
+    return CEL_ZASLON
+
+
+# ---------------------------------------------------------------------- slicice v zivo (racunalniki v krogu)
+#: Najmanjsi premik med dvema posnetkoma iste naprave (s) - preklopnik je odprt kratek cas, namizje se pocasi spreminja.
+SLICICA_VSAKIH_S = 2.5
+#: Naprava, ki dejanja ne zna ali ga ne dovoli (starejsi Control, Windows brez screen.thumb, deljenje izklopljeno,
+#: Wayland), se toliko casa ne vprasa znova - ploscica ostane pri ikoni.
+SLICICA_NI_S = 120.0
+#: Najvecja sprejeta slicica (znakov data URL): 320 px JPEG je ~15-30 KB; vec pomeni napako ali tujo vsebino.
+SLICICA_NAJVEC = 256 * 1024
+#: Toliko naprav si zapomnimo (vec jih preklopnik tudi ne pokaze).
+SLICICA_NAPRAV = 32
+PREDPONA_SLICICE = "data:image/jpeg;base64,"
+_BASE64 = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
+#: Kode, ob katerih naprave dolgo ne sprasujemo (ne bo se spremenilo v nekaj sekundah).
+_KODE_NI = frozenset(("neznano_dejanje", "ni_dovoljeno", "ni_brez_potrditve", "ni_na_racunalniku", "ni_zajema",
+                      "dostop", "ni_dostopa", "prepovedano"))
+
+
+def veljavna_slicica(podatki) -> Optional[dict]:
+    """Odgovor `screen.thumb` -> {slika, w, h} ali None. Sprejme samo JPEG kot data URL v base64 (nic drugega ne pride
+    v atribut src) in razumno velikost."""
+    if not isinstance(podatki, dict):
+        return None
+    s = podatki.get("image")
+    if not isinstance(s, str) or not s.startswith(PREDPONA_SLICICE) or len(s) > SLICICA_NAJVEC:
+        return None
+    if not _BASE64.match(s[len(PREDPONA_SLICICE):]):
+        return None
+
+    def mera(v) -> int:
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 4096 else 0
+    return {"slika": s, "w": mera(podatki.get("width")), "h": mera(podatki.get("height"))}
+
+
+class Slicice:
+    """Zadnja slicica vsake naprave. Naprava se vprasa najvec vsakih SLICICA_VSAKIH_S in nikoli dvakrat hkrati (pocasna
+    povezava ne nabira niti); vmes vrnemo zadnjo dobro sliko. `vprasaj` tece v klicateljevi niti (most: nit ozadja)."""
+
+    def __init__(self, ura: Callable[[], float] = time.monotonic) -> None:
+        self._ura = ura
+        self._zaklep = threading.Lock()
+        self._z: Dict[str, dict] = {}
+
+    def dobi(self, kljuc: str, vprasaj: Callable[[], dict]) -> dict:
+        with self._zaklep:
+            z = self._z.get(kljuc)
+            zdaj = self._ura()
+            if z is not None and (z["tece"] or zdaj < z["naslednjic"]):
+                return dict(z["izid"])
+            if z is None:
+                if len(self._z) >= SLICICA_NAPRAV:
+                    del self._z[min(self._z, key=lambda k: self._z[k]["naslednjic"])]
+                z = self._z[kljuc] = {"tece": False, "naslednjic": 0.0, "izid": {"ok": False, "koda": "pocakaj"}}
+            z["tece"] = True
+        try:
+            r = vprasaj()
+        except Exception as e:  # noqa: BLE001 - napaka ene naprave ne sme ustaviti drugih ploscic
+            r = {"ok": False, "koda": "napaka", "message": str(e)}
+        r = r if isinstance(r, dict) else {}
+        slika = veljavna_slicica(r.get("data")) if r.get("ok") else None
+        koda = "" if slika else str(r.get("koda") or ("napacna_slika" if r.get("ok") else "napaka"))[:32]
+        with self._zaklep:
+            z["tece"] = False
+            z["naslednjic"] = self._ura() + (SLICICA_NI_S if koda in _KODE_NI else SLICICA_VSAKIH_S)
+            if slika:
+                z["izid"] = dict(slika, ok=True)
+            elif not z["izid"].get("ok"):
+                z["izid"] = {"ok": False, "koda": koda}
+            # Ob kratki napaki ostane zadnja dobra slika (ploscica ne utripa); ob trajni (_KODE_NI) jo pozabimo.
+            if koda in _KODE_NI:
+                z["izid"] = {"ok": False, "koda": koda}
+            return dict(z["izid"])
 
 
 def za_odpiranje(zive: Iterable[dict], id_naprave: str) -> Optional[dict]:
