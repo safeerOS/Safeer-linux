@@ -25,8 +25,18 @@ def _razcleni(seznam, vrstice, stevci=None):
 
 
 class SkupniPrimeri(unittest.TestCase):
+    def test_privzeta_izbira(self):
+        # Lastnik, 25. 10. 2026: privzeto drzava uporabnika in drzave z anglescino, ne vsi kanali v anglescini.
+        d = json.loads(PRIMERI.read_text(encoding="utf-8"))
+        izbira = kanali_iptv.privzeta_izbira(d["drzava_uporabnika"])
+        self.assertEqual(izbira, {"drzave": d["privzete_drzave"], "jeziki": []})
+        self.assertEqual(kanali_iptv.privzeta_izbira("gb")["drzave"], ["GB", "US", "CA", "AU", "IE", "NZ"])
+        self.assertEqual(kanali_iptv.privzeta_izbira("")["drzave"], ["US", "GB", "CA", "AU", "IE", "NZ"])
+
     def test_vsi_primeri(self):
-        primeri = json.loads(PRIMERI.read_text(encoding="utf-8"))["primeri"]
+        d = json.loads(PRIMERI.read_text(encoding="utf-8"))
+        primeri = d["primeri"]
+        izbira = kanali_iptv.privzeta_izbira(d["drzava_uporabnika"])
         self.assertGreaterEqual(len(primeri), 10)
         for p in primeri:
             with self.subTest(p["opis"]):
@@ -49,6 +59,10 @@ class SkupniPrimeri(unittest.TestCase):
                 if "user_agent" in pricakovano:
                     self.assertEqual(v["glave"].get("User-Agent"), pricakovano["user_agent"])
                 self.assertEqual(bool(v.get("iptv")), pricakovano["vrsta"] == "tv-v-zivo")
+                if "privzeto_viden" in pricakovano:
+                    # Rocno dodani seznami se ne filtrirajo po drzavi; javni (iptv-org) po privzeti izbiri.
+                    viden = not kanali_iptv.je_javni_seznam(p["seznam"]) or kanali_iptv.v_izbiri(v, izbira)
+                    self.assertEqual(viden, pricakovano["privzeto_viden"], "privzeto_viden")
 
 
 class Razclenitev(unittest.TestCase):
@@ -436,6 +450,57 @@ class Katalog(unittest.TestCase):
         self.mc._osvezi_zastarele_v_ozadju = lambda idji: osvezeni.extend(idji)
         self.assertEqual(self.naslovi("serija"), [])
         self.assertEqual(osvezeni, ["si"])
+
+
+def _seznam_eng():
+    return ["#EXTINF:-1 tvg-id=\"3ABNTVUganda.ug@SD\" group-title=\"Religious\",3ABN TV Uganda (720p)",
+            "https://tok.primer.test/ug.m3u8",
+            "#EXTINF:-1 tvg-id=\"BBCNews.uk@SD\" group-title=\"News\",BBC News",
+            "https://tok.primer.test/bbc.m3u8",
+            "#EXTINF:-1 tvg-id=\"KanalNZ.nz@SD\" group-title=\"General\",Kanal NZ",
+            "https://tok.primer.test/nz.m3u8",
+            "#EXTINF:-1 group-title=\"Music\",Primer Music TV",
+            "https://tok.primer.test/music.m3u8"]
+
+
+class KatalogAngleskeDrzave(unittest.TestCase):
+    """Lastnik, 25. 10. 2026 (»TV Uganda niti ne rabimo«, »mojo drzavo in angleske«): iz seznama languages/eng.m3u so
+    privzeto vidni samo kanali drzav z anglescino; Uganda in kanali brez drzave sele po izbiri v Virih."""
+    SEZNAM = "https://iptv-org.github.io/iptv/languages/eng.m3u"
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        vnosi = _razcleni(self.SEZNAM, _seznam_eng(), {})
+        vir = {"id": "eng", "url": self.SEZNAM, "ime": "eng", "posodobljeno": 1, "napaka": "", "stevilo": len(vnosi),
+               "vnosi": vnosi, "razclenitev": kanali_iptv.RAZCLENITEV, "ne_24_7": 0}
+        (Path(self.mapa.name) / "media.json").write_text(json.dumps({"viri": [vir], "osebni_strezniki": []}), encoding="utf-8")
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[], secret_decryptor=lambda v: "")
+        self.mc._ima_embed_vir = lambda data=None: False
+        self.mc._zakoniti_viri.get = lambda *a, **k: []
+        self.mc._personal_items = lambda *a, **k: []
+        self.mc.izbrana_drzava = "SI"
+        self.mc.kanali.preveri_v_ozadju = lambda kanali: 0
+        for konec in ("ug", "bbc", "nz", "music"):
+            self.mc.kanali.zapisi("https://tok.primer.test/%s.m3u8" % konec, kanali_iptv.DELUJE)
+        p = mock.patch.object(zakoniti_viri, "tv_v_zivo", lambda drzava="": [])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def naslovi(self):
+        return sorted(x["naslov"] for x in self.mc.catalog("", "tv-v-zivo")["vnosi"])
+
+    def test_privzeto_samo_drzave_z_anglescino(self):
+        self.assertEqual(self.naslovi(), ["BBC News", "Kanal NZ"])
+        self.assertEqual(self.mc.tv_izbira(), {"drzave": ["SI", "US", "GB", "CA", "AU", "IE", "NZ"], "jeziki": []})
+
+    def test_uganda_po_izbiri_v_virih(self):
+        self.mc.nastavi_tv_izbiro(["SI", "GB", "UG"], [])
+        self.assertEqual(self.naslovi(), ["3ABN TV Uganda", "BBC News"])
+        # Jezik v Virih vklopi vse kanale v anglescini, tudi brez znane drzave.
+        self.mc.nastavi_tv_izbiro(["SI"], ["en"])
+        self.assertEqual(self.naslovi(), ["3ABN TV Uganda", "BBC News", "Kanal NZ", "Primer Music TV"])
+
 
 
 class SerijaSeznama(unittest.TestCase):

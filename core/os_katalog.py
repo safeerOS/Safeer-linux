@@ -624,7 +624,8 @@ class Katalog:
 
     def _tv_izbira(self, a: list) -> Any:
         """[] -> drzave in jeziki kanalov javnih seznamov (na voljo, izbrano, drzava uporabnika); [drzave, jeziki] ->
-        shrani izbiro (lastnik, 25. 10. 2026: privzeto drzava uporabnika in anglescina, ostalo vklopi v Virih)."""
+        shrani izbiro (lastnik, 25. 10. 2026: privzeto drzava uporabnika in drzave z anglescino, ostalo vklopi v
+        Virih)."""
         if len(a) >= 2 and isinstance(a[0], list) and isinstance(a[1], list):
             self.mc.nastavi_tv_izbiro([str(x) for x in a[0]][:300], [str(x) for x in a[1]][:200])
         return self.mc.tv_izbira_na_voljo()

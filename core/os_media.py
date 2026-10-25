@@ -3144,7 +3144,7 @@ class MediaCenter:
         return self.config_dir / "tv-izbira.json"
 
     def tv_izbira(self) -> dict:
-        """Drzave in jeziki kanalov javnih seznamov (iptv-org). Privzeto drzava uporabnika in anglescina."""
+        """Drzave in jeziki kanalov javnih seznamov (iptv-org). Privzeto drzava uporabnika in drzave z anglescino."""
         try:
             d = json.loads(self.pot_tv_izbire.read_text(encoding="utf-8"))
         except (OSError, ValueError):

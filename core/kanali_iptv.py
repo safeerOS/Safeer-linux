@@ -166,7 +166,7 @@ _IMENA_JEZIKOV = {
     "chinese": "zh", "japanese": "ja", "korean": "ko", "albanian": "sq", "persian": "fa", "urdu": "ur",
 }
 #: Glavni jezik drzave (ISO 3166 -> ISO 639-1), kadar seznam jezika ne pove. Enako kot Android IptvPravila.JEZIK_DRZAVE.
-#: »Drzave z anglescino« so tiste, ki imajo tu »en«: US, GB, CA, AU, IE, NZ.
+#: »Drzave z anglescino« so tiste, ki imajo tu »en« (ANGLESKE_DRZAVE).
 JEZIK_DRZAVE = {
     "SI": "sl", "HR": "hr", "RS": "sr", "BA": "bs", "ME": "sr", "MK": "mk", "XK": "sq", "AL": "sq", "AT": "de",
     "DE": "de", "CH": "de", "IT": "it", "HU": "hu", "CZ": "cs", "SK": "sk", "PL": "pl", "FR": "fr", "BE": "nl",
@@ -228,10 +228,17 @@ def je_javni_seznam(url: str) -> bool:
     return gostitelj == "raw.githubusercontent.com" and deli.path.lower().startswith("/iptv-org/")
 
 
+#: Lastnik, 25. 10. 2026 (»mojo drzavo in angleske«, »TV Uganda niti ne rabimo«): privzeta »anglescina« so kanali
+#: drzav z anglescino, ne vsi kanali v anglescini (seznam languages/eng.m3u ima kanale iz 110 drzav). Ostale drzave,
+#: tudi tiste z angleskimi kanali, uporabnik vklopi v Virih pod »Drzave in jeziki«.
+ANGLESKE_DRZAVE = ("US", "GB", "CA", "AU", "IE", "NZ")
+
+
 def privzeta_izbira(drzava_uporabnika: str) -> dict:
-    """Lastnik, 25. 10. 2026: privzeto kanali drzave uporabnika in kanali v anglescini; sosednjih drzav ne."""
+    """Privzeto kanali drzave uporabnika in drzav z anglescino (ANGLESKE_DRZAVE); sosednjih drzav in jezikov ne."""
     d = str(drzava_uporabnika or "").upper()
-    return {"drzave": [d] if re.fullmatch(r"[A-Z]{2}", d) else [], "jeziki": ["en"]}
+    lastna = [d] if re.fullmatch(r"[A-Z]{2}", d) else []
+    return {"drzave": lastna + [x for x in ANGLESKE_DRZAVE if x not in lastna], "jeziki": []}
 
 
 def v_izbiri(item: dict, izbira: dict) -> bool:
