@@ -337,11 +337,32 @@ class SporocilaOS:
         a = self.storitev.adapterji.get(kanal_id)
         if a is None or not skrivnost:
             raise ValueError("Ni kanala")
-        (a.shrani_geslo if hasattr(a, "shrani_geslo") else a.shrani_zeton)(str(skrivnost))
+        # Isto ciscenje kot ob dodajanju (pregled 25. 10. 2026): prilepljen nedeljiv presledek ali nevidni znak je dal
+        # »prijava ni uspela«, ceprav je bilo geslo pravo. Gesla za aplikacije in zetoni so brez presledkov.
+        if hasattr(a, "shrani_geslo"):
+            skrivnost = ocisti_geslo(str(skrivnost), brez_presledkov=self._geslo_za_aplikacije(kanal_id))
+        else:
+            skrivnost = ocisti_geslo(str(skrivnost), brez_presledkov=True)
+        if not skrivnost:
+            raise ValueError("Vnesi geslo.")
+        (a.shrani_geslo if hasattr(a, "shrani_geslo") else a.shrani_zeton)(skrivnost)
         self.storitev.sinhroniziraj(kanal_id)
         if getattr(self, "_samodejno", False) and kanal_id in self.storitev.delavci():
             self.storitev.zazeni_kanal(kanal_id)     # nit takoj na novo (ne caka zamika po napaki prijave)
         return self.seznam()
+
+    def _geslo_za_aplikacije(self, kanal_id: str) -> bool:
+        """Ali e-postni kanal uporablja geslo za aplikacije (Gmail, Yahoo, iCloud: crke v skupinah, presledki niso del
+        gesla) - po ponudniku, izbranem ob dodajanju, sicer po naslovu."""
+        try:
+            r = self.storitev.db.execute("SELECT nastavitve FROM kanali WHERE id=?", (kanal_id,)).fetchone()
+            n = json.loads((r[0] if r else "") or "{}")
+        except (ValueError, TypeError):
+            n = {}
+        izbrani = _ponudniki.po_id(str(n.get("ponudnik") or ""))
+        if izbrani and izbrani["id"] != "drug":
+            return izbrani["geslo"] == "aplikacije"
+        return self.privzeta_streznika(str(n.get("naslov") or "")).get("namig") == "aplikacije"
 
     def _po_sinhronizaciji(self) -> None:
         """Nova UIDVALIDITY mape (streznik je mapo na novo ostevilcil): stari vnosi predpomnilnika ne veljajo."""
