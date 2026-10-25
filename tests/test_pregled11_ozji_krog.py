@@ -92,8 +92,8 @@ class N3UmikSePonovi(_Krog):
         with mock.patch.object(link_dostop, "_na_disk", side_effect=OSError(28, "No space left on device")):
             self.k.umakni(self.jedro, "n-0000000000000001")
             self.assertEqual(link_dostop.zmoznosti(self.jedro), set(), "v tem programu umik velja takoj")
-        with mock.patch.object(link_dostop, "UMIK_PONOVI_S", 0.0):
-            self.assertEqual(link_dostop.zmoznosti(self.jedro), set())       # ponovni poskus zapisa uspe
+        link_dostop._ponovi_v_ozadju()                  # ponovni poskus zapisa (casovnik) uspe
+        self.assertEqual(link_dostop.zmoznosti(self.jedro), set())
         with open(link_dostop._pot(), encoding="utf-8") as d:
             self.assertEqual(json.load(d)["naprave"].get(self.jedro, ""), "")
 
@@ -226,12 +226,13 @@ class N11N12Urejanje(_Dom):
 
 class V8VesDiskSamoOzjemu(_Dom):
     def test_ves_disk_ne_obide_pravila_domace_mape(self):
+        """Domaca mapa v »vsem disku« samo ozjemu krogu (zunanje diske vidi vsak - pregled 17, M3)."""
         d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self.dom, ".tls2"), ves_disk=True)
         self.addCleanup(d.ustavi)
         with mock.patch.object(link_datoteke, "_v_ozjem_krogu", lambda n: n == A), \
                 mock.patch.object(d, "streznik_za", return_value={}):
-            self.assertFalse(d.seznam("", B)["shared"])
-            self.assertTrue(d.seznam("", A)["shared"])
+            self.assertNotIn("disk:" + self.dom, [v["id"] for v in d.seznam("", B)["items"]])
+            self.assertIn("disk:" + self.dom, [v["id"] for v in d.seznam("", A)["items"]])
         s = d.streznik
         s.sme, s.umaknjena, s.v_ozjem_krogu = (lambda n, z: True), (lambda n: False), (lambda n: n == A)
         self.assertFalse(s.zeton_velja(s.zeton_za(B), zmoznost="d", oznaka="disk:" + self.dom + "/Dokumenti/pismo.txt"))

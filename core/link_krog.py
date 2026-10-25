@@ -523,7 +523,7 @@ class Krog:
             return False
         spremenjeno = False
         umaknjena: set = set()
-        vracajo: set = set()
+        vracajo: Dict[str, float] = {}
         with self._zaklep:
             # Krog te naprave (ne preizkusni ali zacasni): katere naprave (jedra kljucev) so bile clan pred zdruzitvijo -
             # ki niso vec, izgubijo dostop do vsebin tega racunalnika (core/link_dostop.ob_umiku_iz_kroga).
@@ -540,6 +540,12 @@ class Krog:
                 if preveri_podpise and not preveri_podpis(self._kljuc_clana(umaknil), podatki_umika(i, ob, umaknil), podpis):
                     continue
                 obstojeci = self.umiki.get(i)
+                zdaj_clan = self.clani.get(i)
+                if zdaj_clan is not None and zdaj_clan["dodano"] > ob:
+                    # Umik, ki ga je vrnitev naprave ze razveljavila (zapis naprave, ki vrnitve se ni videla): ne
+                    # sprejmemo ga znova - vsaka taka zdruzitev bi sicer napravo znova »vrnila« in ji vzela dostop,
+                    # tudi privolitev po vrnitvi (pregled 17, M2).
+                    continue
                 if obstojeci is None or obstojeci["umaknjeno"] < ob:
                     # `videno`: nasa ura ob prvem prejemu (ne gre v zapis kroga, glej umaknjen_videno).
                     self.umiki[i] = dict({"umaknjeno": ob, "umaknil": umaknil, "videno": time.time()},
@@ -588,13 +594,15 @@ class Krog:
             for i in list(self.umiki):
                 c = self.clani.get(i)
                 if c and c["dodano"] > self.umiki[i]["umaknjeno"]:
+                    umaknjeno = float(self.umiki[i]["umaknjeno"])
                     del self.umiki[i]
                     spremenjeno = True
                     if jedra_prej is not None:
                         # Naprava se vraca po umiku: dostop do vsebin tega racunalnika samo z novo privolitvijo -
-                        # tudi ce zapis umika takrat ni uspel (pregled 11, N3).
+                        # tudi ce zapis umika takrat ni uspel (pregled 11, N3). Cas umika: privolitev po njem ostane.
                         try:
-                            vracajo.add(id_iz_kljuca(c["kljuc"]))
+                            j = id_iz_kljuca(c["kljuc"])
+                            vracajo[j] = max(umaknjeno, vracajo.get(j, umaknjeno))
                         except Exception as e:  # noqa: BLE001 - pokvarjen vnos preskocimo
                             print(f"[SafeerKrog] naprave, ki se vraca, ni mogoce prepoznati: {e}", flush=True)
             if spremenjeno and shrani:
@@ -604,7 +612,7 @@ class Krog:
                 if jedra_prej:
                     umaknjena = jedra_prej - self.znani()[0]
         if umaknjena or vracajo:
-            _po_umiku(umaknjena | vracajo, self._zaklep)
+            _po_umiku(umaknjena, self._zaklep, vracajo)
         return spremenjeno
 
     def _shrani(self) -> None:
@@ -632,21 +640,24 @@ def krog() -> Krog:
         return _krog
 
 
-def _po_umiku(jedra: set, zaklep_kroga=None) -> None:
+def _po_umiku(jedra: set, zaklep_kroga=None, vracajo: Optional[Dict[str, float]] = None) -> None:
     """Naprave (jedra kljucev) niso vec v krogu te naprave: dostop do vsebin tega racunalnika (ozji krog,
     core/link_dostop) jim gre takoj - tudi ce se z istim kljucem znova seznanijo (sedmi pregled, 25. 10. 2026).
     Klicatelj, ki se drzi zaklepa kroga (umakni znotraj svojega `with krog._zaklep`), dobi klic v svoji niti: zapis
-    dovoljenj bere krog pod svojim zaklepom (vrstni red zaklepov dostop -> krog)."""
+    dovoljenj bere krog pod svojim zaklepom (vrstni red zaklepov dostop -> krog). `vracajo`: jedro -> cas umika
+    naprav, ki se vracajo (vzame se samo, kar je bilo dano pred umikom)."""
     def klic() -> None:
         try:
             from core import link_dostop
-            link_dostop.ob_umiku_iz_kroga(set(jedra))
+            if vracajo:
+                link_dostop.ob_umiku_iz_kroga(set(jedra), dict(vracajo))
+            else:
+                link_dostop.ob_umiku_iz_kroga(set(jedra))
         except Exception as e:  # noqa: BLE001 - umik iz kroga velja tudi, ce zapisa dovoljenj ni mogoce spremeniti
             print(f"[SafeerKrog] dostopa umaknjenih naprav ni bilo mogoce vzeti: {e}", flush=True)
     # Tudi modulski zaklep (navaden Lock: zaseden pomeni, da ga morda drzi klicatelj) - pregled 11, N16.
-    drzi = _zaklep.locked()
     try:
-        drzi = drzi or bool(zaklep_kroga is not None and zaklep_kroga._is_owned())
+        drzi = _zaklep.locked() or bool(zaklep_kroga is not None and zaklep_kroga._is_owned())
     except Exception:  # noqa: BLE001 - zaklep brez _is_owned: varneje v svoji niti
         drzi = True
     if drzi:

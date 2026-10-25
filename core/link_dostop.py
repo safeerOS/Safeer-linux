@@ -479,38 +479,129 @@ def _podedovana_jedra() -> Set[str]:
         return set()
 
 
+def _podedovana_jedra_ali_none(naprave: Dict[str, Set[str]]) -> Optional[Set[str]]:
+    """Podedovana jedra za migracijo starega zapisa ali None, ce jih ni mogoce dolociti: kroga ali kljuca te naprave ni
+    mogoce prebrati ali pa je krog prazen, zapis pa ima naprave z vsemi stirimi (krog.json izgubljen ali se ne prenesen).
+    »Ne vem« ni »nobena«: prej se je oznaka dedovanja zapisala brez zmanjsanja in migracije ni bilo nikoli vec
+    (pregled 17, M1)."""
+    try:
+        k = _krog()
+        with k._zaklep:
+            clani = [dict(c) for c in k.clani.values() if k._veljaven(c)]
+        kljuc = _lastni_kljuc()
+        if not kljuc:
+            return None
+        if not clani and any(set(d) == set(VSE_ZMOZNOSTI) for d in naprave.values()):
+            return None
+        return podedovani(clani, kljuc, _id_iz_kljuca)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _brez_ozjega(naprave: Dict[str, Set[str]], jedra: Optional[Set[str]] = None) -> Dict[str, Set[str]]:
+    """Kopija zapisa, v kateri naprave z vsemi stirimi (`jedra` ali vse, ce None) nimajo ozjega kroga (PODEDOVANO)."""
+    vse = set(VSE_ZMOZNOSTI)
+    return {j: (set(PODEDOVANO) if set(d) == vse and (jedra is None or j in jedra) else set(d))
+            for j, d in naprave.items()}
+
+
 def _podedovane_naprave() -> Dict[str, Set[str]]:
     """Prvi zagon z dovoljenji: dosedanje naprave obdrzijo programe in predvajalnik; pozneje dodane zacnejo brez dostopa."""
     return {j: set(PODEDOVANO) for j in _podedovana_jedra()}
 
 
-#: Umiki iz kroga, ki jih ni bilo mogoce zapisati (poln disk, NapakaZapisa): v tem programu nimajo nicesar, zapis se
-#: ponavlja (najvec na UMIK_PONOVI_S). Pregled 11, N3: prej je vnos ostal in ob ponovni seznanitvi spet veljal.
-_cakajo_umik: Set[str] = set()
-_umik_poskus_ob = 0.0
+#: Umiki iz kroga, ki jih ni bilo mogoce zapisati (poln disk, NapakaZapisa): jedro -> meja (None = vse; cas umika =
+#: samo pravice, dane pred njim, ko se naprava vraca - glej ob_umiku_iz_kroga). V tem programu nimajo nicesar; vsak
+#: zapis jih uveljavi, ponavlja jih casovnik v svoji niti (pregled 11, N3; pregled 17, M4 in M5).
+_cakajo_umik: Dict[str, Optional[float]] = {}
+_umik_casovnik: Optional[threading.Timer] = None
 UMIK_PONOVI_S = 5.0
+#: Kdaj (time.monotonic) je migracija starega zapisa nazadnje cakala na krog (None = ne caka); _nalozen jo ponovi.
+_migracija_caka_ob: Optional[float] = None
+
+
+def _dano_ob(ostalo: dict) -> Dict[str, float]:
+    """Polje »dano_ob« zapisa: jedro -> kdaj (unix, ura tega racunalnika) je naprava nazadnje dobila kaj novega."""
+    surovo = ostalo.get("dano_ob") if isinstance(ostalo, dict) else None
+    izid: Dict[str, float] = {}
+    if isinstance(surovo, dict):
+        for j, t in surovo.items():
+            try:
+                izid[str(j)] = float(t)
+            except (TypeError, ValueError):
+                continue
+    return izid
+
+
+def _zabelezi_dano(prej: Dict[str, Set[str]], naprave: Dict[str, Set[str]], ostalo: dict) -> None:
+    """Ob vsakem zapisu: jedro, ki je dobilo novo zmoznost, dobi cas zdaj, jedro brez zmoznosti izgubi cas. Vrnitev
+    naprave v krog po njem vzame samo pravice, dane pred umikom - nove privolitve ne (pregled 17, M2)."""
+    dano = _dano_ob(ostalo)
+    zdaj = time.time()
+    for j, d in naprave.items():
+        if set(d) - set(prej.get(j) or ()):
+            dano[j] = zdaj
+    dano = {j: t for j, t in dano.items() if naprave.get(j)}
+    if dano:
+        ostalo["dano_ob"] = dano
+    else:
+        ostalo.pop("dano_ob", None)
+
+
+def _uveljavi_cakajoce(naprave: Dict[str, Set[str]], ostalo: dict) -> None:
+    """Klicati pod _zaklep: cakajoci umiki gredo v vsak zapis, ne samo v ponovni poskus (pregled 17, M4)."""
+    if not _cakajo_umik:
+        return
+    dano = _dano_ob(ostalo)
+    for j, meja in _cakajo_umik.items():
+        if naprave.get(j) and (meja is None or dano.get(j, 0.0) <= meja):
+            naprave[j] = set()
+
+
+def _dodaj_cakajoci(j: str, meja: Optional[float]) -> None:
+    """Klicati pod _zaklep: brezpogojni umik ostane brezpogojen, pri dveh vrnitvah velja poznejsi cas umika."""
+    if meja is None or (j in _cakajo_umik and _cakajo_umik[j] is None):
+        _cakajo_umik[j] = None
+    elif j in _cakajo_umik:
+        _cakajo_umik[j] = max(float(meja), float(_cakajo_umik[j]))
+    else:
+        _cakajo_umik[j] = float(meja)
 
 
 def _ponovi_umike() -> bool:
-    """Klicati pod _zaklep: zapis umikov, ki se cakajo (glej _cakajo_umik). True, ce je bil zapis narejen (zapis v
-    pomnilniku je potem nov)."""
-    global _umik_poskus_ob
-    if not _cakajo_umik or time.monotonic() - _umik_poskus_ob < UMIK_PONOVI_S:
+    """Klicati pod _zaklep: zapis umikov, ki se cakajo (_spremeni jih uveljavi). True, ce je bil zapis narejen."""
+    if not _cakajo_umik:
         return False
-    _umik_poskus_ob = time.monotonic()
-    jedra = set(_cakajo_umik)
-
-    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
-        for j in jedra:
-            if naprave.get(j):
-                naprave[j] = set()
     try:
-        _spremeni(sprememba)
+        _spremeni(lambda naprave, zascita: None)
     except OSError:
         return False
+    jedra = set(_cakajo_umik)
     if _na_disku_ni(jedra):
-        _cakajo_umik.difference_update(jedra)
+        for j in jedra:
+            _cakajo_umik.pop(j, None)
     return True
+
+
+def _nacrtuj_ponovitev() -> None:
+    """Klicati pod _zaklep: ponovni zapis cakajocih umikov v svoji niti po UMIK_PONOVI_S - ne v poti branja (sme,
+    straza, okno), ki je ob polnem disku vsakih 5 s stala na zapisu (pregled 17, M5)."""
+    global _umik_casovnik
+    if _umik_casovnik is not None or not _cakajo_umik:
+        return
+    t = threading.Timer(UMIK_PONOVI_S, _ponovi_v_ozadju)
+    t.daemon = True
+    t.name = "safeer-umik-ponovi"
+    _umik_casovnik = t
+    t.start()
+
+
+def _ponovi_v_ozadju() -> None:
+    global _umik_casovnik
+    with _zaklep:
+        _umik_casovnik = None
+        _ponovi_umike()
+        _nacrtuj_ponovitev()
 
 
 def _na_disku_ni(jedra: Iterable[str]) -> bool:
@@ -519,19 +610,27 @@ def _na_disku_ni(jedra: Iterable[str]) -> bool:
     return stanje in ("ok", "pokvarjen") and not any(naprave.get(j) for j in jedra)
 
 
-def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None],
-              sprememba_ostalega: Optional[Callable[[dict], None]] = None) -> Dict[str, Set[str]]:
+def _spremeni(sprememba: Callable[..., None],
+              sprememba_ostalega: Optional[Callable[[dict], None]] = None,
+              z_ostalim: bool = False) -> Dict[str, Set[str]]:
     """Branje-sprememba-zapis kot en korak, pod zaklepom programa IN datoteke. `sprememba(naprave, zascita)` spremeni
-    oba na mestu; `sprememba_ostalega(ostalo)` po zelji spremeni polja, ki jih zapis sicer samo prenasa (»zavrnjeno«).
+    oba na mestu (z `z_ostalim` dobi se polja zapisa: sprememba(naprave, zascita, ostalo)); `sprememba_ostalega(ostalo)`
+    po zelji spremeni polja, ki jih zapis sicer samo prenasa (»zavrnjeno«).
     Polja, ki jih ta program ne pozna, ostanejo. Izhodisce je vedno stanje z DISKA - spremembe drugih programov ostanejo. Zapis »zascita« samo raste:
     kar ima ta program v pomnilniku, gre zraven (tudi kadar je zapis na disku pokvarjen ali ga je pisal starejsi
     program, ki zascite ne pozna). Ce zapisa se ni, je to prvi zagon z dovoljenji (podedovane naprave) - ce pa je
     dedovanje ze bilo (_dedovanje_opravljeno), nima dostopa nihce; pokvarjen zapis pomeni, da nima dostopa nihce (varna
     stran). Zapisa, ki ga ni mogoce PREBRATI, ne prepisemo: NapakaBranja. Ce se zapis med vsemi poskusi spreminja pod
-    nami, ne zapisemo nicesar: NapakaZapisa. Vrne nove naprave in posodobi stanje v pomnilniku."""
+    nami, ne zapisemo nicesar: NapakaZapisa. Vrne nove naprave in posodobi stanje v pomnilniku.
+
+    Vsak zapis uveljavi cakajoce umike, zabelezi cas novih privolitev (dano_ob) in - zapis iz razlicice pred oznako
+    dedovanja - podedovanim napravam vzame ozji krog; oznako zapise samo, ce je podedovane mogoce dolociti (pregled 17,
+    M1: prej jo je zapisal vsak zapis, tudi ko kroga ni bilo mogoce prebrati)."""
     global _zapis, _zascita, _prebran_odtis, _prebrana_pot, _zascita_disk, _zapis_spodletel_ob, _zavrnjeno_disk
+    global _migracija_caka_ob
     with _zaklep:
         pot = _pot()
+        migracija_caka, zmanjsana = False, set()
         try:
             # 0700: ime in obstoj zapisa ter zaklepa nista za druge uporabnike racunalnika (velja za novo mapo).
             os.makedirs(os.path.dirname(pot), mode=0o700, exist_ok=True)
@@ -540,6 +639,7 @@ def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None],
                 for _poskus in range(NAJVEC_POSKUSOV_ZAPISA):
                     odtis_prej = _odtis_zapisa(pot)
                     stanje, naprave, zascita, ob, ostalo = _z_diska(pot)
+                    migracija_caka, zmanjsana = False, set()
                     if stanje == "napaka":
                         raise NapakaBranja(5, "zapisa dovoljenj ni mogoce prebrati - ne prepisemo ga")
                     if stanje == "ni":
@@ -552,25 +652,57 @@ def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None],
                             naprave, ob = _podedovane_naprave(), time.time()
                     elif stanje == "pokvarjen":
                         ob = time.time()
+                    elif not _dedovanje_opravljeno(pot):
+                        podedovana = _podedovana_jedra_ali_none(naprave)
+                        if podedovana is None:
+                            migracija_caka = True
+                        else:
+                            vse = set(VSE_ZMOZNOSTI)
+                            zmanjsana = {j for j in podedovana if naprave.get(j) == vse}
+                            for j in zmanjsana:
+                                naprave[j] = set(PODEDOVANO)
                     if pot == _prebrana_pot:
                         zascita |= _zascita
-                    sprememba(naprave, zascita)
+                    _uveljavi_cakajoce(naprave, ostalo)
+                    prej = {j: set(d) for j, d in naprave.items()}
+                    if z_ostalim:
+                        sprememba(naprave, zascita, ostalo)
+                    else:
+                        sprememba(naprave, zascita)
                     if sprememba_ostalega is not None:
                         sprememba_ostalega(ostalo)
+                    _zabelezi_dano(prej, naprave, ostalo)
                     # Zamenjamo samo, ce je zapis se tak, kot smo ga prebrali - vedno, tudi v zadnjem poskusu.
                     odtis = _na_disk(pot, naprave, zascita, ob, odtis_prej, ostalo=ostalo)
                     if odtis is not None:
                         break
                 if odtis is None:
                     raise NapakaZapisa(11, "zapis dovoljenj se je ves cas spreminjal - sprememba ni zapisana")
-            _zabelezi_dedovanje(pot)
+            if not migracija_caka:
+                _zabelezi_dedovanje(pot)
         except OSError:
             _zapis_spodletel_ob = time.monotonic()
             raise
+        # Nova privolitev po umiku je v zapisu za umikom: umik zanjo ne caka vec (pregled 17, M4).
+        for j in [j for j in _cakajo_umik if naprave.get(j)]:
+            del _cakajo_umik[j]
+        if zmanjsana:
+            print("[SafeerDostop] %d podedovanih naprav brez ozjega kroga (upravljanje, Safeer Vnos, domaca mapa): "
+                  "uporabnik ga odpre z eno privolitvijo v Safeer Linku" % len(zmanjsana), flush=True)
+        if migracija_caka:
+            _migracija_caka_ob = time.monotonic()
+            naprave = _brez_ozjega(naprave)
+        else:
+            _migracija_caka_ob = None
         _zapis, _zascita, _prebran_odtis, _prebrana_pot = naprave, zascita, odtis, pot
         _zascita_disk, _zapis_spodletel_ob = set(zascita), None
         _zavrnjeno_disk = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
         return naprave
+
+
+def _migracija_na_vrsti() -> bool:
+    """Migracija starega zapisa caka na krog dlje od UMIK_PONOVI_S: _nalozen zapis prebere znova in jo ponovi."""
+    return _migracija_caka_ob is not None and time.monotonic() - _migracija_caka_ob >= UMIK_PONOVI_S
 
 
 def _nalozen() -> Dict[str, Set[str]]:
@@ -589,13 +721,13 @@ def _nalozen() -> Dict[str, Set[str]]:
             # (naslednji klic poskusi znova). To NI prvi zagon - podedovanega dostopa ni.
             _zapis, _prebran_odtis = None, None
             return {}
-        if _zapis is not None and odtis == _prebran_odtis:
+        if _zapis is not None and odtis == _prebran_odtis and not _migracija_na_vrsti():
             return _brez_cakajocih(_zapis)
         if odtis is None:
             # Zapisa (se) ni: prvi zagon z dovoljenji. Pod zaklepom datoteke - ce ga je medtem ustvaril drug program,
             # se samo prebere.
             try:
-                return _spremeni(lambda naprave, zascita: None)
+                return _brez_cakajocih(_spremeni(lambda naprave, zascita: None))
             except NapakaBranja:
                 _zapis, _prebran_odtis = None, None     # zapis se je pojavil, a ni berljiv: nihce (glej zgoraj)
                 return {}
@@ -621,8 +753,6 @@ def _nalozen() -> Dict[str, Set[str]]:
                 naprave, zapisano = _migriraj_podedovane(naprave)
                 if zapisano:
                     return _brez_cakajocih(_zapis or {})     # _spremeni je nastavil zapis in odtis
-            else:
-                _zabelezi_dedovanje(pot)
         else:
             # Pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova. Kar ta program ze ve o
             # napravah z dokazanim kljucem, OSTANE: pokvarjen zapis ne sme ugasniti pravila »samo zasciteno«.
@@ -633,36 +763,32 @@ def _nalozen() -> Dict[str, Set[str]]:
 
 
 def _brez_cakajocih(naprave: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
-    """Zapis brez naprav, ki cakajo na zapis umika (v tem programu nimajo nicesar); ob tem poskusi zapis znova."""
+    """Zapis brez naprav, ki cakajo na zapis umika: v tem programu nimajo nicesar, dokler zapis ne uspe (ponavlja ga
+    _nacrtuj_ponovitev v svoji niti - pot branja ne pise)."""
     if not _cakajo_umik:
         return naprave
-    if _ponovi_umike() and _zapis is not None:
-        naprave = _zapis                # zapis z diska po ponovljenem umiku
     return {j: (set() if j in _cakajo_umik else d) for j, d in naprave.items()}
 
 
 def _migriraj_podedovane(naprave: Dict[str, Set[str]]) -> Tuple[Dict[str, Set[str]], bool]:
     """Klicati pod _zaklep iz _nalozen (zapis obstaja, oznake dedovanja se ni). Vrne (naprave, ali je zapisano z
-    _spremeni). Ce zapisa ni mogoce spremeniti, velja zmanjsanje v tem programu, oznaka se ne zapise in zapis se
-    poskusi znova, ko se datoteka spremeni."""
+    _spremeni, ki zmanjsa in zapise oznako). Ce podedovanih ni mogoce dolociti (krog ali kljuc ni berljiv) ali zapisa ni
+    mogoce spremeniti, v tem programu nima ozjega kroga nobena naprava z vsemi stirimi (varna stran; programi in
+    predvajalnik ostanejo), oznaka se ne zapise in migracija se ponovi po UMIK_PONOVI_S (pregled 17, M1)."""
+    global _migracija_caka_ob
     vse = set(VSE_ZMOZNOSTI)
-    za_zmanjsati = {j for j in _podedovana_jedra() if naprave.get(j) == vse}
-    if not za_zmanjsati:
+    podedovana = _podedovana_jedra_ali_none(naprave)
+    if podedovana is not None and not any(naprave.get(j) == vse for j in podedovana):
         _zabelezi_dedovanje(_pot())
+        _migracija_caka_ob = None
         return naprave, False
-
-    def sprememba(nove: Dict[str, Set[str]], zascita: Set[str]) -> None:
-        for j in za_zmanjsati:
-            if nove.get(j) == vse:
-                nove[j] = set(PODEDOVANO)
-    try:
-        nove = _spremeni(sprememba)           # zapise tudi oznako dedovanja
-        print("[SafeerDostop] %d podedovanih naprav brez ozjega kroga (upravljanje, Safeer Vnos, domaca mapa): "
-              "uporabnik ga odpre z eno privolitvijo v Safeer Linku" % len(za_zmanjsati), flush=True)
-        return nove, True
-    except OSError:
-        return {j: (set(PODEDOVANO) if j in za_zmanjsati else d) for j, d in naprave.items()}, False
-
+    if podedovana is not None:
+        try:
+            return _spremeni(lambda nove, zascita: None), True      # zmanjsa in zapise oznako
+        except OSError:
+            pass
+    _migracija_caka_ob = time.monotonic()
+    return _brez_ozjega(naprave, podedovana), False
 
 def jedro(device_id: str) -> str:
     def kljuc(i: str) -> Optional[str]:
@@ -875,49 +1001,78 @@ def _zapisi_jedru(j: str, nabor: Set[str]) -> bool:
                 _spremeni(sprememba)
             except OSError:
                 break                   # zapisa ni mogoce prebrati ali zapisati: spremembe ni (klicatelj to pove)
-            # Zmanjsanje preverimo na disku: starejsi program (brez preverbe zapisa) ga lahko takoj povozi s starim
-            # stanjem (pregled 11, N17) - potem se enkrat, sicer napaka, ki jo uporabnik vidi.
+            # Zapis preverimo na disku: starejsi program (brez preverbe zapisa) ga lahko takoj povozi s starim stanjem
+            # (pregled 11, N17) - potem se enkrat, sicer napaka, ki jo uporabnik vidi. Tudi nova privolitev: »Shranjeno«
+            # samo, ce je res zapisana (pregled 17, M10).
             stanje, na_disku, _z, _ob, _o = _z_diska(_pot())
-            if stanje != "ok" or set(na_disku.get(j) or ()) == set(nabor) or not (prej[0] or set()) - nabor:
-                ok = True
+            if stanje == "ok":
+                ok = set(na_disku.get(j) or ()) == set(nabor)
+            else:
+                ok = not nabor and stanje in ("ni", "pokvarjen")     # brez zapisa nima nihce nicesar
+            if ok:
                 break
     if prej[0] is not None and prej[0] - nabor:
         _po_odvzemu(j)
     return ok
 
 
-def ob_umiku_iz_kroga(jedra: Iterable[str]) -> None:
-    """Naprave so umaknjene iz Safeer Linka (krog zaupanja, core/link_krog) ali se vanj vracajo po umiku: ozji krog
-    jim takoj vzame vse. Nova seznanitev z istim kljucem tako ne vrne nicesar brez nove privolitve (sedmi pregled,
-    25. 10. 2026: vnos v dostop.json je prej ostal in z njim d+z)."""
-    vhod = {str(x) for x in (jedra or ())}
+def ob_umiku_iz_kroga(jedra: Iterable[str], vracajo: Optional[Dict[str, float]] = None) -> None:
+    """Naprave so umaknjene iz Safeer Linka (krog zaupanja, core/link_krog): ozji krog jim takoj vzame vse. Nova
+    seznanitev z istim kljucem tako ne vrne nicesar brez nove privolitve (sedmi pregled, 25. 10. 2026: vnos v
+    dostop.json je prej ostal in z njim d+z).
+
+    `vracajo` (jedro -> cas umika): naprave, ki se vracajo po umiku. Vzame se samo, kar je bilo dano PRED umikom
+    (dano_ob): privolitev po vrnitvi ostane, tudi ce zapis o vrnitvi pride znova ali iz drugega programa tega
+    racunalnika z zastarelim krogom (pregled 17, M2: prej je vsaka taka zdruzitev izbrisala novo privolitev)."""
+    umaknjena = {str(x) for x in (jedra or ())}
+    meje: Dict[str, float] = {}
+    for x, t in (vracajo or {}).items():
+        try:
+            meje[str(x)] = float(t)
+        except (TypeError, ValueError):
+            umaknjena.add(str(x))       # cas umika ni berljiv: kot umik (varna stran)
+    vhod = umaknjena | set(meje)
     nas = lastno_jedro()
     vsa = sorted(j for j in vhod if _je_jedro(j) and j != nas)
-    if vhod and not vsa:
-        print("[SafeerDostop] umik iz kroga: nobeno jedro ni prave oblike - nic ni vzeto", flush=True)
+    for j in sorted(vhod - set(vsa) - {nas}):
+        print("[SafeerDostop] umik iz kroga: oznaka ni jedro, prezrta (%d znakov)" % len(j), flush=True)
+    if not vsa:
         return
+    pogojno = {j: meje[j] for j in vsa if j in meje and j not in umaknjena}
+    vzeto: Set[str] = set()
+    caka: Set[str] = set()
     with _zaklep:
         try:
-            imajo = {j for j in vsa if _nalozen().get(j)}
-        except Exception:  # noqa: BLE001 - zapisa ni mogoce prebrati: dostopa itak nima nihce
-            imajo = set()
+            zapis = _nalozen()
+            berljiv = _zapis is not None
+        except Exception:  # noqa: BLE001
+            zapis, berljiv = {}, False
+        # Zapisa ni mogoce prebrati: ne vemo, kdo ima kaj - umik caka za vse (pregled 17, M5; prej ni cakal nihce in
+        # umaknjena naprava je ob ponovnem branju spet imela d+z).
+        imajo = {j for j in vsa if zapis.get(j)} if berljiv else set(vsa)
         if imajo:
             # En zapis za vse (odjava z desetimi napravami ni deset zapisov - pregled 11, N15).
-            def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
+            def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
+                dano = _dano_ob(ostalo)
                 for j in imajo:
-                    naprave[j] = set()
+                    if naprave.get(j) and (j not in pogojno or dano.get(j, 0.0) <= pogojno[j]):
+                        naprave[j] = set()
+                        vzeto.add(j)
             try:
-                _spremeni(sprememba)
-                zapisano = _na_disku_ni(imajo)
+                _spremeni(sprememba, z_ostalim=True)
+                zapisano = _na_disku_ni(vzeto)
             except OSError:
                 zapisano = False
             if not zapisano:
-                # V tem programu nimajo nicesar takoj; zapis se ponavlja (_ponovi_umike). Pregled 11, N3.
-                _cakajo_umik.update(imajo)
+                # V tem programu nimajo nicesar takoj; zapis ponavlja casovnik (_nacrtuj_ponovitev). Pregled 11, N3.
+                caka = set(imajo)
+                for j in caka:
+                    _dodaj_cakajoci(j, pogojno.get(j))
+                _nacrtuj_ponovitev()
                 print("[SafeerDostop] umik iz kroga: zapisa dovoljenj ni bilo mogoce spremeniti - ponovimo", flush=True)
-    for j in vsa:
+    # Naprava, ki se vraca in ima samo privolitev po umiku, ni izgubila nicesar: njene seje in prosnje ostanejo.
+    for j in sorted((set(vsa) - set(pogojno)) | vzeto | caka):
         _po_odvzemu(j)
-
 
 #: Programi, ki ob odvzemu dostopa takoj koncajo, kar za napravo tece (Safeer Link: seja zaslona, zetoni datotek,
 #: Teamwork). Sibke reference: preizkusi in ponovno ustvarjeni predmeti ne ostanejo v seznamu.
@@ -1690,8 +1845,11 @@ def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], za
 def _za_preizkus(pot: Optional[str]) -> None:
     """Preizkusi: zapis v zacasni datoteki (None vrne pravo pot)."""
     global _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zapis_spodletel_ob
-    global _zavrnjeno_disk, _prikaz, _umik
+    global _zavrnjeno_disk, _prikaz, _umik, _umik_casovnik, _migracija_caka_ob
     with _zaklep:
+        if _umik_casovnik is not None:
+            _umik_casovnik.cancel()
+        _umik_casovnik, _migracija_caka_ob = None, None
         _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita = pot, None, None, "", set()
         _zascita_disk, _zapis_spodletel_ob = set(), None
         _zavrnjeno_disk, _prikaz, _umik = {}, None, None
