@@ -11,6 +11,9 @@ import QtQuick.Layouts
 Steklo {
     id: panel
     property var vsi: []
+    // Programi TEGA racunalnika: lupa namizja isce samo med njimi, tudi ko plosca kaze programe druge naprave (prej je
+    // lupa takrat iskala med programi naprave, nov program racunalnika pa se ni osvezil - 25. 10. 2026).
+    property var lokalni: []
     property string skupina: ""          // "" = vse, "priljubljeni" ali kategorija
     property string niz: ""
     // Na Linuxu Safeer OS pozna se igre v oblaku in ponudnike programov (metode mostu, ki jih Windows nima).
@@ -96,10 +99,11 @@ Steklo {
         if (skupina !== "priljubljeni") panel.skupina = ""
         if (!naprava) {
             stanje = "nalagam"
-            koren.klic("programiNamizja", [], function (s) { if (st !== zahteva) return; panel.vsi = s || []; stanje = "" })
+            koren.klic("programiNamizja", [], function (s) { if (st !== zahteva) return; panel.vsi = s || []; panel.lokalni = panel.vsi; stanje = "" })
             naloziOblak()
             return
         }
+        if (!panel.lokalni.length) osveziLokalne()
         stanje = "nalagam"
         koren.klic("programiNapraveNamizja", [naprava], function (r) {
             if (st !== zahteva) return
@@ -111,10 +115,11 @@ Steklo {
     // brez praznjenja, izbrana kategorija in iskanje ostaneta; priljubljeni odstranjenega se skrijejo, ob ponovni
     // namestitvi vrnejo na svoje mesto (prej se odprta plosca ni osvezila do ponovnega odprtja).
     function osveziTiho() {
-        if (naprava) return
+        if (naprava) { osveziLokalne(); return }      // plosca kaze drugo napravo: lupa vseeno dobi nov program racunalnika
         var st = ++zahteva
-        koren.klic("programiNamizja", [], function (s) { if (st === zahteva) { panel.vsi = s || []; panel.stanje = ""; panel.zastarelo = false } })
+        koren.klic("programiNamizja", [], function (s) { if (st === zahteva) { panel.vsi = s || []; panel.lokalni = panel.vsi; panel.stanje = ""; panel.zastarelo = false } })
     }
+    function osveziLokalne() { koren.klic("programiNamizja", [], function (s) { panel.lokalni = s || [] }) }
     // Igre v oblaku (igreOblak) - na Linuxu; klice se tudi ob »zacetek«, ko namizje izve platformo.
     function naloziOblak() { if (linux) koren.klic("igreOblak", [], function (o) { panel.oblak = o || [] }) }
     function zazeni(p) {

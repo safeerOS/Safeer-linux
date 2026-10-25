@@ -532,7 +532,7 @@ Item {
             if (cilj) q = cilj.q
             var bs = besede(q), ql = Iskanje.SafeerIskanje.brezNaglasa(q), o = ocene(nizUcenja(q)), linux = koren.platforma === "linux"
             // Programi in orodja za nastavitve sistema (Cinnamon, Mint) - vsaka skupina do 5 zadetkov.
-            var vsi = programi.vsi.filter(function (p) {
+            var vsi = programi.lokalni.filter(function (p) {       // programi tega racunalnika (ne izbrane naprave)
                 return !p.skrit && zadetki.ujema(p.ime + " " + (p.splosno || "") + " " + (p.kljucne || []).join(" "), bs)
             }).sort(function (a, b) {
                 return ((o["program:" + b.id] || 0) - (o["program:" + a.id] || 0)) || (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0))
