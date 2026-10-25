@@ -157,14 +157,28 @@ def tok_odgovarja(url: str, glave: dict | None = None, rok: float = 4.0) -> bool
 # AuthorizationContext.cs 15. 10. 2026). Emby (zaprta koda) ostane pri `X-Emby-Token` in `api_key`.
 
 
-def _id_naprave_mediabrowser() -> str:
-    """Stalen DeviceId te namestitve. Jellyfin ob prijavi z istim DeviceId odjavi prejsnjo sejo, zato vse naprave
-    s Safeerjem ne smejo imeti istega (prej "safeer-os"). Iz /etc/machine-id prek SHA-256: id racunalnika ne gre ven."""
+def _id_racunalnika() -> bytes:
+    """Stalen id tega racunalnika ali b"": Linux /etc/machine-id, Windows MachineGuid (register HKLM, kljuc
+    SOFTWARE/Microsoft/Cryptography - isti id, kot ga Windows da namestitvi)."""
+    if platform.system() == "Windows":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as kljuc:
+                return str(winreg.QueryValueEx(kljuc, "MachineGuid")[0]).strip().encode("ascii", "ignore")[:64]
+        except (ImportError, OSError):
+            return b""
     try:
         with open("/etc/machine-id", "rb") as f:
-            mid = f.read(64).strip()
+            return f.read(64).strip()
     except OSError:
-        mid = b""
+        return b""
+
+
+def _id_naprave_mediabrowser() -> str:
+    """Stalen DeviceId te namestitve. Jellyfin ob prijavi z istim DeviceId odjavi prejsnjo sejo, zato vse naprave
+    s Safeerjem ne smejo imeti istega (prej "safeer-os", na Windows do 25. 10. 2026 vedno). Iz id-ja racunalnika
+    (_id_racunalnika) prek SHA-256: id racunalnika ne gre ven."""
+    mid = _id_racunalnika()
     return "safeer-" + hashlib.sha256(b"safeer-mediabrowser:" + mid).hexdigest()[:16] if mid else "safeer-os"
 
 

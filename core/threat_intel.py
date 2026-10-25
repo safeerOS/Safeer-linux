@@ -65,8 +65,11 @@ def default_data_dir(app_dir_name: str) -> Path:
 
 class ThreatIntelService:
     def __init__(self, data_dir, trusted_keys=None, base_urls=BASE_URLS, fetch=None,
-                 interval=UPDATE_INTERVAL_SECONDS, retry=RETRY_SECONDS, first_delay=FIRST_UPDATE_DELAY_SECONDS):
+                 interval=UPDATE_INTERVAL_SECONDS, retry=RETRY_SECONDS, first_delay=FIRST_UPDATE_DELAY_SECONDS,
+                 load_delay=0.0):
         self.feed = _load_feed_module()
+        #: Zamik nalaganja shranjenega paketa (s): Windows z vgrajenim DNS ga zamakne, da je prvi izris okna gladek.
+        self.load_delay = float(load_delay)
         self.trusted_keys = dict(TRUSTED_KEYS if trusted_keys is None else trusted_keys)
         self.store = self.feed.SignedFeedStore(data_dir, "threats", self.trusted_keys, base_urls, fetch=fetch)
         self.interval = interval
@@ -108,6 +111,11 @@ class ThreatIntelService:
             return False
 
     def _run(self) -> None:
+        # The stored bundle is verified in pure Python (GIL-bound, ~1-2 s on a 2-core PC); giving the window
+        # a head start keeps the first paint smooth. Until then match() simply has nothing to match.
+        if self.load_delay > 0 and self._stop.wait(self.load_delay):
+            self.loaded.set()
+            return
         try:
             self.store.load()
         except Exception:  # noqa: BLE001 - a broken cache must never break start-up

@@ -18,13 +18,18 @@ STEVEC_NA_STRAN = 500
 
 # javiStevec(n) za skripte glavnega sveta. dispatchEvent in CustomEvent zajame ob vstavitvi (START, pred skriptami
 # strani), da ju stran ne more zamenjati in nasega javljanja prestreci.
+# Most platforme: na Windows skripte tecejo v ovoju windows/safeer_windows/policy.py (wrap_script), ki ima svoj most
+# __safeerPost (konzola z zetonom) - tam stevilo gre naravnost vanj, ker releja v locenem svetu ni. Zajet ob vstavitvi.
 _JAVI_STEVEC_JS = """
     var javiStevec = (function() {
         var oddaj = null, Dogodek = null, dok = null;
+        var mostWindows = typeof __safeerPost === 'function' ? __safeerPost : null;
         try { oddaj = EventTarget.prototype.dispatchEvent; Dogodek = window.CustomEvent; dok = document; } catch(_) {}
         return function(n) {
             n = Math.min(Math.floor(Number(n)), %d);
-            if (!(n >= 1) || !oddaj || !Dogodek) return;
+            if (!(n >= 1)) return;
+            if (mostWindows) { try { mostWindows({ action: 'increment_ads', count: n }); } catch(_) {} return; }
+            if (!oddaj || !Dogodek) return;
             try { oddaj.call(dok, new Dogodek('%s', { detail: n })); } catch(_) {}
         };
     })();
@@ -927,8 +932,14 @@ GENERIC_COSMETIC_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
             if (!ads[i].children.length && !(ads[i].textContent || '').trim()) continue;
             try { ads[i].remove(); count++; } catch(e) {}
         }
-        if (count > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
-            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: count }); } catch(_) {}
+        // Linux: most safeer_stevec v locenem svetu; Windows: __safeerPost iz ovoja skript (policy.py wrap_script).
+        // Pogoj ni zapisan kot »window.webkit && ... .safeer«, ker ovoj Windows tak niz zamenja (adapt_linux_script).
+        if (count > 0) {
+            var mh = window.webkit && window.webkit.messageHandlers;
+            try {
+                if (mh && mh.safeer_stevec) window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: count });
+                else if (typeof __safeerPost === 'function') __safeerPost({ action: 'increment_ads', count: count });
+            } catch(_) {}
         }
     }
 
@@ -1310,6 +1321,10 @@ class ReverseDomainTrie:
                 return True
         return False
 
+
+#: Staro ime istega seznama (do 25. 10. 2026; uporablja ga windows/safeer_windows/smoke.py). To niso seznami abuse.ch -
+#: pravi seznami groznj so v podpisanem paketu (core/threat_intel.py).
+ABUSE_CH_BLOCKED_DOMAINS = ZASILNI_VZORCI_ZLONAMERNIH_DOMEN
 
 _threat_trie = ReverseDomainTrie()
 for _domain in ZASILNI_VZORCI_ZLONAMERNIH_DOMEN:
