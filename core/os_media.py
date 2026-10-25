@@ -47,6 +47,7 @@ from . import spotify_racun
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
+from . import skrivni_dodatki
 from core import shramba_json
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
@@ -1322,6 +1323,87 @@ class MediaCenter:
         self._predpomnilnik_lock = threading.RLock()
         self._predpomnilnik_casovnik: Optional[threading.Timer] = None
         self._osvezujem: set[str] = set()
+        # Dodatki z osebnim zetonom (core/skrivni_dodatki.py): pravi naslov samo sifriran, povsod drugje nadomestek.
+        skrivni_dodatki.nastavi_odklepalnik(self._odkleni_dodatek)
+        self._preseli_skrivne_dodatke()
+
+    # --- dodatki z osebnim zetonom ali kljucem v naslovu (Webtor, Torrentio z debrid kljucem) -------------------
+    def _odkleni_dodatek(self, osnova: str) -> Optional[str]:
+        """Pravi naslov dodatka za nadomestno osnovo (iz zbirke skrivnosti) ali None. Samo za omrezni klic."""
+        with self._lock:
+            zapis = next((s for s in self._load().get("osebni_strezniki", []) if isinstance(s, dict)
+                          and s.get("url_enc") and skrivni_dodatki.nadomestna_osnova(str(s.get("url") or "")) == osnova),
+                         None)
+        if zapis is None:
+            return None
+        return self._secret_decryptor(str(zapis["url_enc"])) or None
+
+    #: Datoteke v mapi Medijskega centra, ki jih prehod preisce (katalog, police, seznami, usklajevanje ...).
+    PREHOD_NAJVEC_BAJTOV = 64 * 1024 * 1024
+
+    def _preseli_skrivne_dodatke(self) -> None:
+        """Prehod (25. 10. 2026): dodatek, ki je bil v media.json shranjen s pravim naslovom (zeton v cistopisu), dobi
+        sifriran naslov (url_enc) in nadomestek; nadomestek zamenja pravo predpono tudi v drugih datotekah te mape.
+        Ce sifriranje ne uspe (ni zbirke skrivnosti), zapis ostane, kot je (na novo mesto ne gre), dobi oznako
+        »nezavarovan« (Moji viri to povedo) - prehod se ponovi ob naslednjem zagonu (pregled Grok U6)."""
+        with self._lock:
+            data = self._load()
+            zamenjave: dict = {}
+            spremenjeno = skrivni = False
+            for s in data.get("osebni_strezniki", []):
+                if not isinstance(s, dict) or s.get("ponudnik") != "stremio":
+                    continue
+                url = str(s.get("url") or "")
+                predpona = skrivni_dodatki.skrivna_predpona_dodatka(url)
+                if not predpona:
+                    skrivni = skrivni or bool(s.get("url_enc"))
+                    continue
+                skrivni = True
+                try:
+                    enc = self._secret_encryptor(url)
+                except Exception:  # noqa: BLE001 - brez zbirke skrivnosti: zapis ostane, uporabnik dobi opozorilo
+                    enc = ""
+                if not enc:
+                    if not s.get("nezavarovan"):
+                        s["nezavarovan"] = True
+                        spremenjeno = True
+                    continue
+                nadomestni = skrivni_dodatki.odkleni(url)
+                zamenjave[predpona] = skrivni_dodatki.nadomestna_osnova(nadomestni) or ""
+                s.update(url=nadomestni, url_enc=enc, skriven=True)
+                s.pop("nezavarovan", None)
+                spremenjeno = True
+            if zamenjave:
+                data = json.loads(skrivni_dodatki.zamenjaj(json.dumps(data, ensure_ascii=False), zamenjave))
+            if spremenjeno:
+                self._save(data)
+        if zamenjave:
+            self._preseli_datoteke(zamenjave)
+        if skrivni:
+            print("[SafeerMedia] dodatki z osebnim zetonom: prehod %d, nezavarovanih %d" % (
+                len(zamenjave), sum(1 for s in data.get("osebni_strezniki", []) if isinstance(s, dict) and s.get("nezavarovan"))),
+                flush=True)
+            # Izvoz za naprave (Safeer Control) je pred popravkom lahko vseboval pravi naslov: zapisemo ga znova.
+            self._viri_zapisi_izvoz()
+
+    def _preseli_datoteke(self, zamenjave: dict) -> None:
+        """Prave predpone -> nadomestki v drugih datotekah JSON te mape (atomski zapis, kot Android preseliVnose)."""
+        try:
+            datoteke = sorted(p for p in self.config_dir.glob("*.json") if p.is_file() and p != self.store_path)
+        except OSError:
+            return
+        for pot in datoteke:
+            try:
+                if pot.stat().st_size > self.PREHOD_NAJVEC_BAJTOV:
+                    continue
+                besedilo = pot.read_text(encoding="utf-8")
+                if not skrivni_dodatki.vsebuje_katero(besedilo, zamenjave):
+                    continue
+                zacasna = pot.with_name(pot.name + ".%d.prehod" % threading.get_ident())
+                zacasna.write_text(skrivni_dodatki.zamenjaj(besedilo, zamenjave), encoding="utf-8")
+                os.replace(zacasna, pot)
+            except (OSError, UnicodeDecodeError):
+                continue
 
     # --- prijava osebnih streznikov ob predvajanju ------------------------------
     #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
@@ -2742,8 +2824,7 @@ class MediaCenter:
             data = self._load()
             regular = [{k: value for k, value in source.items() if k != "vnosi"}
                        for source in data.get("viri", []) if isinstance(source, dict)]
-            personal = [{k: value for k, value in source.items() if k not in ("secret_enc", "uporabnik")}
-                        for source in data.get("osebni_strezniki", []) if isinstance(source, dict)]
+            personal = [self._vir_za_prikaz(source) for source in data.get("osebni_strezniki", []) if isinstance(source, dict)]
             return regular + personal
 
     def vidni_viri(self) -> list[dict]:
@@ -2799,32 +2880,59 @@ class MediaCenter:
                 name = str(media_servers.stremio_manifest(base).get("name") or "")
             except Exception:
                 name = ""
-        source_id = "streznik-" + hashlib.sha256((provider + base + username).encode()).hexdigest()[:16]
+        # Dodatek z osebnim zetonom ali kljucem v naslovu (Webtor, Torrentio z debrid kljucem): pravi naslov samo
+        # sifriran, v media.json in povsod drugje nadomestek; drugim napravam ne gre (core/skrivni_dodatki.py).
+        skriven = provider == "stremio" and skrivni_dodatki.skrivna_predpona_dodatka(base) is not None
+        shranjen, url_enc = base, ""
+        if skriven:
+            try:
+                url_enc = self._secret_encryptor(base)
+            except Exception:  # noqa: BLE001 - brez zbirke skrivnosti zetona ne shranimo v cistopisu
+                url_enc = ""
+            if not url_enc:
+                napaka = ("Dodatka z osebnim žetonom ni mogoče varno shraniti, ker zbirka gesel sistema ni na voljo. "
+                          "Odkleni jo ali jo nastavi in poskusi znova.")
+                return {"ok": False, "napaka": napaka, "sporocilo": napaka}
+            shranjen = skrivni_dodatki.odkleni(base)
+        source_id = "streznik-" + hashlib.sha256((provider + shranjen + username).encode()).hexdigest()[:16]
         source = {"id": source_id, "vrsta": "streznik", "ponudnik": provider,
                   "ime": _text(name, 80) or urllib.parse.urlsplit(base).hostname,
-                  "url": base, "uporabnik": username, "user_id": auth.get("user_id", ""),
+                  "url": shranjen, "uporabnik": username, "user_id": auth.get("user_id", ""),
                   "secret_enc": encrypted}
+        if skriven:
+            source.update(url_enc=url_enc, skriven=True)
         if provider == "stremio":
             # Zaseben dodatek ostane na tem racunalniku (ne gre drugim napravam v Linku); ce ne vemo, velja kot zaseben.
-            zaseben = self._koren_zaseben(base)
+            zaseben = self._koren_zaseben(shranjen)
             if zaseben is not None:
                 source["zaseben"] = bool(zaseben)
+        koreni = {media_servers._stremio_koren(base), media_servers._stremio_koren(shranjen)}
         with self._lock:
             data = self._load()
             sources = data.setdefault("osebni_strezniki", [])
             if any(item.get("id") == source_id or (
                     provider == "stremio" and item.get("ponudnik") == "stremio"
-                    and media_servers._stremio_koren(str(item.get("url") or "")) == media_servers._stremio_koren(base))
+                    and media_servers._stremio_koren(str(item.get("url") or "")) in koreni)
                    for item in sources):
                 napaka = "Ta dodatek je že dodan." if provider == "stremio" else "Ta strežnik je že dodan."
                 return {"ok": False, "napaka": napaka, "sporocilo": napaka, "podvojen": True}
-            if provider == "stremio":
+            if provider == "stremio" and not skriven:
                 self._vir_dodan(source, viri_sink.STREMIO, base, prevzet)
             sources.append(source)
             self._save(data)
-        if provider == "stremio":
+        if provider == "stremio" and not skriven:
             self._vir_potrjen(viri_sink.STREMIO, base)
-        return {"ok": True, "vir": {k: v for k, v in source.items() if k not in ("secret_enc", "uporabnik")}}
+        return {"ok": True, "vir": self._vir_za_prikaz(source)}
+
+    @staticmethod
+    def _vir_za_prikaz(source: dict) -> dict:
+        """Vir za stran: brez skrivnosti (geslo, uporabnik, sifriran naslov); dodatek z zetonom ima »prikaz« brez njega."""
+        vir = {k: v for k, v in source.items() if k not in ("secret_enc", "uporabnik", "url_enc")}
+        if source.get("ponudnik") == "stremio":
+            prikaz = skrivni_dodatki.za_prikaz(str(source.get("url") or ""))
+            if prikaz != str(source.get("url") or ""):
+                vir["prikaz"] = prikaz
+        return vir
 
     def jellyfin_dostop(self, server_id: str) -> tuple:
         """(naslov, zeton) dodanega strežnika Jellyfin za upravljanje vticnikov (core/jellyfin_vticniki.py). Zeton je
@@ -3313,7 +3421,10 @@ class MediaCenter:
                 self._save(data)
                 self.ozastari_predpomnilnik(izbrisi=True)  # odstranjen vir ne sme vec kazati svojih vnosov
                 if isinstance(odstranjen, dict) and odstranjen.get("ponudnik") == "stremio":
-                    self._vir_izbrisan(odstranjen, cas, kljuc)
+                    if odstranjen.get("url_enc") or not viri_sink.javen_naslov(viri_sink.STREMIO, str(odstranjen.get("url") or "")):
+                        skrivni_dodatki.pozabi(str(odstranjen.get("url") or ""))   # ni v Linku: izbrisa ne posljemo
+                    else:
+                        self._vir_izbrisan(odstranjen, cas, kljuc)
                 return True
             before = len(data.get("viri", []))
             odstranjen = next((s for s in data.get("viri", []) if s.get("id") == source_id), None)
@@ -3560,7 +3671,7 @@ class MediaCenter:
         if neznani:
             self._spoznaj_dodatke(neznani)
         return {"sources": [v for v in viri if viri_sink.cist_vir(v)][:viri_sink.NAJVEC_VIROV],
-                "sources_deleted": stanje["izbrisani"]}
+                "sources_deleted": {k: c for k, c in stanje["izbrisani"].items() if viri_sink.javen_kljuc(k)}}
 
     def _viri_zapisi_izvoz(self) -> None:
         """Na Linuxu drugim napravam odgovarja Safeer Control (tudi ko Safeer OS ni odprt, core/link_seznami.py): vire

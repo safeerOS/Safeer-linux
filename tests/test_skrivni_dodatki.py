@@ -1,0 +1,280 @@
+"""Dodatki Stremio z osebnim zetonom v naslovu (core/skrivni_dodatki.py, 25. 10. 2026).
+
+Do tega popravka je bil naslov dodatka z zetonom (Webtor, Torrentio z debrid kljucem) na namizju shranjen v cistopisu
+(media.json) in je z usklajevanjem virov (lists.get) sel VSEM napravam v Safeer Linku. Preizkusi so cisti: brez
+omrezja (razen lokalnega streznika na 127.0.0.1), brez zbirke skrivnosti (sifrirnik je ponaredek). Zetoni so izmisljeni.
+"""
+import contextlib
+import http.server
+import io
+import json
+import os
+import shutil
+import tempfile
+import threading
+import unittest
+import urllib.error
+from pathlib import Path
+from unittest import mock
+
+from core import media_servers, os_media, skrivni_dodatki as S, viri_sink
+
+ZETON = "Zt9xQ2mW7kLp4RvB8nYc3HdF"
+WEBTOR = "https://webtor.io/token/%s/stremio/manifest.json" % ZETON
+WEBTOR_OSNOVA = "https://webtor.io/token/%s/stremio" % ZETON
+TORRENTIO = "https://torrentio.strem.fun/sort=qualitysize|realdebrid=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD/manifest.json"
+
+
+def _sifriraj(s: str) -> str:
+    return "enc:" + "".join(reversed(s))
+
+
+def _desifriraj(s: str) -> str:
+    assert s.startswith("enc:")
+    return "".join(reversed(s[4:]))
+
+
+def _vse_datoteke(mapa: str) -> str:
+    besedilo = []
+    for koren, _mape, datoteke in os.walk(mapa):
+        for d in datoteke:
+            besedilo.append(Path(koren, d).read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(besedilo)
+
+
+class Osnova(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        S._PRAVI.clear()
+
+    def tearDown(self):
+        S._PRAVI.clear()
+        S.nastavi_odklepalnik(None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def center(self, sifriraj=_sifriraj, desifriraj=_desifriraj):
+        return os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=sifriraj, secret_decryptor=desifriraj)
+
+    def pisi_media(self, data: dict) -> None:
+        Path(self.tmp, "media.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def preveri_brez_zetona(self, besedilo: str, kje: str) -> None:
+        self.assertNotIn(ZETON, besedilo, kje)
+        self.assertNotIn("/token/", besedilo, kje)
+
+
+class Pravila(Osnova):
+    def test_nadomestek_in_dejanski(self):
+        z = S.odkleni(WEBTOR)
+        self.assertTrue(z.startswith("https://webtor.io/" + S.OZNAKA))
+        self.assertTrue(z.endswith("/manifest.json"))
+        self.assertNotIn(ZETON, z)
+        osnova = S.nadomestna_osnova(z)
+        self.assertEqual(S.dejanski(osnova + "/stream/movie/tt1.json"), WEBTOR_OSNOVA + "/stream/movie/tt1.json")
+        self.assertEqual(S.skrij(WEBTOR_OSNOVA + "/resolve/a.b.c"), osnova + "/resolve/a.b.c")
+        # Drug dodatek z isto zacetno crko poti ni ta dodatek.
+        self.assertEqual(S.skrij(WEBTOR_OSNOVA + "x/resolve/a"), WEBTOR_OSNOVA + "x/resolve/a")
+        self.assertEqual(S.dejanski("https://cdn.example/a.mp4"), "https://cdn.example/a.mp4")
+
+    def test_neodklenjen_nadomestek_ne_gre_na_streznik(self):
+        z = S.v_nadomestek(WEBTOR)
+        with self.assertRaises(S.NeodklenjenDodatek):
+            S.dejanski(z)
+        poslano = []
+        with mock.patch("urllib.request.OpenerDirector.open", side_effect=lambda *a, **k: poslano.append(a)):
+            with self.assertRaises(ValueError):
+                media_servers._request(S.nadomestna_osnova(z) + "/manifest.json")
+        self.assertEqual(poslano, [])
+
+    def test_odklepalnik_odklene_ob_prvi_zahtevi(self):
+        z = S.v_nadomestek(WEBTOR)
+        S.nastavi_odklepalnik(lambda o: WEBTOR if o == S.nadomestna_osnova(z) else None)
+        self.assertEqual(S.dejanski(z), WEBTOR)
+        # Odklepalnik, ki vrne napacen naslov (drug dodatek), ne odklene.
+        drug = S.v_nadomestek(TORRENTIO)
+        S.nastavi_odklepalnik(lambda o: WEBTOR)
+        with self.assertRaises(S.NeodklenjenDodatek):
+            S.dejanski(drug)
+
+    def test_zakrij_za_dnevnik(self):
+        S.odkleni(WEBTOR)
+        self.preveri_brez_zetona(S.zakrij("napaka pri %s/stream/x.json" % WEBTOR_OSNOVA), "zakrij znanega")
+        self.preveri_brez_zetona(S.zakrij("drug https://webtor.io/token/%s/stremio/a" % ("Q" * 10 + "1" * 12)), "zakrij neznanega")
+
+    def test_skrivni_dodatek_samo_https(self):
+        self.assertTrue(S.veljaven_skrivni_dodatek(WEBTOR))
+        self.assertFalse(S.veljaven_skrivni_dodatek(WEBTOR.replace("https://", "http://")))
+
+
+class Lokalni(http.server.BaseHTTPRequestHandler):
+    poti: list = []
+
+    def do_GET(self):  # noqa: N802
+        Lokalni.poti.append(self.path)
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, *_a):
+        pass
+
+
+class Zahteva(Osnova):
+    def test_http_napaka_ne_nosi_zetona(self):
+        """Pregled Grok U7: HTTPError nosi naslov zahteve - navzven samo nadomestek."""
+        streznik = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Lokalni)
+        nit = threading.Thread(target=streznik.serve_forever, daemon=True)
+        nit.start()
+        try:
+            pravi = "http://127.0.0.1:%d/token/%s/stremio/manifest.json" % (streznik.server_address[1], ZETON)
+            z = S.odkleni(pravi)
+            Lokalni.poti = []
+            with self.assertRaises(urllib.error.HTTPError) as n:
+                media_servers._request(S.nadomestna_osnova(z) + "/stream/movie/tt1.json")
+            self.assertEqual(Lokalni.poti, ["/token/%s/stremio/stream/movie/tt1.json" % ZETON])   # streznik dobi pravega
+            e = n.exception
+            for besedilo in (str(e), repr(e), str(e.filename), str(e.geturl()), str(e.url)):
+                self.preveri_brez_zetona(besedilo, "HTTPError")
+            self.assertEqual(e.code, 404)
+        finally:
+            streznik.shutdown()
+            streznik.server_close()
+            nit.join(5)
+
+
+class Dodajanje(Osnova):
+    def dodaj(self, mc, url):
+        with mock.patch.object(media_servers, "stremio_preveri", return_value=""), \
+                mock.patch.object(media_servers, "stremio_manifest", return_value={"id": "org.stremio.webtor.io", "name": "Webtor"}):
+            return mc.add_server("stremio", "", url, "", "")
+
+    def test_dodan_dodatek_ni_v_cistopisu(self):
+        mc = self.center()
+        izid = self.dodaj(mc, WEBTOR)
+        self.assertTrue(izid["ok"], izid)
+        self.preveri_brez_zetona(json.dumps(izid), "odgovor strani")
+        zapis = json.loads(Path(self.tmp, "media.json").read_text(encoding="utf-8"))["osebni_strezniki"][0]
+        self.assertTrue(S.je_nadomestek(zapis["url"]))
+        self.assertEqual(_desifriraj(zapis["url_enc"]), WEBTOR)
+        self.preveri_brez_zetona(json.dumps(mc.sources()), "sources")
+        self.assertEqual([v.get("prikaz") for v in mc.sources()], ["https://webtor.io/…/manifest.json"])
+        self.preveri_brez_zetona(json.dumps(mc.viri_izvoz()), "lists.get")
+        self.assertEqual(mc.viri_izvoz()["sources"], [])
+        self.preveri_brez_zetona(_vse_datoteke(self.tmp), "datoteke")
+        # Omrezni klic z nadomestkom gre na pravi naslov.
+        poslano = []
+        with mock.patch("urllib.request.OpenerDirector.open", side_effect=lambda r, timeout=0: poslano.append(r.full_url) or (_ for _ in ()).throw(OSError("x"))):
+            with self.assertRaises(OSError):
+                media_servers._request(S.nadomestna_osnova(zapis["url"]) + "/manifest.json")
+        self.assertEqual(poslano, [WEBTOR])
+
+    def test_brez_zbirke_skrivnosti_ne_shrani(self):
+        def ni_zbirke(s):
+            if not s:
+                return ""       # kot core/os_katalog.skrij: prazno ostane prazno (dodatki nimajo gesla)
+            raise RuntimeError("Zbirka skrivnosti ni na voljo.")
+        mc = self.center(sifriraj=ni_zbirke)
+        izid = self.dodaj(mc, WEBTOR)
+        self.assertFalse(izid["ok"])
+        self.assertIn("zbirka gesel", izid["napaka"])
+        self.assertEqual(mc.sources(), [])
+        self.preveri_brez_zetona(_vse_datoteke(self.tmp), "datoteke")
+
+    def test_navaden_dodatek_ostane_enak(self):
+        mc = self.center()
+        with mock.patch.object(mc, "_vir_potrjen"):
+            izid = self.dodaj(mc, "https://v3-cinemeta.strem.io/manifest.json")
+        self.assertTrue(izid["ok"])
+        self.assertEqual(mc.sources()[0]["url"], "https://v3-cinemeta.strem.io/manifest.json")
+        self.assertNotIn("url_enc", json.loads(Path(self.tmp, "media.json").read_text())["osebni_strezniki"][0])
+
+    def test_odstranitev_ne_gre_v_link(self):
+        mc = self.center()
+        self.dodaj(mc, WEBTOR)
+        ident = mc.sources()[0]["id"]
+        self.assertTrue(mc.remove_source(ident))
+        self.assertEqual(mc.viri_izvoz()["sources_deleted"], {})
+        self.preveri_brez_zetona(_vse_datoteke(self.tmp), "datoteke")
+
+
+class Prehod(Osnova):
+    """Dodatek, shranjen pred popravkom (zeton v media.json in v drugih datotekah mape)."""
+
+    def stari(self):
+        self.pisi_media({"viri": [], "osebni_strezniki": [
+            {"id": "streznik-1", "vrsta": "streznik", "ponudnik": "stremio", "ime": "Webtor", "url": WEBTOR,
+             "secret_enc": "", "zaseben": False, "dodan": 5},
+            {"id": "streznik-2", "vrsta": "streznik", "ponudnik": "stremio", "ime": "Cinemeta",
+             "url": "https://v3-cinemeta.strem.io/manifest.json", "secret_enc": "", "zaseben": False, "dodan": 6}]})
+        Path(self.tmp, "media-predpomnilnik.json").write_text(json.dumps(
+            {"vnosi": [{"id": "x", "url": "stremio:%s|movie|tt1" % WEBTOR_OSNOVA, "stremio": {"koren": WEBTOR_OSNOVA}}]}),
+            encoding="utf-8")
+        Path(self.tmp, "viri_sink.json").write_text(json.dumps(
+            {"izbrisani": {"stremio|" + TORRENTIO: 7, "stremio|https://a.example/manifest.json": 8}, "zavrnjeni": {}}),
+            encoding="utf-8")
+        Path(self.tmp, "viri_za_naprave.json").write_text(json.dumps(
+            {"sources": [{"tip": "stremio", "naslov": WEBTOR, "ime": "Webtor", "cas": 5}], "sources_deleted": {}}),
+            encoding="utf-8")
+
+    def test_prehod_sifrira_in_pocisti_vse_datoteke(self):
+        self.stari()
+        mc = self.center()
+        zapis = mc._load()["osebni_strezniki"][0]
+        self.assertTrue(zapis["skriven"])
+        self.assertEqual(_desifriraj(zapis["url_enc"]), WEBTOR)
+        vse = _vse_datoteke(self.tmp)
+        self.preveri_brez_zetona(vse.replace(zapis["url_enc"], ""), "datoteke po prehodu")
+        self.assertIn(S.nadomestna_osnova(zapis["url"]), Path(self.tmp, "media-predpomnilnik.json").read_text())
+        izvoz = mc.viri_izvoz()
+        self.assertEqual([v["naslov"] for v in izvoz["sources"]], ["https://v3-cinemeta.strem.io/manifest.json"])
+        self.assertEqual(izvoz["sources_deleted"], {"stremio|https://a.example/manifest.json": 8})
+        self.assertNotIn("webtor", Path(self.tmp, "viri_za_naprave.json").read_text())
+        # Drugi zagon: nic novega, nadomestek ostane.
+        os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=_sifriraj, secret_decryptor=_desifriraj)
+        self.assertEqual(json.loads(Path(self.tmp, "media.json").read_text())["osebni_strezniki"][0]["url"], zapis["url"])
+
+    def test_prehod_brez_zbirke_skrivnosti(self):
+        """Grok U6: ce sifriranje ne uspe, pravi naslov ne gre na nova mesta; Moji viri povedo, da ni zavarovan."""
+        self.stari()
+
+        def ni_zbirke(_s):
+            raise RuntimeError("Zbirka skrivnosti ni na voljo.")
+        izhod = io.StringIO()
+        with contextlib.redirect_stdout(izhod), contextlib.redirect_stderr(izhod):
+            mc = self.center(sifriraj=ni_zbirke)
+        self.preveri_brez_zetona(izhod.getvalue(), "dnevnik")
+        zapis = mc._load()["osebni_strezniki"][0]
+        self.assertTrue(zapis["nezavarovan"])
+        self.assertNotIn("url_enc", zapis)
+        vir = mc.sources()[0]
+        self.assertTrue(vir["nezavarovan"])
+        self.preveri_brez_zetona(vir["prikaz"], "prikaz")
+        self.preveri_brez_zetona(json.dumps(mc.viri_izvoz()), "lists.get")
+        self.preveri_brez_zetona(Path(self.tmp, "viri_za_naprave.json").read_text(), "izvoz za Control")
+
+    def test_dnevnik_brez_zetona(self):
+        self.stari()
+        izhod = io.StringIO()
+        with contextlib.redirect_stdout(izhod), contextlib.redirect_stderr(izhod), self.assertLogs(level="DEBUG") as dnevnik:
+            mc = self.center()
+            import logging
+            logging.getLogger("preizkus").debug("konec")
+            with mock.patch("urllib.request.OpenerDirector.open", side_effect=OSError("ni omrezja")):
+                with contextlib.suppress(Exception):
+                    media_servers._request(S.nadomestna_osnova(mc.sources()[0]["url"]) + "/manifest.json")
+        self.preveri_brez_zetona(izhod.getvalue() + "\n".join(dnevnik.output), "dnevnik")
+
+
+class UsklajevanjeVirov(unittest.TestCase):
+    def test_tuj_skrivni_dodatek_ne_pride_sem(self):
+        self.assertIsNone(viri_sink.cist_vir({"tip": "stremio", "ime": "Webtor", "naslov": WEBTOR, "cas": 1}))
+        self.assertIsNone(viri_sink.cist_vir({"tip": "stremio", "ime": "T", "naslov": S.v_nadomestek(TORRENTIO), "cas": 1}))
+        self.assertIsNotNone(viri_sink.cist_vir({"tip": "stremio", "ime": "C", "naslov": "https://v3-cinemeta.strem.io/manifest.json"}))
+        self.assertIsNotNone(viri_sink.cist_vir({"tip": "podkast", "ime": "P", "naslov": "https://feeds.example.org/oddaja.xml"}))
+
+    def test_izbris_s_skrivnostjo_ne_velja(self):
+        izbrisi = viri_sink.cisti_izbrisi({"stremio|" + WEBTOR: 5, "stremio|https://a.example/manifest.json": 6})
+        self.assertEqual(izbrisi, {"stremio|https://a.example/manifest.json": 6})
+
+
+if __name__ == "__main__":
+    unittest.main()

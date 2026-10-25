@@ -8597,10 +8597,13 @@
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
-      var status = source.napaka ? source.napaka : (source.vrsta === "streznik"
+      // Dodatek z osebnim zetonom (core/skrivni_dodatki.py): naslov brez zetona (prikaz) in kje je zeton shranjen.
+      var status = source.napaka ? source.napaka : source.nezavarovan ? t("katSkrivniNezavarovan")
+        : source.skriven ? t("katSkrivniDodatek") : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
-      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
+      info.appendChild(el("small", source.napaka || source.nezavarovan ? "kat-vir-napaka" : "",
+        ubezi(status + " · " + (source.prikaz || source.url))));
       row.appendChild(info);
       var refresh = el("button", "gumb-ikona", svg("ponovno")); refresh.type = "button"; refresh.title = t("katOsvezi");
       refresh.onclick = function () {
@@ -8618,7 +8621,7 @@
       }
       var remove = el("button", "gumb-ikona", svg("x")); remove.type = "button"; remove.title = t("odstrani");
       // Vir, ki je enak na vseh napravah v Safeer Linku, se izbriše povsod: prvi klik vpraša (brez sistemskega okna).
-      var povsod = (source.ponudnik === "stremio" && source.zaseben === false) ||
+      var povsod = (source.ponudnik === "stremio" && source.zaseben === false && !source.skriven && !source.nezavarovan) ||
         (source.vrsta !== "streznik" && source.tip !== "predvajalni_vir" && (!!source.link_tip || (source.stevilo || 0) > 0)), potrjeno = false;
       remove.onclick = function () {
         if (povsod && !potrjeno) { potrjeno = true; remove.classList.add("potrdi"); remove.textContent = t("virOdstraniPovsod"); return; }

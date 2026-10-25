@@ -7,9 +7,22 @@ import json
 import unittest
 from pathlib import Path
 
-from core import debrid_pravila as P, media_servers, usenet_pravila as U
+from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
+#: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
+PRIMERI_WEBTOR = Path(__file__).resolve().parent / "skupni-primeri" / "webtor-rezerva.json"
+#: Pravila iz PRIMERI_WEBTOR, ki jih namizje se nima - in zakaj. Novo pravilo v datoteki mora priti sem ali v izracunaj.
+NI_NA_NAMIZJU = {
+    "uskladitev_novejsi": "usklajevanje kljucev v ozjem krogu (secrets.sync) namizje se nima",
+    "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
+    "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
+    "izberi_usenet": "namizje ima svojo vzporedno preverbo Useneta (Debrid.usenet_takoj)",
+    "webtor_oznaka": "Webtor (naslednji commit)", "je_webtor_dodatek": "Webtor (naslednji commit)",
+    "webtor_odlocitev": "Webtor (naslednji commit)", "webtor_vrstni_red": "Webtor (naslednji commit)",
+    "webtor_rok_sonde": "Webtor (naslednji commit)", "vrstni_red_korakov": "Webtor (naslednji commit)",
+    "scit_dovoljena": "Webtor (naslednji commit)",
+}
 
 
 def _meritev(m):
@@ -81,14 +94,34 @@ def izracunaj(f, v):
         return U.za_samodejno(v["gb"])
     if f == "usenet_najboljsa_pripravljena":
         return U.najboljsa_pripravljena(v["pripravljene"])
+    # Dodatki z osebnim zetonom v naslovu (core/skrivni_dodatki.py, Android SkrivnostiPravila.kt).
+    if f == "skrivna_predpona_dodatka":
+        return S.skrivna_predpona_dodatka(v["naslov"])
+    if f == "skrivna_predpona_toka":
+        return S.skrivna_predpona_toka(v["naslov"])
+    if f == "v_nadomestek":
+        return S.v_nadomestek(v["naslov"])
+    if f == "za_prikaz":
+        return S.za_prikaz(v["naslov"])
+    if f == "odstrani_tok_ob_shranjevanju":
+        return S.odstrani_tok_ob_shranjevanju(v["osnova"], v["tok"])
     raise KeyError("neznano pravilo: " + f)
 
 
 class SkupniPrimeri(unittest.TestCase):
     def test_vsi_primeri(self):
-        koren = json.loads(PRIMERI.read_text(encoding="utf-8"))
+        self._preveri(PRIMERI, set(), 60)
+
+    def test_webtor_rezerva(self):
+        self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 80)
+
+    def _preveri(self, pot, preskoci: set, najmanj: int):
+        koren = json.loads(pot.read_text(encoding="utf-8"))
+        self.assertTrue(preskoci <= {p["f"] for p in koren["primeri"]}, "NI_NA_NAMIZJU ima pravilo, ki ga ni vec")
         napake = []
         for p in koren["primeri"]:
+            if p["f"] in preskoci:
+                continue
             try:
                 dobljeno = izracunaj(p["f"], p["vhod"])
             except Exception as e:  # noqa: BLE001 - izjema je napaka primera, ne konec preizkusa
@@ -96,7 +129,7 @@ class SkupniPrimeri(unittest.TestCase):
             if dobljeno != p["izhod"]:
                 napake.append("%s %s: pricakovano %r, dobljeno %r" % (p["f"], p["vhod"], p["izhod"], dobljeno))
         self.assertEqual(napake, [], "\n".join(napake))
-        self.assertGreaterEqual(len(koren["primeri"]), 60)
+        self.assertGreaterEqual(len(koren["primeri"]), najmanj)
 
 
 if __name__ == "__main__":

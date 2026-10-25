@@ -25,6 +25,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Optional
 
+from core import skrivni_dodatki
+
 
 #: Vrste osebnih streznikov, ki jih zna Medijski center.
 PONUDNIKI = ("jellyfin", "emby", "navidrome", "plex", "kodi", "tvheadend", "azuracast", "funkwhale", "dlna", "stremio")
@@ -99,18 +101,26 @@ def dovoljen_naslov(url: str) -> bool:
 
 def _request(url: str, headers: dict | None = None, body: dict | None = None, raw: bytes | None = None,
              timeout: float = 10) -> bytes:
-    if not dovoljen_naslov(url):
+    # Dodatek z osebnim zetonom ima povsod nadomestek (core/skrivni_dodatki.py): pravi naslov samo za to zahtevo.
+    pravi = skrivni_dodatki.dejanski(url)
+    if not dovoljen_naslov(pravi):
         raise ValueError("Osebni medijski strežniki zunaj domačega omrežja zahtevajo HTTPS.")
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-    request = urllib.request.Request(url, data=data,
+    request = urllib.request.Request(pravi, data=data,
                                     headers={"Accept": "application/json, application/xml",
                                              "User-Agent": "SafeerOS/1.0", **(headers or {})},
                                     method="POST" if data is not None else "GET")
     opener = urllib.request.build_opener(_HTTPSOnlyRedirect())
-    with opener.open(request, timeout=timeout) as response:
-        if response.status != 200:
-            raise OSError("HTTP %d" % response.status)
-        return response.read(5 * 1024 * 1024 + 1)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            if response.status != 200:
+                raise OSError("HTTP %d" % response.status)
+            return response.read(5 * 1024 * 1024 + 1)
+    except urllib.error.HTTPError as napaka:
+        if pravi == url:
+            raise
+        # HTTPError nosi naslov zahteve (filename, url): navzven gre samo nadomestek, nikoli zeton (pregled Grok U7).
+        raise urllib.error.HTTPError(url, napaka.code, napaka.msg, napaka.hdrs, None) from None
 
 
 _IZVIRNI_REQUEST = _request
@@ -129,6 +139,10 @@ def tok_stanje(url: str, glave: dict | None = None, rok: float = 4.0) -> tuple[b
     stejejo. 429 z Retry-After pomeni »zivo, a pocakaj« (odgovarja=True). Telesa ne beremo.
     Meritev 15. 10. 2026: streznik toka je na isti podpisani naslov z glavami dodatka petkrat v 70 s odgovoril 206 -
     ena sonda pred predvajanjem naslova ne porabi; brez glave Referer pa vedno 429 (zato predvajalnik dobi glave)."""
+    try:
+        url = skrivni_dodatki.dejanski(url)
+    except ValueError:
+        return False, 0, 0
     if not dovoljen_naslov(url):
         return False, 0, 0
     zahteva = urllib.request.Request(url, headers={"User-Agent": "SafeerOS/1.0", "Accept": "*/*", "Range": "bytes=0-1",
@@ -1175,7 +1189,8 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
                 surovi = json.loads(_request(koren + "/stream/%s/%s.json" % (tip, urllib.parse.quote(str(prvi["id"]), safe=":")))).get("streams") or []
     tokovi = []
     for t in surovi:
-        url = str(t.get("url") or "")
+        # Tok dodatka z osebnim zetonom (Webtor: .../token/<t>/stremio/resolve/...) dobi nadomestek kot dodatek.
+        url = skrivni_dodatki.skrij(str(t.get("url") or ""))
         if url.startswith(("https://", "http://")):
             if stremio_je_obvestilo(t):
                 continue
@@ -1189,7 +1204,7 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
             glave = ((namigi.get("proxyHeaders") or {}).get("request") if isinstance(namigi.get("proxyHeaders"), dict) else None) or {}
             if isinstance(glave, dict) and glave:
                 tok["glave"] = {str(k)[:80]: str(v)[:500] for k, v in glave.items() if "\n" not in str(v) and "\r" not in str(v)}
-            podnapisi = [{"uri": str(p.get("url")), "jezik": str(p.get("lang") or "")[:12]}
+            podnapisi = [{"uri": skrivni_dodatki.skrij(str(p.get("url"))), "jezik": str(p.get("lang") or "")[:12]}
                          for p in (t.get("subtitles") or []) if isinstance(p, dict) and str(p.get("url") or "").startswith(("https://", "http://"))]
             if podnapisi:
                 tok["podnapisi"] = podnapisi[:24]

@@ -665,15 +665,17 @@ class Katalog:
 
     def _odstrani_vir(self, a: list) -> Any:
         ident = self._niz(a, 0)
-        skrivnost = ""
-        try:   # geslo odstranjenega streznika ne ostane v zbirki skrivnosti
-            skrivnost = next((str(s.get("secret_enc") or "") for s in self.mc._load().get("osebni_strezniki", [])
-                              if isinstance(s, dict) and s.get("id") == ident), "")
-        except Exception:  # noqa: BLE001
-            pass
+        skrivnosti: list = []
+        try:   # geslo odstranjenega streznika in sifriran naslov dodatka z zetonom ne ostaneta v zbirki skrivnosti
+            zapis = next((s for s in self.mc._load().get("osebni_strezniki", [])
+                          if isinstance(s, dict) and s.get("id") == ident), {})
+            skrivnosti = [str(zapis.get(k) or "") for k in ("secret_enc", "url_enc") if zapis.get(k)]
+        except Exception:  # noqa: BLE001 - zapisa ni mogoce prebrati: ni kaj pozabiti
+            skrivnosti = []
         ok = self.mc.remove_source(ident)
-        if ok and skrivnost:
-            pozabi(skrivnost)
+        if ok:
+            for skrivnost in skrivnosti:
+                pozabi(skrivnost)
         return ok
 
     def _osvezi_vir(self, a: list) -> Any:
