@@ -167,6 +167,19 @@ def _dovoljena_povezava(p: str, gost_indeksatorja: Optional[str]) -> bool:
     return shema == "http" and gost == gost_indeksatorja and _je_lokalni_gostitelj(gost)
 
 
+def dovoljen_skok(od: str, do: str) -> bool:
+    """Preusmeritev prenosa NZB (naslov nosi kljuc indeksatorja; AGENTS.md: prenosi preverijo VSAK skok): cilj mora biti
+    dovoljena povezava NZB (_dovoljena_povezava) glede na gostitelja prejsnjega skoka, nikoli s https na http - Location
+    lahko nosi kljuc, http ga pokaze vsem na poti."""
+    try:
+        a, b = urllib.parse.urlsplit(str(od or "")), urllib.parse.urlsplit(str(do or ""))
+    except ValueError:
+        return False
+    if (a.scheme or "").lower() == "https" and (b.scheme or "").lower() != "https":
+        return False
+    return _dovoljena_povezava(str(do or ""), (a.hostname or "").lower())
+
+
 def _lokalno(tag: str) -> str:
     return tag.rsplit("}", 1)[-1].split(":")[-1]
 

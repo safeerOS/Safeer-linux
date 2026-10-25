@@ -116,10 +116,36 @@ def _beri_omejeno(o, meja: int = P.NAJVEC_ODGOVORA) -> bytes:
     return podatki
 
 
+class _BrezPreusmeritve(urllib.request.HTTPRedirectHandler):
+    """Zahteva s kljucem (v glavi ali v naslovu) ne sledi preusmeritvi (AGENTS.md: omrezje s kljucem). urllib.urlopen
+    ob 3xx kopira glavo Authorization tudi v zahtevo drugemu gostitelju (izmerjeno 25. 10. 2026, Python 3.12.3, dva
+    lokalna streznika): 302 storitve ali vmesnega posrednika bi odnesel kljuc. Odgovor 3xx je zato napaka storitve."""
+
+    def redirect_request(self, *_a, **_k):
+        return None
+
+
+def _odpri_s_kljucem(zahteva: urllib.request.Request, rok: float):
+    """urlopen brez sledenja preusmeritvam: 3xx pride kot urllib.error.HTTPError s kodo odgovora."""
+    return urllib.request.build_opener(_BrezPreusmeritve()).open(zahteva, timeout=rok)  # nosec B310 - naslovi storitev
+
+
+class _SkokNzb(urllib.request.HTTPRedirectHandler):
+    """Prenos NZB (kljuc indeksatorja v naslovu) sledi preusmeritvi samo, ce skok dovoli U.dovoljen_skok - Android
+    (Usenet.nzb) preusmeritvam NZB sledi, zato jih ne zavrnemo vseh; nikoli s https na http in ne na tuj http."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not U.dovoljen_skok(req.full_url, newurl):
+            _log.info("usenet nzb: preusmeritev zavrnjena")
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def klic(naslov: str, kljuc: Optional[str], metoda: str = "GET", obrazec: Optional[list] = None,
          rok: float = 20.0, telo: Optional[tuple] = None) -> Odgovor:
-    """Klic s kljucem v glavi (nikoli v naslovu); [obrazec] gre kot application/x-www-form-urlencoded, [telo] je
-    (bajti, Content-Type) - npr. multipart z NZB za Usenet. Odgovor najvec P.NAJVEC_ODGOVORA bajtov (vecji je napaka)."""
+    """Klic s kljucem v glavi (ali, samo pri requestdl, v naslovu); [obrazec] gre kot application/x-www-form-urlencoded,
+    [telo] je (bajti, Content-Type) - npr. multipart z NZB za Usenet. Odgovor najvec P.NAJVEC_ODGOVORA bajtov (vecji je
+    napaka). Preusmeritvi ne sledi (_BrezPreusmeritve): 3xx je Odgovor s to kodo, kljuc ne gre drugam."""
     glave = {"Accept": "application/json", "User-Agent": "SafeerOS/1.0"}
     if kljuc:
         glave["Authorization"] = P.glava_avtorizacije(kljuc)
@@ -131,7 +157,7 @@ def klic(naslov: str, kljuc: Optional[str], metoda: str = "GET", obrazec: Option
         podatki, glave["Content-Type"] = telo[0], telo[1]
     zahteva = urllib.request.Request(naslov, data=podatki, headers=glave, method=metoda)
     try:
-        with urllib.request.urlopen(zahteva, timeout=rok) as o:
+        with _odpri_s_kljucem(zahteva, rok) as o:
             return Odgovor(o.status, _beri_omejeno(o).decode("utf-8", "replace"), _datum_ms(o.headers))
     except urllib.error.HTTPError as e:
         telo_n = _beri_omejeno(e) if e.fp is not None else b""
@@ -553,13 +579,6 @@ def torbox_preveri(kljuc: str, rok: float = 8.0) -> tuple:
     return izid, paket
 
 
-class _BrezPreusmeritve(urllib.request.HTTPRedirectHandler):
-    """Zahteva s kljucem v naslovu ne sledi preusmeritvi (AGENTS.md: omrezje s kljucem)."""
-
-    def redirect_request(self, *_a, **_k):
-        return None
-
-
 def indeksator_preveri(osn: str, kljuc: str, rok: float = 8.0) -> str:
     """P.PREVERBA_* za kljuc indeksatorja Newznab: eno iskanje z enim zadetkom (izmerjeno 25. 10. 2026 na nzbfinder.ws:
     napacen kljuc -> HTTP 401 in `<error code="100">`, t=caps kljuca ne preveri). Naslov s kljucem ne gre v dnevnik."""
@@ -568,7 +587,7 @@ def indeksator_preveri(osn: str, kljuc: str, rok: float = 8.0) -> str:
                                               "User-Agent": "SafeerOS/1.0"})
     try:
         try:
-            with urllib.request.build_opener(_BrezPreusmeritve()).open(zahteva, timeout=rok) as o:
+            with _odpri_s_kljucem(zahteva, rok) as o:
                 koda, telo = o.status, _beri_do(o, 64 * 1024)
         except urllib.error.HTTPError as e:
             koda, telo = e.code, _beri_do(e, 64 * 1024) if e.fp else b""
@@ -594,7 +613,8 @@ def _beri_do(o, najvec: int) -> bytes:
 
 
 def usenet_isci(osn: str, kljuc_ix: str, ident: str, rok: float = 8.0) -> list:
-    """Zadetki indeksatorja za id Stremio (film tt… ali epizoda tt…:S:E); ob napaki prazno. Naslov (s kljucem) ne gre v dnevnik."""
+    """Zadetki indeksatorja za id Stremio (film tt… ali epizoda tt…:S:E); ob napaki prazno. Naslov (s kljucem) ne gre v
+    dnevnik in ne sledi preusmeritvi (kot preverba ob vnosu)."""
     naslov = U.naslov_iskanja(osn, kljuc_ix, ident)
     if not naslov:
         return []
@@ -602,7 +622,7 @@ def usenet_isci(osn: str, kljuc_ix: str, ident: str, rok: float = 8.0) -> list:
         zahteva = urllib.request.Request(naslov, headers={"Accept": "application/rss+xml, application/xml, text/xml",
                                                           "User-Agent": "SafeerOS/1.0"})
         try:
-            with urllib.request.urlopen(zahteva, timeout=rok) as o:
+            with _odpri_s_kljucem(zahteva, rok) as o:
                 koda, telo = o.status, _beri_do(o, U.NAJVEC_ODGOVORA_BAJTOV)
         except urllib.error.HTTPError as e:
             koda, telo = e.code, _beri_do(e, 64 * 1024) if e.fp else b""
@@ -623,11 +643,12 @@ def usenet_isci(osn: str, kljuc_ix: str, ident: str, rok: float = 8.0) -> list:
 
 
 def usenet_nzb(povezava: str, rok: float = 30.0) -> tuple:
-    """NZB z indeksatorja: (bajti, "") ali (None, napaka). Povezava vsebuje kljuc - ne gre v dnevnik."""
+    """NZB z indeksatorja: (bajti, "") ali (None, napaka). Povezava vsebuje kljuc - ne gre v dnevnik; vsak skok
+    preusmeritve preveri U.dovoljen_skok (_SkokNzb)."""
     try:
         zahteva = urllib.request.Request(povezava, headers={"User-Agent": "SafeerOS/1.0"})
         try:
-            with urllib.request.urlopen(zahteva, timeout=rok) as o:
+            with urllib.request.build_opener(_SkokNzb()).open(zahteva, timeout=rok) as o:  # nosec B310 - skoki preverjeni
                 koda, telo = o.status, _beri_do(o, U.NAJVEC_NZB_BAJTOV + 1)
         except urllib.error.HTTPError as e:
             koda, telo = e.code, _beri_do(e, 64 * 1024) if e.fp else b""
