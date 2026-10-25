@@ -1349,6 +1349,8 @@ class MediaCenter:
         self._zasebni_koreni: dict[str, bool] = {}
         #: Moji viri so se z usklajevanjem v Linku spremenili (core/viri_sink.py): klicatelj osvezi zaslon.
         self.ob_virih: Optional[Callable[[], None]] = None
+        #: Preverba kanalov IPTV je spremenila, kateri kanali delujejo (core/kanali_iptv.py): klicatelj obvesti stran.
+        self.ob_kanalih: Optional[Callable[[], None]] = None
         self._spoznavam_dodatke = False
         self._dodatki_vprasani: dict[str, float] = {}
         self._izvoz_virov_zapisan = False
@@ -3106,13 +3108,16 @@ class MediaCenter:
         return izid
 
     # --- kanali seznamov IPTV (core/kanali_iptv.py) -------------------------------------------------------------
-    def _kanali_spremenjeni(self) -> None:
-        """Preverba v ozadju je nasla nov delujoc kanal ali kanal ne deluje vec: pogledi se osvezijo, stran dobi dogodek."""
+    def _kanali_spremenjeni(self, viri: bool = False) -> None:
+        """Preverba v ozadju je nasla nov delujoc kanal ali kanal ne deluje vec: pogledi se ob naslednjem odprtju osvezijo,
+        stran dobi dogodek (mediaKanaliPreverjeni - stevci v Virih brez ponovnega nalaganja mreze, po kateri uporabnik
+        morda ravno drsi). `viri`: vir je bil prebran znova - stran osvezi vire in katalog (mediaViriUsklajeni)."""
         self.ozastari_predpomnilnik()
-        if self.ob_virih is not None:
+        povratni = self.ob_virih if viri else self.ob_kanalih
+        if povratni is not None:
             try:
-                self.ob_virih()
-            except Exception:  # noqa: BLE001
+                povratni()
+            except Exception:  # noqa: BLE001 - obvestilo strani ne sme ustaviti preverbe
                 pass
 
     def _drzava_tv(self) -> str:
@@ -3195,7 +3200,7 @@ class MediaCenter:
                     self.refresh_source(ident)
                 except Exception:  # noqa: BLE001
                     continue
-            self._kanali_spremenjeni()
+            self._kanali_spremenjeni(viri=True)
 
         threading.Thread(target=delo, name="media-razclenitev", daemon=True).start()
 

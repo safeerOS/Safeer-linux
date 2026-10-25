@@ -405,6 +405,8 @@ class Katalog:
                 self._mc.ob_prenosu_motorja = self._motor_napredek
                 # Moji viri z drugih naprav v Linku (core/viri_sink.py): stran osvezi vire in katalog.
                 self._mc.ob_virih = lambda: self.dogodek("mediaViriUsklajeni", None)
+                # Preverba kanalov IPTV v ozadju (core/kanali_iptv.py): stran osvezi stevce in nepolno mrezo TV v zivo.
+                self._mc.ob_kanalih = lambda: self.dogodek("mediaKanaliPreverjeni", None)
                 # Spotify je zacel, ustavil ali zamenjal skladbo (nit strazarja): safeer_os nastavi ob_spotify.
                 self._mc.ob_spotify = lambda: (getattr(self, "ob_spotify", None) or (lambda: None))()
                 # Twitch: nastavitev Scita »brez oglasov« (safeer_os jo nastavi v twitch_brez_oglasov).

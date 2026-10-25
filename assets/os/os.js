@@ -9306,6 +9306,14 @@
     if (vrsta === "mediaKnjiznicaSpremenjena" && katVidno()) naloziKnjiznico();
     // Moji viri so se uskladili z drugo napravo v Linku (dodan ali izbrisan dodatek, podkast ...): viri in katalog se osvežijo.
     if (vrsta === "mediaViriUsklajeni" && katVidno()) { naloziKatViri(); naloziKatalog(); }
+    // Preverba kanalov IPTV v ozadju (core/kanali_iptv.py): stevci v Virih (ce uporabnik tam ravno ne izbira) in mreza
+    // TV v zivo, dokler ni polna prva stran - mreze, po kateri uporabnik drsi, ne nalagamo znova.
+    if (vrsta === "mediaKanaliPreverjeni" && katVidno()) {
+      var viriKanalov = $("katViri");
+      if (viriKanalov && !viriKanalov.contains(document.activeElement)) naloziKatViri();
+      if ((kat.filter === "tv-v-zivo" || kat.filter === "vse") && !kat.query.trim() && (kat.skupaj_strani || 1) <= 1 &&
+          kat.katalog.length < 24) naloziKatalog();
+    }
     // Meritev vgrajenega vira se je spremenila (spet dosegljiv ali ne vec): seznam, ploscice in gumbi se osvezijo.
     if (vrsta === "mediaVgrajeniMeritve") naloziVgrajene();
     var zaAktivno = kat.aktivni && podatki && podatki.id === kat.aktivni.id;

@@ -387,6 +387,16 @@ class Katalog(unittest.TestCase):
         self.assertTrue(self.mc.kanal_skrit(kartica))
         self.assertEqual(self.mc.brez_nerazpolozljivih({"vnosi": [kartica], "skupaj": 1})["vnosi"], [])
 
+    def test_preverba_ne_nalozi_mreze_znova(self):
+        # Preverba v ozadju traja minute: stran ne sme vsakih 5 s nalagati mreze znova (drsenje bi skakalo na zacetek).
+        klici = []
+        self.mc.ob_virih = lambda: klici.append("viri")
+        self.mc.ob_kanalih = lambda: klici.append("kanali")
+        self.mc._kanali_spremenjeni()
+        self.assertEqual(klici, ["kanali"])
+        self.mc._kanali_spremenjeni(viri=True)               # vir je bil prebran znova: viri in katalog
+        self.assertEqual(klici, ["kanali", "viri"])
+
     def test_stara_razclenitev_se_ne_pokaze_in_se_osvezi(self):
         data = json.loads((Path(self.mapa.name) / "media.json").read_text(encoding="utf-8"))
         data["viri"][0].pop("razclenitev")
@@ -460,6 +470,13 @@ class Vmesnik(unittest.TestCase):
         self.assertEqual(json.loads(izid), [[] for _ in kljuci])
         for k in kljuci:
             self.assertIn('"%s"' % k, self.js)
+
+    def test_preverba_kanalov_osvezi_samo_nepolno_mrezo(self):
+        dogodek = self.js.split('if (vrsta === "mediaKanaliPreverjeni" && katVidno()) {', 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("kat.katalog.length < 24) naloziKatalog();", dogodek)
+        self.assertIn("!viriKanalov.contains(document.activeElement)", dogodek)
+        py = (Path(__file__).resolve().parent.parent / "core" / "os_katalog.py").read_text(encoding="utf-8")
+        self.assertIn('self._mc.ob_kanalih = lambda: self.dogodek("mediaKanaliPreverjeni", None)', py)
 
     def test_serija_seznama_poslje_id_kartice(self):
         self.assertIn('klic("mediaSezona", [item.tmdb_id, season, item.id])', self.js)
