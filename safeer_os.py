@@ -89,6 +89,7 @@ from core import (os_datoteke, sistem_podatki, os_govor, os_katalog, os_knjiznic
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import link_prostori  # noqa: E402
+from core import os_delovni_prostori  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
 from core import nova_razlicica  # noqa: E402
 from core import media_servers  # noqa: E402
@@ -372,6 +373,17 @@ _hubi_isce = threading.Lock()
 # Prostori: branje, zdruzitev in zapis "prostori" v os.json naenkrat - hkratni klici (pocasen Control) ne smejo zapisati
 # starejsega izida cez novejsega (pregled 25. 10. 2026).
 _prostori_zaklep = threading.Lock()
+#: Zadnje slicice racunalnikov v Prostorih (premor, en klic na napravo hkrati - core/link_prostori.Slicice).
+_prostori_slicice = link_prostori.Slicice()
+_namizja: Optional["os_delovni_prostori.Namizja"] = None
+
+
+def _lokalna_namizja() -> "os_delovni_prostori.Namizja":
+    """Delovni prostori Cinnamona (wmctrl) za preklopnik Prostori; en objekt na proces."""
+    global _namizja
+    if _namizja is None:
+        _namizja = os_delovni_prostori.Namizja()
+    return _namizja
 
 
 def hubi_v_omrezju(cas: float = 1.5, cakaj: bool = True) -> list:
@@ -4104,6 +4116,15 @@ class SafeerOS(Gtk.Application):
             nazaj = dogodek.keyval == Gdk.KEY_ISO_Left_Tab or bool(dogodek.state & Gdk.ModifierType.SHIFT_MASK)
             self._dogodek("prostori", {"smer": -1 if nazaj else 1}, self.pogled)
             return True
+        # Super+Alt+levo/desno (in Super+Ctrl, navada iz Windows): sosednji prostor - lokalno namizje ali naprava.
+        # V Cinnamonu prosto (preverjeno 25. 10. 2026: Ctrl+Alt+puscica je Cinnamonov preklop namizij, Super+puscica
+        # zlaganje oken, Super+Shift+puscica premik na monitor); v GNOME je Super+Alt+puscica isti preklop namizij.
+        if dogodek.keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and dogodek.state & Gdk.ModifierType.SUPER_MASK \
+                and dogodek.state & (Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.CONTROL_MASK) \
+                and not dogodek.state & Gdk.ModifierType.SHIFT_MASK \
+                and not self.posnetek and getattr(self, "pogled", None) is not None:
+            self._dogodek("prostori", {"sosednji": -1 if dogodek.keyval == Gdk.KEY_Left else 1}, self.pogled)
+            return True
         # F11: namizni nacin / okno (obicajna bliznjica, deluje tudi, ko se kaj zatakne).
         if dogodek.keyval == Gdk.KEY_F11 and not self.posnetek:
             self._celozaslonsko(not self.namizje)
@@ -4863,7 +4884,14 @@ class SafeerOS(Gtk.Application):
             # Prostori (Safeer Link Spaces, MVP): seznam zaslonov povezanih naprav in odprtje enega (Control caka na
             # odgovor naprave do 15 s - nikoli na glavni niti).
             "prostori": lambda: self._prostori(bool(a[0]) if a else True),
-            "prostorOdpri": lambda: self._prostor_odpri(str(a[0]) if a else ""),
+            "prostorOdpri": lambda: self._prostor_odpri(str(a[0]) if a else "",
+                                                        str(a[1]) if len(a) > 1 else link_prostori.PRIKAZ_ZRCALJENJE),
+            # Krog 2: slicica racunalnika (screen.thumb, samo ko je preklopnik odprt), lokalna namizja Cinnamona,
+            # nastavitev »zgornji rob odpre Prostore« (privzeto izklopljena).
+            "prostorSlicica": lambda: self._prostor_slicica(str(a[0]) if a else ""),
+            "prostorNamizje": lambda: _lokalna_namizja().preklopi(a[0] if a else None),
+            "prostorNovoNamizje": lambda: _lokalna_namizja().dodaj(),
+            "prostoriRob": lambda: self._prostori_rob(a[0] if a else None),
             "odjava": lambda: control_dejanje("odjava"),
             "omrezje": lambda: os_omrezje.stanje(bool(a[0]) if a else False),
             # Internet prek telefona v Safeer Linku (Safeer Control). Stanje Controla ne zaganja; nastavitev in preizkus ga.
@@ -7890,22 +7918,69 @@ class SafeerOS(Gtk.Application):
             # Pise samo ob bistveni spremembi (link_prostori.zapomni: nova naprava, ime, `videna` najvec na minuto).
             if nove != znane:
                 self.shramba.set("prostori", nove)
+        # Lokalna navidezna namizja (Cinnamon/Muffin, X11) so v istem preklopniku pred napravami; brez wmctrl ali na
+        # Waylandu jih ni - ostane ploscica »Ta racunalnik«.
         return {"ok": bool(izid.get("ok")), "koda": str(izid.get("koda") or ""),
-                "prostori": link_prostori.prostori(nove, zive)}
+                "prostori": link_prostori.prostori(nove, zive), "namizja": _lokalna_namizja().seznam(),
+                "najvec_namizij": os_delovni_prostori.NAJVEC_NAMIZIJ, "rob": bool(self.shramba.get("prostori_rob", False))}
 
-    def _prostor_odpri(self, id_naprave: str) -> dict:
-        """Odpre zaslon prostora tukaj po ze obstojeci poti: racunalnik -> Upravljaj (oddaljeni zaslon z misko in
-        tipkovnico), naprava Android -> OdpriTukaj s CEL_ZASLON (potrditev na napravi, nato gledalec s Safeer Vnos).
-        Stran ne izbira programa ne poljubnega id-ja: velja samo prostor, ki je zdaj v Linku (link_prostori.za_odpiranje)."""
+    def _prostori_rob(self, vklop) -> dict:
+        """Kazalec na zgornjem robu odpre Prostore (lastnik: neobvezno, privzeto izklopljeno). None = samo preberi."""
+        if isinstance(vklop, bool) and vklop != bool(self.shramba.get("prostori_rob", False)):
+            self.shramba.set("prostori_rob", vklop)
+        return {"ok": True, "rob": bool(self.shramba.get("prostori_rob", False))}
+
+    def _prostor_slicica(self, id_naprave: str) -> dict:
+        """Majhen posnetek namizja povezanega RACUNALNIKA (screen.thumb) za ploscico v Prostorih, v ozadju.
+
+        Velja samo za prostor, ki je zdaj v Linku in v ozjem krogu (za_odpiranje), in samo za nacin racunalnik: naprave
+        Android posnetka celega zaslona brez potrditve ne dajo. Pogostost omejita stran (le odprt preklopnik) in
+        _prostori_slicice (premor, en klic hkrati, dolg premor za napravo brez dejanja)."""
+        izid = _control_naprave("Seznam")
+        zive = izid.get("naprave") if izid.get("ok") and isinstance(izid.get("naprave"), list) else []
+        p = link_prostori.za_odpiranje(zive, id_naprave)
+        if p is None or p["nacin"] != link_prostori.NACIN_RACUNALNIK:
+            return {"ok": False, "koda": "ni_prostora"}
+        return _prostori_slicice.dobi(p["kljuc"], lambda: _control_naprave(
+            "Ukaz", p["id"], "screen.thumb", json.dumps({"width": 320})))
+
+    def _iz_gledalca(self, podatki: dict) -> None:
+        """Super+Tab ali Super+Alt+puscica v gledalcu naprave (Safeer Control v tem procesu, glavna nit): nazaj v
+        Safeer OS - preklopnik ali sosednji prostor (od naprave, ki jo gledalec kaze)."""
+        if getattr(self, "pogled", None) is None or not isinstance(podatki, dict):
+            return
+        p = {"od": str(podatki.get("od") or "")[:128]}
+        if podatki.get("sosednji") in (-1, 1):
+            p["sosednji"] = podatki["sosednji"]
+        else:
+            p["smer"] = -1 if podatki.get("smer") == -1 else 1
+        if self.okno is not None:
+            self.okno.present()
+        self._dogodek("prostori", p, self.pogled)
+
+    def _prostor_odpri(self, id_naprave: str, prikaz: str = link_prostori.PRIKAZ_ZRCALJENJE) -> dict:
+        """Odpre zaslon prostora tukaj, CELOZASLONSKO (krog 2), po ze obstojeci poti: racunalnik -> oddaljeni zaslon
+        z misko in tipkovnico, naprava Android -> deljenje zaslona (CEL_ZASLON, potrditev na napravi) ali namizni nacin
+        (PROGRAM_NAMIZNI, samo ce ga naprava sporoca). Stran ne izbira programa ne poljubnega id-ja: velja samo prostor,
+        ki je zdaj v Linku (link_prostori.za_odpiranje), in nacin, ki ga zna (link_prostori.program_za)."""
+        if prikaz not in link_prostori.PRIKAZI:
+            return {"ok": False, "koda": "napacna_zahteva"}
         izid = _control_naprave("Seznam")
         zive = izid.get("naprave") if izid.get("ok") and isinstance(izid.get("naprave"), list) else []
         p = link_prostori.za_odpiranje(zive, id_naprave)
         if p is None:
             return {"ok": False, "koda": str(izid.get("koda") or "") if not izid.get("ok") else "ni_prostora"}
-        if p["nacin"] == link_prostori.NACIN_RACUNALNIK:
-            r = _control_naprave("Upravljaj", p["id"])
-        else:
-            r = _control_naprave("OdpriTukaj", p["id"], link_prostori.CEL_ZASLON)
+        program = link_prostori.program_za(p, prikaz)
+        if program is None:
+            return {"ok": False, "koda": "ni_nacina", "nacin": p["nacin"], "ime": p["ime"]}
+        # Super+Tab / Super+Alt+puscica iz gledalca vrne sem (Control v istem procesu, core/en_proces.py).
+        c = en_proces.control_app()
+        if c is not None and getattr(c, "ob_prostorih", None) is None:
+            c.ob_prostorih = self._iz_gledalca
+        r = _control_naprave("ProstorOdpri", p["id"], program, "1")
+        if isinstance(r, dict) and r.get("koda") == "stari_control":
+            # Locen, starejsi Safeer Control (brez ProstorOdpri): odpre v oknu kot v MVP.
+            r = _control_naprave("Upravljaj", p["id"]) if program == "" else _control_naprave("OdpriTukaj", p["id"], program)
         return dict(r if isinstance(r, dict) else {"ok": False}, nacin=p["nacin"], ime=p["ime"])
 
     def _odpri_control(self) -> bool:
