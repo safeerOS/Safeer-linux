@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from core import link_vticnik, link_zaslon_meritve
+from core import link_kazalec, link_vticnik, link_zaslon_meritve, link_zaslon_profil
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
 from core.link_mediji import dogodek_v_tipko
 from core.link_plosek import Plosek
@@ -319,6 +319,26 @@ _GPU_ODPOVED = "odpoved"
 SCALE_VAAPI = "scale_vaapi={sirina}:{visina}:format=nv12:mode=default"
 
 
+_HEVC444: Dict[str, bool] = {}
+
+
+def hevc444_mozen(ffmpeg: str, vaapi: Optional[str], zazeni=subprocess.run) -> bool:
+    """Ali graficna kodira HEVC Main 4:4:4 (en okvir; izid velja za proces). Intel iHD Gen11+: da (vainfo
+    VAProfileHEVCMain444 / EncSliceLP, preverjeno 25. 10. 2026 na i5-1135G7)."""
+    if not ffmpeg or not vaapi:
+        return False
+    if vaapi not in _HEVC444:
+        try:
+            r = zazeni([ffmpeg, "-hide_banner", "-loglevel", "error", "-vaapi_device", vaapi, "-f", "lavfi", "-i",
+                        "color=c=white:s=256x256:r=1", "-frames:v", "1", "-vf", "format=vuyx,hwupload",
+                        "-c:v", "hevc_vaapi", "-profile:v", "rext", "-rc_mode", "CQP", "-qp", "16", "-f", "null", "-"],
+                       capture_output=True, timeout=15)
+            _HEVC444[vaapi] = getattr(r, "returncode", 1) == 0
+        except (OSError, subprocess.SubprocessError):
+            _HEVC444[vaapi] = False
+    return _HEVC444[vaapi]
+
+
 def gpu_vklopljena() -> bool:
     """Pomanjsava slike na graficni kartici je privzeto vklopljena; SAFEER_ZASLON_GPU=0 jo izklopi (stara pot)."""
     return os.environ.get("SAFEER_ZASLON_GPU", "1").strip() != "0"
@@ -477,7 +497,8 @@ def vaapi_naprava(ffmpeg: Optional[str] = None) -> Optional[str]:
 def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor_visina: int,
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
                 qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False,
-                odmik: tuple = (0, 0), vhod: Optional[List[str]] = None) -> List[str]:
+                odmik: tuple = (0, 0), vhod: Optional[List[str]] = None, kazalec_v_sliki: bool = True,
+                barve444: bool = False) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
     `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
@@ -485,6 +506,9 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
     `gpu`: sliko, ki jo je treba pomanjsati, pretvori in pomanjsa graficna kartica (gpu_lestvica_mozna), ne procesor.
     `odmik`: zgornji levi kot monitorja v pikah X (vec monitorjev: delimo en monitor, ne vseh, stisnjenih v eno sliko).
     `vhod`: namesto x11grab (Wayland: surove slike iz core/zajem_pipewire.py na stdin, portal_zaslon.vhod_ffmpeg).
+    `kazalec_v_sliki`: False = zajem kazalca ne narise (gledalec ga dobi kot podatek, core/link_kazalec.py).
+    `barve444`: HEVC Main 4:4:4 (RExt) na graficni, brez pomanjsave - brez barvnih robov okoli besedila (izmerjeno
+    25. 10. 2026 na Intel iHD: SSIM besedila 0,997 proti 0,971 pri H.264 4:2:0 enakega qp).
     Locen od zagona, da ga je mogoce preveriti v testu brez kamere in zaslona.
     """
     hevc = kodek == "hevc" and bool(vaapi)
@@ -493,7 +517,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         u += list(vhod)
     else:
         izvor = display + ("+%d,%d" % (int(odmik[0]), int(odmik[1])) if tuple(odmik) != (0, 0) else "")
-        u += ["-f", "x11grab", "-draw_mouse", "1", "-framerate", str(fps),
+        u += ["-f", "x11grab", "-draw_mouse", "1" if kazalec_v_sliki else "0", "-framerate", str(fps),
               "-video_size", f"{izvor_sirina}x{izvor_visina}", "-i", izvor]
     # Kadar je slika ze prave velikosti, je ne prevzorcimo: vsako skaliranje zmehca besedilo in
     # nekaj stane. To je najpogostejsi primer (zaslon 1920x1080 -> 1920x1080).
@@ -517,13 +541,17 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # brez njega vzame `hq`, ta pa je bil na Intel iHD za besedilo 3 dB slabsi (PSNR svetlosti 34,3 proti 37,4 dB;
         # lanczos 37,5 dB), barve pa so enake kot s procesorjem (55 dB). Kjer slike ne pomanjsamo, ostane pretvorba na
         # procesorju - tam je poceni in izmerjena.
-        if gpu and lestvica:
+        barve444 = barve444 and hevc and not lestvica
+        if barve444:
+            filter_slike = "format=vuyx,hwupload"
+        elif gpu and lestvica:
             filter_slike = f"hwupload,{SCALE_VAAPI.format(sirina=sirina, visina=visina)}"
         else:
             filter_slike = f"{filter_lestvica}format=nv12,hwupload"
         u += ["-vaapi_device", vaapi,
               "-vf", filter_slike,
-              "-c:v", "hevc_vaapi" if hevc else "h264_vaapi", "-profile:v", "main" if hevc else "high",
+              "-c:v", "hevc_vaapi" if hevc else "h264_vaapi",
+              "-profile:v", ("rext" if barve444 else "main") if hevc else "high",
               "-rc_mode", "CQP", "-qp", str(qp)]
     else:
         u += ["-vf", f"{filter_lestvica}format=yuv420p",
@@ -892,6 +920,9 @@ class Zaslon:
             self._povezan = False
             self._prek_huba = bool(prek_huba)
             self._zmoznosti = {str(z) for z in (zmoznosti or []) if isinstance(z, str)}
+            # Kazalec kot podatek in sestava po profilu - samo namizje X11 (spodaj); drugje None.
+            self._kazalec_x11 = None
+            self._po_profilu = None
             self._omrezje = str(omrezje or "")[:16]
             # Dolga skupina slik samo gledalcu, ki enot ne izpusca; HEVC samo, ce ga naprava hoce in racunalnik zmore.
             gop = int(k["fps"]) * GOP_DOLG_S if "gop" in self._zmoznosti else 0
@@ -950,17 +981,40 @@ class Zaslon:
                 na_monitor = {"odmik": odmik} if tuple(odmik) != (0, 0) else {}
                 vaapi = vaapi_naprava(self.ffmpeg)
                 self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
+                # Gledalec, ki kazalec kaze sam (caps "kazalec"), ga ne dobi v sliki - samo obliko in polozaj
+                # (core/link_kazalec.py; lastnik 25. 10. 2026: dvojni kazalec v gledalcu Windows).
+                kazalec_v_sliki = link_kazalec.ZMOZNOST not in self._zmoznosti
+                self._kazalec_x11 = None if kazalec_v_sliki else (display, tuple(odmik))
+                # Starejsi gledalec: ukaz kot doslej (brez novega argumenta).
+                kaz = {} if kazalec_v_sliki else {"kazalec_v_sliki": False}
                 # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
                 gpu = (sirina, visina) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
-                                   kodek=self._kodek, gop=gop, gpu=gpu, **na_monitor)
+                                   kodek=self._kodek, gop=gop, gpu=gpu, **kaz, **na_monitor)
                 self._strojno = bool(vaapi)
 
                 def sestavi(kodek, raven):
                     return ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(raven["fps"]),
                                        str(raven["bitrate"]), vaapi, self.ffmpeg, int(raven["qp"]),
-                                       kodek=kodek, gop=gop, gpu=gpu, **na_monitor)
+                                       kodek=kodek, gop=gop, gpu=gpu, **kaz, **na_monitor)
+
+                def po_profilu(profil, raven, kodek):
+                    """Ukaz po izmerjenem profilu (link_zaslon_profil): (ukaz, sirina, visina, kodek, barve)."""
+                    s, v = link_zaslon_profil.velikost(izvor, profil, (raven["sirina"], raven["visina"]))
+                    izvorna = (s, v) == tuple(int(x) for x in izvor[:2])
+                    fps_p = int(raven["fps"])
+                    if profil.get("kodek") == "h264rgb" and izvorna:
+                        return (link_zaslon_profil.ukaz_brezizgubno(self.ffmpeg, display, s, v, fps_p, odmik,
+                                                                    kazalec_v_sliki, gop), s, v, "h264", "rgb")
+                    barve = profil.get("kodek") == "hevc444" and izvorna and bool(vaapi)
+                    kod = "hevc" if barve else kodek
+                    gpu_p = (s, v) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
+                    return (ukaz_ffmpeg(display, s, v, izvor[0], izvor[1], fps_p, str(raven["bitrate"]), vaapi,
+                                        self.ffmpeg, int(raven["qp"]), kodek=kod, gop=gop, gpu=gpu_p,
+                                        barve444=barve, **kaz, **na_monitor),
+                            s, v, kod, "444" if barve else "420")
+                self._po_profilu = po_profilu
             self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st, sestavi),
                                          name="safeer-zaslon", daemon=True)
             self._nit.start()
@@ -1106,10 +1160,23 @@ class Zaslon:
                     and int(KAKOVOSTI[raven_poti]["fps"]) == int(self._slika["fps"]):
                 ukaz = sestavi(kodek_poti, KAKOVOSTI[raven_poti])
                 kodek_seje, raven_ime = kodek_poti, raven_poti
+            # Profil po IZMERJENIH razmerah (pot, vmesnik in hitrost tega racunalnika, omrezje gledalca, zamik TCP):
+            # na zicnem LAN izvorna locljivost in brezizgubno/4:4:4, ce gledalec to zna (core/link_zaslon_profil.py).
+            profil = self._profil_seje(odjemalec, prek)
+            barve = "420"
+            po_profilu = getattr(self, "_po_profilu", None)
+            if po_profilu is not None:
+                try:
+                    ukaz, s_p, v_p, kodek_seje, barve = po_profilu(profil, KAKOVOSTI[raven_poti], kodek_poti)
+                    raven_ime = raven_poti
+                    self._slika = dict(self._slika, width=s_p, height=v_p, fps=int(KAKOVOSTI[raven_poti]["fps"]))
+                except Exception as e:  # noqa: BLE001 - brez profila ostane ukaz, ki je ze izbran
+                    print("[zaslon] profil:", e, flush=True)
             kodirnik = kodirnik_ukaza(ukaz, self._strojno)
             meritve = link_zaslon_meritve.Meritve(pot="hub" if prek else "neposredno", kodek=kodek_seje,
                                                   kakovost=raven_ime, kodirnik=vrsta_kodirnika(kodirnik))
             meritve.opis["zaslon"] = self._cilj
+            meritve.opis["profil"] = profil.get("ime")
             meritve.opis["lestvica"] = "gpu" if ukaz_pomanjsa_gpu(ukaz) else "cpu"
             # Kam gre povzetek, velja ob zacetku seje (konec seje je v drugi niti, morda po spremembi okolja).
             pot_meritev = pot_povzetkov()
@@ -1121,6 +1188,16 @@ class Zaslon:
                      "qp": int(KAKOVOSTI[raven_ime]["qp"]) if self._strojno else 0, "kakovost": raven_ime,
                      "zvok": {"hz": ZVOK_HZ, "kanali": ZVOK_KANALI, "oblika": "s16le"} if self._zvok_vir else None,
                      "vnos": self._vnos.mozno, "plosek": self._plosek.mozno()}
+            # Krog ostrine (25. 10. 2026): barve slike, brezizgubno, kazalec kot podatek in profil (gledalec ga pokaze
+            # v vrstici, npr. »LAN · 1 Gb/s · neposredno · 2560×1440 · 60 fps«). Starejsi gledalci polja preskocijo.
+            glava["barve"] = barve
+            if barve == "rgb":
+                glava["brezizgubno"] = True
+                glava["qp"] = 0
+            if self._kazalec_x11 is not None:
+                glava["kazalec"] = True
+            glava["profil"] = dict(profil, opis=link_zaslon_profil.opis(profil, glava["w"], glava["h"], glava["fps"]),
+                                   zaslon="navidezno" if self._cilj == "apps" else "namizje")
             if utrip:
                 glava["rtt"] = True
                 glava["kodirnik"] = vrsta_kodirnika(kodirnik)
@@ -1167,6 +1244,9 @@ class Zaslon:
                   % (kodirnik, kodek_seje, raven_ime, self._slika["width"], self._slika["height"], self._slika["fps"],
                      meritve.opis["pot"], ", ping v toku" if utrip else "",
                      ", pomanjsa graficna" if ukaz_pomanjsa_gpu(ukaz) else ""), flush=True)
+            if self._kazalec_x11 is not None:
+                niti.append(threading.Thread(target=self._posiljaj_kazalec, args=(odjemalec, konec_seje),
+                                             name="safeer-zaslon-kazalec", daemon=True))
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
             niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,), kwargs={"meritve": meritve},
                                          name="safeer-zaslon-vnos", daemon=True))
@@ -1421,6 +1501,50 @@ class Zaslon:
         iw, iv = self._izvor
         return {"vrsta": "tocka", "x": int(min(max(x, 0), sw - 1) * iw / sw),
                 "y": int(min(max(y, 0), sv - 1) * iv / sv)}
+
+    def _profil_seje(self, odjemalec, prek: bool) -> dict:
+        """Izmerjene razmere ob povezavi -> profil (link_zaslon_profil.izberi). Napaka meritve = previdnejsi profil."""
+        rtt = None
+        try:
+            info = link_vticnik.tcp_info(odjemalec)
+            if info and info.get("rtt_us"):
+                rtt = info["rtt_us"] / 1000.0
+        except Exception:  # noqa: BLE001 - brez meritve zamika profil ostane po vmesniku
+            rtt = None
+        lokalno = {}
+        if not prek:
+            try:
+                lokalno = link_zaslon_profil.lokalno_omrezje(odjemalec.getpeername()[0])
+            except (OSError, IndexError, AttributeError):
+                lokalno = {}
+        hevc444 = (link_zaslon_profil.HEVC444 in self._zmoznosti and self._kodek == "hevc"
+                   and hevc444_mozen(self.ffmpeg, vaapi_naprava(self.ffmpeg)))
+        profil = link_zaslon_profil.izberi(prek, self._omrezje, lokalno, rtt, self._zmoznosti, hevc444=hevc444)
+        print("[zaslon] profil: %s" % json.dumps(profil, ensure_ascii=False), flush=True)
+        return profil
+
+    def _posiljaj_kazalec(self, odjemalec, konec: threading.Event) -> None:
+        """Kazalec kot podatek (okvir 3) gledalcu, ki ga kaze sam: polozaj ob premiku, oblika in slika ob menjavi."""
+        display, odmik = self._kazalec_x11
+        try:
+            kazalec = link_kazalec.KazalecX11(display)
+        except OSError as e:
+            print("[zaslon] kazalec:", e, flush=True)
+            return
+        sprememba = link_kazalec.Sprememba()
+        try:
+            while not konec.wait(link_kazalec.RAZMIK_S):
+                if self._odjemalec is not odjemalec:
+                    break
+                stanje = kazalec.stanje()
+                if stanje is None:
+                    continue
+                sporocilo = sprememba.naslednje(stanje, odmik, self._izvor,
+                                                (self._slika.get("width", 1), self._slika.get("height", 1)))
+                if sporocilo is not None:
+                    self._obvesti(odjemalec, sporocilo)
+        finally:
+            kazalec.zapri()
 
     def _obvesti(self, odjemalec, podatki: dict) -> None:
         """Obvestilo televizorju po isti povezavi kot slika (okvir izbire, kazalec za povecavo ...)."""
