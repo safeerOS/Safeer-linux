@@ -288,6 +288,19 @@ class Straza(unittest.TestCase):
         self.assertIn("tests/test_lenobno.py", izpis)                         # povzetek: kaj dopisati na seznam
         self.assertIn("1 datotek z WebKitom", izpis)
 
+        # Izrecno podana datoteka z WebKitom v nacinu brez se ne uvozi in ne tece - kot pri mapi tests/ v CI (25. 10. 2026:
+        # ciljni tek s potmi je pognal test_packaging brez WebKita in pokazal padce, ki jih hitra vrata nimajo).
+        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider", "-p", "razvrstitev_webkit",
+                            "--safeer-webkit=brez", "--safeer-koren", str(repo), str(repo / "tests" / "test_ob_uvozu.py"),
+                            str(repo / "tests" / "test_cisto.py")],
+                           cwd=str(repo), capture_output=True, text=True, timeout=120, env=okolje)
+        izpis = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 0, izpis)
+        self.assertRegex(izpis, r"PASSED[^\n]*test_cisto.py::test_ok")
+        self.assertNotIn("test_ob_uvozu.py::", izpis)
+        self.assertNotIn("Straza", izpis)
+        self.assertIn("izpusceno v tem teku 1", izpis)
+
         # Padli najprej (lastnik 25. 10. 2026): seznam padlih tega teka; naslednji tek pozene samo njih in hitro pade.
         padli = repo / "padli.json"
         r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "razvrstitev_webkit",

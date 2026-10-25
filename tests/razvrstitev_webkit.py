@@ -518,6 +518,7 @@ class _Stanje:
         self.napake_seje: List[str] = []
         self.knjiznice_zaznane = False
         self.izpusceno = 0
+        self.izrecno_izpuscene: Set[str] = set()
         self.trajanja: Dict[str, float] = {}
 
 
@@ -571,6 +572,15 @@ def pytest_load_initial_conftests(early_config, parser, args) -> None:
         _stanje.straza = Straza().namesti()
 
 
+def _izpusti(st: _Stanje, rel: str) -> bool:
+    izpusti = (rel in st.webkit) if st.nacin == "brez" else (rel not in st.webkit)
+    if not izpusti and st.del_ and st.razdelitev.get(rel) != st.del_[0]:
+        izpusti = True
+    if not izpusti and st.najprej_padli and not any(p == rel or p.startswith(rel + "::") for p in st.prej_padli):
+        izpusti = True                            # najprej padli: samo datoteke s prej padlimi preizkusi
+    return izpusti
+
+
 def pytest_ignore_collect(collection_path, config):
     st = _stanje
     if st is None or not _je_datoteka_preizkusov(Path(collection_path).name):
@@ -578,15 +588,32 @@ def pytest_ignore_collect(collection_path, config):
     rel = _rel(st, collection_path)
     if rel is None or rel not in st.razvrstitev:
         return None
-    izpusti = (rel in st.webkit) if st.nacin == "brez" else (rel not in st.webkit)
-    if not izpusti and st.del_ and st.razdelitev.get(rel) != st.del_[0]:
-        izpusti = True
-    if not izpusti and st.najprej_padli and not any(p == rel or p.startswith(rel + "::") for p in st.prej_padli):
-        izpusti = True                            # najprej padli: samo datoteke s prej padlimi preizkusi
-    if izpusti:
+    if _izpusti(st, rel):
         st.izpusceno += 1
         return True
     return None
+
+
+class _Izpuscena(pytest.File):
+    """Datoteka, ki je ta nacin (del) ne pozene: brez uvoza in brez preizkusov."""
+
+    def collect(self):
+        return []
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(module_path, parent):
+    """Izrecno podana datoteka (pytest za zacetne poti ne poklice pytest_ignore_collect): isto pravilo kot pri mapi
+    tests/. 25. 10. 2026 je »--safeer-webkit=brez tests/test_packaging.py« pognal datoteko z WebKitom brez WebKita in
+    dal 3 padce, ki jih hitra vrata v CI (mapa tests/) nimajo - ciljni tek mora pokazati isto kot CI."""
+    st = _stanje
+    if st is None:
+        return None
+    rel = _rel(st, module_path)
+    if rel is None or rel not in st.razvrstitev or not _izpusti(st, rel):
+        return None
+    st.izrecno_izpuscene.add(rel)                 # pytest 9 hook poklice dvakrat za isto datoteko
+    return _Izpuscena.from_parent(parent, path=Path(module_path))
 
 
 def pytest_collectstart(collector) -> None:
@@ -778,7 +805,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
     if st.najprej_padli:
         opis += ", najprej padli prejsnjega teka (%d)" % len(st.prej_padli)
     w.write_line("%s: %d datotek z WebKitom, %d brez, izpusceno v tem teku %d" % (
-        opis, len(st.webkit), len(st.razvrstitev) - len(st.webkit), st.izpusceno))
+        opis, len(st.webkit), len(st.razvrstitev) - len(st.webkit), st.izpusceno + len(st.izrecno_izpuscene)))
     if getattr(config, "_safeer_webkit", None):
         w.write_line(config._safeer_webkit)
     try:
