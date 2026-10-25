@@ -48,7 +48,9 @@ def test_cevovod_ima_h264_caps_in_gtk4_ponor():
     assert "appsrc name=vir is-live=true format=time" in cevovod
     assert "video/x-h264" in cevovod
     assert "stream-format=(string)byte-stream" in cevovod
-    assert "alignment=(string)au" in cevovod
+    # Tok pride v kosih do 32 KB, ne po enotah: h264parse mora enote sestaviti sam (brez alignment=au).
+    assert "alignment=(string)au" not in cevovod
+    assert "stream-format=(string)byte-stream" in cevovod
     assert "! h264parse ! avdec_h264 ! videoconvert ! gtk4paintablesink name=ponor sync=false" in cevovod
     # appsink: slike BGRA za Gdk.MemoryTexture, vedno samo zadnja.
     assert ("! videoconvert ! video/x-raw,format=BGRA ! appsink name=ponor sync=false max-buffers=1 drop=true"

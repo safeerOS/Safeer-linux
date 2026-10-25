@@ -57,7 +57,10 @@ def niz_cevovoda(ponor: str) -> str:
         izhod = f"{ponor} name=ponor sync=false"
     return (
         "appsrc name=vir is-live=true format=time do-timestamp=true block=false "
-        'caps="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au" '
+        # Brez alignment=au: vir poslje tok v kosih do 32 KB, ne po enotah (link_zaslon._crpaj). Z »au« je h264parse
+        # vsak kos vzel kot celo sliko - vecja slika (kljucna, brezizgubna) je bila spodaj crna do naslednje kljucne
+        # (izmerjeno 25. 10. 2026, zaslon-ostrina/zakasnitev_zanka.py). Razclenjevalnik zdaj sam sestavi enote.
+        'caps="video/x-h264,stream-format=(string)byte-stream" '
         "! h264parse ! avdec_h264 ! videoconvert "
         f"! {izhod}"
     )
