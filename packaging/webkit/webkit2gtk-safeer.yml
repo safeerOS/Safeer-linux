@@ -1,10 +1,12 @@
-# WebKitGTK 2.54.1 (API 4.1, GTK 3) z nasima popravkoma za plasti backdrop-filter v kompozitorju Skia:
-#  1) izhodno obmocje filtra se izracuna pred izrisom podrevesa (brez 2^n izrisov za locene plasti),
-#  2) filtrirano ozadje plasti se v okvirju shrani in ponovno uporabi (prekrite plasti), piksli enaki kot brez tega.
-# in s popravkom predvajanja (gst-mse-suspend.patch): utisan video, ki se nalaga izven vidnega polja, ne sme dvigniti
-# cevovoda MediaSource v PAUSED pred nastavitvijo vira (RTV 365 je obvisel v "buffering" ze v nespremenjenem 2.54.1).
-# Gorvodno: WebKit bugzilla (glej skia-backdrop-2n.patch). Ko bo popravek v izdaji WebKitGTK v runtime-u
-# org.gnome.Platform, ta modul odstranimo.
+# WebKitGTK 2.54.2 (API 4.1, GTK 3).
+# Brez lastnih popravkov izvora (25. 10. 2026): oba nasa popravka sta v 2.54.2 gorvodno, zato ju ne uporabimo vec
+# (datoteki ostaneta v mapi za zgodovino in meritve; patch -p1 --forward na 2.54.2 ju zavrne kot ze uporabljena):
+#  - skia-backdrop-2n.patch (plasti backdrop-filter v kompozitorju Skia: izhodno obmocje filtra pred izrisom podrevesa,
+#    filtrirano ozadje se v okvirju ponovno uporabi) je v 2.54.2 vrstica za vrstico enak (patch -R --dry-run na izvoru
+#    2.54.2 uspe, zamik -1 vrstica; NEWS 2.54.2: "Fix performance when compositing layers with backdrop filters"),
+#  - gst-mse-suspend.patch (cevovod MediaSource ne gre v PAUSED pred nastavitvijo vira; RTV 365 je obvisel v
+#    "buffering") ima v 2.54.2 enak pogoj actualState <= targetState v MediaPlayerPrivateGStreamer::managePlayerSuspend.
+# Modul ostane: Safeer vedno uporablja svoj WebKit (lastnik, 21. 10. 2026) z utrjeno gradnjo.
 # Knjiznica nadomesti tisto iz runtime-a: /app/lib je v iskalni poti pred /usr/lib, WebKitWebProcess se zazene
 # iz /app/libexec. Modul je prvi v manifestu, da ga flatpak-builder vzame iz predpomnilnika, ko se spremeni le koda Safeerja.
 name: webkit2gtk-safeer
@@ -41,9 +43,5 @@ cleanup:
   - /share/gir-1.0
 sources:
   - type: archive
-    url: https://webkitgtk.org/releases/webkitgtk-2.54.1.tar.xz
-    sha256: ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d
-  - type: patch
-    path: skia-backdrop-2n.patch
-  - type: patch
-    path: gst-mse-suspend.patch
+    url: https://webkitgtk.org/releases/webkitgtk-2.54.2.tar.xz
+    sha256: a76345b391bef6211fb5ab6cfab2e86b285d18cda17cbb9ade595f1252b86065

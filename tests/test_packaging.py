@@ -340,8 +340,8 @@ class PackagingTests(unittest.TestCase):
             with patch.object(pgo,'WEBKIT',d/'webkit'),patch.object(pgo,'MODUL',d/'webkit/webkitgtk6-safeer.yml'),\
                  patch.object(pgo,'TRENING',d/'webkit/pgo_trening.py'):
                 self.assertEqual(pgo.kljuc('22.1.8'),osnova)
-                self.assertEqual([p.name for p in pgo.popravki()],['skia-backdrop-2n.patch','gst-mse-suspend.patch'])
-                for datoteka in ('gst-mse-suspend.patch','webkitgtk6-safeer.yml','pgo_trening.py'):
+                self.assertEqual([p.name for p in pgo.popravki()],[])   # 2.54.2: oba popravka sta gorvodno
+                for datoteka in ('webkitgtk6-safeer.yml','pgo_trening.py'):
                     with self.subTest(datoteka=datoteka):
                         izvirnik=(d/'webkit'/datoteka).read_bytes()
                         (d/'webkit'/datoteka).write_bytes(izvirnik+b'\n')
@@ -500,7 +500,7 @@ class DebWebkitTests(unittest.TestCase):
         besedilo=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
         self.assertIn('url: %s\n'%wk['url'],besedilo)
         self.assertIn('sha256: %s\n'%wk['sha256'],besedilo)
-        self.assertEqual([Path(p).name for p in wk['popravki']],['skia-backdrop-2n.patch','gst-mse-suspend.patch'])
+        self.assertEqual([Path(p).name for p in wk['popravki']],[])   # 2.54.2: oba popravka sta gorvodno
         self.assertTrue(all(Path(p).is_file() for p in wk['popravki']))
         for moznost in ('-DLTO_MODE=thin','-DUSE_GTK4=ON','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_INSTALL_LIBDIR=lib',
                         '-DCMAKE_AR=/usr/lib/llvm-22/bin/llvm-ar', '-DENABLE_WEBDRIVER=ON'):
