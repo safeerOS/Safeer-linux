@@ -114,7 +114,8 @@ class Potomci(unittest.TestCase):
         os.mkdir(lazni_sistem)
         program = os.path.join(lazni_sistem, "safeer-cinnamon")
         with open(program, "w", encoding="utf-8") as f:
-            f.write("#!/bin/sh\nsleep 30\n")
+            # Lupina caka v vgrajenem read (brez otroka): prej je `sleep 30` po SIGKILL lupine 30 s ostal kot sirota.
+            f.write("#!/bin/sh\nread vrstica\n")
         os.chmod(program, 0o755)
         # Ta primerek: zacasna mapa teka NI dovoljena, »sistemska mapa« je lazni_sistem.
         v = vp.Varovalo(dovoljeno=os.path.join(mapa, "drugje"), dnevnik=os.devnull)
@@ -122,7 +123,7 @@ class Potomci(unittest.TestCase):
             v.namesti()
             try:
                 # Mimo Pythona: lupina zazene skripto (exec), Python vidi samo /bin/sh -c.
-                p = subprocess.Popen(["/bin/sh", "-c", 'exec "$0" --od-vklopa', program])
+                p = subprocess.Popen(["/bin/sh", "-c", 'exec "$0" --od-vklopa', program], stdin=subprocess.PIPE)
                 try:
                     zacetek = time.monotonic()
                     koda = p.wait(timeout=10)
@@ -131,6 +132,7 @@ class Potomci(unittest.TestCase):
                     if p.poll() is None:
                         p.kill()
                         p.wait()
+                    p.stdin.close()
             finally:
                 v.odstrani()
         self.assertEqual(koda, -signal.SIGKILL)
