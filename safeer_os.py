@@ -37,6 +37,7 @@ urejen_izhod.namesti_zgodnje_signale("safeer-os")
 import hmac
 import json
 import secrets
+import shutil
 import socket
 import subprocess
 import weakref
@@ -890,7 +891,7 @@ def _magnet_klic(delo) -> dict:
 
 def _magnet_dodaj(uri: str, izbrane: list, potrjene: list) -> int:
     """Uporabnik je torrent dodal sam (Magnet povezave): ostane, dokler ga sam ne odstrani - tudi ce je prej nastal
-    kot prenos zaradi gledanja v Medijskem centru (tega po 48 urah brez predvajanja odstranimo sami)."""
+    kot prenos zaradi gledanja v Medijskem centru (tega po 12 urah brez predvajanja odstranimo sami)."""
     tid = os_torrent.torrenti().dodaj(uri, izbrane, potrjene)
     m = os_torrent.razcleni_magnet(uri)
     if m is not None:
@@ -1878,10 +1879,14 @@ class SafeerOS(Gtk.Application):
             predpomnilnik.pocisti()
             predogled_datotek.pocisti_predpomnilnik()
         threading.Thread(target=_pocisti_predpomnilnika, name="safeer-priponke-ciscenje", daemon=True).start()
-        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
-        self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
-            or _control_naprave_koda("Klepet")
+        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus). Odgovor nosi tudi skupni id sporocila (izbris na
+        # vseh napravah); brez stanja (Control ne tece) ostane koda napake.
+        self.sporocila.poslji_klepet = lambda n, b, c: (lambda r: r if r.get("stanje") else _control_naprave_koda("Klepet"))(
+            _control_naprave("Klepet", n, b, c))
         self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
+        # »Izbrisi na vseh mojih napravah« (lastnik 23. 10. 2026): zahtevo poslje Control; stari Control je ne pozna.
+        self.sporocila.izbrisi_klepet = lambda n, i: _control_naprave("KlepetIzbrisi", n, i).get("stanje") \
+            or _control_naprave_koda("KlepetIzbrisi")
         # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
         # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
         os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
@@ -1909,7 +1914,7 @@ class SafeerOS(Gtk.Application):
         self._ponovni_zagon = False
         #: Posodobitev je zagnal uporabnik v Safeer OS: nova razlicica ne caka na njegovo nedejavnost.
         self._posodobil_sam = False
-        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
+        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 12 ur nihce ni predvajal, se odstranijo sami.
         os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
@@ -5019,6 +5024,9 @@ class SafeerOS(Gtk.Application):
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
             "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1]), a[2] is not False if len(a) > 2 else True),
             "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
+            # Izbris sporocila Safeer Chat: [kanal, pogovor, sporocilo, na_vseh] - pri meni ali na vseh mojih napravah.
+            "sporocilaIzbrisi": lambda: self.sporocila.izbrisi_sporocilo(str(a[0]), str(a[1]), str(a[2]),
+                                                                         bool(a[3]) if len(a) > 3 else False),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),

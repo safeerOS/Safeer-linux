@@ -4039,17 +4039,66 @@ DODATEK_VRSTE = {
 VKLOP_BATERIJA = 40
 IZKLOP_BATERIJA = 30
 #: Cas cakanja na soseda v Mesh pred prehodom v rezervni nacin
-#: Samodejni prehod iz Mesha v rezervo (izvolitev enega Huba). IZKLOPLJEN v 1.0.129 (neodvisni pregled OpenAI,
-#: 20. 10. 2026): SafeerLink._gostitelj ustvari HubGostitelj brez hubi/clan/nas_id, zato bi tuj Safeer Hub v istem
-#: omrezju (ni v krogu) po 60 s sprozil rezervo in racunalnik bi nehal gostiti; iz rezerve pa se ne vrne, ker
-#: _mesh_lastni_hub v rezervi preveri() ne klice. Do popravka in preizkusa na testnem PC (1.0.130) velja vedenje
-#: 1.0.128: Mesh, rezerva samo rocno (SAFEER_LINK_MESH=0).
-SAMODEJNA_REZERVA = False
+#: Samodejni prehod iz Mesha v rezervo (izvolitev enega Huba) in vrnitev, ko Mesh spet dela. Izklopljen v 1.0.129-1.0.132
+#: (neodvisni pregled OpenAI, 20. 10. 2026: HubGostitelj brez hubi/clan/nas_id, brez rednega preveri() - iz rezerve ni
+#: bilo poti). Popravljeno 25. 10. 2026 (PreverjeniHubi, zacni_nadzor, odziv SafeerLink) in vklopljeno z lastnikovim
+#: »da« (25. 10. 07:26); preizkus na testnem PC pred izdajo. Rocno vsiljena rezerva ostane SAFEER_LINK_MESH=0.
+SAMODEJNA_REZERVA = True
 ROK_REZERVNEGA_NACINA_S = 60.0
 #: Cas v rezervnem nacinu pred ponovnim poskusom Link Mesh
 ROK_POSKUSA_MESH_S = 60.0
 #: Najdaljsi zamik med poskusi Link Mesh (30 minut)
 ZAMIK_POSKUSA_MAX_S = 1800.0
+#: Razmik rednega pregleda nacina (HubGostitelj.zacni_nadzor): dovolj pogosto za rok 60 s brez sosedov in za preizkus
+#: vrnitve v Mesh, a brez stalnega iskanja (en pregled = mDNS ~1,5 s + iskanje tujega Huba).
+NADZOR_S = 20.0
+#: Preverjen oglas clana kroga (kljuc potrdila TLS = kljuc v krogu) velja toliko casa - brez rokovanja TLS ob vsakem pregledu.
+PREVERJEN_OGLAS_VELJA_S = 600.0
+
+
+class PreverjeniHubi:
+    """Oglasi mDNS clanov kroga, katerih potrdilo TLS nosi kljuc tega clana v krogu zaupanja (kot
+    link_hub.poisci_hub_z_odtisom za izvoljeni hub). Oglas sam (id, prioriteta) je nepreverjen: brez tega bi naprava v
+    omrezju, ki oglasi id clana z visjo prioriteto, racunalnik v rezervi pripravila do tega, da neha gostiti.
+
+    [kljuc_clana](id) -> javni kljuc clana v krogu ali "" (ni clan ali umaknjen); [potrdilo](naslov) -> (odtis, kljuc)."""
+
+    def __init__(self, kljuc_clana: Callable[[str], str], potrdilo: Optional[Callable[[str], tuple]] = None,
+                 ura: Optional[Callable[[], float]] = None, velja_s: float = PREVERJEN_OGLAS_VELJA_S) -> None:
+        self.kljuc_clana = kljuc_clana
+        self.potrdilo = potrdilo or (lambda naslov: link_tls.potrdilo_huba(naslov, timeout=3.0))
+        self.ura = ura or time.monotonic
+        self.velja_s = velja_s
+        self._preverjeni: Dict[tuple, tuple] = {}      # (id, naslov, fp) -> (cas, ali velja)
+
+    def filtriraj(self, oglasi: List[dict]) -> List[dict]:
+        izid, zdaj = [], self.ura()
+        for h in oglasi or []:
+            hid, naslov = str(h.get("id") or ""), str(h.get("naslov") or "")
+            if not hid or not naslov.startswith("wss://"):
+                continue
+            try:
+                kljuc = self.kljuc_clana(hid) or ""
+            except Exception:  # noqa: BLE001 - krog ni berljiv: oglas ne steje
+                kljuc = ""
+            if not kljuc:
+                continue
+            k = (hid, naslov, str(h.get("fp") or "").lower())
+            v = self._preverjeni.get(k)
+            if v is None or zdaj - v[0] >= self.velja_s:
+                try:
+                    videni, kljuc_potrdila = self.potrdilo(naslov)
+                except Exception:  # noqa: BLE001 - nedosegljiv: ne steje (poskusimo ob naslednjem pregledu)
+                    videni, kljuc_potrdila = "", ""
+                v = (zdaj, bool(videni) and link_tls.isti(kljuc_potrdila, kljuc))
+                if videni:
+                    self._preverjeni[k] = v
+            if v[1]:
+                izid.append(h)
+        if len(self._preverjeni) > 64:
+            for k in sorted(self._preverjeni, key=lambda x: self._preverjeni[x][0])[:-64]:
+                self._preverjeni.pop(k, None)
+        return izid
 
 
 def baterija(koren: str = "/sys/class/power_supply") -> Dict[str, object]:
@@ -4505,6 +4554,38 @@ class HubGostitelj:
         self._preizkus_zacetek: Optional[float] = None
         self._preizkus_zagnan_streznik = False
         self._prioriteta: int = PRIORITETA_LINUX
+        self._nadzor: Optional[threading.Thread] = None
+        self._nadzor_konec = threading.Event()
+
+    def zacni_nadzor(self, ob_spremembi: Optional[Callable[[tuple, tuple], None]] = None,
+                     razmik_s: float = NADZOR_S) -> None:
+        """Reden preveri() v ozadju (samodejna rezerva). Prej ga je SafeerLink klical samo ob iskanju Huba - v Mesh, ko
+        gostimo, in v rezervi nikoli - zato se rok 60 s brez sosedov ni iztekel in iz rezerve se ni vrnil (neodvisni
+        pregled OpenAI 1.0.129). [ob_spremembi]((nacin, gostimo) prej, zdaj) pove odjemalcu, da naj se poveze drugam."""
+        if self._nadzor is not None:
+            return
+        self._nadzor_konec.clear()
+
+        def zanka() -> None:
+            while not self._nadzor_konec.wait(razmik_s):
+                prej = (self.nacin(), self.gostimo())
+                try:
+                    self.preveri()
+                except Exception as e:  # noqa: BLE001 - naslednji pregled poskusi znova
+                    print("[SafeerLink] pregled gostovanja: %s" % type(e).__name__, flush=True)
+                zdaj = (self.nacin(), self.gostimo())
+                if zdaj != prej and ob_spremembi is not None and not self._nadzor_konec.is_set():
+                    try:
+                        ob_spremembi(prej, zdaj)
+                    except Exception as e:  # noqa: BLE001
+                        print("[SafeerLink] sprememba gostovanja: %s" % type(e).__name__, flush=True)
+
+        self._nadzor = threading.Thread(target=zanka, name="safeer-link-gostitelj", daemon=True)
+        self._nadzor.start()
+
+    def ustavi_nadzor(self) -> None:
+        self._nadzor_konec.set()
+        self._nadzor = None
 
     def gostimo(self) -> bool:
         """Ali ta racunalnik aktivno gosti Hub za omrezje (ne le preizkus v ozadju)."""
@@ -4662,8 +4743,11 @@ class HubGostitelj:
 
     def preveri(self) -> bool:
         """En pregled: preveri nacin (Mesh ali rezerva), stanje streznika in izvolitev."""
+        # V Mesh racunalnik gosti vedno; clane kroga v omrezju povedo preverjeni oglasi (hubi). Iskanje tujega Huba
+        # (mDNS + preverbe HTTP/TLS, vec sekund) je tam odvec - redni pregled (zacni_nadzor) je zato poceni.
+        v_mesh = self._nacin == "mesh" and self.hubi is not None and mesh_vklopljen()
         try:
-            najden = self.poisci()
+            najden = None if v_mesh else self.poisci()
         except Exception:
             najden = None
         try:
@@ -4791,6 +4875,7 @@ class HubGostitelj:
             return False
 
     def koncaj(self) -> None:
+        self.ustavi_nadzor()
         with self._zaklep:
             self._ustavi_mesh()
             self.oglas.koncaj()

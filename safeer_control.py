@@ -39,6 +39,7 @@ import json
 import subprocess
 import threading
 import time
+import uuid
 from typing import Optional
 
 #: Ponovni zagon nove razlicice (_znova_zazeni) naroci, naj se okno odpre takoj. Spremenljivka je v
@@ -1185,7 +1186,7 @@ class SafeerControl(_OSNOVA):
         self.datoteke = link_datoteke.Datoteke(mape if isinstance(mape, list) else [],
                                               ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)))
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
-        # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 48 ur nihce ne predvaja, odstrani sam.
+        # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 12 ur nihce ne predvaja, odstrani sam.
         link_datoteke.zazeni_ciscenje()
         # Knjiznica kroga: film, ki ga je Safeer OS na tem racunalniku zaradi gledanja prenesel sam, vidijo in predvajajo
         # tudi naprave (magnet.list); zasebnih naslovov med njimi ni.
@@ -1462,6 +1463,7 @@ class SafeerControl(_OSNOVA):
       <method name="ProstorOdpri"><arg type="s" name="naprava" direction="in"/><arg type="s" name="program" direction="in"/><arg type="s" name="celo" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
+      <method name="KlepetIzbrisi"><arg type="s" name="naprava" direction="in"/><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Magnet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="uri" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="ShrambaZacni"><arg type="s" name="pot" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="ShrambaStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
@@ -1603,8 +1605,14 @@ class SafeerControl(_OSNOVA):
         if metoda == "TeamworkStanje":
             return self.teamwork.stanje() if self.teamwork is not None else {"ok": True, "datoteke": []}
         if metoda == "Klepet":
-            # Safeer Chat iz Sporocil v Safeer OS: poslje napravi v Linku in vrne potrditev sredisca.
-            stanje = link.poslji_klepet(str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "")
+            # Safeer Chat iz Sporocil v Safeer OS: poslje napravi v Linku in vrne potrditev sredisca. »id« je skupni id
+            # sporocila (UUID, pod njim ga hrani prejemnik) - za izbris na vseh napravah (core/sporocila/izbris_linka.py).
+            ident = str(uuid.uuid4())
+            stanje = link.poslji_klepet(str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "", ident=ident)
+            return {"ok": stanje in ("accepted", "queued"), "stanje": stanje, "id": ident}
+        if metoda == "KlepetIzbrisi":
+            # »Izbrisi na vseh mojih napravah« iz Sporocil: zahteva za izbris napravi, ki je sporocilo prejela.
+            stanje = link.poslji_izbris(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
             return {"ok": stanje in ("accepted", "queued"), "stanje": stanje}
         if metoda == "KlepetNaprave":
             return {"ok": True, "naprave": list(link.naprave_klepeta)}

@@ -496,15 +496,18 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_tuj_hub_brez_kroga_ne_sprozi_rezerve_v_129():
-    """Neodvisni pregled OpenAI 1.0.129: SafeerLink ustvari HubGostitelj brez clan/hubi/nas_id - tuj Hub v istem
-    omrezju (drug krog) bi po 60 s sprozil rezervo. V 1.0.129 je samodejna rezerva izklopljena: ostane Mesh."""
+def test_tuj_hub_brez_kroga_ne_sprozi_rezerve():
+    """Neodvisni pregled OpenAI 1.0.129: tuj Hub v istem omrezju (drug krog) bi po 60 s sprozil rezervo. Od 25. 10.
+    2026 SafeerLink._gostitelj poda clan (krog zaupanja): tuj Hub ne steje, racunalnik gosti naprej v Mesh
+    (tests/test_link_samodejna_rezerva.py preveri tudi vezavo v SafeerLink)."""
+    assert link_hub_streznik.SAMODEJNA_REZERVA, "vklopljena z lastnikovim »da« 25. 10. 2026"
     s = LazniStreznik(uspe=True)
     o = LazniOglas()
     ura_cas = [100.0]
     tuj = {"id": "tuj1", "fp": "tujfp", "prio": 60, "naslov": "wss://tuj:8990/cast/ws"}
-    g = link_hub_streznik.HubGostitelj(poisci=lambda: tuj, streznik=s, oglas=o, sosedje=lambda: [],
-                                       ura=lambda: ura_cas[0])     # kot SafeerLink._gostitelj: brez clan/hubi/nas_id
+    g = link_hub_streznik.HubGostitelj(poisci=lambda: tuj, hubi=lambda: [tuj], clan=lambda hid: False,
+                                       nas_id=lambda: "pc1", streznik=s, oglas=o, sosedje=lambda: [],
+                                       ura=lambda: ura_cas[0])
     assert g.preveri()
     for _ in range(4):
         ura_cas[0] += 31.0

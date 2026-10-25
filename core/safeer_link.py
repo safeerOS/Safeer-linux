@@ -1095,13 +1095,53 @@ class SafeerLink:
         g = getattr(self, "_hub_gostitelj", None)
         if g is None:
             ime = "Safeer Control (" + link_hub._ime_naprave().split(".")[0] + ")"
-            g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime)
+            # Izvolitev in samodejna rezerva (neodvisni pregled OpenAI 1.0.129): oglasi Hubov iz mDNS (samo clani kroga,
+            # katerih potrdilo nosi kljuc iz kroga), clanstvo in nas id. Brez njih je tuj Hub v istem omrezju (drug krog)
+            # po 60 s sprozil rezervo in racunalnik bi nehal gostiti.
+            preverjeni = link_hub_streznik.PreverjeniHubi(self._kljuc_clana_kroga)
+            g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime,
+                                               hubi=lambda: preverjeni.filtriraj(link_hub.poisci_hube_mdns(1.5)),
+                                               clan=lambda hid: bool(self._kljuc_clana_kroga(hid)),
+                                               nas_id=link_hub_streznik.id_za_oglas)
             # Deljene mape tudi prek Huba (/cast/d/): po Global Linku pride samo povezava do vrat Huba.
             g.streznik.datoteke = lambda: getattr(self.datoteke, "streznik", None)
             # Slika zaslona tudi prek Huba (/cast/desktop), za gledalca, ki je zdoma.
             g.streznik.zaslon = lambda: self.zaslon
             self._hub_gostitelj = g
+            if getattr(self, "control", False) and link_hub_streznik.SAMODEJNA_REZERVA:
+                # Samodejna rezerva in vrnitev iz nje potrebujeta reden pregled (prej ga ni bilo).
+                g.zacni_nadzor(ob_spremembi=self._ob_spremembi_gostovanja)
         return g
+
+    @staticmethod
+    def _kljuc_clana_kroga(hid: str) -> str:
+        """Javni kljuc clana kroga zaupanja s tem id-jem ("" = ni clan ali je umaknjen)."""
+        try:
+            if not hid or link_krog.je_umaknjen(hid):
+                return ""
+            c = link_krog.krog().clan_za_id(hid)
+            return str((c or {}).get("kljuc") or "")
+        except Exception:  # noqa: BLE001 - krog ni berljiv: oglas ne steje
+            return ""
+
+    def _ob_spremembi_gostovanja(self, prej: tuple, zdaj: tuple) -> None:
+        """Nadzor gostovanja (HubGostitelj.zacni_nadzor): nacin ali gostovanje se je spremenilo."""
+        nacin, gostimo = zdaj
+        print("[SafeerLink] gostovanje: %s/%s -> %s/%s" % (prej[0], "gosti" if prej[1] else "ne gosti",
+                                                           nacin, "gosti" if gostimo else "ne gosti"), flush=True)
+        if nacin == "mesh":
+            # Vrnitev iz rezerve: spet na svoj Hub, do drugih naprav nas peljejo sosedje.
+            self._v_ozadju(self._na_lastni_hub)
+        elif not gostimo:
+            # Rezerva, izvoljen je drug Hub: povezava na nasega se je zaprla - povezemo se na izvoljenega.
+            self._v_ozadju(lambda: self._poisci_hub(tiho=True))
+
+    def _na_lastni_hub(self) -> None:
+        self._mesh_lastni_hub()
+        p = self.povezava
+        if p is not None and getattr(p, "aktivna", False) and getattr(p, "ws_naslov", "") == self._hub():
+            return
+        self._povezi()
 
     def _prevzemi_gostovanje(self) -> bool:
         """Ce Huba ni nikjer, ga zazenemo sami in se nanj povezemo.
@@ -1587,7 +1627,13 @@ class SafeerLink:
             return
         g = getattr(self, "_hub_gostitelj", None)
         if g is not None and g.v_rezervi():
-            return
+            # Rezerva: preveri() vodi preizkus Mesha v ozadju in vrnitev (prej se tu ni klical - iz rezerve ni bilo poti).
+            try:
+                g.preveri()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerLink] rezerva: pregled ni uspel:", type(e).__name__)
+            if g.v_rezervi():
+                return
         try:
             g = self._gostitelj()
             if not g.gostimo():
@@ -1621,8 +1667,9 @@ class SafeerLink:
             dodatne_zmoznosti=(["files"] if self.datoteke is not None else [])
             + (["apps"] if self.programi is not None and self.programi.vklopljeno else [])
             + (["desktop"] if self.zaslon is not None and self.zaslon.na_voljo().get("dovoljeno") else [])
-            # Safeer Chat: sporocila sprejema Control (in jih vpise v Sporocila Safeer OS).
-            + (["chat"] if self.control else [])
+            # Safeer Chat: sporocila sprejema Control (in jih vpise v Sporocila Safeer OS). chat.delete: zna zahtevo za
+            # izbris (payload.delete) - Android sicer »Izbrisi na vseh« zadrzi (pregled D5, core/sporocila/izbris_linka.py).
+            + (["chat", "chat.delete"] if self.control else [])
             # Magnet povezave z drugih naprav odpre Safeer OS na tem racunalniku.
             + (["magnet"] if self.control and _magnet_na_voljo() else [])
             # Seznami predvajanja Medijskega centra (Safeer OS): Control jih drugim napravam da v branje (lists.get).
@@ -1743,6 +1790,9 @@ class SafeerLink:
                 self._posiljanje.zbudi()
             self._osvezi_nemo()
             self.naprave_klepeta = self._naprave_za_klepet(naprave)
+            if self.control:
+                # Izbrisi, ki cakajo na napravo (bila je brez povezave ali izbrisa se ni javila): morda je zdaj tu.
+                self._v_ozadju(self._poslji_cakajoca_brisanja)
             self._odziv("naprave", self.naprave)
             zvok = self.zvok
             if zvok is not None and zvok.naprava and not any(n["id"] == zvok.naprava for n in naprave):
@@ -1806,7 +1856,7 @@ class SafeerLink:
                 return
             if self.control:
                 self._v_ozadju(lambda: self._prejmi_klepet(sporocilo, telo))
-            else:
+            elif not telo.get("delete"):
                 self._odziv("chat", {"vrsta": "sporocilo", "id": str(sporocilo.get("id") or ""),
                     "od": str(sporocilo.get("sender") or ""), **telo})
         elif vrsta == "chat.ack":
@@ -2526,22 +2576,62 @@ class SafeerLink:
             izhod.append({"id": n.get("naprava") or n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", "")})
         return izhod
 
-    def poslji_klepet(self, id_naprave: str, besedilo: str, cas: str, cakaj: float = 10.0) -> str:
-        """chat.send napravi v Linku; vrne "accepted", "queued" ali kodo napake."""
+    def poslji_klepet(self, id_naprave: str, besedilo: str, cas: str, cakaj: float = 10.0, ident: str = "",
+                      izbrisi: str = "") -> str:
+        """chat.send napravi v Linku; vrne "accepted", "queued" ali kodo napake. [ident] je id sporocila (UUID), pod
+        katerim ga hrani prejemnik - skupni id za izbris na vseh napravah. [izbrisi]: zahteva, naj prejemnik izbrise
+        nase sporocilo s tem skupnim id-jem (payload.delete, kot Android)."""
         povezava = self.povezava
         if povezava is None or not povezava.tece:
             return "ni_povezave"
-        ref = "klepet-" + secrets_token()
+        ref = str(ident) if ident else "klepet-" + secrets_token()
         vnos = [threading.Event(), "potek"]
         self._klepet_cakajoci[ref] = vnos
+        tovor = {"text": str(besedilo), "created_at": str(cas)}
+        if izbrisi:
+            tovor["delete"] = str(izbrisi)
         try:
-            if not povezava.poslji({"id": ref, "type": "chat.send", "target": str(id_naprave),
-                                    "payload": {"text": str(besedilo), "created_at": str(cas)}}):
+            if not povezava.poslji({"id": ref, "type": "chat.send", "target": str(id_naprave), "payload": tovor}):
                 return "ni_povezave"
             vnos[0].wait(cakaj)
             return vnos[1]
         finally:
             self._klepet_cakajoci.pop(ref, None)
+
+    def poslji_izbris(self, id_naprave: str, skupni: str, cakaj: float = 10.0) -> str:
+        """»Izbrisi na vseh mojih napravah«: zahteva za izbris sporocila [skupni] napravi, ki ga je prejela. Naprava je v
+        seznamu, a zmoznosti chat.delete ne javi (starejsa razlicica bi zahtevo pokazala kot sporocilo) - ne posljemo,
+        vrnemo "ne_zna" (zahteva pocaka v vrsti Sporocil). Brez naprave v seznamu jo poslje sredisce, ce napravo pozna."""
+        from core.sporocila import izbris_linka
+        prijave = [n.get("zmoznosti") or [] for n in getattr(self, "naprave_vse", None) or self.naprave
+                   if id_naprave and (n.get("naprava") == id_naprave or n.get("id") == id_naprave)]
+        if izbris_linka.izbris_na_drugi(prijave) == izbris_linka.NA_DRUGI_NE:
+            return "ne_zna"
+        from datetime import datetime, timezone
+        cas = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        import uuid
+        return self.poslji_klepet(id_naprave, izbris_linka.BESEDILO_IZBRISA, cas, cakaj=cakaj, ident=str(uuid.uuid4()),
+                                  izbrisi=skupni)
+
+    def _sporocila_os(self):
+        if self._sporocila is None:
+            from core.os_sporocila import SporocilaOS
+            self._sporocila = SporocilaOS(zazeni=False)
+            self._sporocila.izbrisi_klepet = self.poslji_izbris
+        return self._sporocila
+
+    def _poslji_cakajoca_brisanja(self) -> None:
+        """Cakajoci izbrisi na drugih napravah (Sporocila): poskusimo, ko se seznam naprav spremeni - najvec na 30 s."""
+        zdaj = time.monotonic()
+        if zdaj - getattr(self, "_brisanja_poskus", -1e9) < 30.0:
+            return
+        self._brisanja_poskus = zdaj
+        try:
+            from core import os_sporocila
+            if os_sporocila.cakajo_brisanja():
+                self._sporocila_os().poslji_cakajoca_brisanja()
+        except Exception as e:  # noqa: BLE001 - izbris ostane v vrsti, poskusimo ob naslednji spremembi seznama
+            print(f"[SafeerLink] Cakajocih izbrisov ni bilo mogoce poslati: {type(e).__name__}")
 
     def _prejmi_klepet(self, sporocilo: dict, telo: dict) -> None:
         od = str(sporocilo.get("sender_device") or sporocilo.get("sender") or "")
@@ -2551,11 +2641,15 @@ class SafeerLink:
                     if n.get("id") == posiljatelj or (n.get("naprava") and n.get("naprava") == od)), "") \
             or str(sporocilo.get("sender_name") or "") or od
         try:
-            if self._sporocila is None:
-                from core.os_sporocila import SporocilaOS
-                self._sporocila = SporocilaOS(zazeni=False)
-            novo = self._sporocila.prejmi_klepet(od, ime, telo["text"], telo.get("created_at", ""),
-                                                  str(sporocilo.get("id") or ""))
+            if telo.get("delete"):
+                # Zahteva za izbris (Android naloga 116): izbrise se samo sporocilo, ki ga je poslala ta naprava.
+                if self._sporocila_os().prejmi_izbris(od, str(telo["delete"])):
+                    from core import en_proces, obvestila
+                    # Obvestilo o izbrisanem sporocilu izgine (na glavni niti - GApplication).
+                    GLib.idle_add(lambda: (obvestila.umakni("safeer-klepet-" + od, app=en_proces.control_app()), False)[1])
+                return
+            novo = self._sporocila_os().prejmi_klepet(od, ime, telo["text"], telo.get("created_at", ""),
+                                                       str(sporocilo.get("id") or ""))
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Klepeta ni bilo mogoče shraniti: {e}")
             return

@@ -7,6 +7,7 @@ sredi predvajanja. Zadržimo samo samodejno spanje ob nedejavnosti - zaprt pokro
 import os
 import sys
 import unittest
+from unittest import mock
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
@@ -175,6 +176,89 @@ class TestVgradnja(unittest.TestCase):
     def test_modul_je_v_obeh_tovorih(self):
         for skripta in ("install_os_payload.sh", "install_control_payload.sh"):
             self.assertIn("for modul in budnost ", beri("packaging", skripta), skripta)
+
+
+
+class LazniKernel32:
+    """kernel32 brez Windows: zapise klice zahtev moci in SetThreadExecutionState."""
+
+    def __init__(self, zahteve_delajo=True):
+        self.zahteve_delajo = zahteve_delajo
+        self.klici = []
+        self._st = 0
+
+    def ustvari_zahtevo(self, opis):
+        if not self.zahteve_delajo:
+            raise OSError(50, "PowerCreateRequest ni uspel")
+        self._st += 1
+        self.klici.append(("ustvari", opis, self._st))
+        return self._st
+
+    def nastavi_zahtevo(self, rocaj, tip):
+        self.klici.append(("nastavi", rocaj, tip))
+
+    def pocisti_zahtevo(self, rocaj, tip):
+        self.klici.append(("pocisti", rocaj, tip))
+
+    def zapri(self, rocaj):
+        self.klici.append(("zapri", rocaj))
+
+    def stanje_niti(self, es):
+        self.klici.append(("nit", es))
+        return 0x80000000
+
+
+class BudnostWindows(unittest.TestCase):
+    """Windows (skupna koda, 25. 10. 2026 - prej windows/safeer_windows/budnost_win.py): zahteve moci, rezerva
+    SetThreadExecutionState, izbira zaledja po platformi. Lazni kernel32 - preizkus tece tudi na Linuxu."""
+
+    def test_izbira_zaledja(self):
+        self.assertIsInstance(budnost.Budnost("x", LaznoVodilo()), budnost.BudnostDbus)
+        self.assertIsInstance(budnost.Budnost("x", jedro=LazniKernel32()), budnost.BudnostWindows)
+        with mock.patch.object(budnost.sys, "platform", "win32"):
+            self.assertIsInstance(budnost.Budnost("x"), budnost.BudnostWindows)
+        with mock.patch.object(budnost.sys, "platform", "linux"):
+            self.assertIsInstance(budnost.Budnost("x"), budnost.BudnostDbus)
+
+    def test_zahteve_moci(self):
+        k = LazniKernel32()
+        b = budnost.Budnost("Safeer", jedro=k)
+        self.assertTrue(b.nastavi("predvajanje", budnost.SPANJE | budnost.ZASLON, "Safeer predvaja"))
+        self.assertEqual(k.klici, [("ustvari", "Safeer predvaja", 1), ("nastavi", 1, budnost.ZAHTEVA_SISTEM),
+                                   ("nastavi", 1, budnost.ZAHTEVA_ZASLON)])
+        self.assertTrue(b.nastavi("predvajanje", budnost.SPANJE | budnost.ZASLON))
+        self.assertEqual(len(k.klici), 3, "enako stanje ne naredi nic")
+        self.assertTrue(b.nastavi("predvajanje", budnost.SPANJE, "Safeer predvaja"))     # samo zvok: zaslon sme ugasniti
+        self.assertIn(("zapri", 1), k.klici)
+        self.assertEqual(k.klici[-2:], [("ustvari", "Safeer predvaja", 2), ("nastavi", 2, budnost.ZAHTEVA_SISTEM)])
+        self.assertEqual(b.stanje(), {"predvajanje": budnost.SPANJE})
+        b.sprosti_vse()
+        self.assertEqual(k.klici[-1], ("zapri", 2))
+        self.assertEqual(b.stanje(), {})
+
+    def test_rezerva_set_thread_execution_state(self):
+        k = LazniKernel32(zahteve_delajo=False)
+        b = budnost.Budnost("Safeer", jedro=k)
+        self.assertTrue(b.nastavi("predvajanje", budnost.SPANJE | budnost.ZASLON))
+        self.assertEqual(k.klici[-1], ("nit", budnost.ES_CONTINUOUS | budnost.ES_SYSTEM_REQUIRED | budnost.ES_DISPLAY_REQUIRED))
+        self.assertTrue(b.nastavi("pomoc", budnost.SPANJE))                               # unija: zaslon ostane
+        self.assertEqual(len([x for x in k.klici if x[0] == "nit"]), 1)
+        b.nastavi("predvajanje", 0)
+        self.assertEqual(k.klici[-1], ("nit", budnost.ES_CONTINUOUS | budnost.ES_SYSTEM_REQUIRED))
+        b.nastavi("pomoc", 0)
+        self.assertEqual(k.klici[-1], ("nit", budnost.ES_CONTINUOUS))
+
+    def test_brez_kernel32_ni_zadrzanja(self):
+        with mock.patch.object(budnost.sys, "platform", "linux"):
+            b = budnost.BudnostWindows("Safeer")
+            self.assertFalse(b.nastavi("predvajanje", budnost.SPANJE))
+            self.assertEqual(b.stanje(), {})
+
+    def test_reason_context(self):
+        import ctypes
+        import struct
+        if struct.calcsize("P") == 8:
+            self.assertEqual(ctypes.sizeof(budnost.tip_reason_context()), 32)
 
 
 if __name__ == "__main__":

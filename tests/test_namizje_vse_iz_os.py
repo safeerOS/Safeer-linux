@@ -405,6 +405,26 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
         self.n.dogodek("sporocilaStevilo", {"n": 1})
         self.assertTrue(self._pocakaj(lambda: self._js("zadetki.sporocilaCas") == 0))
 
+    def test_lupa_isce_programe_racunalnika_tudi_ko_plosca_kaze_napravo(self):
+        """25. 10. 2026: lupa je iskala med programi, ki jih kaze plosca Programi - pri izbrani drugi napravi med NJENIMI,
+        in nov program racunalnika (npr. snap, namescen med delovanjem) se ni pokazal, dokler plosca ni bila spet na
+        »Ta racunalnik«. Zdaj lupa isce med programi tega racunalnika; dogodek »programi« jih osvezi tudi takrat."""
+        self._namizje()
+        najdi = ("(function(q){for (var i=0;i<zadetkiModel.count;i++) if (zadetkiModel.get(i).ime===q) return true;"
+                 " return false})")
+        self.assertTrue(self._pocakaj(lambda: self._js("programi.lokalni.length") == 1))
+        self._js("programi.naprava = 'tv1'; programi.vsi = [{id: 'netflix', ime: 'Netflix', skupina: 'splet'}]")
+        self.odgovori["programiNamizja"] = [{"id": "gimp.desktop", "ime": "GIMP", "skupina": "ustvarjanje"},
+                                            {"id": "gemini-desktop_gemini-desktop.desktop", "ime": "Gemini", "skupina": "pripomocki"}]
+        self.n.dogodek("programi", None)                    # NadzorProgramov: snap je dodal zaganjalnik
+        self.assertTrue(self._pocakaj(lambda: self._js("programi.lokalni.length") == 2))
+        self._obj("iskalnoPolje").setProperty("text", "gemini")
+        self.assertTrue(self._pocakaj(lambda: self._js(najdi + "('Gemini')")))
+        self._obj("iskalnoPolje").setProperty("text", "netflix")
+        self._pocakaj(lambda: False, 0.5)
+        self.assertFalse(self._js(najdi + "('Netflix')"), "program druge naprave ni program tega racunalnika")
+        self.assertEqual(self._js("programi.vsi.length"), 1, "plosca se kaze izbrano napravo")
+
     # ------------------------------------------------------------------ spletne aplikacije
     def test_spletne_aplikacije(self):
         self._namizje()

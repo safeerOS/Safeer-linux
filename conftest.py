@@ -12,6 +12,11 @@ import tempfile
 
 _PREDPONA = "safeer-testi-"
 _stanje = {}
+# Pravi HOME in mape XDG se v preizkusih ne smejo pisati (22. 10. 2026: tek na lastnikovem prenosniku je ustavil dock
+# Plank in zapisal lazna sesutja v pravi ~/.cache/safeer-os/dnevnik.log). Preizkus, ki namerno nastavi svoje mape,
+# ostane kot je (monkeypatch/patch.dict zamenja vrednost za cas preizkusa).
+_IZOLIRANE = (("HOME", ""), ("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"),
+              ("XDG_DATA_HOME", "share"), ("XDG_STATE_HOME", "state"))
 
 
 def _pocisti_zapuscene(koren: str) -> None:
@@ -45,7 +50,13 @@ def _koren_testov() -> str:
     return koren
 
 
-def pytest_configure(config):
+def _izoliraj() -> None:
+    """Zacasna mapa teka ter HOME/XDG/GSETTINGS_BACKEND. Klice se ob uvozu tega conftest.py (naloga 48): pytest
+    ga uvozi pred tests/conftest.py, ta pa ze ob uvozu nalozi varovalo_niti, varovalo_signalov in core/ - v
+    pytest_configure je bilo to prepozno (moduli bi si zapomnili pravi HOME). Kavelj pytest_load_initial_conftests
+    v conftest.py ne pride (pytest ga klice samo vticnikom, ki so nalozeni pred conftest)."""
+    if "mapa" in _stanje:
+        return
     koren = _koren_testov()
     try:
         _pocisti_zapuscene(koren)
@@ -55,6 +66,26 @@ def pytest_configure(config):
     _stanje.update(mapa=mapa, tempdir=tempfile.tempdir, okolje=os.environ.get("TMPDIR"))
     tempfile.tempdir = mapa
     os.environ["TMPDIR"] = mapa
+    dom = os.path.join(mapa, "dom")
+    prej = {}
+    for ime, pod in _IZOLIRANE:
+        prej[ime] = os.environ.get(ime)
+        pot = os.path.join(dom, pod) if pod else dom
+        os.makedirs(pot, exist_ok=True)
+        os.environ[ime] = pot
+    # Pravi dconf ostane nedotaknjen: gsettings brez nastavljenega zaledja pise v uporabnikov dconf.
+    prej["GSETTINGS_BACKEND"] = os.environ.get("GSETTINGS_BACKEND")
+    if not prej["GSETTINGS_BACKEND"]:
+        os.environ["GSETTINGS_BACKEND"] = "memory"
+    _stanje["okolje_prej"] = prej
+
+
+# Okolje spreminjamo ob uvozu: pred tests/conftest.py, pred uvozom core/ in pred nitmi (core/okolje_procesa.py).
+_izoliraj()
+
+
+def pytest_configure(config):
+    _izoliraj()            # ce je pytest_unconfigure ze pospravil (vec sej v istem procesu, pytester)
 
 
 def pytest_unconfigure(config):
@@ -62,6 +93,11 @@ def pytest_unconfigure(config):
     if not mapa:
         return
     tempfile.tempdir = _stanje.pop("tempdir", None)
+    for ime, vrednost in _stanje.pop("okolje_prej", {}).items():
+        if vrednost is None:
+            os.environ.pop(ime, None)
+        else:
+            os.environ[ime] = vrednost
     staro = _stanje.pop("okolje", None)
     if staro is None:
         os.environ.pop("TMPDIR", None)
