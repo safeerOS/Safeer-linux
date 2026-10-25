@@ -7,7 +7,8 @@ Nacina:
                            preusmeritvijo (npr. archive.org) - preveri isto pot sonda -> predvajalnik kot pri Webtorju.
   --webtor tt... [tt ...]  prava uporabnikova pot: dodatki iz KOPIJE nastavitev Medijskega centra (v prave nastavitve in
                            v zbirko skrivnosti se nic ne zapise), MediaCenter.resolve -> Webtor -> sonda -> predvajalnik.
-                           Brez uporabnikovega dodatka Webtor pove, kaj manjka.
+                           Brez uporabnikovega dodatka Webtor pove, kaj manjka. --samo-webtor: v kopiji ostane samo
+                           dodatek Webtor (meritev rezerve - sicer zmagajo neposredne povezave drugih dodatkov).
 Predvajanje je tiho in brez okna (audio-sink in video-sink sta fakesink, glasnost 0), vsak poskus ima rok, na koncu se
 predvajalnik ustavi in zapre. Meri: cas izbire do koncnega naslova, do prvega dekodiranega okvirja, ali predvajanje
 tece --sekund s brez zastoja. Izpis: ena vrstica JSON na poskus - brez naslovov in zetonov (samo gostitelj).
@@ -134,17 +135,32 @@ def naslov(url: str, sekund: float) -> dict:
     return izid
 
 
-def webtor_pot(idji: list, sekund: float) -> list:
-    """Prava pot uporabnika iz kopije nastavitev Medijskega centra (prave nastavitve ostanejo nespremenjene)."""
-    from core import os_katalog, os_media, skrivni_dodatki, webtor
+def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False) -> list:
+    """Prava pot uporabnika iz kopije nastavitev Medijskega centra (prave nastavitve ostanejo nespremenjene).
+    samo_webtor: v kopiji ostane samo dodatek Webtor (meritev rezerve; sicer zmagajo neposredne povezave drugih)."""
+    from core import media_servers, os_katalog, os_media, skrivni_dodatki
     vir = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "safeer-os" / "media"
     if not (vir / "media.json").is_file():
         return [{"nacin": "webtor", "napaka": "ni_nastavitev_medijskega_centra"}]
     mapa = tempfile.mkdtemp(prefix="safeer-webtor-meritev-")
+    stevci: dict = {}
+    izvirni = media_servers.stremio_tokovi
+
+    def stej(koren, *a, **k):                    # stevilo tokov po gostitelju dodatka (brez naslovov)
+        izid = izvirni(koren, *a, **k)
+        stevci[_gostitelj(koren)] = len(izid)
+        return izid
+    media_servers.stremio_tokovi = stej
     try:
         for ime in ("media.json", "debrid.json"):
             if (vir / ime).is_file():
                 shutil.copy2(vir / ime, Path(mapa) / ime)
+        if samo_webtor:
+            kopija = Path(mapa) / "media.json"
+            d = json.loads(kopija.read_text(encoding="utf-8"))
+            d["osebni_strezniki"] = [s for s in d.get("osebni_strezniki") or []
+                                     if _gostitelj(str(s.get("url") or "")) == "webtor.io"]
+            kopija.write_text(json.dumps(d), encoding="utf-8")
         pomnilnik: dict = {}
 
         def sifriraj(v: str) -> str:            # samo v pomnilniku: v zbirko skrivnosti se nic ne zapise
@@ -162,6 +178,7 @@ def webtor_pot(idji: list, sekund: float) -> list:
                      "kljuc_debrid": bool(mc.debrid.aktivna())}]
         izidi = []
         for tt in idji:
+            stevci.clear()
             ident = "meritev:" + tt
             mc._dynamic_items[ident] = {"id": ident, "naslov": tt, "vrsta": "film", "url": "stremio:%s|movie|%s" % (wt[0], tt)}
             zacetek = time.monotonic()
@@ -169,7 +186,7 @@ def webtor_pot(idji: list, sekund: float) -> list:
             izid = {"nacin": "webtor", "id": tt, "izbira_ms": int((time.monotonic() - zacetek) * 1000),
                     "pot": "webtor" if r.get("webtor") else "debrid" if r.get("debrid") else
                     (r.get("napaka_koda") or ("neposredno" if str(r.get("url") or "").startswith("https://") else "drugo")),
-                    "koncni_gostitelj": _gostitelj(r.get("url"))}
+                    "koncni_gostitelj": _gostitelj(r.get("url")), "tokov": dict(stevci), "samo_webtor": samo_webtor}
             if r.get("url") and not skrivni_dodatki.je_nadomestek(str(r["url"])) and str(r["url"]).startswith("https://"):
                 p = predvajaj(str(r["url"]), sekund, os_katalog.tok_za_predvajalnik(r, str(r["url"])))
                 izid.update(p)
@@ -178,6 +195,7 @@ def webtor_pot(idji: list, sekund: float) -> list:
             izidi.append(izid)
         return izidi
     finally:
+        media_servers.stremio_tokovi = izvirni
         skrivni_dodatki.pozabi_vse()
         shutil.rmtree(mapa, ignore_errors=True)   # zacasna kopija tega preizkusa (ne lastnikove datoteke)
 
@@ -188,12 +206,13 @@ def main(argv: list) -> int:
     a.add_argument("--webtor", nargs="*", default=[])
     a.add_argument("--ponovitve", type=int, default=1)
     a.add_argument("--sekund", type=float, default=30.0)
+    a.add_argument("--samo-webtor", action="store_true", help="v kopiji nastavitev samo dodatek Webtor")
     n = a.parse_args(argv)
     for ponovitev in range(1, max(1, n.ponovitve) + 1):
         for url in n.naslov:
             print(json.dumps(dict(naslov(url, n.sekund), ponovitev=ponovitev), ensure_ascii=False), flush=True)
         if n.webtor:
-            for izid in webtor_pot(n.webtor, n.sekund):
+            for izid in webtor_pot(n.webtor, n.sekund, n.samo_webtor):
                 print(json.dumps(dict(izid, ponovitev=ponovitev), ensure_ascii=False), flush=True)
     return 0
 
