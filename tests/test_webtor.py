@@ -66,6 +66,21 @@ class Sonda(unittest.TestCase):
         s = Streznik(odgovori)
         return W.sonda(url, k.pop("rok_ms", W.PRVI_BAJT_MS), razresi_fn=k.pop("razresi_fn", javni), zahteva_fn=s.zahteva, **k), s
 
+    def test_glave_toka_samo_gostitelju_toka(self):
+        """Grok 19, M3: glave toka (proxyHeaders) dobi sonda na gostitelju toka (brez Referer strezniki vracajo 429), po
+        preusmeritvi na drug gostitelj ne; Authorization, Cookie in glave s prelomom vrstice nikoli."""
+        klici = []
+        s = Streznik({RESOLVE: (302, CDN), CDN: (206, None)})
+
+        def zahteva(naslov, g, ip, vrata, rok, glave=None):
+            klici.append((g, dict(glave or {})))
+            return s.zahteva(naslov, g, ip, vrata, rok)
+        izid = W.sonda(RESOLVE, razresi_fn=javni, zahteva_fn=zahteva,
+                       glave={"Referer": "https://dodatek.test/", "Authorization": "Bearer x", "Cookie": "a=b",
+                              "Origin": "https://a.test\r\nX-Vrinjeno: 1"})
+        self.assertEqual(izid.izid, W.PREDVAJAJ)
+        self.assertEqual(klici, [("webtor.io", {"Referer": "https://dodatek.test/"}), ("abra--x1.api.cosmic-crab.buzz", {})])
+
     def test_preusmeritev_na_cdn_da_koncni_naslov(self):
         izid, s = self.sonda({RESOLVE: (302, CDN), CDN: (206, None)})
         self.assertEqual(izid.izid, W.PREDVAJAJ)
@@ -516,6 +531,27 @@ class TokSKljucem(unittest.TestCase):
             izid = self.mc.resolve("f1")
         self.assertNotIn(self.KLJUC, izhod.getvalue())
         return izid
+
+    def test_glave_toka_sondi_in_ne_drugemu_gostitelju(self):
+        """Grok 19, M3: sonda toka s kljucem dobi glave toka; predvajalnik jih dobi samo, ce je koncni gostitelj isti."""
+        for koncni, glave_ostanejo in ((self.RD, False), ("https://torrentio.strem.fun/cdn/abc123/Film.mkv", True)):
+            S.pozabi_vse()
+            prejete: list = []
+            self.mc._dynamic_items["f1"] = self.item
+            self.mc._skrivni_sonda = lambda url, rok, glave=None, k=koncni: prejete.append(glave) or W.Sonda(
+                koda=206, prvi_bajt_ms=5, gostitelj=W.gostitelj(k), koncni=k)
+            odgovor = json.dumps({"streams": [{"name": "Torrentio\n1080p", "title": "Film 1080p", "url": self.TOK,
+                                               "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https://torrentio.strem.fun/"}}}}]}).encode()
+            with mock.patch.object(media_servers, "_request", return_value=odgovor), \
+                    mock.patch.object(media_servers, "stremio_manifest", return_value={"id": "com.stremio.torrentio.addon"}), \
+                    mock.patch.object(media_servers, "tok_stanje", side_effect=AssertionError("brez sonde zivosti s kljucem")), \
+                    mock.patch.object(self.mc, "_usenet_mogoc", return_value=False), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                izid = self.mc.resolve("f1")
+            self.assertEqual(prejete, [{"Referer": "https://torrentio.strem.fun/"}])
+            self.assertEqual(izid["url"], koncni)
+            self.assertEqual("glave" in izid, glave_ostanejo, koncni)
+            self.assertEqual(any("glave" in r for r in izid["razlicice"]), glave_ostanejo, koncni)
 
     def test_predvajalnik_dobi_koncni_naslov_brez_kljuca(self):
         izid = self.resolve(W.Sonda(koda=206, prvi_bajt_ms=200, koncni=self.RD))

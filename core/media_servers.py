@@ -1210,10 +1210,32 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
     # Dodatek z osebnim zetonom ali kljucem (koren je nadomestek): tok, ki nosi skrivnost, dobi nadomestek - tudi ce se
     # ne zacne s predpono dodatka (Torrentio z debrid kljucem, pregled Grok N2). Predvajalnik dobi koncni naslov sonde.
     skriven = skrivni_dodatki.je_nadomestek(koren)
-    skrij = skrivni_dodatki.skrij_tok if skriven else skrivni_dodatki.skrij
+    pravi_koren = ""
+    if skriven:
+        try:
+            pravi_koren = skrivni_dodatki.dejanski(koren)
+        except ValueError:
+            pravi_koren = ""
+        vrednosti = skrivni_dodatki.skrivne_vrednosti(pravi_koren)
+
+        def skrij(u: str) -> str:
+            return skrivni_dodatki.skrij_tok(u, vrednosti)
+
+        def ostane_kljuc(u: str) -> bool:
+            # Grok 19, M2 (fail-closed): tok dodatka s kljucem, ki ga ni bilo mogoce zakriti, ne gre nikamor.
+            return bool(u) and not skrivni_dodatki.je_nadomestek(u) and (
+                not pravi_koren or skrivni_dodatki.nosi_skrivnost(u, pravi_koren))
+    else:
+        skrij = skrivni_dodatki.skrij
+
+        def ostane_kljuc(u: str) -> bool:
+            return False
     for t in surovi:
         # Tok dodatka z osebnim zetonom (Webtor: .../token/<t>/stremio/resolve/...) dobi nadomestek kot dodatek.
         url = skrij(str(t.get("url") or ""))
+        if ostane_kljuc(url):
+            print("[SafeerMedia] tok dodatka s kljucem izpuscen (kljuca ni bilo mogoce zakriti)", flush=True)
+            continue
         if url.startswith(("https://", "http://")):
             if stremio_je_obvestilo(t):
                 continue
@@ -1235,6 +1257,7 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
                 tok["hash"] = hash_toka
             podnapisi = [{"uri": skrij(str(p.get("url"))), "jezik": str(p.get("lang") or "")[:12]}
                          for p in (t.get("subtitles") or []) if isinstance(p, dict) and str(p.get("url") or "").startswith(("https://", "http://"))]
+            podnapisi = [p for p in podnapisi if not ostane_kljuc(p["uri"])]
             if podnapisi:
                 tok["podnapisi"] = podnapisi[:24]
             tokovi.append(tok)

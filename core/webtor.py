@@ -460,16 +460,31 @@ class _PovezavaNaIp(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(surova, server_hostname=self.host)
 
 
-def zahteva(naslov: str, gostitelj_: str, ip: str, vrata: int, rok: float) -> tuple:
+#: Glave toka (behaviorHints.proxyHeaders), ki jih sonda poslje - isti seznam kot predvajalnik
+#: (core/os_predvajalnik._DOVOLJENE_GLAVE): Authorization, Cookie in podobne nikoli.
+DOVOLJENE_GLAVE = frozenset({"referer", "origin", "user-agent", "accept", "accept-language", "x-requested-with"})
+
+
+def glave_toka(glave: Optional[dict]) -> dict:
+    """Dovoljene glave toka brez prelomov vrstic (najvec 12)."""
+    izid: dict = {}
+    for ime, vrednost in list((glave or {}).items())[:12] if isinstance(glave, dict) else ():
+        ime, vrednost = str(ime or ""), str(vrednost or "")
+        if ime.lower() in DOVOLJENE_GLAVE and "\n" not in vrednost and "\r" not in vrednost:
+            izid[ime[:64]] = vrednost[:2048]
+    return izid
+
+
+def zahteva(naslov: str, gostitelj_: str, ip: str, vrata: int, rok: float, glave: Optional[dict] = None) -> tuple:
     """GET prvih GLAVA_BAJTOV (Range) brez samodejnih preusmeritev -> (koda, Location ali None, prvi bajti,
-    {"content-type", "content-range", "content-length"})."""
+    {"content-type", "content-range", "content-length"}). `glave`: glave toka (glave_toka) - prepisejo privzete."""
     d = urllib.parse.urlsplit(naslov)
     pot = (d.path or "/") + ("?" + d.query if d.query else "")
     c = _PovezavaNaIp(gostitelj_, ip, vrata, rok)
     konec = time.monotonic() + rok
     try:
-        c.request("GET", pot, headers={"Range": "bytes=0-%d" % (GLAVA_BAJTOV - 1), "Accept-Encoding": "identity",
-                                       "Accept": "*/*", "User-Agent": UPORABNISKI_AGENT})
+        c.request("GET", pot, headers={"Accept-Encoding": "identity", "Accept": "*/*", "User-Agent": UPORABNISKI_AGENT,
+                                       **glave_toka(glave), "Range": "bytes=0-%d" % (GLAVA_BAJTOV - 1)})
         if c.sock is not None:
             c.sock.settimeout(max(0.05, konec - time.monotonic()))   # skupni rok, ne rok vsake operacije (Grok N9)
         r = c.getresponse()
@@ -520,15 +535,18 @@ def _razresi_z_rokom(razresi_fn: Callable[[str, int], str], gostitelj_: str, vra
 def sonda(url: str, rok_ms: int = PRVI_BAJT_MS, *, razresi_fn: Callable[[str, int], str] = razresi,
           zahteva_fn: Callable[..., tuple] = zahteva, ura: Callable[[], float] = time.monotonic,
           preveri_vsebino: bool = True, pricakovano_gb: float = 0.0,
-          kodek_podprt: Callable[[str], bool] = lambda _m: True) -> Sonda:
+          kodek_podprt: Callable[[str], bool] = lambda _m: True, glave: Optional[dict] = None) -> Sonda:
     """Prvi bajti toka `url` (pravi naslov, ne nadomestek) v najvec `rok_ms` skupaj. Blokira - z delovne niti.
     Ni dovolj koda 206: vsebina mora biti glavni video (pregled - posoda po bajtih, Content-Type, velikost proti opisu
     toka `pricakovano_gb`; Android 25. 10.: Webtor je dal naslovnico JPEG, MP3 in AVI brez videa).
     `preveri_vsebino=False`: brez pregleda vsebine (tok dodatka s kljucem, ki je lahko tudi zvok) - preusmeritve, https
-    in javni naslovi se preverijo enako."""
+    in javni naslovi se preverijo enako. `glave` (proxyHeaders toka, Grok 19 M3): samo na gostitelja toka - po
+    preusmeritvi na drug gostitelj ne gredo (strezniki tokov brez Referer vracajo 429, glej media_servers.tok_stanje)."""
     zacetek = ura()
     naslov = str(url or "")
     g = gostitelj(naslov)
+    izvorni = g
+    glave = glave_toka(glave)
     for skok in range(NAJVEC_PREUSMERITEV + 1):
         ostane = rok_ms / 1000.0 - (ura() - zacetek)
         if ostane <= 0:
@@ -555,7 +573,10 @@ def sonda(url: str, rok_ms: int = PRVI_BAJT_MS, *, razresi_fn: Callable[[str, in
         if ostane <= 0:
             return Sonda(potekel=True, gostitelj=g, razlog="rok")
         try:
-            koda, lokacija, bajti, glave = zahteva_fn(naslov, g, ip, vrata, ostane)
+            if glave and g == izvorni:
+                koda, lokacija, bajti, odgovor = zahteva_fn(naslov, g, ip, vrata, ostane, glave=glave)
+            else:
+                koda, lokacija, bajti, odgovor = zahteva_fn(naslov, g, ip, vrata, ostane)
         except (socket.timeout, TimeoutError):
             return Sonda(potekel=True, gostitelj=g, razlog="rok")
         except (OSError, http.client.HTTPException, ValueError):
@@ -578,11 +599,11 @@ def sonda(url: str, rok_ms: int = PRVI_BAJT_MS, *, razresi_fn: Callable[[str, in
         if not preveri_vsebino:
             return Sonda(koda=koda, prvi_bajt_ms=ms, gostitelj=g, koncni=naslov)
         try:
-            dolzina = int(str(glave.get("content-length") or "-1").strip())
+            dolzina = int(str(odgovor.get("content-length") or "-1").strip())
         except ValueError:
             dolzina = -1
-        skupaj = skupna_velikost(koda, glave.get("content-range"), dolzina)
-        vsebina, vrsta, kodek = pregled(glave.get("content-type"), bajti, skupaj, pricakovano_gb, kodek_podprt)
+        skupaj = skupna_velikost(koda, odgovor.get("content-range"), dolzina)
+        vsebina, vrsta, kodek = pregled(odgovor.get("content-type"), bajti, skupaj, pricakovano_gb, kodek_podprt)
         if vsebina == VIDEO and je_video_ime(urllib.parse.unquote(urllib.parse.urlsplit(naslov).path)) is False:
             vsebina = NI_VIDEO                  # koncna datoteka je po imenu slika, glasba ali vzorec
         if vsebina != VIDEO:

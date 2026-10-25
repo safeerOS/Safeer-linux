@@ -683,8 +683,13 @@ class Katalog:
             skrivnosti = []
         ok = self.mc.remove_source(ident)
         if ok:
+            try:   # Grok 19, M1: naslov, ki ga nedokoncan prehod se potrebuje, ostane do konca prehoda
+                ohrani = self.mc.skrivnosti_v_prehodu()
+            except Exception:  # noqa: BLE001
+                ohrani = set()
             for skrivnost in skrivnosti:
-                pozabi(skrivnost)
+                if skrivnost not in ohrani:
+                    pozabi(skrivnost)
         return ok
 
     def _osvezi_vir(self, a: list) -> Any:

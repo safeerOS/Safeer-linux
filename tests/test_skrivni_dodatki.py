@@ -195,6 +195,42 @@ class TokoviSKljucem(Osnova):
 
 
 
+class TokoviNeprepoznaniKljuc(Osnova):
+    """Grok 19, M2: tok dodatka s kljucem, ki ga skrivna_predpona_toka ne prepozna (kratek kljuc za »/play/«, kljuc iz
+    nastavitev base64), je prej sel s kljucem v predpomnilnik tokov, sondo zivosti in predvajalnik."""
+    KRATEK = "Pm4Key7xQ2"
+    DODATEK = "https://torrentio.strem.fun/premiumize=%s|sort=qualitysize/manifest.json" % KRATEK
+
+    def tokovi(self, dodatek, odgovor):
+        koren = S.nadomestna_osnova(S.odkleni(dodatek))
+        with mock.patch.object(media_servers, "_request", return_value=json.dumps(odgovor).encode()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return media_servers.stremio_tokovi(koren, "movie", "tt1")
+
+    def test_kratek_kljuc_v_toku_dobi_nadomestek(self):
+        tok = "https://torrentio.strem.fun/play/%s/0123456789abcdef0123456789abcdef01234567/0/Film.mkv" % self.KRATEK
+        tokovi = self.tokovi(self.DODATEK, {"streams": [
+            {"name": "T", "url": tok, "subtitles": [{"url": "https://torrentio.strem.fun/sub/%s/1.srt" % self.KRATEK, "lang": "sl"}]},
+            {"name": "Javni", "url": "https://cdn.example/a.mp4"}]})
+        self.assertNotIn(self.KRATEK, json.dumps(tokovi))
+        self.assertTrue(S.je_nadomestek(tokovi[0]["url"]))
+        self.assertEqual(S.dejanski(tokovi[0]["url"]), tok)
+        self.assertEqual(tokovi[1]["url"], "https://cdn.example/a.mp4")     # tok brez kljuca ostane, kot je
+        # Koncni naslov sonde, ki nosi kljuc, ne gre v predvajalnik (os_media._razresi_skrivne_tokove).
+        self.assertTrue(S.nosi_skrivnost("https://cdn.example/x/%s/f.mkv" % self.KRATEK, S.dejanski(tokovi[0]["url"])))
+        self.assertFalse(S.nosi_skrivnost("https://cdn.example/x/f.mkv", S.dejanski(tokovi[0]["url"])))
+
+    def test_kljuc_iz_nastavitev_base64(self):
+        import base64
+        kljuc = "Tb5Key9Zq1Lm"
+        dodatek = "https://addon.example/%s/manifest.json" % base64.urlsafe_b64encode(
+            json.dumps({"torboxKey": kljuc, "jezik": "sl"}).encode()).decode().rstrip("=")
+        self.assertIsNotNone(S.skrivna_predpona_dodatka(dodatek))
+        tokovi = self.tokovi(dodatek, {"streams": [{"name": "X", "url": "https://dl.addon.example/get?u=%s&f=1" % kljuc}]})
+        self.assertNotIn(kljuc, json.dumps(tokovi))
+        self.assertTrue(S.je_nadomestek(tokovi[0]["url"]))
+
+
 class WebtorKratkaPovezava(Osnova):
     """Webtor, dodan s kratko povezavo »https://webtor.io/s/<koda>/manifest.json« (izmerjeno 25. 10. 2026 na Windows in
     na prenosniku): tokovi so »/token/<t>/stremio/resolve/<JWT>« in se ne zacnejo s predpono dodatka. JWT (exp, hash,
@@ -376,6 +412,67 @@ class PrehodPonovljiv(Osnova):
             mc = self.center()                                         # naslednji zagon: prava predpona iz zbirke
         self.assertNotIn(ZETON, policke.read_text())
         self.assertNotIn("skrivni_prehod", mc._load())
+
+    def _prekinjen_prvi_zagon(self, ime: str, vsebina: str) -> Path:
+        """Prvi zagon: prehod druge datoteke `ime` (oblika zunaj vzorcev _RX_KORENI) ne uspe - prehod caka."""
+        self.stari()
+        druga = Path(self.tmp, ime)
+        druga.write_text(vsebina, encoding="utf-8")
+        pravi_replace = os.replace
+
+        def zaklenjena(a, b, *k):
+            if str(b).endswith(ime):
+                raise PermissionError("zaklenjeno")
+            return pravi_replace(a, b, *k)
+        with mock.patch("os.replace", side_effect=zaklenjena), contextlib.redirect_stdout(io.StringIO()):
+            mc = self.center()
+        self.assertEqual(len(mc._load().get("skrivni_prehod") or []), 1)
+        return druga
+
+    def test_zaklenjena_zbirka_ob_ponovitvi_prehod_caka(self):
+        """Grok 19, M1: ob naslednjem zagonu je zbirka skrivnosti zaklenjena - prava predpona ni znana. Prej se je oznaka
+        skrivni_prehod vseeno izbrisala in zeton v obliki zunaj vzorcev je ostal v cistopisu za vedno."""
+        druga = self._prekinjen_prvi_zagon("tokovi.json", json.dumps({"url": WEBTOR_OSNOVA + "/stream/movie/tt1.json"}))
+
+        def zaklenjena(_s):
+            raise RuntimeError("zbirka skrivnosti je zaklenjena")
+        with contextlib.redirect_stdout(io.StringIO()):
+            mc = self.center(desifriraj=zaklenjena)
+        self.assertIn(ZETON, druga.read_text())                         # predpone ni bilo mogoce dobiti ...
+        self.assertEqual(len(mc._load().get("skrivni_prehod") or []), 1)  # ... zato prehod caka naprej
+        with contextlib.redirect_stdout(io.StringIO()):
+            mc = self.center()                                         # odklenjena: prehod se konca
+        self.assertNotIn(ZETON, druga.read_text())
+        self.assertNotIn("skrivni_prehod", mc._load())
+
+    def test_odstranitev_z_zaklenjeno_zbirko_ohrani_sifriran_naslov(self):
+        """Grok 19, M1: dodatek odstranjen, ko prehod se ni koncan in je zbirka zaklenjena - sifriran naslov ostane
+        (os_katalog ga ne pozabi), naslednji zagon prehod konca in sele nato naslov pozabi."""
+        from core import os_katalog
+        druga = self._prekinjen_prvi_zagon("tokovi.json", json.dumps({"url": WEBTOR_OSNOVA + "/stream/movie/tt1.json"}))
+
+        def zaklenjena(_s):
+            raise RuntimeError("zbirka skrivnosti je zaklenjena")
+        pozabljeni: list = []
+        with contextlib.redirect_stdout(io.StringIO()):
+            mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=_sifriraj, secret_decryptor=zaklenjena,
+                                      secret_forget=pozabljeni.append)
+        enc = mc._load()["osebni_strezniki"][0]["url_enc"]
+        k = os_katalog.Katalog.__new__(os_katalog.Katalog)
+        k._zaklep = threading.RLock()
+        k._mc = mc
+        with mock.patch.object(os_katalog, "pozabi", side_effect=pozabljeni.append), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(k._odstrani_vir(["streznik-1"]))
+        self.assertEqual(pozabljeni, [])                               # naslov ostane, dokler ga prehod potrebuje
+        self.assertEqual(mc.skrivnosti_v_prehodu(), {enc})
+        self.assertIn(ZETON, druga.read_text())
+        with contextlib.redirect_stdout(io.StringIO()):
+            mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=_sifriraj, secret_decryptor=_desifriraj,
+                                      secret_forget=pozabljeni.append)
+        self.assertNotIn(ZETON, druga.read_text())
+        self.assertNotIn("skrivni_prehod", mc._load())
+        self.assertNotIn("skrivni_prehod_enc", mc._load())
+        self.assertEqual(pozabljeni, [enc])                            # prehod koncan: zdaj pozabljen
 
     def test_padec_pred_zapisom_media_json(self):
         self.stari()

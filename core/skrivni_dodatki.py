@@ -337,6 +337,9 @@ _PRAVI: dict = {}
 #: `/resolve/realdebrid/<kljuc>/...`, pregled Grok N2) - samo zadnjih NAJVEC_TOKOV, v pomnilniku.
 _PRAVI_TOKOV: "OrderedDict[str, str]" = OrderedDict()
 NAJVEC_TOKOV = 500
+#: Nadomestek toka -> skrivne vrednosti dodatka, ki jih tok nosi v obliki, ki je skrivna_predpona_toka ne prepozna
+#: (Grok 19, M2) - nosi_skrivnost jih isce tudi v koncnem naslovu. Samo v pomnilniku, skupaj z _PRAVI_TOKOV.
+_VREDNOSTI_TOKOV: dict = {}
 #: Klic, ki za nadomestno osnovo vrne pravi naslov dodatka (MediaCenter ga odklene iz zbirke skrivnosti) ali None.
 _odklepalnik: Optional[Callable[[str], Optional[str]]] = None
 #: nadomestna osnova -> cas neuspelega odklepa: zaklenjena zbirka ne odpre okna za geslo ob vsaki zahtevi (Grok N16).
@@ -365,6 +368,7 @@ def pozabi_vse() -> None:
     with _ZAKLEP:
         _PRAVI.clear()
         _PRAVI_TOKOV.clear()
+        _VREDNOSTI_TOKOV.clear()
         _NEUSPEH.clear()
 
 
@@ -417,23 +421,44 @@ def skrij(naslov: str) -> str:
     return n
 
 
-def skrij_tok(naslov: str) -> str:
+def skrij_tok(naslov: str, skrivnosti: tuple = ()) -> str:
     """Tok dodatka z osebnim kljucem: predpona dodatka -> nadomestek (skrij); ce tok nosi kljuc v drugi obliki
     (Torrentio: `/resolve/realdebrid/<kljuc>/...`, kljuc v poizvedbi), dobi nadomestek tudi ta predpona toka
-    (pregled Grok N2). Pravi naslov ostane samo v pomnilniku (dejanski)."""
+    (pregled Grok N2). `skrivnosti` (skrivne_vrednosti dodatka): tok, ki nosi kljuc dodatka v obliki, ki je
+    skrivna_predpona_toka ne prepozna (kratek kljuc za »/play/«, kljuc iz nastavitev base64), dobi nadomestek CEL
+    (Grok 19, M2 - prej je sel s kljucem v predpomnilnik, sondo in predvajalnik). Pravi naslov samo v pomnilniku."""
     n = skrij(naslov)
     if je_nadomestek(n):
         return n
     p = skrivna_predpona_toka(n)
+    nosi = [o for o in skrivnosti if o and (o in n or odkodiraj(o) in odkodiraj(n))]
+    if nosi:
+        p = n.split("#", 1)[0] if not p or len(p) < len(n.split("#", 1)[0]) else p
     z = nadomestek(p) if p else None
     if not p or not z:
         return n
     with _ZAKLEP:
         _PRAVI_TOKOV[z] = p
         _PRAVI_TOKOV.move_to_end(z)
+        if nosi:
+            _VREDNOSTI_TOKOV[z] = tuple(nosi)
         while len(_PRAVI_TOKOV) > NAJVEC_TOKOV:
-            _PRAVI_TOKOV.popitem(last=False)
+            _VREDNOSTI_TOKOV.pop(_PRAVI_TOKOV.popitem(last=False)[0], None)
     return z + n[len(p):]
+
+
+def skrivne_vrednosti(naslov: str) -> tuple:
+    """Skrivnosti dodatka za iskanje v drugem naslovu (Grok 19, M2): skrivni odseki poti in vrednosti kljucnih polj v
+    njih (»realdebrid=<kljuc>|sort=...«, nastavitve base64 s »torboxKey«). Vrednosti krajse od 6 znakov ne iscemo."""
+    izid = list(_skrivni_odseki(naslov))
+    for o in list(izid):
+        d = odkodiraj(o)
+        for besedilo in (d, base64_besedilo(d) or ""):
+            for m in _RX_POLJE.finditer(besedilo):
+                v = m.group(2).strip()
+                if je_kljucno_ime(m.group(1)) and len(v) >= 6 and v.lower() not in _PRAZNE_VREDNOSTI:
+                    izid.append(v)
+    return tuple(dict.fromkeys(izid))
 
 
 def _skrivni_odseki(naslov: str) -> list:
@@ -459,14 +484,17 @@ def nosi_skrivnost(naslov: str, izvor: str) -> bool:
     """Ali `naslov` (npr. koncni po preusmeritvi toka) nosi zeton dodatka, iz katerega je `izvor` (tok dodatka):
     zacne se s pravo predpono dodatka ali vsebuje njen skrivni odsek. Webtor: predpona je vse pred »/resolve/«."""
     n, izvor = str(naslov or ""), str(izvor or "")
-    pravi = [p for _z, p in _pari() if izvor.startswith(p)]
+    pari = [(z, p) for z, p in _pari() if izvor.startswith(p)]
+    pravi = [p for _z, p in pari]
     predpona = max(pravi, key=len) if pravi else izvor.split("/resolve/", 1)[0] if "/resolve/" in izvor \
         else (skrivna_predpona_toka(izvor) or "")
     if not predpona:
         return False
     if n.startswith(predpona):
         return True
-    return any(o in n or odkodiraj(o) in odkodiraj(n) for o in _skrivni_odseki(predpona))
+    with _ZAKLEP:
+        dodatne = [v for z, _p in pari for v in _VREDNOSTI_TOKOV.get(z, ())]
+    return any(o in n or odkodiraj(o) in odkodiraj(n) for o in list(skrivne_vrednosti(predpona)) + dodatne)
 
 
 def zakrij(besedilo: object) -> str:

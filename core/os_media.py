@@ -1395,21 +1395,28 @@ class MediaCenter:
                     cakajo.append(osnova)
                 spremenjeno = True
             # Nedokoncan prehod iz prejsnjega zagona: prava predpona iz zbirke skrivnosti (samo dokler ni koncan).
+            # Odstranjen dodatek, ki ga odstranitev ni mogla koncati (zaklenjena zbirka), ima sifriran naslov v
+            # »skrivni_prehod_enc« (pregled Grok 19, M1) - sicer bi prava predpona izginila za vedno.
+            enc_prehoda = data.get("skrivni_prehod_enc") if isinstance(data.get("skrivni_prehod_enc"), dict) else {}
+            enc_prehoda = {str(k): str(v) for k, v in enc_prehoda.items() if isinstance(v, str) and v}
             for osnova in list(cakajo):
                 if osnova in zamenjave.values():
                     continue
                 pravi = None
                 try:
                     pravi = self._odkleni_dodatek(osnova)
+                    if not pravi and osnova in enc_prehoda:
+                        pravi = self._secret_decryptor(enc_prehoda[osnova]) or None
                 except Exception:  # noqa: BLE001 - zaklenjena zbirka: prehod pocaka na naslednji zagon
                     pravi = None
                 predpona = skrivni_dodatki.skrivna_predpona_dodatka(pravi or "")
                 if predpona and skrivni_dodatki.nadomestek(predpona) == osnova:
                     zamenjave[predpona] = osnova
                     skrivni_dodatki.odkleni(pravi)
-                elif not any(isinstance(x, dict) and skrivni_dodatki.nadomestna_osnova(str(x.get("url") or "")) == osnova
-                             for x in data.get("osebni_strezniki", [])):
-                    cakajo.remove(osnova)               # dodatka ni vec (odstranitev je ze pocistila) - ni kaj iskati
+                elif osnova not in enc_prehoda and not any(
+                        isinstance(x, dict) and skrivni_dodatki.nadomestna_osnova(str(x.get("url") or "")) == osnova
+                        for x in data.get("osebni_strezniki", [])):
+                    cakajo.remove(osnova)               # dodatka ni vec in sifriranega naslova ni - ni kaj iskati
             besedilo = json.dumps(data, ensure_ascii=False).encode("utf-8")
             koreni = self._skrivni_koreni(besedilo)
             if zamenjave or koreni or cakajo:
@@ -1418,12 +1425,24 @@ class MediaCenter:
                 if koreni:
                     data = json.loads(skrivni_dodatki.zamenjaj(besedilo.decode("utf-8"), koreni))
                     spremenjeno = True
-                novi = [] if ok else cakajo
+                # Grok 19, M1: koncana je samo osnova, katere prava predpona je bila v tem teku znana in zamenjana
+                # povsod; neznana (zaklenjena zbirka) caka naprej - prej je oznaka izginila in zeton zunaj vzorcev
+                # _RX_KORENI je ostal v cistopisu za vedno.
+                znane = set(zamenjave.values())
+                novi = [o for o in cakajo if o not in znane] if ok else cakajo
                 if novi != (data.get("skrivni_prehod") or []):
                     data["skrivni_prehod"] = novi
                     spremenjeno = True
                 if not novi:
                     data.pop("skrivni_prehod", None)
+            koncani_enc = [e for o, e in enc_prehoda.items() if o not in (data.get("skrivni_prehod") or [])]
+            if koncani_enc:
+                ostali = {o: e for o, e in enc_prehoda.items() if o in (data.get("skrivni_prehod") or [])}
+                if ostali:
+                    data["skrivni_prehod_enc"] = ostali
+                else:
+                    data.pop("skrivni_prehod_enc", None)
+                spremenjeno = True
             if spremenjeno:
                 try:
                     self._save(data)
@@ -1432,6 +1451,8 @@ class MediaCenter:
                     for enc in sifrirani:
                         self._pozabi_skrivnost(enc)
                     raise
+                for enc in koncani_enc:                 # odstranjen dodatek: prehod koncan, naslov ni vec potreben
+                    self._pozabi_skrivnost(enc)
         if skrivni:
             print("[SafeerMedia] dodatki z osebnim zetonom: prehod %d, nezavarovanih %d, cakajo %d" % (
                 len(zamenjave), sum(1 for s in data.get("osebni_strezniki", []) if isinstance(s, dict) and s.get("nezavarovan")),
@@ -1446,15 +1467,33 @@ class MediaCenter:
         osnova = skrivni_dodatki.nadomestna_osnova(url)
         cakajo = [o for o in (data.get("skrivni_prehod") or []) if isinstance(o, str)]
         if osnova and osnova in cakajo and odstranjen.get("url_enc"):
+            koncano = False
             try:
                 pravi = self._secret_decryptor(str(odstranjen["url_enc"]))
                 predpona = skrivni_dodatki.skrivna_predpona_dodatka(pravi or "")
                 if predpona and self._preseli_datoteke({predpona: osnova}):
                     data["skrivni_prehod"] = [o for o in cakajo if o != osnova]
                     self._save(data)
-            except Exception:  # noqa: BLE001 - zaklenjena zbirka: koren ostane v datotekah, prehod ga najde po vzorcu
+                    koncano = True
+            except Exception:  # noqa: BLE001 - zaklenjena zbirka: prehod ga konca ob naslednjem zagonu
                 print("[SafeerMedia] prehod ob odstranitvi ni uspel", flush=True)
+            if not koncano:
+                # Grok 19, M1: sifriran naslov ostane (os_katalog ga ne pozabi, dokler je tu), da naslednji zagon
+                # najde pravo predpono tudi v oblikah zunaj vzorcev _RX_KORENI.
+                enc = data.get("skrivni_prehod_enc") if isinstance(data.get("skrivni_prehod_enc"), dict) else {}
+                enc[osnova] = str(odstranjen["url_enc"])
+                data["skrivni_prehod_enc"] = enc
+                try:
+                    self._save(data)
+                except OSError:
+                    print("[SafeerMedia] prehod ob odstranitvi: zapis ni uspel", flush=True)
         skrivni_dodatki.pozabi(url)
+
+    def skrivnosti_v_prehodu(self) -> set:
+        """Sifrirani naslovi odstranjenih dodatkov, ki jih prehod se potrebuje (os_katalog jih ob odstranitvi ne pozabi)."""
+        with self._lock:
+            enc = self._load().get("skrivni_prehod_enc")
+        return {str(v) for v in enc.values() if isinstance(v, str)} if isinstance(enc, dict) else set()
 
     def _pozabi_skrivnost(self, enc: str) -> None:
         try:
@@ -3268,8 +3307,8 @@ class MediaCenter:
     def _webtor_sonda(self, url: str, rok_ms: int, pricakovano_gb: float = 0.0) -> webtor.Sonda:
         return webtor.sonda(url, rok_ms, pricakovano_gb=pricakovano_gb)
 
-    def _skrivni_sonda(self, url: str, rok_ms: int) -> webtor.Sonda:
-        return webtor.sonda(url, rok_ms, preveri_vsebino=False)
+    def _skrivni_sonda(self, url: str, rok_ms: int, glave: Optional[dict] = None) -> webtor.Sonda:
+        return webtor.sonda(url, rok_ms, preveri_vsebino=False, glave=glave)
 
     def _razresi_skrivne_tokove(self, tokovi: list, stanje: dict) -> list:
         """Tokovi dodatka z osebnim kljucem imajo nadomestek (core/skrivni_dodatki.skrij_tok; Torrentio z debrid kljucem:
@@ -3297,13 +3336,16 @@ class MediaCenter:
                 stanje["zacetek"] = zdaj
             stanje["poskusov"] += 1
             try:
-                s = self._skrivni_sonda(pravi, rok)
+                s = self._skrivni_sonda(pravi, rok, t.get("glave"))     # Grok 19 M3: glave toka tudi sondi
             except Exception as e:  # noqa: BLE001 - nepricakovana napaka sonde: naslednji tok
                 print("[SafeerMedia] sonda toka s kljucem:", type(e).__name__, flush=True)
                 continue
             print("[SafeerMedia] sonda toka s kljucem:", webtor.opis_za_dnevnik(s), flush=True)
             if s.izid == webtor.PREDVAJAJ and s.koncni and not skrivni_dodatki.nosi_skrivnost(s.koncni, pravi):
-                izid.append(dict(t, url=s.koncni, preverjen=True))
+                nov = dict(t, url=s.koncni, preverjen=True)
+                if webtor.gostitelj(s.koncni) != webtor.gostitelj(pravi):
+                    nov.pop("glave", None)          # Grok 19 M3: glave dodatka ne gredo gostitelju po preusmeritvi
+                izid.append(nov)
         return izid
 
     def _razresi_webtor(self, item_id: str, item: dict, tokovi: list, indeksi: list, stanje: dict) -> Optional[dict]:
