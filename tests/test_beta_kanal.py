@@ -482,8 +482,14 @@ class PoselBetaIzdaja(unittest.TestCase):
         stabilna, beta = self.posli["release"], self.posli["beta-izdaja"]
         self.assertEqual(stabilna["if"], "startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta.')")
         self.assertEqual(beta["if"], "startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')")
-        self.assertEqual(beta["needs"], stabilna["needs"])                    # isti preizkusi kot stabilna
-        self.assertIn("mint", beta["needs"])
+        # Obe izdaji: brez gradnje ob oznaki, paketi zelenega teka istega commita z istimi posli (tools/ci_izdaja.py).
+        self.assertNotIn("needs", beta)
+        self.assertNotIn("needs", stabilna)
+        for posel in (beta, stabilna):
+            self.assertIn("python3 tools/ci_izdaja.py najdi", json.dumps(posel))
+        sys.path.insert(0, str(KOREN / "tools"))
+        import ci_izdaja
+        self.assertIn("mint", ci_izdaja.POSLI_IZDAJE)
         besedilo = json.dumps(beta)
         self.assertIn("--draft --prerelease --verify-tag", besedilo)
         ukazi_gh = [v.strip() for k in beta["steps"] for v in (k.get("run") or "").splitlines() if "gh " in v]
@@ -540,11 +546,13 @@ sys.exit("neznan ukaz: %s" % a)
                 gh.write_text(self.GH)
                 gh.chmod(0o755)
                 (Path(d) / "stanje.json").write_text(json.dumps({"izdaja": izdaja}))
-                (Path(d) / "artifacts" / "safeer-os").mkdir(parents=True)
-                (Path(d) / "artifacts" / "safeer-os" / "safeer-os_0.4.86-beta.1_amd64.deb").write_text("x")
+                # Pakete in SHA256SUMS pripravi korak pred tem (tools/ci_izdaja.py preveri) iz zelenega teka.
+                (Path(d) / "release").mkdir()
+                (Path(d) / "release" / "safeer-os_0.4.86-beta.1_amd64.deb").write_text("x")
+                (Path(d) / "release" / "SHA256SUMS").write_text("%s  safeer-os_0.4.86-beta.1_amd64.deb\n" % ("0" * 64))
                 r = subprocess.run(["bash", "-e", "-c", skripta], cwd=d, capture_output=True, text=True,
                                    env=dict(os.environ, PATH=str(gh.parent) + os.pathsep + os.environ["PATH"],
-                                            TAG="v1.0.128-beta.1", GH_TOKEN="x", GH_REPO="lastnik/repo"))
+                                            TAG="v1.0.128-beta.1", GH_TOKEN="x", GH_REPO="lastnik/repo", TEK="123"))
                 self.assertEqual(r.returncode, koda, r.stdout + r.stderr)
                 klici = (Path(d) / "klici.txt").read_text()
                 self.assertEqual("release create" in klici, ustvari, klici)

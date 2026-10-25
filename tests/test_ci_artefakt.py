@@ -18,13 +18,16 @@ import ci_artefakt as ca  # noqa: E402
 
 REPO = "lastnik/repo"
 REPO_ID = "1066"
-SHA_MAIN = "a" * 40          # commit v zgodovini main
+SHA_MAIN = "a" * 40          # commit, ki je bil vrh refs/heads/main (zdruzitev), zdaj v zgodovini main
 SHA_TUJ = "b" * 40           # commit, ki ga v main ni (veja, oznaka z imenom »main«)
+SHA_GLAVA = "e" * 40         # trenutni vrh refs/heads/main
+SHA_VMESNI = "f" * 40        # vmesni commit zdruzene veje: v zgodovini main, a nikoli vrh main (pregled N1 b)
 
 GLAVNA = ca.Potrosnik("refs/heads/main", "push")
 GLAVNA_ROCNO = ca.Potrosnik("refs/heads/main", "workflow_dispatch")
 OZNAKA = ca.Potrosnik("refs/tags/v1.0.133", "push")
 PR = ca.Potrosnik("refs/pull/7/merge", "pull_request")
+PR_DELO = ca.Potrosnik("refs/pull/7/merge", "pull_request", "delo-133")     # PR iz veje delo-133 (GITHUB_HEAD_REF)
 DELO = ca.Potrosnik("refs/heads/delo-133", "push")
 DELO_ROCNO = ca.Potrosnik("refs/heads/delo-133", "workflow_dispatch")
 ZLO = ca.Potrosnik("refs/heads/v1-zlo", "push")
@@ -37,15 +40,25 @@ def tek(id_, dogodek="push", repo=REPO_ID, veja="delo-133", sha=SHA_TUJ, pot=ca.
     return t
 
 
-def primerjava(pot):
-    """Lazen API primerjave commitov: SHA_MAIN je v zgodovini main, ostali ne."""
-    assert pot.startswith("/repos/%s/compare/" % REPO), pot
-    return {"status": "ahead" if ("/compare/%s...main" % SHA_MAIN) in pot else "diverged"}
+def glavni_api(pot):
+    """Lazen API za vir »main«: vrh veje, primerjava commitov (samo s SHA veje - ime »main« je ob oznaki main dvoumno,
+    pregled N1 a) in dejavnost refs/heads/main (kateri commiti so bili vrh main)."""
+    if pot == "/repos/%s/git/ref/heads/main" % REPO:
+        return {"ref": "refs/heads/main", "object": {"sha": SHA_GLAVA, "type": "commit"}}
+    if pot.startswith("/repos/%s/compare/" % REPO):
+        assert pot.endswith("...%s?per_page=1" % SHA_GLAVA), pot
+        sha = pot.split("/compare/", 1)[1].split("...", 1)[0]
+        return {"status": {SHA_GLAVA: "identical", SHA_MAIN: "ahead", SHA_VMESNI: "ahead"}.get(sha, "diverged")}
+    if pot.startswith("/repos/%s/activity?ref=refs/heads/main" % REPO):
+        return [{"after": SHA_GLAVA, "ref": "refs/heads/main", "activity_type": "push"},
+                {"after": SHA_MAIN, "ref": "refs/heads/main", "activity_type": "pr_merge"},
+                {"after": SHA_TUJ, "ref": "refs/heads/main", "activity_type": "branch_deletion"}]
+    raise AssertionError(pot)
 
 
 class Zaupanje(unittest.TestCase):
     def vir(self, t, potrosnik):
-        return ca.vir(t, REPO_ID, potrosnik, primerjava, REPO)
+        return ca.vir(t, REPO_ID, potrosnik, glavni_api, REPO)
 
     def test_v1_zlo_ni_vir_za_izdajo_main_ali_drugo_vejo(self):
         """Pregled M1 (KRITICNO): veja, katere ime se zacne z »v«, ni oznaka izdaje - njen artefakt ne gre v izdajo."""
@@ -74,12 +87,53 @@ class Zaupanje(unittest.TestCase):
                 with self.subTest(tek=t["id"], potrosnik=potrosnik):
                     self.assertIsNone(self.vir(t, potrosnik))
 
+    def test_oznaka_main_ni_tek_main(self):
+        """Ponovni pregled N1: tek oznake »main« (head_branch main, push) na commitu, ki ni bil nikoli vrh refs/heads/main
+        (vmesni commit zdruzene veje ali tuj commit), ni vir; primerjava je s SHA veje, ne z imenom."""
+        for sha in (SHA_VMESNI, SHA_TUJ):
+            for potrosnik in (GLAVNA, OZNAKA, PR, DELO):
+                with self.subTest(sha=sha[:1], potrosnik=potrosnik):
+                    self.assertIsNone(self.vir(tek(1, veja="main", sha=sha), potrosnik))
+        self.assertEqual(self.vir(tek(2, veja="main", sha=SHA_GLAVA), OZNAKA), "main")
+        klici = []
+        ca.iz_glavne(tek(3, veja="main", sha=SHA_MAIN), lambda p: (klici.append(p), glavni_api(p))[1], REPO)
+        self.assertFalse([k for k in klici if "...main?" in k], klici)
+
+    def test_dejavnost_ni_dosegljiva(self):
+        """Brez dokaza, da je bil commit vrh main (API dejavnosti 403/404), vir ni zaupanja vreden - gradnja v teku."""
+        import urllib.error
+
+        def api(pot):
+            if "/activity?" in pot:
+                raise urllib.error.HTTPError(pot, 403, "Resource not accessible by integration", {}, None)
+            return glavni_api(pot)
+        opozorila = []
+        self.assertFalse(ca.iz_glavne(tek(1, veja="main", sha=SHA_MAIN), api, REPO, opozorila.append))
+        self.assertIn("403", opozorila[0])
+
     def test_veja_iz_sebe_nikoli_iz_tuje(self):
         self.assertEqual(self.vir(tek(1, veja="delo-133"), DELO), "veja")
         self.assertEqual(self.vir(tek(1, "workflow_dispatch", veja="delo-133"), DELO), "veja")
         self.assertEqual(self.vir(tek(1, veja="delo-133"), DELO_ROCNO), "veja")
         self.assertIsNone(self.vir(tek(1, veja="druga"), DELO))
         self.assertIsNone(self.vir(tek(1, "pull_request", veja="delo-133"), DELO))
+
+    def test_pull_request_iz_veje_glave(self):
+        """Ponovni pregled N2: PR vzame artefakt teka veje glave (potisk v ta repozitorij) ali main, nikoli tuje veje,
+        PR teka ali forka; sam nikoli ne nalaga (nikomur ni vir) in ne osvezuje."""
+        self.assertEqual(self.vir(tek(1, veja="delo-133"), PR_DELO), "veja")
+        self.assertEqual(self.vir(tek(2, "workflow_dispatch", veja="delo-133"), PR_DELO), "veja")
+        self.assertEqual(self.vir(tek(3, veja="main", sha=SHA_MAIN), PR_DELO), "main")
+        for t in (tek(4, veja="druga"), tek(5, "pull_request", veja="delo-133"), tek(6, veja="delo-133", repo="999"),
+                  tek(7, veja="v1-zlo")):
+            with self.subTest(tek=t["id"]):
+                self.assertIsNone(self.vir(t, PR_DELO))
+        self.assertFalse(PR_DELO.nalaga)
+        self.assertFalse(ca.osvezi({"vir": "veja", "ustvarjen": "2026-01-01T00:00:00Z"}, PR_DELO))
+        for glava in ("", "main", "refs/heads/delo-133"):                   # brez glave ali glava main: samo main
+            with self.subTest(glava=glava):
+                self.assertIsNone(ca.Potrosnik("refs/pull/7/merge", "pull_request", glava).domaca_veja)
+        self.assertIsNone(ca.Potrosnik("refs/tags/v1.0.133", "push", "delo-133").domaca_veja)   # glava samo pri PR
 
     def test_repozitorij_in_tok(self):
         """Fork (drug repozitorij), drug tok in manjkajoce polje path (pregled M8) niso vir."""
@@ -123,9 +177,9 @@ class Najdi(unittest.TestCase):
             if "/actions/artifacts?" in pot:
                 stran = int(pot.rsplit("page=", 1)[1])
                 return {"artifacts": artefakti[(stran - 1) * 100:stran * 100]}
-            if "/compare/" in pot:
-                return primerjava(pot)
-            return teki[int(pot.rsplit("/", 1)[1])]
+            if "/actions/runs/" in pot:
+                return teki[int(pot.rsplit("/", 1)[1])]
+            return glavni_api(pot)
         return api
 
     def test_najnovejsi_zaupanja_vreden(self):
@@ -145,6 +199,17 @@ class Najdi(unittest.TestCase):
         self.assertIn("iz teka 50 ", opozorila[0])
         self.assertIn("iz teka 30 ", opozorila[1])
         self.assertIsNone(ca.najdi("x", REPO, REPO_ID, OZNAKA, lambda p: {"artifacts": []}))
+
+    def test_kandidat_tuje_veje_brez_klica(self):
+        """Pregled N5: artefakt, katerega tek po podatkih artefakta ni iz main, te veje ali tega repozitorija, se zavrze
+        brez klica API teka (odlocitev o viru pa je vedno iz podatkov teka)."""
+        artefakti = [{"name": "k", "expired": False, "created_at": "2026-10-2%dT00:00:00Z" % i,
+                      "workflow_run": {"id": i, "head_branch": veja, "head_repository_id": int(repo)}}
+                     for i, veja, repo in ((3, "tuja", REPO_ID), (2, "main", "77"), (1, "delo-133", REPO_ID))]
+        klici = []
+        izid = ca.najdi("k", REPO, REPO_ID, DELO, self._api(artefakti, {1: tek(1, veja="delo-133")}, klici))
+        self.assertEqual(izid["run_id"], "1")
+        self.assertEqual([k for k in klici if "/actions/runs/" in k], ["/repos/%s/actions/runs/1" % REPO])
 
     def test_strani(self):
         """Pregled M9: vec kot 100 artefaktov z istim imenom - prebere vse strani in vzame najnovejsega."""
@@ -232,8 +297,12 @@ class KorakVToku(unittest.TestCase):
             for i, t in enumerate(teki)]}
         for t in teki:
             self.streznik.podatki["/repos/%s/actions/runs/%d" % (REPO, t["id"])] = t
-        self.streznik.podatki["/repos/%s/compare/%s...main?per_page=1" % (REPO, SHA_MAIN)] = {"status": "ahead"}
-        self.streznik.podatki["/repos/%s/compare/%s...main?per_page=1" % (REPO, SHA_TUJ)] = {"status": "diverged"}
+        for sha in (SHA_MAIN, SHA_TUJ, SHA_VMESNI, SHA_GLAVA):
+            pot_p = "/repos/%s/compare/%s...%s?per_page=1" % (REPO, sha, SHA_GLAVA)
+            self.streznik.podatki[pot_p] = glavni_api(pot_p)
+        for pot_g in ("/repos/%s/git/ref/heads/main" % REPO,
+                      "/repos/%s/activity?ref=refs/heads/main&per_page=100&time_period=quarter" % REPO):
+            self.streznik.podatki[pot_g] = glavni_api(pot_g)
 
     def test_webkit_kljuc_izdaja_ne_vzame_veje_v1_zlo(self):
         korak = self._korak("webkit-kljuc", "Finished WebKitGTK with this key (artifact of main or of this branch)")
@@ -250,6 +319,11 @@ class KorakVToku(unittest.TestCase):
                 self.assertIn("gradnja v tem teku", izpis)
         k, izhod, izpis = self._pozeni(korak, "refs/heads/v1-zlo", "push")
         self.assertEqual((k, izhod["run_id"], izhod["vir"]), (0, "6", "veja"), izpis)
+        # Pregled N2: pull_request iz veje v1-zlo (GITHUB_HEAD_REF postavi GitHub) vzame artefakt te veje, ne nalaga.
+        k, izhod, izpis = self._pozeni(korak, "refs/pull/7/merge", "pull_request", {"GITHUB_HEAD_REF": "v1-zlo"})
+        self.assertEqual((k, izhod["run_id"], izhod["vir"], izhod["nalozi"]), (0, "6", "veja", "false"), izpis)
+        k, izhod, izpis = self._pozeni(korak, "refs/pull/7/merge", "pull_request", {"GITHUB_HEAD_REF": "druga"})
+        self.assertEqual((k, izhod["run_id"]), (0, ""), izpis)
 
     def test_profil_pgo_flatpaka(self):
         """Posel webkit-pgo-profil (prej lastna skripta s pravilom »veja v* in vse veje«): ista pravila; izrecno izbran

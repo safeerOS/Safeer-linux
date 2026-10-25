@@ -48,7 +48,13 @@ class TestCiBrezAppImage(unittest.TestCase):
     def test_izdaja_brez_appimage(self):
         koraki = [k for posel in self.wf["jobs"].values() for k in posel.get("steps", [])
                   if "sha256sum -- * > SHA256SUMS" in (k.get("run") or "")]
-        self.assertEqual(len(koraki), 2)              # stabilna in beta izdaja
+        # Od 25. 10. 2026 seznam paketov izdaje zapise posel paketi-izdaje v teku veje; izdaja (stabilna in beta) ob oznaki
+        # vzame natanko te datoteke (tools/ci_izdaja.py preveri: AppImage ali datoteka zunaj seznama = napaka).
+        self.assertEqual(koraki, [k for k in self.wf["jobs"]["paketi-izdaje"]["steps"] if k in koraki])
+        self.assertEqual(len(koraki), 1)
+        for izdaja in ("release", "beta-izdaja"):
+            self.assertIn("python3 tools/ci_izdaja.py preveri artifacts artifacts/paketi-izdaje release",
+                          [k.get("run") for k in self.wf["jobs"][izdaja]["steps"]])
         for k in koraki:
             # AppImage med artefakti ustavi izdajo, preden se karkoli premakne v izdajo; v izdajo gredo samo .deb in .flatpak.
             self.assertIn("if find artifacts -type f -name '*.AppImage' | grep .; then", k["run"])

@@ -412,8 +412,9 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('scit_lab/lab.sh preizkus',posli['flatpak'])
         izdaja=posli['release']
         self.assertIn('ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak',izdaja)
-        potrebe=[p.strip() for p in re.search(r'^    needs: \[([^\]]+)\]$',izdaja,re.M).group(1).split(',')]
-        self.assertTrue({'flatpak','flatpak-brskalnik'}<=set(potrebe),potrebe)
+        # Paketi izdaje iz zelenega teka istega commita, v katerem sta bila oba Flatpaka uspesna (tools/ci_izdaja.py).
+        self.assertIn('python3 tools/ci_izdaja.py najdi',izdaja)
+        self.assertTrue({'flatpak','flatpak-brskalnik'}<=set(_ci_izdaja().POSLI_IZDAJE))
         # Imena paketov za uporabnike ostanejo.
         for skripta,ime in (('build_os_flatpak.sh','"dist/Safeer-OS-${VERSION}-x86_64.flatpak"'),
                             ('build_flatpak.sh','"dist/Safeer-Browser-${VERSION}-x86_64.flatpak"')):
@@ -1423,10 +1424,12 @@ class DebWebkitTests(unittest.TestCase):
         mint=potek.split('\n  mint:\n',1)[1].split('\n  webkit-pgo-profil:\n',1)[0]
         for del_ in (qt,mint):
             self.assertNotIn('name: safeer-webkit',del_)
-        for izdaja in ('release','beta-izdaja'):
-            del_=potek.split('\n  %s:\n'%izdaja,1)[1].split('\n  beta-izdaja:\n',1)[0]
+        for izdaja in ('release','beta-izdaja','paketi-izdaje'):
+            del_=potek.split('\n  %s:\n'%izdaja,1)[1].split('\n  beta-izdaja:\n',1)[0].split('\n  preizkusi-webkit:\n',1)[0]
             self.assertIn('artifacts/safeer-os/safeer-os-app_*_amd64.deb',del_)
-            self.assertIn("! -name 'safeer-webkit_*'",del_)
+        # safeer-webkit ne gre v izdajo: ga ni v seznamu paketov teka in preverba izdaje ga izpusti (tools/ci_izdaja.py).
+        self.assertIn("! -name 'safeer-webkit_*'",potek.split('\n  paketi-izdaje:\n',1)[1].split('\n  preizkusi-webkit:\n',1)[0])
+        self.assertIn('not p.name.startswith("safeer-webkit_")',(ROOT/'tools/ci_izdaja.py').read_text())
         self.assertIn('/smoke_webkit_deb.py',(ROOT/'tools/mint_namestitev/preizkus.sh').read_text())
         mint_skripta=(ROOT/'tools/mint_namestitev/v_vsebniku.sh').read_text()
         self.assertIn('webkit_preizkus "s sistemskim WebKitGTK',mint_skripta)
@@ -1712,9 +1715,16 @@ class MintInstallTests(unittest.TestCase):
         self.assertIn('\n  mint:\n',potek)
         self.assertIn('tools/mint_namestitev/preizkus.sh',potek)
         izdaja=potek.split('\n  release:\n',1)[1]
-        potrebe=re.search(r'^    needs: \[([^\]]+)\]$',izdaja,re.M)
-        self.assertIsNotNone(potrebe)
-        self.assertIn('mint',[p.strip() for p in potrebe.group(1).split(',')])
+        # Od 25. 10. 2026 izdaja vzame pakete zelenega teka istega commita, v katerem so bili vsi posli mint uspesni.
+        self.assertIn('python3 tools/ci_izdaja.py najdi',izdaja)
+        self.assertIn('mint',_ci_izdaja().POSLI_IZDAJE)
+
+
+def _ci_izdaja():
+    import sys
+    sys.path.insert(0,str(ROOT/'tools'))
+    import ci_izdaja
+    return ci_izdaja
 
 
 class CiPregledTests(unittest.TestCase):

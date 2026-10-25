@@ -22,20 +22,29 @@ on:
         description: 'Id teka z artefaktom profila PGO (prazno = samodejno po kljucu)'
         type: string
         default: ''
+      izdaja_tek:
+        # Samo rocni zagon na oznaki v*: ce ima commit oznake vec zelenih tekov (npr. v1.0.128: main in gtk4-deb-webkit),
+        # posel izdaje pade, ker CI ne ve, katerega je lastnik preizkusil; ta vhod ga izbere (tools/ci_izdaja.py preveri
+        # isto kot sicer). Gradnje ne spremeni - na veji ga tok ne uporabi.
+        description: 'Samo na oznaki v*: id preizkusenega zelenega teka istega commita (prazno = edini zelen tek)'
+        type: string
+        default: ''
 permissions:
   contents: read
 # Ena veja = en tek (lastnik 25. 10. 2026: »za veliko gradnje je relativno malo uspehov«): nov potisk ali rocni zagon iste
 # veje preklice starejsi tek te veje, ki bi sicer gradil in preizkusal zastarel commit. Oznake (v*, izdaje) se nikoli ne
-# preklicejo; posla release/beta-izdaja imata se svojo skupino.
+# preklicejo; posla release/beta-izdaja imata se svojo skupino. Tudi main ne (ponovni pregled 25. 10. 2026, N2): tek main
+# nalozi WebKit za vse veje, preklic sredi 2-3 h gradnje bi pustil vse veje brez artefakta.
 concurrency:
   group: linux-packages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/main' }}
 # AppImage izdaje so opuscene (lastnik, 21. 10. 2026, od 1.0.132): AppImage 1.0.131 je nosil Ubuntujev WebKitGTK 2.52.6 in
 # libsoup 3.4.4 s puscanjem, ne nasega WebKita. CI AppImage ne gradi (koraki odstranjeni 25. 10. 2026: 12 padcev v oktobru)
 # in izdaja AppImage zavrne; skripte packaging/build_*appimage.sh ostanejo za ponovni vklop, ko bo nosil nas WebKit z odtisom.
 jobs:
   # ---- ruff za novo kodo (naloga 45): S110/BLE001/E722 samo v vrsticah, ki jih veja doda ali spremeni ------------------
   ruff-nova-koda:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -70,6 +79,7 @@ jobs:
   # v poslu preizkusi-webkit z nasim WebKitom. Vse gradnje (webkit-*, flatpak*, paketi, qt-xcb, mint, debian) cakajo na
   # hitra-vrata in ruff-nova-koda (needs neposredno ali prek webkit-kljuc / webkit-pgo-profil).
   hitra-vrata:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
@@ -234,7 +244,8 @@ jobs:
           github-token: ${{ github.token }}
       - name: The PGO profile is the one that was uploaded (SHA-256)
         if: needs.webkit-kljuc.outputs.profil_run != ''
-        run: (cd build/pgo/profraw && sha256sum -c SHA256SUMS)
+        shell: bash
+        run: (cd build/pgo/profraw && sha256sum -c --strict SHA256SUMS && diff <(ls -1 -- *.profraw) <(awk '{print $2}' SHA256SUMS | sort))
       - name: Restore the PGO profile (recorded earlier from the same files)
         id: profil
         if: needs.webkit-kljuc.outputs.profil_run == ''
@@ -352,7 +363,8 @@ jobs:
           github-token: ${{ github.token }}
       - name: The PGO profile is the one that was uploaded (SHA-256)
         if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'
-        run: (cd build/pgo/profraw && sha256sum -c SHA256SUMS)
+        shell: bash
+        run: (cd build/pgo/profraw && sha256sum -c --strict SHA256SUMS && diff <(ls -1 -- *.profraw) <(awk '{print $2}' SHA256SUMS | sort))
       - name: Build dependencies (Clang 22 and BOLT 22 from apt.llvm.org, noble libraries, BOLT training run tools)
         if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true'
         run: |
@@ -489,6 +501,7 @@ jobs:
     # noble ima libdav1d7, nima pa vticnika GStreamer zanj (ostane le pocasni libaom av1dec). Lastnik, 18. 10. 2026:
     # YouTube AV1 720p z dav1ddec 0 izpuscenih slicic, ~12 % manj CPU. Gradnja na runnerju ubuntu-24.04 (noble, isti
     # GStreamer 1.24 kot Linux Mint 22) z rustup runnerja (cargo iz apt noble je prestar); ~1 min, nato iz predpomnilnika.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -527,6 +540,7 @@ jobs:
     # brez IPv6 (ipv6.disable=1) ne zazene: odjemalec sledilnikov UDP veze [::]:0 tudi z --ipv4-only (lastnik, 18. 10.
     # 2026: popravek takoj v nas paket in predlog gorvodno). Staticno (musl) kot uradne izdaje; gradnja samo ob novem
     # viru ali popravku (kljuc), preizkus brez IPv6 ob vsakem teku.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -997,7 +1011,8 @@ jobs:
           flatpak-builder --user --install --force-clean build/pgo/app "$M"
           echo "::notice::predpomnilnik flatpak-builder: $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Save flatpak-builder cache (instrumented WebKitGTK)
-        if: always() && steps.pgo-cache.outputs.cache-hit != 'true'
+        # Samo po uspesni instrumentirani gradnji (pregled N6); padec ucnega teka kasneje gradnje ne izgubi.
+        if: steps.pgo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
@@ -1135,9 +1150,9 @@ jobs:
           # Kateri moduli so prisli iz predpomnilnika in koliko ga je (omejitev GitHub: 10 GB na repozitorij).
           echo "::notice::flatpak-builder: $(grep -iE 'cache (hit|miss)' "$RUNNER_TEMP/gradnja.log" | paste -sd '|') | predpomnilnik $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Save flatpak-builder cache (WebKitGTK with PGO)
-        # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Ne ob preklicu
-        # (pregled M13: concurrency preklice star tek; nepopoln predpomnilnik pod koncnim kljucem bi zaprl kljuc).
-        if: ${{ !cancelled() && steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == '' }}
+        # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Samo po uspesni
+        # gradnji (pregleda M13, N6): nepopoln predpomnilnik ob padcu ali preklicu bi zaprl koncni kljuc.
+        if: steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
@@ -1368,9 +1383,9 @@ jobs:
           # Kateri moduli so prisli iz predpomnilnika in koliko ga je (omejitev GitHub: 10 GB na repozitorij).
           echo "::notice::flatpak-builder: $(grep -iE 'cache (hit|miss)' "$RUNNER_TEMP/gradnja.log" | paste -sd '|') | predpomnilnik $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Save flatpak-builder cache (WebKitGTK with PGO)
-        # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Ne ob preklicu
-        # (pregled M13: concurrency preklice star tek; nepopoln predpomnilnik pod koncnim kljucem bi zaprl kljuc).
-        if: ${{ !cancelled() && steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == '' }}
+        # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Samo po uspesni
+        # gradnji (pregleda M13, N6): nepopoln predpomnilnik ob padcu ali preklicu bi zaprl koncni kljuc.
+        if: steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
@@ -1489,6 +1504,7 @@ jobs:
     # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
     # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).
     # Ta posel zato Scit pozene na pravih: dva vsebnika, »usmerjevalnik« in »racunalnik« (tools/scit_lab).
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -1496,6 +1512,56 @@ jobs:
         run: bash tools/scit_lab/lab.sh zgradi
       - name: Shield against a real systemd-resolved and NetworkManager
         run: bash tools/scit_lab/lab.sh preizkus
+  paketi-izdaje:
+    # Lastnik 25. 10. 2026: »Izdaja je samo to, kar preizkusim in recem, da lahko objavimo.« Oznaka v* nicesar ne gradi:
+    # posel release/beta-izdaja vzame pakete zelenega teka veje za ISTI commit (tools/ci_izdaja.py). Ta posel zapise,
+    # katere datoteke so to (SHA-256), in vhode teka. Rocni zagon z vhodi, ki spremenijo gradnjo (pgo, pgo_profraw_run:
+    # drug profil PGO), artefakta ne nalozi - tak tek ni vir izdaje.
+    needs: [brskalnik, safeer-os, flatpak, flatpak-brskalnik]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: brskalnik
+          path: artifacts/brskalnik
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: safeer-os
+          path: artifacts/safeer-os
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak
+          path: artifacts/flatpak
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak-brskalnik
+          path: artifacts/flatpak-brskalnik
+      - name: Release packages of this run and their SHA-256
+        env:
+          DOGODEK: ${{ github.event_name }}
+          PGO: ${{ inputs.pgo }}
+          PGO_TEK: ${{ inputs.pgo_profraw_run }}
+        run: |
+          ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak
+          ls -l artifacts/brskalnik/safeer-browser_*_amd64.deb artifacts/safeer-os/safeer-os_*_amd64.deb artifacts/safeer-os/safeer-os-app_*_amd64.deb
+          mkdir -p release paketi-izdaje
+          # AppImage s tujim WebKitom ne sme v izdajo (od 1.0.132; CI ga ne gradi, glej zacetek datoteke).
+          if find artifacts -type f -name '*.AppImage' | grep .; then echo "::error::AppImage med artefakti izdaje"; exit 1; fi
+          find artifacts -type f \( -name '*.deb' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
+          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          mv release/SHA256SUMS paketi-izdaje/
+          python3 -c 'import json, os; print(json.dumps({"dogodek": os.environ["DOGODEK"], "pgo": os.environ["PGO"], "pgo_profraw_run": os.environ["PGO_TEK"]}))' > paketi-izdaje/vhodi.json
+          cat paketi-izdaje/vhodi.json
+      - name: Release packages list (only a run whose inputs do not change the build)
+        # Potisk ali rocni zagon s privzetima vhodoma gradnje; pull_request ni vir izdaje (tools/ci_izdaja.py PISANJE).
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.pgo && inputs.pgo_profraw_run == '')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: paketi-izdaje
+          path: paketi-izdaje/
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
   preizkusi-webkit:
     # Enotski preizkusi, ki WebKit nalozijo (tests/razvrstitev_webkit.py --safeer-webkit=samo: ~100 datotek, ocena ~8 min),
     # z NASIM WebKitGTK in libsoup iz paketa safeer-webkit tega teka (lastnik 21. 10. 2026: preizkus s sistemskim WebKitGTK
@@ -1596,14 +1662,15 @@ jobs:
           key: padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
   release:
     # Beta oznake (v1.0.128-beta.1) gredo v posel beta-izdaja (osnutek predizdaje), nikoli v stabilno izdajo.
+    # Brez needs: ob oznaki se nic ne gradi; paketi so iz zelenega teka veje istega commita (tools/ci_izdaja.py).
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta.')
-    needs: [hitra-vrata, preizkusi-webkit, brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: read
     steps:
       # Vrata izdaje (20. 10. 2026, »pravila namesto navodil«): brez zapisa neodvisnega pregleda drugega ponudnika
       # (docs/pregledi/<oznaka>.md) in z odprtimi kriticnimi/visokimi najdbami izdaja ne nastane.
@@ -1615,9 +1682,47 @@ jobs:
           TAG: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
         run: python3 tools/preveri_pregled.py "$TAG" "$SHA"
+      - name: Green run of the same commit (the tag builds nothing)
+        # Lastnik 25. 10. 2026: izdaja so natanko paketi teka, ki ga je lastnik preizkusil - zelen tek veje tega
+        # repozitorija in toka za ISTI commit (tools/ci_izdaja.py: vsi posli izdaje uspesni, tudi mint in preizkusi-webkit).
+        # Ce ga ni, posel pade z navodilom; nic se ne gradi na novo. Vec zelenih tekov: pade, izbira z vhodom izdaja_tek.
+        id: tek
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA_TEK: ${{ inputs.izdaja_tek }}
+        run: python3 tools/ci_izdaja.py najdi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: artifacts
+          name: brskalnik
+          path: artifacts/brskalnik
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: safeer-os
+          path: artifacts/safeer-os
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak
+          path: artifacts/flatpak
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak-brskalnik
+          path: artifacts/flatpak-brskalnik
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: paketi-izdaje
+          path: artifacts/paketi-izdaje
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Packages are exactly those of that run (SHA-256 of every file)
+        run: python3 tools/ci_izdaja.py preveri artifacts artifacts/paketi-izdaje release
       - name: Both Flatpaks (WebKitGTK with PGO) are present
         # Zgradila in preverila (USE_PGO_PROFILE, -fprofile-use, profil) sta ju posla flatpak in flatpak-brskalnik; brez
         # katerega od njiju izdaja ne nastane.
@@ -1631,18 +1736,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          TEK: ${{ steps.tek.outputs.run_id }}
         run: |
-          mkdir -p release
-          # Vsak artefakt je v svoji mapi.
-          # AppImage s tujim WebKitom ne sme v izdajo (od 1.0.132; CI ga ne gradi, glej zacetek datoteke).
-          if find artifacts -type f -name '*.AppImage' | grep .; then echo "::error::AppImage med artefakti izdaje"; exit 1; fi
-          find artifacts -type f \( -name '*.deb' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
-          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          # Datoteke in SHA256SUMS je pripravil prejsnji korak (nespremenjene iz teka $TEK).
+          cat release/SHA256SUMS
           # A tag push gets a draft with the packages attached. A published release is final: its files
           # are the ones that were tested and whose checksums are in the update manifest, so a re-run of
           # this job (or any other trigger) must never replace them.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --verify-tag --title "Safeer Browser $TAG" --notes 'Linux packages. Complete the desktop acceptance checklist before publishing.'
+            gh release create "$TAG" --draft --verify-tag --title "Safeer Browser $TAG" --notes "Linux packages from CI run $TEK (the tested run of this commit). Complete the desktop acceptance checklist before publishing."
           fi
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
             echo "Release $TAG is already published; its packages are not replaced."
@@ -1656,13 +1758,13 @@ jobs:
     # zadnjo izdajo ostanejo na stabilni), Safeer OS pa jo ponudi samo uporabnikom z vklopljenim Beta kanalom - in sele,
     # ko je beta seznam (razlicice-beta.json, tools/beta_seznam.py) podpisan in na safeer.si.
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')
-    needs: [hitra-vrata, preizkusi-webkit, brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Beta tag shape (vX.Y.Z-beta.N)
         env:
@@ -1679,9 +1781,47 @@ jobs:
           TAG: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
         run: python3 tools/preveri_pregled.py "$TAG" "$SHA"
+      - name: Green run of the same commit (the tag builds nothing)
+        # Lastnik 25. 10. 2026: izdaja so natanko paketi teka, ki ga je lastnik preizkusil - zelen tek veje tega
+        # repozitorija in toka za ISTI commit (tools/ci_izdaja.py: vsi posli izdaje uspesni, tudi mint in preizkusi-webkit).
+        # Ce ga ni, posel pade z navodilom; nic se ne gradi na novo. Vec zelenih tekov: pade, izbira z vhodom izdaja_tek.
+        id: tek
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA_TEK: ${{ inputs.izdaja_tek }}
+        run: python3 tools/ci_izdaja.py najdi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: artifacts
+          name: brskalnik
+          path: artifacts/brskalnik
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: safeer-os
+          path: artifacts/safeer-os
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak
+          path: artifacts/flatpak
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: flatpak-brskalnik
+          path: artifacts/flatpak-brskalnik
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: paketi-izdaje
+          path: artifacts/paketi-izdaje
+          run-id: ${{ steps.tek.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Packages are exactly those of that run (SHA-256 of every file)
+        run: python3 tools/ci_izdaja.py preveri artifacts artifacts/paketi-izdaje release
       - name: Both Flatpaks (WebKitGTK with PGO) are present
         run: ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak
       - name: Every Linux .deb is present (WebKit built in)
@@ -1691,15 +1831,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          TEK: ${{ steps.tek.outputs.run_id }}
         run: |
-          mkdir -p release
-          # AppImage s tujim WebKitom ne sme v izdajo (od 1.0.132; CI ga ne gradi, glej zacetek datoteke).
-          if find artifacts -type f -name '*.AppImage' | grep .; then echo "::error::AppImage med artefakti izdaje"; exit 1; fi
-          find artifacts -type f \( -name '*.deb' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
-          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          # Datoteke in SHA256SUMS je pripravil prejsnji korak (nespremenjene iz teka $TEK).
+          cat release/SHA256SUMS
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --prerelease --verify-tag --title "Safeer $TAG (beta)" \
-              --notes 'Beta (pre-release) Linux packages for the Safeer beta channel. Not for general use. Complete the desktop acceptance checklist before publishing; then sign the beta list (docs/BETA.md).'
+              --notes "Beta (pre-release) Linux packages for the Safeer beta channel from CI run $TEK (the tested run of this commit). Not for general use. Complete the desktop acceptance checklist before publishing; then sign the beta list (docs/BETA.md)."
           fi
           # Beta paketi nikoli v izdajo, ki ni predizdaja (ta bi postala »latest« za vse uporabnike).
           if [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" != "true" ]; then

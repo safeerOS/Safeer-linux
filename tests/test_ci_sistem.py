@@ -4,6 +4,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,7 +76,10 @@ class QtXcb(unittest.TestCase):
         self.assertIn("bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor", koraki)
         # Najmanjsi vsebnik: pred paketom se ne namesti nobena knjiznica.
         self.assertNotIn("libxcb", koraki)
-        self.assertIn("qt-xcb", posli["release"]["needs"])
+        # Izdaja vzame pakete zelenega teka istega commita, v katerem je bil qt-xcb uspesen (tools/ci_izdaja.py).
+        sys.path.insert(0, str(KOREN / "tools"))
+        import ci_izdaja
+        self.assertIn("qt-xcb", ci_izdaja.POSLI_IZDAJE)
         mint = (KOREN / "tools" / "mint_namestitev" / "v_vsebniku.sh").read_text(encoding="utf-8")
         self.assertIn("bash /preveri_qxcb.sh /usr/lib/safeer-os/vendor", mint)
         self.assertIn("preveri_qxcb.sh:/preveri_qxcb.sh:ro", (KOREN / "tools" / "mint_namestitev" / "preizkus.sh").read_text())

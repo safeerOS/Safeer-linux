@@ -3,7 +3,9 @@ preizkusi z WebKitom samo z nasim WebKitom, en tek na vejo, WebKit enkrat na klj
 
 Suha preverba grafa poslov (needs) in nastavitev, brez potiska: napaka v delovnem toku se pokaze v hitrih vratih."""
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,11 +18,22 @@ KOREN = Path(__file__).resolve().parents[1]
 DELOVNI_TOK = KOREN / ".github" / "workflows" / "linux-packages.yml"
 sys.path.insert(0, str(KOREN / "tests"))
 import razvrstitev_webkit as rw  # noqa: E402
+sys.path.insert(0, str(KOREN / "tools"))
+import ci_izdaja  # noqa: E402
 
 #: Posli, ki trajajo minute do ur ali gradijo pakete: vsi cakajo na hitra vrata (neposredno ali posredno).
 DRAGI = ("webkit-kljuc", "webkit-deb-profil", "webkit-deb", "brskalnik", "safeer-os", "qt-xcb", "mint", "debian",
-         "webkit-pgo-profil", "webkit-pgo-ucenje", "flatpak", "flatpak-brskalnik", "preizkusi-webkit", "release",
-         "beta-izdaja")
+         "webkit-pgo-profil", "webkit-pgo-ucenje", "flatpak", "flatpak-brskalnik", "preizkusi-webkit", "paketi-izdaje")
+#: Posla izdaje ob oznaki v*: brez needs in brez gradnje (paketi iz zelenega teka istega commita, tools/ci_izdaja.py).
+IZDAJA = ("release", "beta-izdaja")
+#: Gostitelji GitHub (enkratni VM): vsebnik --privileged nikoli na lastnem tekacu (pregled M10, N8 a: brez izrazov).
+GOSTITELJI_GITHUB = frozenset({"ubuntu-24.04", "ubuntu-22.04", "ubuntu-latest", "ubuntu-24.04-arm"})
+
+
+def gostitelj_github(runs_on) -> bool:
+    return isinstance(runs_on, str) and runs_on in GOSTITELJI_GITHUB
+
+
 #: Spletni pogon ne sme v hitra vrata ne kot sistemski v posel preizkusi-webkit.
 SISTEMSKI_WEBKIT = re.compile(r"\b(gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|gir1\.2-javascriptcoregtk|libwebkitgtk-6\.0-4)\b")
 
@@ -57,9 +70,49 @@ class DelovniTok(unittest.TestCase):
                 self.assertLessEqual({"hitra-vrata", "ruff-nova-koda"}, self._predhodniki(posel))
         for posel in ("hitra-vrata", "ruff-nova-koda"):
             self.assertEqual(self._potrebe(posel), [], posel)
-        for izdaja in ("release", "beta-izdaja"):
-            self.assertLessEqual({"hitra-vrata", "preizkusi-webkit", "mint", "flatpak", "flatpak-brskalnik"},
-                                 set(self._potrebe(izdaja)))
+        # Izdaja ne caka na posle istega teka (ob oznaki se nic ne gradi), zahteva pa, da so v izvornem teku istega
+        # commita uspesni vsi posli, na katere je prej cakala (tools/ci_izdaja.py POSLI_IZDAJE).
+        for izdaja in IZDAJA:
+            self.assertEqual(self._potrebe(izdaja), [], izdaja)
+        self.assertLessEqual({"hitra-vrata", "preizkusi-webkit", "brskalnik", "safeer-os", "qt-xcb", "flatpak",
+                              "flatpak-brskalnik", "scit-lab", "mint", "debian", "paketi-izdaje"}, set(ci_izdaja.POSLI_IZDAJE))
+        self.assertLessEqual(set(ci_izdaja.POSLI_IZDAJE), set(self.posli))
+
+    def test_oznaka_nicesar_ne_gradi(self):
+        """Lastnik 25. 10. 2026 (»Izdaja je samo to, kar preizkusim«): ob oznaki v* se preskoci vsak posel razen release in
+        beta-izdaja. Korenski posli imajo pogoj »ne oznaka«; ostali brez statusne funkcije (privzeti success()) ali s
+        pogojem needs.<x>.result == 'success' na najvisji ravni se preskocijo, ker je kateri od njihovih needs preskocen."""
+        ne_oznaka = "${{ !startsWith(github.ref, 'refs/tags/') }}"
+
+        def deli(pogoj):
+            p = pogoj.strip()
+            if p.startswith("${{") and p.endswith("}}"):
+                p = p[3:-2].strip()
+            izid, globina, zacetek = [], 0, 0
+            for i, z in enumerate(p):
+                globina += (z == "(") - (z == ")")
+                if globina == 0 and p.startswith("&&", i):
+                    izid.append(p[zacetek:i].strip())
+                    zacetek = i + 2
+            return izid + [p[zacetek:].strip()]
+
+        preskocen = {}
+        for _ in range(len(self.posli)):
+            for ime, posel in self.posli.items():
+                if ime in IZDAJA or ime in preskocen:
+                    continue
+                potrebe, pogoj = self._potrebe(ime), str(posel.get("if") or "")
+                if not potrebe:
+                    self.assertEqual(pogoj, ne_oznaka, ime)
+                    preskocen[ime] = True
+                elif all(p in preskocen for p in potrebe):
+                    statusna = any(f in pogoj for f in ("always()", "cancelled()", "failure()", "success()"))
+                    if not statusna or any(d == "needs.%s.result == 'success'" % p for d in deli(pogoj) for p in potrebe):
+                        preskocen[ime] = True
+        self.assertEqual(set(preskocen), set(self.posli) - set(IZDAJA))
+        for izdaja in IZDAJA:
+            self.assertTrue(str(self.posli[izdaja]["if"]).startswith("startsWith(github.ref, 'refs/tags/v')"), izdaja)
+            self.assertIn("python3 tools/ci_izdaja.py najdi", self._ukazi(izdaja))
 
     def test_preskok_vrat_preskoci_gradnje(self):
         """Posel z `if: !cancelled() ...` bi tekel tudi, ce hitra vrata padejo: pogoj mora zahtevati uspeh korena verige."""
@@ -158,7 +211,8 @@ class DelovniTok(unittest.TestCase):
         c = self.wf["concurrency"]
         self.assertIn("github.ref", c["group"])
         self.assertIn("github.event.pull_request.number", c["group"])
-        self.assertEqual(c["cancel-in-progress"], "${{ !startsWith(github.ref, 'refs/tags/') }}")
+        # Oznake se ne preklicejo; main tudi ne (ponovni pregled N2: tek main nalozi WebKit za vse veje).
+        self.assertEqual(c["cancel-in-progress"], "${{ !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/main' }}")
         for izdaja in ("release", "beta-izdaja"):
             self.assertEqual(self.posli[izdaja]["concurrency"]["cancel-in-progress"], False)
 
@@ -191,8 +245,27 @@ class DelovniTok(unittest.TestCase):
                             ukazi.index("tar -I zstd -xf build/fb-artefakt/flatpak-builder.tar.zst"))
             shrani = next(x for x in self.posli[posel]["steps"] if x.get("name") == "Save flatpak-builder cache (WebKitGTK with PGO)")
             self.assertIn("steps.fb.outputs.run_id == ''", shrani["if"])     # artefakt ne gre se v predpomnilnik veje
-            self.assertIn("!cancelled()", shrani["if"])                       # pregled M13: ne ob preklicu (concurrency)
-            self.assertNotIn("always()", shrani["if"])
+            # Pregleda M13 in N6: samo po uspesni gradnji (privzeti success()); !cancelled() bi shranil delni predpomnilnik
+            # pod koncnim kljucem tudi ob padcu gradnje, always() se ob preklicu.
+            for funkcija in ("always()", "cancelled()", "failure()"):
+                self.assertNotIn(funkcija, shrani["if"])
+        ucenje = self.posli["webkit-pgo-ucenje"]["steps"]
+        imena = [k.get("name") for k in ucenje]
+        shrani = ucenje[imena.index("Save flatpak-builder cache (instrumented WebKitGTK)")]
+        self.assertEqual(imena.index("Save flatpak-builder cache (instrumented WebKitGTK)"),
+                         imena.index("Instrumented WebKitGTK (Safeer Browser Flatpak)") + 1)   # pred ucnim tekom
+        for funkcija in ("always()", "cancelled()", "failure()"):
+            self.assertNotIn(funkcija, shrani["if"])
+
+    def test_stanje_pred_bolt_samo_popolno(self):
+        """Ponovni pregled N6: stanje pred BOLT se shrani tudi ob padcu BOLT (always(), namen koraka), ker arhiv nastane
+        atomarno: bolt.sh pise v .del, preveri z zstd -t in sele nato preimenuje; hashFiles je prazen, dokler arhiva ni."""
+        korak = next(k for k in self.posli["webkit-deb"]["steps"]
+                     if k.get("name") == "Save the pre-BOLT state of our WebKitGTK (also when BOLT failed)")
+        self.assertIn("hashFiles('build/webkit-predbolt.tar.zst') != ''", korak["if"])
+        bolt = (KOREN / "packaging" / "webkit-deb" / "bolt.sh").read_text(encoding="utf-8")
+        self.assertIn('-cf "$ARHIV.del"', bolt)
+        self.assertIn('zstd -q -t "$ARHIV.del" && mv "$ARHIV.del" "$ARHIV"', bolt)
 
     def test_meja_zaupanja_artefaktov(self):
         """Neodvisni pregled 25. 10. 2026 (M1-M4): vir artefakta odloci samo tools/ci_artefakt.py iz GITHUB_REF (ne vec
@@ -220,10 +293,35 @@ class DelovniTok(unittest.TestCase):
         # Profil PGO .deb: vsote v artefaktu, preverba pred uporabo (iz drugega teka in iz tega teka).
         profil = self._ukazi("webkit-deb-profil")
         self.assertIn("sha256sum -- *.profraw > SHA256SUMS", profil)
-        self.assertLess(profil.index("sha256sum -c SHA256SUMS"), profil.index("sha256sum -- *.profraw > SHA256SUMS"))
-        self.assertIn("sha256sum -c SHA256SUMS", self._ukazi("webkit-deb"))
+        self.assertLess(profil.index("sha256sum -c --strict SHA256SUMS"), profil.index("sha256sum -- *.profraw > SHA256SUMS"))
+        self.assertIn("sha256sum -c --strict SHA256SUMS", self._ukazi("webkit-deb"))
         nalozi = next(k for k in self.posli["webkit-deb-profil"]["steps"] if "upload-artifact" in str(k.get("uses")))
         self.assertIn("build/pgo/profraw/SHA256SUMS", nalozi["with"]["path"])
+
+    def test_preverba_profila_deb(self):
+        """Ponovni pregled N4 (b): profil PGO .deb iz drugega teka (ali tega) gre v gradnjo samo, ce je mnozica *.profraw
+        natanko tista iz SHA256SUMS in se vsaka vsota ujema; dodaten ali spremenjen profil ali manjkajoc seznam ustavi posel.
+        Korak pozenemo v bashu, kot ga pozene GitHub (shell: bash)."""
+        for posel in ("webkit-deb-profil", "webkit-deb"):
+            korak = next(k for k in self.posli[posel]["steps"] if k.get("name") == "The PGO profile is the one that was uploaded (SHA-256)")
+            self.assertEqual(korak.get("shell"), "bash", posel)
+            for primer, koda in (("dobro", 0), ("dodaten", 1), ("spremenjen", 1), ("brez seznama", 1), ("manjka", 1)):
+                with self.subTest(posel=posel, primer=primer), tempfile.TemporaryDirectory() as d:
+                    mapa = Path(d) / "build" / "pgo" / "profraw"
+                    mapa.mkdir(parents=True)
+                    for ime in ("1-a.profraw", "2-b.profraw"):
+                        (mapa / ime).write_bytes(ime.encode() * 100)
+                    subprocess.run("sha256sum -- *.profraw > SHA256SUMS", shell=True, cwd=str(mapa), check=True)
+                    if primer == "dodaten":
+                        (mapa / "3-podtaknjen.profraw").write_bytes(b"x")
+                    elif primer == "spremenjen":
+                        (mapa / "1-a.profraw").write_bytes(b"y")
+                    elif primer == "brez seznama":
+                        (mapa / "SHA256SUMS").unlink()
+                    elif primer == "manjka":
+                        (mapa / "2-b.profraw").unlink()
+                    r = subprocess.run(["bash", "-e", "-c", korak["run"]], cwd=d, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(r.returncode != 0, bool(koda), r.stdout + r.stderr)
 
     def test_pripete_akcije_in_gostitelji_github(self):
         """Pregled M7: akcije na polnem SHA commita (Dependabot github-actions jih posodablja); M10: samo gostitelji GitHub
@@ -238,8 +336,11 @@ class DelovniTok(unittest.TestCase):
         self.assertIn("package-ecosystem: github-actions", (KOREN / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
         for ime, posel in self.posli.items():
             with self.subTest(posel=ime):
-                self.assertNotIn("self-hosted", str(posel.get("runs-on")))
-                self.assertTrue(str(posel.get("runs-on")).startswith(("ubuntu-", "${{")), posel.get("runs-on"))
+                self.assertTrue(gostitelj_github(posel.get("runs-on")), posel.get("runs-on"))
+        # Ponovni pregled N8 (a): izraz v runs-on (npr. ${{ matrix.os }}) bi se lahko razresil v self-hosted - ni dovoljen.
+        for runs_on in ("self-hosted", "${{ matrix.os }}", "${{ 'ubuntu-24.04' }}", ["self-hosted", "linux"], "ubuntu-latest-zlo"):
+            with self.subTest(runs_on=runs_on):
+                self.assertFalse(gostitelj_github(runs_on))
 
     def test_brez_appimage(self):
         besedilo = DELOVNI_TOK.read_text(encoding="utf-8")
