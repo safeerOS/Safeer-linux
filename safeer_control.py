@@ -109,8 +109,8 @@ def _monitor_okna(okno) -> Optional[dict]:
         m = Gdk.Display.get_default().get_monitor_at_surface(okno.get_surface()) if okno.get_surface() else None
         if m is not None:
             return zaslon_monitorji.najdi(vsi, str(m.get_connector() or "")) or (vsi[0] if vsi else None)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 - okno se nima povrsine: prvi monitor
+        return vsi[0] if vsi else None
     return vsi[0] if vsi else None
 
 
