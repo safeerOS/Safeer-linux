@@ -991,12 +991,48 @@ def pretvorba_za_tv_mozna(najdi=None) -> dict:
     return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave), "shramba": bool(naprave)}
 
 
-def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
+#: Zadnji streznik datotek vsake naprave iz NASEGA odgovora files.list (za slicice): stran ga ne more podtakniti.
+_STREZNIKI_NAPRAV: dict = {}
+_SLICICE_NAPRAV = None
+
+
+def datoteke_naprave(id_naprave: str, mapa: str = "", odmik=0) -> dict:
     """Mapa druge naprave (files.list prek Controla): vnosi, streznik za tok in kljuc naprave iz kroga. Samo naprave
-    v ozjem krogu zaupanja (lastnik, 17. 10. 2026)."""
-    if not _v_ozjem_krogu(str(id_naprave or "")):
+    v ozjem krogu zaupanja (lastnik, 17. 10. 2026). `odmik` > 0: naslednji del velike mape (Android link-datoteke:
+    `next_offset`, do 500 vnosov na del) - lastnik 25. 10. 2026: vse datoteke naprave, za katere ima dovoljenje."""
+    id_naprave = str(id_naprave or "")
+    if not _v_ozjem_krogu(id_naprave):
         return {"ok": False, "koda": "ni_ozji_krog", "items": []}
-    return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
+    try:
+        odmik = max(0, min(10 ** 9, int(odmik or 0)))
+    except (TypeError, ValueError):
+        odmik = 0
+    if odmik:
+        izid = _control_naprave("DatotekeDel", id_naprave, str(mapa or ""), json.dumps({"offset": odmik}))
+    else:
+        izid = _control_naprave("Datoteke", id_naprave, str(mapa or ""))
+    streznik = izid.get("server") if isinstance(izid, dict) else None
+    if isinstance(streznik, dict):
+        _STREZNIKI_NAPRAV[id_naprave] = dict(streznik)
+    return izid
+
+
+def slicice_naprave(id_naprave: str, vnosi) -> dict:
+    """Slicice slik in videov naprave v Linku za Datoteke: {oznaka: file:// URI} (core/link_slicice_naprav). Streznik
+    je zadnji iz datoteke_naprave za to napravo; samo naprave v ozjem krogu. V ozadju (omrezje)."""
+    global _SLICICE_NAPRAV
+    id_naprave = str(id_naprave or "")
+    streznik = _STREZNIKI_NAPRAV.get(id_naprave)
+    if not streznik or not _v_ozjem_krogu(id_naprave) or not isinstance(vnosi, list):
+        return {}
+    from core import link_slicice_naprav
+    if _SLICICE_NAPRAV is None:
+        _SLICICE_NAPRAV = link_slicice_naprav.Slicice(os.path.join(
+            os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "safeer-os", "slicice-naprav"))
+    cisti = [{"id": str(v.get("id") or ""), "modified": v.get("modified") or v.get("mtime") or "",
+              "size": v.get("size") or ""} for v in vnosi[:link_slicice_naprav.NAJVEC_VNOSOV] if isinstance(v, dict)]
+    return {oznaka: GLib.filename_to_uri(pot, None)
+            for oznaka, pot in _SLICICE_NAPRAV.dobi(id_naprave, streznik, cisti).items()}
 
 
 def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime_naprave: str, pot_imen: list,
@@ -4968,7 +5004,9 @@ class SafeerOS(Gtk.Application):
             "pretvorbaSkupina": lambda: _control_naprave("PretvorbaSkupina", str(a[0]) if a else ""),
             "pretvorbaPrenesiSkupino": lambda: _control_naprave("PretvorbaPrenesiSkupino", str(a[0]) if a else ""),
             "pretvorbaPustiSkupino": lambda: _control_naprave("PretvorbaPustiSkupino", str(a[0]) if a else ""),
-            "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                                                        a[2] if len(a) > 2 and isinstance(a[2], (int, float)) else 0),
+            "sliciceNaprave": lambda: slicice_naprave(str(a[0]) if a else "", a[1] if len(a) > 1 else []),
             # Lupina QML (assets/os/qml/Datoteke.qml): datoteka z naprave sem (Teamwork) ali odprta na napravi.
             "prenesiDatotekoNaprave": lambda: prenesi_datoteko_naprave(
                 str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",

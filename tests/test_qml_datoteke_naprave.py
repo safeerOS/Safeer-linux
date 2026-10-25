@@ -50,5 +50,74 @@ class DatotekeNaprave(unittest.TestCase):
         self.assertEqual([u[2] for u in ukazi], ["files.open_locen", "files.open"])
 
 
+STREZNIK = {"base_url": "https://192.168.0.20:8443", "fp": "ab" * 32, "token": "z"}
+
+
+class SliciceInDeli(unittest.TestCase):
+    """Lastnik 25. 10. 2026: slicice in vse datoteke povezanih naprav (Android link-datoteke: /thumb, next_offset)."""
+
+    def setUp(self):
+        p = mock.patch.object(safeer_os, "_STREZNIKI_NAPRAV", {})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_del_mape_in_streznik_iz_lastnega_odgovora(self):
+        klici = []
+
+        def control(metoda, *a):
+            klici.append((metoda,) + a)
+            return {"ok": True, "items": [], "server": STREZNIK, "next_offset": 1000}
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(safeer_os, "_control_naprave", control):
+            safeer_os.datoteke_naprave("n-tel", "media:camera")
+            safeer_os.datoteke_naprave("n-tel", "media:camera", 500)
+        self.assertEqual(klici, [("Datoteke", "n-tel", "media:camera"),
+                                 ("DatotekeDel", "n-tel", "media:camera", '{"offset": 500}')])
+        slicice = mock.Mock()
+        slicice.dobi.return_value = {"media:image:1": "/tmp/x.jpg"}
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(safeer_os, "_SLICICE_NAPRAV", slicice):
+            r = safeer_os.slicice_naprave("n-tel", [{"id": "media:image:1", "modified": 5, "size": 9, "server": "tuj"}])
+        self.assertEqual(r, {"media:image:1": "file:///tmp/x.jpg"})
+        naprava, streznik, vnosi = slicice.dobi.call_args[0]
+        self.assertEqual((naprava, streznik), ("n-tel", STREZNIK), "streznik iz odgovora naprave, ne iz strani")
+        self.assertEqual(vnosi, [{"id": "media:image:1", "modified": 5, "size": 9}])
+
+    def test_brez_ozjega_kroga_ali_seznama_nic(self):
+        safeer_os._STREZNIKI_NAPRAV["n-tel"] = STREZNIK
+        slicice = mock.Mock()
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=False), \
+                mock.patch.object(safeer_os, "_SLICICE_NAPRAV", slicice):
+            self.assertEqual(safeer_os.slicice_naprave("n-tel", [{"id": "media:image:1"}]), {})
+            self.assertEqual(safeer_os.datoteke_naprave("n-tel", "", 500)["koda"], "ni_ozji_krog")
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(safeer_os, "_SLICICE_NAPRAV", slicice):
+            self.assertEqual(safeer_os.slicice_naprave("n-druga", [{"id": "media:image:1"}]), {}, "naprava brez seznama")
+            self.assertEqual(safeer_os.slicice_naprave("n-tel", "ni seznam"), {})
+        slicice.dobi.assert_not_called()
+
+    def test_qml_slicice_in_nalozi_vec(self):
+        with open(os.path.join(KOREN, "assets", "os", "qml", "Datoteke.qml"), encoding="utf-8") as f:
+            qml = f.read()
+        self.assertIn('koren.klic("sliciceNaprave"', qml)
+        self.assertIn('koren.klic("datotekeNaprave", [naprava, vir.pot, odmik]', qml)
+        with open(os.path.join(KOREN, "assets", "os", "besedila-namizja.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        for kljuc in ("naloziVec", "naloziVecOd", "napravaDeliIzbrane"):
+            self.assertEqual(len(re.findall(r"\b" + kljuc + ":", besedila)), 6, kljuc)
+
+
+class ControlDelSeznama(unittest.TestCase):
+    def test_parametri_samo_znani_in_omejeni(self):
+        import safeer_control
+        f = safeer_control.link_daljinec_del_seznama
+        self.assertEqual(f('{"offset": 500, "limit": 9999, "from": 1, "x": 2}'), {"offset": 500, "from": 1})
+        self.assertEqual(f('{"offset": -1, "limit": true}'), {})
+        self.assertEqual(f("ni json"), {})
+        self.assertEqual(f("[1]"), {})
+        self.assertEqual(safeer_control._celo_stevilo("12"), 12)
+        self.assertEqual(safeer_control._celo_stevilo(True), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

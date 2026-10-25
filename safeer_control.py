@@ -86,6 +86,31 @@ from core import link_internet, link_internet_posrednik, sistemski_posrednik  # 
 from core import link_dostop, link_posiljanje  # noqa: E402
 
 
+def _celo_stevilo(v, najvec: int = 10 ** 9) -> int:
+    """Stevilo iz odgovora druge naprave (total, next_offset): celo, 0..najvec; vse drugo je 0."""
+    try:
+        n = int(v) if not isinstance(v, bool) else 0
+    except (TypeError, ValueError):
+        return 0
+    return n if 0 <= n <= najvec else 0
+
+
+def link_daljinec_del_seznama(niz: str) -> dict:
+    """Parametri dela seznama files.list iz Safeer OS (JSON): samo `offset`, `limit` (1-500), `from`, `to` (ms)."""
+    try:
+        p = json.loads(niz or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(p, dict):
+        return {}
+    izid = {}
+    for kljuc, meja in (("offset", 10 ** 9), ("limit", 500), ("from", 2 ** 53), ("to", 2 ** 53)):
+        n = _celo_stevilo(p.get(kljuc), meja) if kljuc in p else None
+        if n:
+            izid[kljuc] = n
+    return izid
+
+
 def _v_ozjem_krogu(id_naprave: str) -> bool:
     """Ali je naprava v ozjem krogu zaupanja tega racunalnika (ima kaksno dovoljenje v link_dostop). Ob napaki branja
     zapisa ne (varna stran - »ne vem« ni »da«)."""
@@ -1485,6 +1510,7 @@ class SafeerControl(_OSNOVA):
       <method name="PretvorbaPrenesiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PretvorbaPustiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="DatotekeDel"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="parametri" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Ukaz"><arg type="s" name="naprava" direction="in"/><arg type="s" name="dejanje" direction="in"/><arg type="s" name="parametri" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Predaja"><arg type="s" name="json" direction="out"/></method>
       <method name="Prevzemi"><arg type="s" name="naprava" direction="in"/><arg type="s" name="podatki" direction="in"/><arg type="s" name="ustavi_tam" direction="in"/><arg type="s" name="json" direction="out"/></method>
@@ -1630,11 +1656,16 @@ class SafeerControl(_OSNOVA):
             if m is None:
                 return {"ok": False, "koda": "ni_magnet"}
             return link.ukaz_pocakaj(str(a[0]) if a else "", "magnet.open", {"uri": m["uri"]}, cas=15.0)
-        if metoda == "Datoteke":
+        if metoda in ("Datoteke", "DatotekeDel"):
             # Deljene mape druge naprave (files.list) za Safeer Media: seznam + streznik (naslov, odtis, zeton).
             # Doda kljuc naprave iz kroga: z njim gre tok prek Global Linka, kadar naprave ni v tem omrezju.
+            # DatotekeDel (25. 10. 2026): naslednji del velike mape (`offset`, `limit`, `from`, `to` - Android
+            # link-datoteke); starejsa naprava parametre prezre in vrne prvih 500.
             id_naprave = str(a[0]) if a else ""
-            r = link.ukaz_pocakaj(id_naprave, "files.list", {"folder": str(a[1]) if len(a) > 1 else ""}, cas=15.0)
+            parametri_seznama = {"folder": str(a[1]) if len(a) > 1 else ""}
+            if metoda == "DatotekeDel":
+                parametri_seznama.update(link_daljinec_del_seznama(str(a[2]) if len(a) > 2 else ""))
+            r = link.ukaz_pocakaj(id_naprave, "files.list", parametri_seznama, cas=15.0)
             if not r.get("ok"):
                 return {"ok": False, "koda": r.get("koda") or "napaka", "message": r.get("message") or ""}
             d = r.get("data") or {}
@@ -1646,6 +1677,10 @@ class SafeerControl(_OSNOVA):
             return {"ok": True, "items": d.get("items") if isinstance(d.get("items"), list) else [],
                     "folder": str(d.get("folder") or ""), "shared": bool(d.get("shared", True)),
                     "reason": str(d.get("reason") or ""),
+                    # Android link-datoteke: raven dostopa (full/partial/none), skupaj, naslednji del, urejanje.
+                    "access": str(d.get("access") or "") if str(d.get("access") or "") in ("full", "partial", "none") else "",
+                    "total": _celo_stevilo(d.get("total")), "next_offset": _celo_stevilo(d.get("next_offset")),
+                    "edit": bool(d.get("edit")),
                     "server": d.get("server") if isinstance(d.get("server"), dict) else None,
                     "kljuc": str(clan.get("kljuc") or ""),
                     # Prosnja za dostop na tisti napravi (core/link_dostop): "pending" | "declined" | "none" | "".

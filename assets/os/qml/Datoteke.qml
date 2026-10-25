@@ -33,6 +33,12 @@ Steklo {
     property var odlozisce: ({ poti: [], rezi: false, ime: "" })
     property var razveljavitve: []       // zapisi za razveljaviDatoteke (zadnjih 20), kot RZ v delovna.js
     property var slicice: ({})           // pot -> naslov slicice (sliciceDatotek)
+    // Naprave v Linku (lastnik 25. 10. 2026): slicice slik in videov (sliciceNaprave, core/link_slicice_naprav), velika
+    // mapa po delih (Android: next_offset, do 500 na del) in delni dostop Androida 14 (access "partial").
+    property var sliciceNaprave: ({})    // naprava + "\n" + id -> naslov slicice
+    property int naslednjiDel: 0
+    property int skupajNaprave: 0
+    property string dostopNaprave: ""
     property var vlecem: []              // poti, ki jih uporabnik vlece iz tega seznama
     // Izbira vec datotek (kot v Nemu in na delovni povrsini): Ctrl+klik doda/odvzame, Shift+klik in Shift+puscice
     // izberejo obseg od sidra, Ctrl+A vse, Ctrl+preslednica doda/odvzame vrstico s fokusom, Escape pusti eno.
@@ -139,11 +145,14 @@ Steklo {
     function vrstaOddaljenega(t) {
         return t === "audio" ? "zvok" : t === "video" ? "video" : t === "image" ? "slika" : ""
     }
+    // Cas z naprave v sekundah: Android poslje ms (modified, date_taken), racunalnik s (mtime).
+    function sekunde(v) { v = Number(v) || 0; return v > 100000000000 ? Math.floor(v / 1000) : v }
     function vnosNaprave(d) {
         var mapa = d.type === "folder" || d.vrsta === "folder" || d.vrsta === "mapa"
         var ime = d.name || d.ime || ""
         return { ime: ime, id: d.id || "", mapa: mapa, velikost: d.size || d.velikost || 0,
-                 spremenjeno: d.mtime || d.modified || d.spremenjeno || 0,
+                 // Fotografije: datum posnetka (date_taken), sicer cas spremembe.
+                 spremenjeno: sekunde(d.date_taken || d.mtime || d.modified || d.spremenjeno || 0),
                  vrsta: mapa ? "mapa" : (d.vrsta || vrstaOddaljenega(d.type)), pot: d.id || "", izvirnik: d }
     }
     function jeLokalniPogled() { return vir.vrsta === "lokalno" || vir.vrsta === "nedavno" || vir.vrsta === "najvecje" || vir.vrsta === "priljubljeno" }
@@ -181,15 +190,19 @@ Steklo {
         }
         stanje = ""
         if (vir.vrsta === "naprava") {
+            naslednjiDel = 0; skupajNaprave = 0; dostopNaprave = ""
             koren.klic("datotekeNaprave", [naprava, vir.pot], function (r) {
                 if (st !== zahteva) return
                 if (!r || !r.ok) { stanje = "napaka"; elementi = []; return }
                 if (!r.shared) { stanje = "neDeli"; elementi = []; return }
                 if (r.server) streznik = r.server
                 if (r.kljuc) kljucNaprave = r.kljuc
+                naslednjiDel = r.next_offset || 0; skupajNaprave = r.total || 0; dostopNaprave = r.access || ""
                 var vnosi = (r.items || []).map(panel.vnosNaprave)
-                vnosi.sort(function (a, b) { return a.mapa !== b.mapa ? (a.mapa ? -1 : 1) : a.ime.toLowerCase().localeCompare(b.ime.toLowerCase()) })
+                // Zbirke fotografij in delov prideta urejeni po datumu z naprave (najnovejse prve) - tega ne prestavljamo.
+                if (!naslednjiDel) vnosi.sort(function (a, b) { return a.mapa !== b.mapa ? (a.mapa ? -1 : 1) : a.ime.toLowerCase().localeCompare(b.ime.toLowerCase()) })
                 elementi = vnosi
+                naloziSliciceNaprave()
                 if (vir.pot === "") {   // koren naprave: mape tudi v stranski vrstici
                     viri = [{ naslov: koren.t("mapeNaprave") }].concat(vnosi.filter(function (e) { return e.mapa })
                         .map(function (e) { return { oznaka: e.ime, vir: { vrsta: "naprava", pot: e.id }, ime: e.ime } }))
@@ -213,6 +226,38 @@ Steklo {
     }
     function pogledVira() {
         return vir.vrsta === "lokalno" ? vir.pot : vir.vrsta === "nedavno" ? "@nedavno" : vir.vrsta === "smeti" ? "@smeti" : ""
+    }
+    // Naslednji del velike mape naprave (»Nalozi vec«): vnosi se dodajo na konec, podvojenih ni.
+    function naloziVec() {
+        if (vir.vrsta !== "naprava" || naslednjiDel <= 0) return
+        var st = zahteva, odmik = naslednjiDel
+        naslednjiDel = 0
+        koren.klic("datotekeNaprave", [naprava, vir.pot, odmik], function (r) {
+            if (st !== zahteva || !r || !r.ok || !r.shared) return
+            if (r.server) streznik = r.server
+            var znani = {}
+            elementi.forEach(function (e) { znani[e.id] = true })
+            elementi = elementi.concat((r.items || []).map(panel.vnosNaprave).filter(function (e) { return !znani[e.id] }))
+            naslednjiDel = r.next_offset || 0; skupajNaprave = r.total || skupajNaprave
+            naloziSliciceNaprave()
+        }, function () { if (st === zahteva) naslednjiDel = odmik })
+    }
+    function kljucSlicice(e) { return naprava + "\n" + e.id }
+    // Slicice slik in videov naprave: Safeer OS jih prenese z njenega streznika (zeton, pripeto potrdilo) v predpomnilnik.
+    function naloziSliciceNaprave() {
+        if (!linux || vir.vrsta !== "naprava") return
+        var st = zahteva, n = naprava
+        var manjka = elementi.filter(function (e) { return !e.mapa && (e.vrsta === "slika" || e.vrsta === "video") && !(kljucSlicice(e) in panel.sliciceNaprave) })
+                             .slice(0, 60)
+        if (!manjka.length) return
+        koren.klic("sliciceNaprave", [n, manjka.map(function (e) { return e.izvirnik || { id: e.id } })], function (r) {
+            var s = {}
+            for (var k in panel.sliciceNaprave) s[k] = panel.sliciceNaprave[k]
+            manjka.forEach(function (e) { s[n + "\n" + e.id] = (r && r[e.id]) || "" })
+            panel.sliciceNaprave = s
+            // Naslednja skupina (vidne vrstice najprej; ena zahteva naenkrat, kot pri slikah tega racunalnika).
+            if (st === zahteva) naloziSliciceNaprave()
+        })
     }
     // Slicice slik in videov (iz predpomnilnika namizja ali pomanjsane sproti), kot na delovni povrsini.
     function naloziSlicice() {
@@ -712,6 +757,19 @@ Steklo {
                 id: seznam
                 objectName: "seznamDatotek"
                 Layout.fillWidth: true; Layout.fillHeight: true
+                // Naprava v Linku: velika mapa po delih in delni dostop (Android 14 »Izberi fotografije«).
+                footer: Column {
+                    width: seznam.width; spacing: 6; topPadding: visible ? 6 : 0
+                    visible: panel.vir.vrsta === "naprava" && (panel.naslednjiDel > 0 || panel.dostopNaprave === "partial")
+                    height: visible ? implicitHeight : 0
+                    Text { visible: panel.dostopNaprave === "partial"; width: parent.width; wrapMode: Text.Wrap
+                           text: koren.t("napravaDeliIzbrane", { naprava: panel.imeNaprave })
+                           color: koren.paleta.medlo; font.pixelSize: koren.px(12) }
+                    Gumb { visible: panel.naslednjiDel > 0; objectName: "naloziVec"
+                           besedilo: panel.skupajNaprave > 0 ? koren.t("naloziVecOd", { n: panel.elementi.length, skupaj: panel.skupajNaprave })
+                                                              : koren.t("naloziVec")
+                           onKlik: panel.naloziVec() }
+                }
                 // Tipkovnica (AGENTS: dostopnost): puscice, Enter odpre, Delete v Smeti, F2 preimenuj, Alt+Enter Lastnosti,
                 // Ctrl+C/X/V kopiraj, izrezi, prilepi, Ctrl+Z razveljavi, tipka Meni/Shift+F10, preslednica predogled,
                 // Ctrl+D priljubljeno, Shift+puscice/Home/End obseg, Ctrl+A vse, Ctrl+preslednica izbira, Escape ena.
@@ -814,7 +872,9 @@ Steklo {
                                        text: modelData.mapa ? "▣" : (modelData.ime.split(".").pop() || "?").slice(0, 3).toUpperCase() }
                                 Image {
                                     id: slicica; anchors.fill: parent; fillMode: Image.PreserveAspectCrop; asynchronous: true
-                                    sourceSize: Qt.size(48, 48); source: panel.slicice[modelData.pot] || ""
+                                    sourceSize: Qt.size(48, 48)
+                                    source: panel.vir.vrsta === "naprava" ? (panel.sliciceNaprave[panel.naprava + "\n" + modelData.id] || "")
+                                                                          : (panel.slicice[modelData.pot] || "")
                                 }
                             }
                             Text { text: modelData.ime
