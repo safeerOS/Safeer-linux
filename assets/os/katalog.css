@@ -409,3 +409,12 @@ html.kavc .kat-skladbe .kat-kartica:focus { transform: scale(1.02); }
 .kat-skladbe .kat-kartica:hover .kat-na-seznam, .kat-skladbe .kat-kartica:focus-visible .kat-na-seznam,
 .kat-skladbe .kat-kartica:hover .kat-odstrani, .kat-skladbe .kat-kartica:focus-visible .kat-odstrani { opacity: 1; }
 .kat-skladbe .kat-kartica .kat-vec { right: 44px; top: 50%; transform: translateY(-50%); }
+/* Viri: zaklenjeni kanali in izbira drzav in jezikov kanalov javnega seznama IPTV (core/kanali_iptv.py) */
+.kat-vir .kat-vir-zaklenjeni { color:var(--opozorilo) }
+.kat-tv-izbira { margin:-2px 0 6px;padding:10px 14px;border:1px solid var(--rob);border-radius:12px;background:var(--kartica) }
+.kat-tv-skupina { display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px }
+.kat-tv-skupina > b { flex-basis:100%;font-size:13px }
+.kat-tv-cip { padding:4px 10px;border:1px solid var(--rob);border-radius:99px;background:transparent;color:var(--medlo);font-size:12px;cursor:pointer }
+.kat-tv-cip:hover { color:var(--besedilo);border-color:var(--rob-mocan) }
+.kat-tv-cip[aria-pressed="true"] { background:var(--izbrano);border-color:var(--zelena);color:var(--besedilo) }
+.kat-tv-cip:focus-visible { outline:2px solid var(--fokus);outline-offset:2px }

@@ -6147,7 +6147,8 @@
               // (Nazadnje predvajano); zivi: id skladb, ki so prenos v zivo; vrstaSamodejno: do skladbe je prisel samodejni prehod.
               vrstaRed: null, vrstaIzvor: null, vrstaSpremenjena: false, vrstaSamodejno: false, vrstaIzSafeerja: false,
               vrstaZeton: 0, zivi: {},
-              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
+              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0,
+              tvIzbiraOdprta: false };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
@@ -6453,9 +6454,15 @@
     });
     opazovalecKnjiznice.observe(vrsta);
   }
+  // V Serijah samo serije, v Filmih samo filmi (lastnik, 25. 10. 2026: preizkusni film »Preizkus« z druge naprave je
+  // bil prvi v vrsti Serij).
+  function knjiznicaZaFilter(vnosi) {
+    if (kat.filter !== "serija" && kat.filter !== "film") return vnosi;
+    return vnosi.filter(function (x) { return (x.vrsta === "serija" ? "serija" : "film") === kat.filter; });
+  }
   function narisiKnjiznico() {
     var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
-    var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
+    var vnosi = knjiznicaVidna() ? knjiznicaZaFilter(kat.knjiznica || []) : [];
     c.hidden = !vnosi.length;
     if (!vnosi.length) return;
     var glava = el("div", "kat-knjiznica-glava"); glava.appendChild(el("h3", "", ubezi(t("knjiznicaNaslov"))));
@@ -8410,7 +8417,7 @@
     $("mediaSezone").querySelectorAll("button").forEach(function (b) { b.classList.toggle("izbran", b === button); });
     var cilj = $("mediaEpizode"); cilj.innerHTML = "";
     cilj.appendChild(el("div", "prazno", ubezi(t("katNalagamEpizode"))));
-    klic("mediaSezona", [item.tmdb_id, season]).then(function (response) {
+    klic("mediaSezona", [item.tmdb_id, season, item.id]).then(function (response) {
       cilj.innerHTML = "";
       var episodes = (response && response.epizode) || [];
       $("mediaEpizodeNaslov").textContent = t("katEpizode") + " · " + (button ? button.textContent : t("katSezona", { n: season }));
@@ -8426,7 +8433,7 @@
         if (item.tmdb_id) row.appendChild(gumbOgledanoEpizode(item, season, ep, row));
         var play = el("button", "gumb glavni", ubezi(t("katPredvajaj"))); play.type = "button";
         play.onclick = function () {
-          klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov]).then(function (entry) {
+          klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov, item.id]).then(function (entry) {
             // Epizode noben vir ne predvaja: tiho (lastnik 18. 10. 2026; sled v sled.log, os_katalog._epizoda).
             if (entry && entry.id) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(entry.id); }
           }, function () {});
@@ -8441,7 +8448,7 @@
         viri.onclick = function () {
           if (viri.getAttribute("aria-expanded") === "true") { viri.setAttribute("aria-expanded", "false"); seznamEp.hidden = true; return; }
           viri.setAttribute("aria-expanded", "true");
-          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov])
+          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov, item.id])
             .then(function (entry) { return entry && entry.id ? entry.id : ""; });
           narisiRazlicice(seznamEp, vnosEp, item, season, ep.stevilka, function (vnosId) {
             zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
@@ -8600,8 +8607,23 @@
       var status = source.napaka ? source.napaka : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
+      // Seznam kanalov IPTV: steje samo, kar deluje (core/kanali_iptv.py); zaklenjene odklene naročnina pri ponudniku.
+      var kanali = source.kanali;
+      if (!source.napaka && kanali) status = t("katKanaliDeluje", { n: kanali.deluje || 0 }) +
+        (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
+      if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       row.appendChild(info);
+      var plosca = null;
+      if (kanali && kanali.javni) {
+        plosca = el("div", "kat-tv-izbira"); plosca.id = "katTvIzbira-" + source.id; plosca.hidden = !kat.tvIzbiraOdprta;
+        var izbira = el("button", "gumb kat-vir-vticniki", svg("drsniki") + "<span>" + ubezi(t("katKanaliIzbira")) + "</span>");
+        izbira.type = "button"; izbira.setAttribute("aria-controls", plosca.id);
+        izbira.setAttribute("aria-expanded", kat.tvIzbiraOdprta ? "true" : "false");
+        izbira.onclick = function () { preklopiTvIzbiro(izbira, plosca); };
+        row.appendChild(izbira);
+        if (kat.tvIzbiraOdprta) naloziTvIzbiro(plosca);
+      }
       var refresh = el("button", "gumb-ikona", svg("ponovno")); refresh.type = "button"; refresh.title = t("katOsvezi");
       refresh.onclick = function () {
         $("katVirSporocilo").textContent = t("katOsvezi") + " …";
@@ -8627,8 +8649,49 @@
       row.onmouseleave = function () { if (potrjeno) { potrjeno = false; remove.classList.remove("potrdi"); remove.innerHTML = svg("x"); } };
       row.appendChild(remove);
       cilj.appendChild(row);
+      if (plosca) cilj.appendChild(plosca);
     });
     if (skriti) cilj.appendChild(skriti);
+  }
+  // ---- države in jeziki kanalov javnih seznamov IPTV (lastnik, 25. 10. 2026: privzeto država uporabnika in
+  // angleščina, sosednjih držav ne; ostale vklopi uporabnik tu)
+  function preklopiTvIzbiro(gumb, plosca) {
+    kat.tvIzbiraOdprta = gumb.getAttribute("aria-expanded") !== "true";
+    gumb.setAttribute("aria-expanded", kat.tvIzbiraOdprta ? "true" : "false");
+    plosca.hidden = !kat.tvIzbiraOdprta;
+    if (kat.tvIzbiraOdprta) naloziTvIzbiro(plosca);
+  }
+  function naloziTvIzbiro(plosca) {
+    klic("mediaTvIzbira").then(function (s) { narisiTvIzbiro(plosca, s); }, function () {});
+  }
+  function narisiTvIzbiro(plosca, s, fokus) {
+    plosca.innerHTML = "";
+    if (!s || !s.izbrano) return;
+    plosca.appendChild(el("p", "drobno", ubezi(t("katKanaliIzbiraNamig"))));
+    var izbrano = { drzave: (s.izbrano.drzave || []).slice(), jeziki: (s.izbrano.jeziki || []).slice() };
+    [["drzave", "katKanaliDrzave", function (id) { return imeDrzave(id, id); }], ["jeziki", "katKanaliJeziki", function (id) { return imeJezika(id); }]].forEach(function (d) {
+      var seznam = s[d[0]] || [];
+      if (!seznam.length) return;
+      var skupina = el("div", "kat-tv-skupina"); skupina.setAttribute("role", "group"); skupina.setAttribute("aria-label", t(d[1]));
+      skupina.appendChild(el("b", "", ubezi(t(d[1]))));
+      seznam.forEach(function (x) {
+        var vklop = izbrano[d[0]].indexOf(x.id) >= 0;
+        var b = el("button", "kat-tv-cip", ubezi(d[2](x.id) + " · " + x.n)); b.type = "button";
+        b.setAttribute("aria-pressed", vklop ? "true" : "false"); b.setAttribute("data-id", d[0] + ":" + x.id);
+        b.onclick = function () {
+          var poslji = { drzave: izbrano.drzave.slice(), jeziki: izbrano.jeziki.slice() };
+          poslji[d[0]] = poslji[d[0]].filter(function (y) { return y !== x.id; });
+          if (!vklop) poslji[d[0]].push(x.id);
+          klic("mediaTvIzbira", [poslji.drzave, poslji.jeziki]).then(function (s2) {
+            narisiTvIzbiro(plosca, s2, d[0] + ":" + x.id); naloziKatalog();
+          }, function () {});
+        };
+        skupina.appendChild(b);
+      });
+      plosca.appendChild(skupina);
+    });
+    // Tipkovnica: fokus ostane na gumbu, ki ga je uporabnik pravkar preklopil.
+    if (fokus) { var f = plosca.querySelector('[data-id="' + fokus + '"]'); if (f) f.focus(); }
   }
   function naloziKatViri() {
     klic("mediaZasebno").then(function (z) { nastaviZasebno(z); narisiKatViri(); }, function () {});
@@ -9219,6 +9282,7 @@
     if (vrsta === "mediaOdkrivanje" && podatki) prevzemiOdkrivanje(podatki);
     if (vrsta === "mediaKatalogOsvezen" && podatki && katVidno() && podatki.kljuc &&
         kat.strani.some(function (s) { return s.kljuc === podatki.kljuc; })) prevzemiKatalog(podatki, true);
+    if (vrsta === "mediaNiNaVoljo" && podatki && podatki.kanal) obvesti(t("katKanalSkrit", { ime: podatki.kanal }));
     if (vrsta === "mediaNiNaVoljo" && podatki && podatki.idji && kat.katalog) {
       var prejKartic = kat.katalog.length;
       kat.katalog = kat.katalog.filter(function (x) { return podatki.idji.indexOf(x.id) < 0; });

@@ -47,6 +47,7 @@ from . import spotify_racun
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
+from . import kanali_iptv
 from core import shramba_json
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
@@ -57,6 +58,9 @@ MAX_FILES = 500
 #: ID posnetka YouTube (11 znakov).
 YOUTUBE_ID_VZOREC = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MAX_SOURCE_ITEMS = 1500
+#: Seznam kanalov IPTV ima lahko vec vnosov kot splosen vir (iptv-org »languages/eng«: 3004 kanalov 25. 10. 2026);
+#: prej je meja 1500 odrezala pol seznama po abecedi.
+MAX_KANALOV_SEZNAMA = 5000
 MAX_DOWNLOAD = 6 * 1024 * 1024
 TRACKING_QUERY = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source"}
 TMDB_API_KEY = os.environ.get("SAFEER_TMDB_API_KEY", "844dba0bfd8f3a4f3799f6130ef9e335")
@@ -269,7 +273,10 @@ def _kind(value: Any, url: str = "", title: str = "", season: int = 0, episode: 
         return "glasba"
     if ext in IMAGES or any(x in hint for x in ("image", "slika", "photo", "fotografija")):
         return "slika"
-    if any(x in hint for x in ("series", "episode", "season", "show", "tv", "serija", "epizoda", "/tv/", "/series/")):
+    # Serija samo po besedi za serijo, sezono ali epizodo ali po poti /tv/, /series/ (lastnik, 25. 10. 2026: podniz »tv«
+    # v imenu kanala - »Exodus TV« - ali v naslovu toka je kanale v zivo poslal v Serije).
+    if (re.search(r"\b(?:series|episodes?|seasons?|serija|serije|epizod[ae]?|sezon[ae]?|tv[ -]?show)\b", hint)
+            or any(x in hint for x in ("/tv/", "/series/"))):
         return "serija"
     return "film"
 
@@ -857,30 +864,70 @@ def _resolve_embed_or_direct_source(url: str, source_id: str, source_name: str) 
     return [it] if it else []
 
 
-def _parse_m3u(text: str, base: str, source_id: str, source_name: str) -> list[dict]:
+def _parse_m3u(text: str, base: str, source_id: str, source_name: str, stevci: Optional[dict] = None) -> list[dict]:
     # HLS manifest je en prilagodljiv tok, ne katalog segmentov. LibVLC sam izbere
     # najboljšo različico glede na povezavo in zmogljivost naprave.
     if "#EXT-X-TARGETDURATION" in text or "#EXT-X-STREAM-INF" in text:
         found = _item(source_name, base, base=base, source_id=source_id,
                       source_name=source_name, kind=_kind("", base, source_name), quality="adaptive")
         return [found] if found else []
-    out, pending = [], {}
+    # Seznam vnosov (#EXTINF): ime je za vejico ZUNAJ narekovajev, atributi so vsi pred njo (core/kanali_iptv.py).
+    # Lastnik, 25. 10. 2026: razrez pri prvi vejici je iz http-user-agent »(KHTML, like Gecko)« naredil naslov in
+    # izgubil group-title in tvg-logo; kanali so pristali v Serijah.
+    drzava_seznama, jezik_seznama = kanali_iptv.iz_naslova_seznama(base)
+    stevci = stevci if stevci is not None else {}
+    out: list[dict] = []
+    extinf, vlc, skupina = None, {}, ""
     for raw in text.splitlines():
         line = raw.strip()
-        if line.startswith("#EXTINF:"):
-            attrs, _, title = line.partition(",")
-            pending = {"title": title.strip() or source_name}
-            for key, value in re.findall(r'([\w-]+)="([^"]*)"', attrs):
-                pending[key.lower()] = value
-        elif line and not line.startswith("#"):
-            title = pending.get("title") or Path(urllib.parse.urlsplit(line).path).stem or source_name
-            found = _item(title, line, base=base, source_id=source_id, source_name=source_name,
-                          kind=pending.get("group-title", ""), image=pending.get("tvg-logo", ""),
-                          quality=pending.get("quality", ""))
-            if found:
-                out.append(found)
-            pending = {}
-        if len(out) >= MAX_SOURCE_ITEMS:
+        if not line:
+            continue
+        glava = line[:12].upper()
+        if glava.startswith("#EXTINF:"):
+            extinf, vlc, skupina = kanali_iptv.razcleni_extinf(line), {}, ""
+            continue
+        if glava.startswith("#EXTVLCOPT:"):
+            ime_opcije, _, vrednost = line[11:].partition("=")
+            vlc[ime_opcije.strip().lower()] = vrednost.strip()
+            continue
+        if glava.startswith("#EXTGRP:"):
+            skupina = line[8:].strip()
+            continue
+        if line.startswith("#"):
+            continue
+        trajanje, atributi, ime = extinf if extinf else (None, {}, "")
+        extinf = None
+        if skupina and "group-title" not in atributi:
+            atributi = dict(atributi, **{"group-title": skupina})
+        if kanali_iptv.ni_24_7(ime, atributi):
+            # Lastnik, 25. 10. 2026: kanali »[Not 24/7]« se izlocijo povsod (ne prikaz, ne preverba).
+            stevci["ne_24_7"] = stevci.get("ne_24_7", 0) + 1
+            vlc = {}
+            continue
+        media_url = _absolute(base, line)
+        vrsta = kanali_iptv.vrsta_vnosa(atributi, media_url or line, ime, trajanje)
+        sezona, epizoda = kanali_iptv.sezona_epizoda(ime) if vrsta == "serija" else (0, 0)
+        naslov = (kanali_iptv.cisto_ime(ime) if vrsta == "tv-v-zivo" else ime) \
+            or Path(urllib.parse.urlsplit(line).path).stem or source_name
+        odjemalec = vlc.get("http-user-agent") or atributi.get("http-user-agent", "")
+        napotitelj = (vlc.get("http-referrer") or vlc.get("http-referer")
+                      or atributi.get("http-referrer") or atributi.get("http-referer", ""))
+        glave = {k: v for k, v in (("User-Agent", odjemalec), ("Referer", napotitelj)) if v}
+        vlc = {}
+        found = _item(naslov, line, base=base, source_id=source_id, source_name=source_name,
+                      kind=vrsta, image=atributi.get("tvg-logo", ""),
+                      quality=atributi.get("quality", "") or ime, headers=glave, referer=napotitelj,
+                      season=sezona, episode=epizoda)
+        if not found:
+            continue
+        # Vrsto je dolocil seznam (kanal, datoteka, epizoda); _kind je ugibal po besedah v imenu (»Radio Ga Ga TV«).
+        found.update(vrsta=vrsta, sezona=sezona, epizoda=epizoda, iz_seznama=True)
+        if vrsta == "tv-v-zivo":
+            drzava, jezik = kanali_iptv.drzava_in_jezik(atributi, drzava_seznama, jezik_seznama)
+            found.update(iptv=True, drzava=drzava, jezik=jezik,
+                         kategorija_kanala=_text(atributi.get("group-title"), 60))
+        out.append(found)
+        if len(out) >= MAX_KANALOV_SEZNAMA:
             break
     return out
 
@@ -951,7 +998,7 @@ def _parse_xml(text: str, base: str, source_id: str, source_name: str) -> list[d
 
 
 def parse_payload(payload: bytes, content_type: str, source_url: str,
-                  source_id: str = "vir", source_name: str = "Vir") -> list[dict]:
+                  source_id: str = "vir", source_name: str = "Vir", stevci: Optional[dict] = None) -> list[dict]:
     """Razbere medijske vnose iz enega prenesenega odgovora brez izvajanja tuje kode."""
     text = payload.decode("utf-8", "replace")
     content = (content_type or "").lower()
@@ -959,7 +1006,9 @@ def parse_payload(payload: bytes, content_type: str, source_url: str,
     if "scpls" in content or "playlist" in content and stripped.lower().startswith("[playlist]") or source_url.lower().endswith(".pls"):
         return _parse_pls(text, source_url, source_id, source_name)
     if "mpegurl" in content or source_url.lower().endswith((".m3u", ".m3u8")) or stripped.startswith("#EXTM3U"):
-        return _parse_m3u(text, source_url, source_id, source_name)
+        if stevci is not None:
+            stevci["m3u"] = True
+        return _parse_m3u(text, source_url, source_id, source_name, stevci)
     if "json" in content or stripped.startswith(("{", "[")):
         try:
             return _items_from_json(json.loads(text), source_url, source_id, source_name)
@@ -1172,7 +1221,7 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
         best["id"] = hashlib.sha256(identity.encode()).hexdigest()[:20]
         best["razlicice"] = [dict({k: value for k, value in item.items()
                                    if k in ("url", "vir", "vir_id", "kakovost", "locljivost", "bitrate",
-                                            "glave", "referer", "imdb_id", "tmdb_id")},
+                                            "glave", "referer", "imdb_id", "tmdb_id", "iptv")},
                                   **({"lastni": True} if lastni_vir(item) else {}))
                              for item in variants]
         best["stevilo_razlicic"] = len(variants)
@@ -1322,6 +1371,10 @@ class MediaCenter:
         self._predpomnilnik_lock = threading.RLock()
         self._predpomnilnik_casovnik: Optional[threading.Timer] = None
         self._osvezujem: set[str] = set()
+        # Kanali seznamov IPTV: prikazemo samo tiste, ki oddajajo (core/kanali_iptv.py; lastnik, 25. 10. 2026).
+        self.kanali = kanali_iptv.PreverbaKanalov(self.config_dir / "kanali-preverba.json")
+        self.kanali.ob_spremembi = self._kanali_spremenjeni
+        self._zastareli_viri: set[str] = set()
 
     # --- prijava osebnih streznikov ob predvajanju ------------------------------
     #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
@@ -1384,7 +1437,8 @@ class MediaCenter:
 
     #: Razlicica pravil kataloga: ob spremembi (11. 10. 2026: PeerTube in Internet Archive nista vec vgrajena, glasbeni
     #: dodatki gredo pod Glasbo) shranjen katalog ne velja vec - sicer bi stara vsebina ob zagonu se enkrat zasvetila.
-    RAZLICICA_KATALOGA = 5      # 5: 15. 10. 2026 brez dvojnikov Jellyfin/Stremio (lastni strežnik prvi, kanali po imenu
+    RAZLICICA_KATALOGA = 6      # 6: 25. 10. 2026 kanali IPTV samo v TV v zivo in samo delujoci
+    #                             5: 15. 10. 2026 brez dvojnikov Jellyfin/Stremio (lastni strežnik prvi, kanali po imenu
     #                             in drzavi, epizode s strežnika v kartici serije); 4: programi RTV 365 po kanalih
 
     @property
@@ -1622,8 +1676,9 @@ class MediaCenter:
                     kandidati.extend(x for x in (rezultat.get("vnosi") or []) if isinstance(x, dict))
         # Uporabnikovi uvoženi viri so že na disku in zato prav tako ne povzročijo omrežnega klica.
         with self._lock:
-            for vir in self._load().get("viri", []):
-                kandidati.extend(x for x in (vir.get("vnosi") or []) if isinstance(x, dict))
+            data = self._load()
+        # Isti izbor kot katalog: brez mrtvih, zaklenjenih in »Not 24/7« kanalov ter brez stare razclenitve.
+        kandidati.extend(self._vnosi_virov(data, "vse", preveri=False))
 
         # Predlogi iskanja nikoli ne pokazejo zasebne vsebine (tudi iz shranjenih pogledov kategorije »Zasebno«).
         kandidati = self.brez_zasebnih(kandidati)
@@ -1634,6 +1689,8 @@ class MediaCenter:
                 continue
             if not lastni_vir(item) and self.znano_ni_na_voljo(item):
                 continue                          # noben vir ga ne predvaja (kot brez_nerazpolozljivih)
+            if self.kanal_skrit(item):
+                continue                          # kanal IPTV, ki ne oddaja (tudi iz shranjenih pogledov)
             kljuc = str(item.get("id") or (item.get("naslov"), item.get("vrsta")))
             if kljuc in videni:
                 continue
@@ -2061,6 +2118,7 @@ class MediaCenter:
         if isinstance(rezultat, dict) and isinstance(rezultat.get("vnosi"), list):
             vnosi = [v for v in rezultat["vnosi"] if not (isinstance(v, dict) and (
                 (self.znano_ni_na_voljo(v) and not lastni_vir(v))      # na lastnem strežniku je vedno na voljo
+                or self.kanal_skrit(v)                                  # kanal IPTV, ki ne oddaja (core/kanali_iptv.py)
                 or str(v.get("url") or "").startswith("kodi-dodatek:")))]
             if len(vnosi) != len(rezultat["vnosi"]):
                 novo = dict(rezultat, vnosi=vnosi)
@@ -2740,8 +2798,18 @@ class MediaCenter:
     def sources(self) -> list[dict]:
         with self._lock:
             data = self._load()
-            regular = [{k: value for k, value in source.items() if k != "vnosi"}
-                       for source in data.get("viri", []) if isinstance(source, dict)]
+            regular = []
+            for source in data.get("viri", []):
+                if not isinstance(source, dict):
+                    continue
+                vir = {k: value for k, value in source.items() if k != "vnosi"}
+                kanali = self._statistika_kanalov(source)
+                if kanali is not None:
+                    # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov - steje samo, kar deluje.
+                    vir["kanali"] = kanali
+                    vir["stevilo"] = kanali["deluje"] + sum(1 for x in source.get("vnosi") or []
+                                                            if isinstance(x, dict) and not x.get("iptv"))
+                regular.append(vir)
             personal = [{k: value for k, value in source.items() if k not in ("secret_enc", "uporabnik")}
                         for source in data.get("osebni_strezniki", []) if isinstance(source, dict)]
             return regular + personal
@@ -3022,9 +3090,246 @@ class MediaCenter:
 
     def tv_drzave(self) -> list[dict]:
         with self._lock:
+            data = self._load()
             moji = any(x.get("ponudnik") in ("tvheadend", "dlna", "kodi")
-                       for x in self._load().get("osebni_strezniki", []))
-        return zakoniti_viri.tv_drzave(self._drzava_uporabnika(), moji)
+                       for x in data.get("osebni_strezniki", []))
+        drzava = self._drzava_uporabnika()
+        izid = zakoniti_viri.tv_drzave(drzava, moji)
+        # Drzave delujocih kanalov iz seznamov IPTV (izbira v Virih) kot gumbi; »Moji kanali« ostanejo zadnji.
+        znane = {d["id"] for d in izid}
+        dodatne = sorted({str(x.get("drzava") or "").upper() for x in self._vnosi_virov(data, "tv-v-zivo", preveri=False)
+                          if str(x.get("drzava") or "").upper() not in znane and re.fullmatch(r"[A-Z]{2}", str(x.get("drzava") or "").upper())},
+                         key=lambda d: (d != drzava.upper(), zakoniti_viri.DRZAVE.get(d, d)))
+        if dodatne:
+            konec = [d for d in izid if d["id"] == "moji"]
+            izid = [d for d in izid if d["id"] != "moji"] + [{"id": d, "ime": zakoniti_viri.DRZAVE.get(d, d)} for d in dodatne] + konec
+        return izid
+
+    # --- kanali seznamov IPTV (core/kanali_iptv.py) -------------------------------------------------------------
+    def _kanali_spremenjeni(self) -> None:
+        """Preverba v ozadju je nasla nov delujoc kanal ali kanal ne deluje vec: pogledi se osvezijo, stran dobi dogodek."""
+        self.ozastari_predpomnilnik()
+        if self.ob_virih is not None:
+            try:
+                self.ob_virih()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _drzava_tv(self) -> str:
+        """Drzava uporabnika za kanale: izbrana v Medijskem centru ali iz regije sistema (brez omrezja)."""
+        izbrana = str(getattr(self, "izbrana_drzava", "") or "auto").upper()
+        if re.fullmatch(r"[A-Z]{2}", izbrana):
+            return izbrana
+        try:
+            return watch_providers.detect_country("sl")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @property
+    def pot_tv_izbire(self) -> Path:
+        return self.config_dir / "tv-izbira.json"
+
+    def tv_izbira(self) -> dict:
+        """Drzave in jeziki kanalov javnih seznamov (iptv-org). Privzeto drzava uporabnika in anglescina."""
+        try:
+            d = json.loads(self.pot_tv_izbire.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            d = None
+        if not isinstance(d, dict):
+            return kanali_iptv.privzeta_izbira(self._drzava_tv())
+        return {"drzave": [x for x in d.get("drzave") or [] if isinstance(x, str) and re.fullmatch(r"[A-Z]{2}", x)][:300],
+                "jeziki": [x for x in d.get("jeziki") or [] if isinstance(x, str) and re.fullmatch(r"[a-z]{2}", x)][:200]}
+
+    def nastavi_tv_izbiro(self, drzave: Iterable[str], jeziki: Iterable[str]) -> dict:
+        izbira = {"drzave": sorted({str(x).upper() for x in drzave or [] if re.fullmatch(r"[A-Za-z]{2}", str(x))})[:300],
+                  "jeziki": sorted({str(x).lower() for x in jeziki or [] if re.fullmatch(r"[A-Za-z]{2}", str(x))})[:200]}
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            shramba_json.zapisi_atomsko(self.pot_tv_izbire, izbira, indent=None)
+        except OSError:
+            pass
+        self.ozastari_predpomnilnik()
+        return izbira
+
+    def tv_izbira_na_voljo(self) -> dict:
+        """Drzave in jeziki kanalov javnih seznamov (za izbiro v Virih) s stevilom kanalov."""
+        with self._lock:
+            data = self._load()
+        drzave: dict[str, int] = {}
+        jeziki: dict[str, int] = {}
+        for source in data.get("viri", []):
+            if not isinstance(source, dict) or not kanali_iptv.je_javni_seznam(source.get("url")):
+                continue
+            for item in source.get("vnosi") or []:
+                if isinstance(item, dict) and item.get("iptv"):
+                    if item.get("drzava"):
+                        drzave[item["drzava"]] = drzave.get(item["drzava"], 0) + 1
+                    if item.get("jezik"):
+                        jeziki[item["jezik"]] = jeziki.get(item["jezik"], 0) + 1
+        return {"drzave": [{"id": k, "n": v} for k, v in sorted(drzave.items(), key=lambda p: -p[1])],
+                "jeziki": [{"id": k, "n": v} for k, v in sorted(jeziki.items(), key=lambda p: -p[1])],
+                "uporabnik": self._drzava_tv(), "izbrano": self.tv_izbira()}
+
+    @staticmethod
+    def _zastarela_razclenitev(source: dict) -> bool:
+        """Seznam M3U, razclenjen pred kanali_iptv.RAZCLENITEV (napacni naslovi in vrste): ne kazemo ga, dokler ga v
+        ozadju ne preberemo znova."""
+        if source.get("razclenitev") == kanali_iptv.RAZCLENITEV:
+            return False
+        pot = urllib.parse.urlsplit(str(source.get("url") or "")).path.lower()
+        if pot.endswith((".m3u", ".m3u8")) or "type=m3u" in str(source.get("url") or "").lower():
+            return True
+        return any(isinstance(x, dict) and urllib.parse.urlsplit(str(x.get("url") or "")).path.lower().endswith((".m3u8", ".ts"))
+                   for x in (source.get("vnosi") or [])[:50])
+
+    def _osvezi_zastarele_v_ozadju(self, idji: list) -> None:
+        with self._lock:
+            novi = [i for i in idji if i not in self._zastareli_viri]
+            self._zastareli_viri.update(novi)
+        if not novi:
+            return
+
+        def delo() -> None:
+            for ident in novi:
+                try:
+                    self.refresh_source(ident)
+                except Exception:  # noqa: BLE001
+                    continue
+            self._kanali_spremenjeni()
+
+        threading.Thread(target=delo, name="media-razclenitev", daemon=True).start()
+
+    def _vnosi_virov(self, data: dict, kind: str = "vse", preveri: bool = True) -> list[dict]:
+        """Vnosi uporabnikovih spletnih virov za katalog. Kanali seznamov IPTV samo, ce delujejo (preverba v ozadju),
+        iz javnih seznamov samo izbranih drzav in jezikov; seznam s staro razclenitvijo se prebere znova."""
+        izid: list[dict] = []
+        za_preverbo: list[tuple] = []
+        zastareli: list[str] = []
+        izbira: Optional[dict] = None
+        for source in data.get("viri", []):
+            if not isinstance(source, dict):
+                continue
+            if self._zastarela_razclenitev(source):
+                zastareli.append(str(source.get("id") or ""))
+                continue
+            javni = kanali_iptv.je_javni_seznam(source.get("url"))
+            domace: Optional[bool] = None
+            serije: dict[str, dict] = {}
+            for item in source.get("vnosi") or []:
+                if not isinstance(item, dict) or not (kind in ("", "vse") or item.get("vrsta") == kind):
+                    continue
+                if item.get("iptv"):
+                    if javni:
+                        izbira = izbira if izbira is not None else self.tv_izbira()
+                        if not kanali_iptv.v_izbiri(item, izbira):
+                            continue
+                    url = str(item.get("url") or "")
+                    if preveri and self.kanali.potrebuje_preverbo(url):
+                        if domace is None:
+                            domace = self._seznam_doma(str(source.get("url") or ""))
+                        za_preverbo.append((url, item.get("glave") or {}, domace))
+                    if not self.kanali.deluje(url):
+                        continue
+                elif item.get("iz_seznama") and item.get("vrsta") == "serija" and int(item.get("epizoda") or 0):
+                    # Epizode s seznama so ena kartica serije s sezonami in epizodami (ne kartica na epizodo).
+                    self._dodaj_epizodo(serije, item)
+                    continue
+                izid.append(item)
+            izid.extend(serije.values())
+        if zastareli and preveri:
+            self._osvezi_zastarele_v_ozadju([z for z in zastareli if z])
+        if za_preverbo:
+            self.kanali.preveri_v_ozadju(za_preverbo)
+        return izid
+
+    NAJVEC_EPIZOD_SERIJE = 2000
+
+    def _seznam_doma(self, url: str) -> bool:
+        """Seznam je v domacem omrezju (TVHeadend, lasten streznik): samo takrat preverba sme do zasebnih naslovov.
+        Javni seznami niso doma brez poizvedbe DNS; izid si zapomnimo (preverba ne sme cakati na DNS ob vsakem ogledu)."""
+        gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if not gostitelj or kanali_iptv.je_javni_seznam(url):
+            return False
+        zapomnjeni = self.__dict__.setdefault("_seznami_doma", {})
+        if gostitelj not in zapomnjeni:
+            zapomnjeni[gostitelj] = bool(media_servers.je_domace_omrezje(gostitelj))
+        return zapomnjeni[gostitelj]
+
+    @staticmethod
+    def _dodaj_epizodo(serije: dict, item: dict) -> None:
+        naslov = re.sub(r"\s*[-–—:|]?\s*(?:[Ss]\d{1,2}\s*[Ee]\d{1,3}|\d{1,2}x\d{2,3})\b.*$", "", _text(item.get("naslov"), 200)).strip() \
+            or _text(item.get("naslov"), 200)
+        kljuc_serije = re.sub(r"[^a-z0-9]+", " ", unicodedata.normalize("NFKD", naslov).encode("ascii", "ignore").decode().lower()).strip()
+        kartica = serije.get(kljuc_serije)
+        if kartica is None:
+            kartica = dict(item, naslov=naslov, sezona=0, epizoda=0, epizode_seznama=[])
+            kartica["id"] = "seznam-serija:" + hashlib.sha256(
+                (str(item.get("vir_id") or "") + "|" + kljuc_serije).encode()).hexdigest()[:20]
+            serije[kljuc_serije] = kartica
+        if len(kartica["epizode_seznama"]) < MediaCenter.NAJVEC_EPIZOD_SERIJE:
+            kartica["epizode_seznama"].append({k: item.get(k) for k in ("naslov", "url", "sezona", "epizoda", "glave", "referer",
+                                                                         "slika", "kakovost", "locljivost")})
+
+    def season_seznama(self, item_id: str, sezona: int) -> dict:
+        """Epizode sezone serije s seznama (brez TMDB) za podrobnosti."""
+        kartica = self._dynamic_items.get(str(item_id or "")) or {}
+        epizode = sorted((e for e in kartica.get("epizode_seznama") or [] if int(e.get("sezona") or 0) == int(sezona)),
+                         key=lambda e: int(e.get("epizoda") or 0))
+        return {"sezona": int(sezona), "epizode": [{"stevilka": int(e.get("epizoda") or 0), "sezona": int(sezona),
+                                                    "naslov": _text(e.get("naslov"), 200), "opis": "", "trajanje": 0,
+                                                    "ocena": 0, "datum": "", "slika": ""} for e in epizode]}
+
+    def epizoda_seznama(self, item_id: str, sezona: int, epizoda: int) -> Optional[dict]:
+        """Predvajalni vnos epizode serije s seznama."""
+        kartica = self._dynamic_items.get(str(item_id or "")) or {}
+        e = next((e for e in kartica.get("epizode_seznama") or []
+                  if int(e.get("sezona") or 0) == int(sezona) and int(e.get("epizoda") or 0) == int(epizoda)), None)
+        if not e:
+            return None
+        vnos = _item(e.get("naslov") or kartica.get("naslov"), e.get("url"), base=str(e.get("url") or ""),
+                     source_id=str(kartica.get("vir_id") or ""), source_name=str(kartica.get("vir") or ""),
+                     kind="serija", season=int(sezona), episode=int(epizoda), headers=e.get("glave"),
+                     referer=e.get("referer") or "", image=e.get("slika") or kartica.get("slika") or "")
+        if not vnos:
+            return None
+        vnos["id"] = hashlib.sha256(("seznam-epizoda|" + str(e.get("url"))).encode()).hexdigest()[:20]
+        self._dynamic_items[vnos["id"]] = vnos
+        return vnos
+
+    def kanal_skrit(self, item: Any) -> bool:
+        """Kartica kanala IPTV, katere noben kanal seznama ne deluje (in nima vira, ki ni seznam IPTV)."""
+        if not isinstance(item, dict) or item.get("vrsta") != "tv-v-zivo":
+            return False
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)] or [item]
+        if not all(r.get("iptv") for r in razlicice):
+            return False
+        return not any(self.kanali.deluje(str(r.get("url") or "")) for r in razlicice)
+
+    def skrij_kanal(self, item: Any, url: str = "") -> bool:
+        """Kanal ob kliku ni zaigral z nobeno razlicico: vsi njegovi kanali seznama so mrtvi (takoj skriti, do ponovne
+        preverbe). Vrne True, ce je bil kanal s seznama IPTV."""
+        if not isinstance(item, dict) or item.get("vrsta") != "tv-v-zivo":
+            return False
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)] or [item]
+        urlji = [str(r.get("url") or "") for r in razlicice if r.get("iptv") and r.get("url")]
+        if not urlji:
+            return False
+        for u in urlji:
+            self.kanali.oznaci_mrtev(u)
+        self.ozastari_predpomnilnik()
+        return True
+
+    def _statistika_kanalov(self, source: dict) -> Optional[dict]:
+        kanali = [x for x in source.get("vnosi") or [] if isinstance(x, dict) and x.get("iptv")]
+        if not kanali:
+            return None
+        javni = kanali_iptv.je_javni_seznam(source.get("url"))
+        izbira = self.tv_izbira() if javni else None
+        vidni = [x for x in kanali if izbira is None or kanali_iptv.v_izbiri(x, izbira)]
+        stevci = self.kanali.povzetek(str(x.get("url") or "") for x in vidni)
+        return {"skupaj": len(kanali), "izbranih": len(vidni), "deluje": stevci[kanali_iptv.DELUJE],
+                "zaklenjenih": stevci[kanali_iptv.ZAKLENJEN], "mrtvih": stevci[kanali_iptv.MRTEV],
+                "preverjam": stevci["neznano"], "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni}
 
     def ima_kodi(self) -> bool:
         return self._kodi_streznik() is not None
@@ -3759,17 +4064,21 @@ class MediaCenter:
                 source["tip"] = "neposredni_medijski_tok"
             else:
                 payload, content_type, final_url = self._download(source["url"])
-                items = parse_payload(payload, content_type, final_url, source["id"], source["ime"])
+                stevci: dict = {}
+                items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
+                source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
                     items = _resolve_embed_or_direct_source(final_url, source["id"], source["ime"])
-            source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": ""})
+            source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
+                           "razclenitev": kanali_iptv.RAZCLENITEV})
             ok, error = True, ""
         except Exception as exc:
             host = (urllib.parse.urlsplit(source["url"]).hostname or "").casefold()
             restricted = host == "bandcamp.com" or host.endswith(".bandcamp.com")
             items = [] if restricted else _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
             if items:
-                source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": ""})
+                source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
+                               "razclenitev": kanali_iptv.RAZCLENITEV})
                 ok, error = True, ""
             else:
                 error = _text(exc, 180) or "Vira ni bilo mogoče prebrati."
@@ -3782,6 +4091,11 @@ class MediaCenter:
                 return {"ok": False, "napaka": "ni_vira"}
             saved.update(source)
             self._save(data)
+        if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):
+            # Zaklenjene kanale vira preverimo znova (morda je uporabnik pravkar placal naroznino), vse neznane takoj,
+            # da TV v zivo ob prvem ogledu ne caka (samo izbrane drzave in jeziki javnih seznamov).
+            self.kanali.pozabi(str(x.get("url") or "") for x in items if isinstance(x, dict) and x.get("iptv"))
+            self._vnosi_virov({"viri": [source]}, "tv-v-zivo")
         public = {k: value for k, value in source.items() if k != "vnosi"}
         return {"ok": ok, "napaka": error, "vir": public}
 
@@ -4336,8 +4650,7 @@ class MediaCenter:
             data = self._load()
         page_num = max(1, int(page or 1))
         local = [item for item in self._local_items() if (kind in ("", "vse") or item.get("vrsta") == kind)] if page_num == 1 else []
-        remote = [_series_catalog_card(item) for source in data.get("viri", []) for item in source.get("vnosi", [])
-                  if isinstance(item, dict) and (kind in ("", "vse") or item.get("vrsta") == kind)] if page_num == 1 else []
+        remote = [_series_catalog_card(item) for item in self._vnosi_virov(data, kind)] if page_num == 1 else []
         glasbena = kind in ("glasba", "radio") and _text(genre, 20) in zakoniti_viri.GLASBENE_ZVRSTI
         embed_ids = {str(provider.get("id") or host) for provider, _parsed, host in self._embed_viri(data)}
         tmdb_izklopljen = bool(embed_ids) and embed_ids <= izklopljeni
@@ -4386,9 +4699,11 @@ class MediaCenter:
             if izbrana == "moji":
                 lawful, dynamic, remote = [], [], []
             elif izbrana:
-                # TV v zivo po drzavah (kot zanri pri filmih); osebni kanali so pod "Moji kanali".
+                # TV v zivo po drzavah (kot zanri pri filmih); osebni kanali so pod "Moji kanali". Delujoci kanali
+                # seznamov IPTV iz izbrane drzave ostanejo.
                 lawful = [item for item in lawful if str(item.get("drzava") or "").upper() == izbrana.upper()]
-                dynamic, remote, local = [], [], []
+                remote = [item for item in remote if item.get("iptv") and str(item.get("drzava") or "").upper() == izbrana.upper()]
+                dynamic, local = [], []
         if kind not in ("", "vse"):
             lawful = [item for item in lawful if item.get("vrsta") == kind]
         personal = _osebni_vnosi
@@ -4513,6 +4828,13 @@ class MediaCenter:
     def details(self, item_id: str, country: str = "auto", language: str = "sl") -> dict:
         # Odprte podrobnosti niso predvajanje: torrenta zaradi njih ne zacnemo prenasati.
         item = self.resolve(item_id, pripravi_torrent=False)
+        if item and not item.get("tmdb_id") and item.get("epizode_seznama"):
+            # Serija s seznama M3U: sezone so tiste, ki jih seznam ima (nikoli prazna stran »Sezone niso na voljo«).
+            stevilo: dict[int, int] = {}
+            for e in item["epizode_seznama"]:
+                stevilo[int(e.get("sezona") or 0)] = stevilo.get(int(e.get("sezona") or 0), 0) + 1
+            return dict(item, sezone=[{"stevilka": s, "ime": "", "epizod": n} for s, n in sorted(stevilo.items()) if s > 0],
+                        media_type="tv", iz_seznama=True)
         if not item or not item.get("tmdb_id"):
             return item or {}
         media_type = "tv" if item.get("vrsta") == "serija" else "movie"

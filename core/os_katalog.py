@@ -467,6 +467,8 @@ class Katalog:
         "mediaSezona": "_sezona", "mediaEpizoda": "_epizoda", "mediaFilm": "_film",
         # Razlicice naslova v podrobnostih (dodatki in strezniki, ki jih je dodal uporabnik): seznam in rocna izbira.
         "mediaRazlicice": "_razlicice", "mediaIzberiRazlicico": "_izberi_razlicico",
+        # Drzave in jeziki kanalov javnih seznamov IPTV (core/kanali_iptv.py): [] -> stanje, [drzave, jeziki] -> shrani.
+        "mediaTvIzbira": "_tv_izbira",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
         "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdkrijDlna": "_odkrij_dlna",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
@@ -591,10 +593,17 @@ class Katalog:
         return True
 
     def _sezona(self, a: list) -> Any:
-        return self.mc.season(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1)
+        tmdb = int(a[0] or 0) if a else 0
+        if not tmdb and len(a) > 2:
+            # Serija s seznama M3U (brez TMDB): epizode iz kartice serije.
+            return self.mc.season_seznama(self._niz(a, 2), int(a[1]) if len(a) > 1 else 1)
+        return self.mc.season(tmdb, int(a[1]) if len(a) > 1 else 1)
 
     def _epizoda(self, a: list) -> Any:
-        izid = self.mc.episode_item(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1,
+        tmdb = int(a[0] or 0) if a else 0
+        if not tmdb and len(a) > 4:
+            return self.mc.epizoda_seznama(self._niz(a, 4), int(a[1]) if len(a) > 1 else 1, int(a[2]) if len(a) > 2 else 1)
+        izid = self.mc.episode_item(tmdb, int(a[1]) if len(a) > 1 else 1,
                                     int(a[2]) if len(a) > 2 else 1, self._niz(a, 3))
         if not (isinstance(izid, dict) and izid.get("id")):
             print("[SafeerMedia] epizoda: ni toka", file=sys.stderr, flush=True)    # stran tega ne kaze
@@ -610,6 +619,13 @@ class Katalog:
     def _izberi_razlicico(self, a: list) -> bool:
         """[id vnosa, podpis]: rocna izbira se zapomni za ta naslov; podpis privzete izbiro pobrise."""
         return self.mc.izberi_razlicico(self._niz(a, 0), self._niz(a, 1))
+
+    def _tv_izbira(self, a: list) -> Any:
+        """[] -> drzave in jeziki kanalov javnih seznamov (na voljo, izbrano, drzava uporabnika); [drzave, jeziki] ->
+        shrani izbiro (lastnik, 25. 10. 2026: privzeto drzava uporabnika in anglescina, ostalo vklopi v Virih)."""
+        if len(a) >= 2 and isinstance(a[0], list) and isinstance(a[1], list):
+            self.mc.nastavi_tv_izbiro([str(x) for x in a[0]][:300], [str(x) for x in a[1]][:200])
+        return self.mc.tv_izbira_na_voljo()
 
     def _viri(self, _a: list) -> Any:
         # »vticniki«: ta most zna upravljati vticnike strežnika Jellyfin (stran sicer gumba ne pokaze).
@@ -1546,6 +1562,12 @@ class Katalog:
         item = mc._dynamic_items.get(ident)
         if not isinstance(item, dict) or os_media.lastni_vir(item):   # na lastnem strezniku je vedno na voljo
             return False
+        if mc.skrij_kanal(item):
+            # Kanal s seznama IPTV ni zaigral: takoj skrit (lastnik, 25. 10. 2026: »kar ne deluje, se naj nikoli vec ne
+            # prikaze«), stran pove, zakaj je izginil. Tiha ponovna preverba ga vrne, ko spet oddaja.
+            mc._dynamic_items.pop(ident, None)
+            self.dogodek("mediaNiNaVoljo", {"idji": [ident], "kanal": str(item.get("naslov") or "")[:120]})
+            return True
         mc.oznaci_ni_na_voljo(item)
         if mc.znano_ni_na_voljo(item):
             mc._dynamic_items.pop(ident, None)
