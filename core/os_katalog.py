@@ -1445,7 +1445,9 @@ class Katalog:
 
     def _predvajaj_vnos(self, a: list) -> Optional[dict]:
         ident = self._niz(a, 0)
-        item = self.mc.resolve(ident)
+        # ["id", {"p2p": true}]: uporabnik je na strani izbral »Predvajaj neposredno« (naslov IP v roju, os_media.resolve).
+        p2p = len(a) > 1 and isinstance(a[1], dict) and a[1].get("p2p") is True
+        item = self.mc.resolve(ident, p2p=True) if p2p else self.mc.resolve(ident)
         uporabi = getattr(self.mc, "uporabi_izbiro", None)
         if uporabi is not None:
             item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej

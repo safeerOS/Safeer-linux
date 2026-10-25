@@ -1,6 +1,8 @@
 """Film iz torrenta (tok `infoHash` dodatka) v Medijskem centru na racunalniku: core/os_torrent_tok.py, tokovi
 dodatka z vsem za motor (media_servers.stremio_tokovi), izbira po sejalcih (tok_izbira) in MediaCenter.resolve.
 Brez omrezja in brez rqbit (motor je lazen)."""
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -241,7 +243,7 @@ class MedijskiCenter(unittest.TestCase):
         self.mc.ob_pripravi_torrenta = obvestila.append
         it = self.mc.movie_item(11, "Film ena")
         with mock.patch.object(tt, "pripravi", pripravi):
-            r = self.mc.resolve(it["id"])
+            r = self.mc.resolve(it["id"], p2p=True)
         # Dobro podprt torrent 1080p pred 4K brez sejalcev (ta bi cakal v nedogled).
         self.assertEqual(klici, [(H1, 1, "Film.S01E02.mkv", ["udp://t.primer.si:1/announce"])])
         self.assertEqual((r["url"], r["torrent"], r["razlicice"][0]["vir"]), ("http://127.0.0.1:5555/t/x/Film.mkv", True, "T"))
@@ -268,7 +270,7 @@ class MedijskiCenter(unittest.TestCase):
         for koda in (["motor"], ["preklicano"]):
             del klici[:]
             with mock.patch.object(tt, "pripravi", pripravi):
-                r = self.mc.resolve(it["id"])
+                r = self.mc.resolve(it["id"], p2p=True)
             self.assertEqual(r.get("napaka_koda"), koda[0])
             self.assertEqual(klici, [(H1, napredek, preklic, False)], "en sam poskus, z napredkom in preklicem")
             preklic.set()
@@ -322,13 +324,13 @@ class MedijskiCenter(unittest.TestCase):
 
         it = self.mc.movie_item(11, "Film ena")
         with mock.patch.object(tt, "pripravi", pripravi):
-            self.assertEqual(self.mc.resolve(it["id"])["url"], "http://127.0.0.1:5555/t/z/F.mkv")
+            self.assertEqual(self.mc.resolve(it["id"], p2p=True)["url"], "http://127.0.0.1:5555/t/z/F.mkv")
 
         def ni_prostora(*a, **k):
             raise os_torrent.NapakaTorrenta("ni_prostora")
 
         with mock.patch.object(tt, "pripravi", ni_prostora):
-            r = self.mc.resolve(it["id"])
+            r = self.mc.resolve(it["id"], p2p=True)
         self.assertEqual(r["napaka_koda"], "ni_prostora")
         self.assertFalse(self.mc.znano_ni_na_voljo(it))                      # napaka ni "noben vir tega ne predvaja"
 
@@ -338,6 +340,99 @@ class MedijskiCenter(unittest.TestCase):
             self.assertFalse(os_media.MediaCenter._predvajljivi(media_servers.stremio_tokovi(KOREN, "movie", "tt0000001")))
             self.assertEqual(self.mc.resolve(it["id"])["napaka_koda"], "ni_toka")
         self.assertTrue(os_media.MediaCenter._predvajljivi(media_servers.stremio_tokovi(KOREN, "movie", "tt0000001")))
+
+
+
+class RojPotrditev(unittest.TestCase):
+    """Lastnik 25. 10. 2026 (pomocnik Windows: po neuspehu Webtorja je izbira tiho sla v roj): P2P s tega racunalnika
+    (naslov IP v roju) nikoli tiho - kot Android opozoriPredRojem. Brez potrditve izbira na strani; potrditev velja za
+    torrente tega naslova do konca zagona; torrent, ki ga naprava ze hrani, gre brez vprasanja (v roju je ze bila)."""
+    ODGOVORI = MedijskiCenter.ODGOVORI
+    setUp = MedijskiCenter.setUp
+    tearDown = MedijskiCenter.tearDown
+
+    def _pripravi(self, klici):
+        def pripravi(hash_, indeks=None, ime="", sledilniki=(), **_k):
+            klici.append(hash_)
+            return {"url": "http://127.0.0.1:5555/t/x/Film.mkv", "ime": "Film.mkv", "indeks": indeks, "velikost": 1}
+        return pripravi
+
+    def _brez_rabe(self):
+        return mock.patch.object(tt, "pot_rabe", lambda: os.path.join(self.tmp, "ni-rabe.json"))
+
+    def test_brez_potrditve_ni_roja(self):
+        klici, obvestila = [], []
+        self.mc.ob_pripravi_torrenta = obvestila.append
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", self._pripravi(klici)), self._brez_rabe():
+            r = self.mc.resolve(it["id"])
+        self.assertEqual((r.get("napaka_koda"), r.get("p2p")), ("p2p_potrditev", {"webtor": False, "debrid": False}))
+        self.assertEqual((klici, obvestila), ([], []))           # motor se ni niti zagnal (tudi branje torrenta je roj)
+        self.assertFalse(str(r.get("url") or "").startswith("http://127."))
+        self.assertFalse(self.mc.znano_ni_na_voljo(it))          # film ni »ni na voljo«
+
+    def test_potrditev_velja_do_konca_zagona(self):
+        klici: list = []
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", self._pripravi(klici)), self._brez_rabe():
+            self.assertEqual(self.mc.resolve(it["id"], p2p=True)["url"], "http://127.0.0.1:5555/t/x/Film.mkv")
+            self.assertEqual(self.mc.resolve(it["id"])["url"], "http://127.0.0.1:5555/t/x/Film.mkv")
+            nov = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=lambda s: s, secret_decryptor=lambda s: s)
+            self.assertEqual(nov.resolve(nov.movie_item(11, "Film ena")["id"]).get("napaka_koda"), "p2p_potrditev")
+        self.assertEqual(klici, [H1, H1])
+
+    def test_torrent_ki_ga_naprava_ze_hrani_brez_vprasanja(self):
+        klici: list = []
+        raba = os.path.join(self.tmp, "raba.json")
+        with open(raba, "w", encoding="utf-8") as d:
+            json.dump({H3: 1.0}, d)                             # 4K (H3) naprava ze hrani, 1080p (H1) ne
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", self._pripravi(klici)), mock.patch.object(tt, "pot_rabe", lambda: raba):
+            r = self.mc.resolve(it["id"])
+        self.assertEqual((r["url"], klici), ("http://127.0.0.1:5555/t/x/Film.mkv", [H3]))   # samo ze hranjen, brez novega roja
+
+    def test_z_dodatkom_webtor_ponudi_poskusi_znova(self):
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", lambda *a, **k: self.fail("roj brez potrditve")), self._brez_rabe(), \
+                mock.patch.object(self.mc, "_ima_webtor", lambda: True):
+            self.assertEqual(self.mc.resolve(it["id"])["p2p"], {"webtor": True, "debrid": False})
+
+    def test_ima_webtor_po_gostitelju_tudi_za_nadomestek(self):
+        for url, da in (("https://webtor.io/safeer-skrito-0123456789abcdef", True), ("https://webtor.io/s/k7Qp2x/manifest.json", True),
+                        ("https://webtor.io.zlo.primer/x/manifest.json", False), ("https://torrentio.strem.fun/manifest.json", False)):
+            with mock.patch.object(self.mc, "_stremio_strezniki", lambda u=url: [{"url": u}]):
+                self.assertEqual(self.mc._ima_webtor(), da, url)
+
+    def test_podrobnosti_ne_vprasajo(self):
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", lambda *a, **k: self.fail("podrobnosti ne zacnejo roja")):
+            self.assertEqual(self.mc.resolve(it["id"], pripravi_torrent=False).get("torrent"), True)
+
+    def test_katalog_p2p_samo_izrecno(self):
+        from core import os_katalog
+        klici: list = []
+        k = os_katalog.Katalog.__new__(os_katalog.Katalog)
+        k._zaklep = threading.RLock()
+        k._mc = mock.Mock(spec=["resolve", "uporabi_izbiro"])
+        k._mc.resolve = lambda ident, **kw: klici.append(kw) or {"id": ident, "napaka_koda": "p2p_potrditev"}
+        k._mc.uporabi_izbiro = lambda item: item
+        with contextlib.redirect_stderr(io.StringIO()):
+            for a in (["x"], ["x", {"p2p": "true"}], ["x", {"p2p": 1}], ["x", "p2p"], ["x", {"p2p": True}]):
+                self.assertEqual(k._predvajaj_vnos(a)["napaka_koda"], "p2p_potrditev")
+        self.assertEqual(klici, [{}, {}, {}, {}, {"p2p": True}])
+
+    def test_stran_pokaze_izbiro_v_vseh_jezikih(self):
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js = open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8").read()
+        self.assertIn('if (item.napaka_koda === "p2p_potrditev") { potrdiRoj(item, id, predvajanje); return; }', js)
+        self.assertIn('odpriKatalogVnos(null, ["mediaPredvajaj", [r.id, { p2p: true }]])', js)
+        self.assertIn('$("rojPreklici").focus()', js)            # privzeto Preklici (zadrzan Enter ne odpre roja)
+        html = open(os.path.join(koren, "assets", "os", "index.html"), encoding="utf-8").read()
+        for i in ("slojRoj", "rojPreklici", "rojZnova", "rojTorbox", "rojNeposredno"):
+            self.assertIn('id="%s"' % i, html)
+        besedila = open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8").read()
+        for kljuc in ("rojNaslov", "rojOpis", "rojZnova", "rojTorbox", "rojNeposredno", "rojCakam", "rojPreklicano"):
+            self.assertEqual(besedila.count('"%s": "' % kljuc), 6, kljuc)
 
 
 if __name__ == "__main__":

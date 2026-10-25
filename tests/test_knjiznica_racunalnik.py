@@ -362,7 +362,7 @@ class MedijskiCenter(unittest.TestCase):
 
     def test_film_iz_javnega_dodatka_si_zapomni_z_naslovom_in_plakatom(self):
         it = self.mc.movie_item(11, "Film ena")
-        r = self.mc.resolve(it["id"])
+        r = self.mc.resolve(it["id"], p2p=True)
         self.assertEqual(r["url"], "http://127.0.0.1:5555/t/x/Film.mkv")
         o = self._opisi()[H1]
         self.assertEqual((o["title"], o["kind"], o["ref"], o["private"], o["file"]), ("Film ena", "movie", it["id"], False, 1))
@@ -370,7 +370,7 @@ class MedijskiCenter(unittest.TestCase):
     def test_film_ki_ga_ponudi_zaseben_dodatek_ostane_brez_naslova(self):
         self.mc.zasebno = True      # zasebni dodatek ponuja tokove samo, ce je kategorija »Zasebno« vklopljena
         it = self.mc.movie_item(12, "Zasebni naslov")
-        self.assertNotIn("napaka_koda", self.mc.resolve(it["id"]))
+        self.assertNotIn("napaka_koda", self.mc.resolve(it["id"], p2p=True))
         self.assertEqual(self._opisi()[H2], {"private": True})
         with open(kk.pot_opisov(self.raba), encoding="utf-8") as d:
             self.assertNotIn("Zasebni naslov", d.read())
@@ -378,7 +378,7 @@ class MedijskiCenter(unittest.TestCase):
     def test_kadar_manifesta_ni_mogoce_prebrati_velja_kot_zaseben(self):
         self.mc.zasebno = True      # zasebni dodatek ponuja tokove samo, ce je kategorija »Zasebno« vklopljena
         it = self.mc.movie_item(13, "Neznano")
-        self.assertNotIn("napaka_koda", self.mc.resolve(it["id"]))
+        self.assertNotIn("napaka_koda", self.mc.resolve(it["id"], p2p=True))
         self.assertEqual(self._opisi()[H3], {"private": True})
 
     def test_naslov_iz_kataloga_zasebnega_dodatka_je_zaseben_tudi_ce_tok_da_javni(self):
@@ -392,7 +392,7 @@ class MedijskiCenter(unittest.TestCase):
 
     def test_uporabnikovega_torrenta_in_filma_z_diska_ne_belezi(self):
         self.zacasen = False
-        self.mc.resolve(self.mc.movie_item(11, "Film ena")["id"])
+        self.mc.resolve(self.mc.movie_item(11, "Film ena")["id"], p2p=True)
         self.assertEqual(self._opisi(), {})
 
     def test_vnos_police_se_predvaja_naravnost_iz_torrenta_in_nadaljuje_pod_izvirno_oznako(self):
@@ -418,7 +418,7 @@ class MedijskiCenter(unittest.TestCase):
         self.assertEqual(self._opisi(), {})
         self.assertNotIn("napaka_koda", d)
         self.assertEqual(d.get("naslov"), "Film ena")
-        self.assertEqual(self.mc.resolve(it["id"])["url"], "http://127.0.0.1:5555/t/x/Film.mkv")   # Predvajaj: zdaj ja
+        self.assertEqual(self.mc.resolve(it["id"], p2p=True)["url"], "http://127.0.0.1:5555/t/x/Film.mkv")   # Predvajaj: zdaj ja
         self.assertEqual(self.pripravljeni, [(H1, 1)])
 
     def test_napaka_motorja_je_kratka_koda(self):

@@ -2069,6 +2069,31 @@ class MediaCenter:
         izvirni = str(item.get("jezik") or "")[:2]
         return {"zelen_jezik": tok_izbira.zeleni_jezik(izvirni), "izvirni": izvirni}
 
+    def _p2p_potrjeni(self) -> set:
+        """Torrenti (hash), za katere je uporabnik v tem zagonu izbral »Predvajaj neposredno« (kot Android potrjenP2p)."""
+        return self.__dict__.setdefault("_p2p_potrjeni_hashi", set())
+
+    def _p2p_dovoljeni(self, torrenti: list) -> list:
+        """Torrenti, ki gredo v roj brez nove potrditve: potrjeni v tem zagonu ali ze na tej napravi (zapis rabe motorja -
+        naprava je v roju tega torrenta ze bila). Prazno = uporabnik mora izbrati (napaka_koda p2p_potrditev)."""
+        potrjeni = self._p2p_potrjeni()
+        if any(str(t.get("hash") or "").lower() in potrjeni for t in torrenti):
+            return torrenti
+        try:
+            from . import link_datoteke
+            hrani = set(link_datoteke._beri_rabo(os_torrent_tok.pot_rabe()))
+        except Exception:  # noqa: BLE001 - zapisa ni: brez potrditve nic
+            return []
+        return [t for t in torrenti if str(t.get("hash") or "").lower() in hrani]
+
+    def _ima_webtor(self) -> bool:
+        """Uporabnik ima dodatek na webtor.io (tudi nadomestek ohrani gostitelja) - brez omrezja; za gumb »Poskusi znova
+        cez minuto« (Webtor nov tok najprej prenese sam: pomocnik Windows 25. 10. - cez nekaj minut odgovori v 0,3-3,6 s)."""
+        try:
+            return any(webtor.gostitelj(str(x.get("url") or "")) == webtor.GOSTITELJ for x in self._stremio_strezniki())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _razresi_torrent(self, item: dict, tokovi: list) -> dict:
         """Naslov, ki ga ponujajo samo torrenti: najboljsi torrent za to napravo prenasa motor Safeer OS, predvajalnik
         dobi lokalni tok ze med prenosom (core/os_torrent_tok.py). Brez toka: kratka koda napake, naslova ne skrijemo."""
@@ -5314,9 +5339,10 @@ class MediaCenter:
             izhod.append({"id": vnos["id"], "naslov": vnos["naslov"], "bitrate": vnos["bitrate"]})
         return izhod
 
-    def resolve(self, item_id: str, pripravi_torrent: bool = True) -> Optional[dict]:
+    def resolve(self, item_id: str, pripravi_torrent: bool = True, p2p: bool = False) -> Optional[dict]:
         """Vnos, pripravljen za predvajanje. `pripravi_torrent=False` (podrobnosti naslova): naslova, ki ga ponujajo
-        samo torrenti, ne zacnemo prenasati - to se zgodi sele, ko uporabnik pritisne Predvajaj."""
+        samo torrenti, ne zacnemo prenasati - to se zgodi sele, ko uporabnik pritisne Predvajaj. `p2p=True`: uporabnik
+        je izrecno izbral »Predvajaj neposredno« (njegov naslov IP bo viden v roju) - glej _p2p_dovoljeni."""
         if str(item_id or "").startswith("seznam:"):
             return self.seznam_posnetek(str(item_id))
         if str(item_id or "").startswith(("twitch:", "twitch-posnetek:")):
@@ -5455,7 +5481,18 @@ class MediaCenter:
                     # uporabnik dovoli). Ob napaki NIKOLI tiho na neposreden torrent (razkril bi IP racunalnika).
                     return self._razresi_debrid(item_id, item, torrenti[0], []) if pripravi_torrent else dict(item, torrent=True)
             if torrenti and os_torrent_tok.podprto():
-                return self._razresi_torrent(item, torrenti) if pripravi_torrent else dict(item, torrent=True)
+                if not pripravi_torrent:
+                    return dict(item, torrent=True)
+                # P2P s tega racunalnika (naslov IP v roju) nikoli tiho (lastnik 25. 10. 2026, enako kot Android
+                # opozoriPredRojem): pomocnik na Windows je izmeril, da je izbira po neuspehu Webtorja brez besede sla v
+                # roj. Brez potrditve samo torrenti, ki jih naprava ze hrani (v roju je ze bila); sicer izbira na strani.
+                dovoljeni = torrenti if p2p else self._p2p_dovoljeni(torrenti)
+                if dovoljeni:
+                    if p2p:
+                        self._p2p_potrjeni().update(str(t["hash"]).lower() for t in torrenti)
+                    return self._razresi_torrent(item, dovoljeni)
+                return dict(item, napaka_koda="p2p_potrditev",
+                            p2p={"webtor": bool(webtor_tokovi) or self._ima_webtor(), "debrid": bool(aktivna)})
             # Brez predvajljivega toka ni strani in ni seznama povezav: kratko obvestilo, vsebina izgine s seznama.
             # Za ure si to zapomnimo le, ce so odgovorili vsi dodatki (izpad dodatka ni "ni na voljo").
             if getattr(self._tokovi_odgovor, "vsi", False) and not webtor_tokovi:

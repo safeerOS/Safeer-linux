@@ -7523,6 +7523,7 @@
       }
       // Napake predvajanja (tok, napaka, motor ...) so tihe, sled je v sled.log (lastnik 18. 10. 2026). Ostanejo samo
       // stanja, ko mora uporabnik nekaj storiti ali izvedeti (MEDIA_UKREPAJ: prostor na disku, pomnilnik, Twitch ne oddaja).
+      if (item.napaka_koda === "p2p_potrditev") { potrdiRoj(item, id, predvajanje); return; }
       if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
@@ -7536,6 +7537,34 @@
     }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
   }
   var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1 };
+  // Film imajo samo torrenti, debrida ni (ali Webtor ni dal toka): naslov IP bi bil viden v roju - nikoli tiho (lastnik
+  // 25. 10. 2026, kot Android opozoriPredRojem). Privzeto Preklici (zadrzan Enter ne odpre roja); »Poskusi znova cez
+  // minuto« samo z dodatkom Webtor (nov tok najprej prenese Webtor sam), »Dodaj TorBox« samo brez debrida.
+  function potrdiRoj(item, id, predvajanje) {
+    var p = item.p2p || {};
+    $("rojOpis").textContent = t("rojOpis");
+    $("rojZnova").hidden = !p.webtor;
+    $("rojTorbox").hidden = !!p.debrid;
+    kat.roj = { id: String(item.id || id || ""), izvorId: id, predvajanje: predvajanje };
+    $("slojRoj").classList.add("viden");
+    setTimeout(function () { $("rojPreklici").focus(); }, 30);
+  }
+  function zapriRoj() { var r = kat.roj; kat.roj = null; $("slojRoj").classList.remove("viden"); return r; }
+  function rojNeposredno() {
+    var r = zapriRoj();
+    if (r && r.id) odpriKatalogVnos(null, ["mediaPredvajaj", [r.id, { p2p: true }]]);
+  }
+  function rojZnova() {
+    var r = zapriRoj();
+    if (!r) return;
+    obvesti(t("rojCakam"));
+    clearTimeout(kat.rojCasovnik);
+    var zahteva = kat.zahtevaPredvajanja;
+    kat.rojCasovnik = setTimeout(function () {
+      if (zahteva !== kat.zahtevaPredvajanja) return;       // uporabnik je medtem izbral drugo vsebino
+      odpriKatalogVnos(r.izvorId, r.predvajanje);
+    }, 60000);
+  }
 
   // ---- osebne police (lastnik, 14. 10. 2026: najboljse iz Jellyfina, Kodija, Stremia, Ampacha in Serviia)
   // Nadaljuj (z naslednjo epizodo), Nazadnje dodano, Najvec predvajano in Priljubljene na vrhu zavihka - samo police z
@@ -10031,6 +10060,10 @@
     sprejemPrilog($("sporocilaVnos"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
     sprejemPrilog($("sporocilaVsebina"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
     sprejemPrilog($("obrazecNovo"), "novo", function () { return true; });
+    $("rojPreklici").addEventListener("click", function () { zapriRoj(); obvesti(t("rojPreklicano")); });
+    $("rojNeposredno").addEventListener("click", rojNeposredno);
+    $("rojZnova").addEventListener("click", rojZnova);
+    $("rojTorbox").addEventListener("click", function () { zapriRoj(); odpriDebrid(); });
     $("nevarnoPreklici").addEventListener("click", function () { $("slojNevarno").classList.remove("viden"); S.nevarnoNadaljuj = null; });
     $("nevarnoNadaljuj").addEventListener("click", function () {
       var nadaljuj = S.nevarnoNadaljuj; S.nevarnoNadaljuj = null; $("slojNevarno").classList.remove("viden");
