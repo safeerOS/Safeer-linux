@@ -14,6 +14,15 @@ import pytest
 
 _izid = {}
 _VODILO = "DBUS_SESSION_BUS_ADDRESS"
+# Okolje ob uvozu tega conftest (pred uvozom varoval in core/): korenski conftest.py mora izolacijo nastaviti PREJ
+# (tests/test_izolacija_okolja.py, naloga 48).
+_OKOLJE_OB_UVOZU = {k: os.environ.get(k) for k in ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+                                                    "XDG_STATE_HOME", "TMPDIR", "GSETTINGS_BACKEND")}
+
+
+@pytest.fixture
+def okolje_ob_uvozu_conftest():
+    return dict(_OKOLJE_OB_UVOZU)
 
 
 def zasebno_vodilo():

@@ -35,7 +35,13 @@ def _pocisti_zapuscene(koren: str) -> None:
             pass
 
 
-def pytest_configure(config):
+def _izoliraj() -> None:
+    """Zacasna mapa teka ter HOME/XDG/GSETTINGS_BACKEND. Klice se ob uvozu tega conftest.py (naloga 48): pytest
+    ga uvozi pred tests/conftest.py, ta pa ze ob uvozu nalozi varovalo_niti, varovalo_signalov in core/ - v
+    pytest_configure je bilo to prepozno (moduli bi si zapomnili pravi HOME). Kavelj pytest_load_initial_conftests
+    v conftest.py ne pride (pytest ga klice samo vticnikom, ki so nalozeni pred conftest)."""
+    if "mapa" in _stanje:
+        return
     koren = tempfile.gettempdir()
     try:
         _pocisti_zapuscene(koren)
@@ -45,7 +51,6 @@ def pytest_configure(config):
     _stanje.update(mapa=mapa, tempdir=tempfile.tempdir, okolje=os.environ.get("TMPDIR"))
     tempfile.tempdir = mapa
     os.environ["TMPDIR"] = mapa
-    # Okolje spreminjamo tu, ker se zgodaj, pred uvozom core/ in pred nitmi (glej core/okolje_procesa.py).
     dom = os.path.join(mapa, "dom")
     prej = {}
     for ime, pod in _IZOLIRANE:
@@ -58,6 +63,14 @@ def pytest_configure(config):
     if not prej["GSETTINGS_BACKEND"]:
         os.environ["GSETTINGS_BACKEND"] = "memory"
     _stanje["okolje_prej"] = prej
+
+
+# Okolje spreminjamo ob uvozu: pred tests/conftest.py, pred uvozom core/ in pred nitmi (core/okolje_procesa.py).
+_izoliraj()
+
+
+def pytest_configure(config):
+    _izoliraj()            # ce je pytest_unconfigure ze pospravil (vec sej v istem procesu, pytester)
 
 
 def pytest_unconfigure(config):
