@@ -216,7 +216,10 @@ class Razlicice(unittest.TestCase):
     def test_posodobitev_uporabi_vse_datoteke(self):
         """Safeer OS in Safeer Control preneseta datoteke iz op.datoteke_namestitve (program, videz, .deb, WebKit)."""
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for ime in ("safeer_os.py", "safeer_control.py"):
+        imena = [i for i in ("safeer_os.py", "safeer_control.py") if os.path.isfile(os.path.join(koren, i))]
+        if not imena:
+            self.skipTest("zaganjalnika Linux nista v tem repozitoriju (Safeer-windows; preizkus je skupen z Linuxom)")
+        for ime in imena:
             with open(os.path.join(koren, ime), encoding="utf-8") as f:
                 vir = f.read()
             self.assertIn("for d in os_posodobitve.datoteke_namestitve(n):", vir, ime)
