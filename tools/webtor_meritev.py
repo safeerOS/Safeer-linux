@@ -9,6 +9,9 @@ Nacina:
                            v zbirko skrivnosti se nic ne zapise), MediaCenter.resolve -> Webtor -> sonda -> predvajalnik.
                            Brez uporabnikovega dodatka Webtor pove, kaj manjka. --samo-webtor: v kopiji ostane samo
                            dodatek Webtor (meritev rezerve - sicer zmagajo neposredne povezave drugih dodatkov).
+                           --dodatki torrentio.strem.fun,webtor.io: v kopiji samo dodatki s temi gostitelji.
+                           --brez-debrida: kopija brez debrid.json (uporabnik brez debrida). P2P s tega racunalnika
+                           meritev nikoli ne zacne (resolve brez p2p=True vrne p2p_potrditev - izpis pot).
 Predvajanje je tiho in brez okna (audio-sink in video-sink sta fakesink, glasnost 0), vsak poskus ima rok, na koncu se
 predvajalnik ustavi in zapre. Meri: cas izbire do koncnega naslova, do prvega dekodiranega okvirja, ali predvajanje
 tece --sekund s brez zastoja. Izpis: ena vrstica JSON na poskus - brez naslovov in zetonov (samo gostitelj).
@@ -48,7 +51,8 @@ def predvajaj(url: str, sekund: float, tok: dict | None = None, rok_slike_s: flo
     Gst.init(None)
     p = os_predvajalnik.Predvajalnik(Gst)
     zanka = GLib.MainLoop()
-    izid: dict = {"slika_ms": None, "predvajano_s": 0.0, "zastoji": 0, "medpomnjenje": 0, "napaka": "", "razlicic": 0}
+    izid: dict = {"slika_ms": None, "predvajano_s": 0.0, "zastoji": 0, "medpomnjenje": 0, "napaka": "", "razlicic": 0,
+                  "trajanje_s": None}
     tok = tok if isinstance(tok, dict) else {"brez_preusmeritev": True}
     zacetek = time.monotonic()
     prva = threading.Event()
@@ -93,6 +97,9 @@ def predvajaj(url: str, sekund: float, tok: dict | None = None, rok_slike_s: flo
                 return False
             return True
         izid.setdefault("razlicica", int(getattr(p, "_razlicica", 0)))
+        if not izid["trajanje_s"]:                  # dolzina posnetka: glavni film (ne vzorec ali napovednik)
+            ok_d, dolzina = p.element.query_duration(Gst.Format.TIME)
+            izid["trajanje_s"] = round(dolzina / 1e9, 1) if ok_d and dolzina > 0 else None
         stanje["od_slike"] = stanje["od_slike"] or zdaj
         ok, pol = p.element.query_position(Gst.Format.TIME)
         pol = pol / 1e9 if ok else stanje["polozaj"]
@@ -135,7 +142,7 @@ def naslov(url: str, sekund: float) -> dict:
     return izid
 
 
-def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False) -> list:
+def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False, dodatki: tuple = (), brez_debrida: bool = False) -> list:
     """Prava pot uporabnika iz kopije nastavitev Medijskega centra (prave nastavitve ostanejo nespremenjene).
     samo_webtor: v kopiji ostane samo dodatek Webtor (meritev rezerve; sicer zmagajo neposredne povezave drugih)."""
     from core import media_servers, os_katalog, os_media, skrivni_dodatki
@@ -152,14 +159,15 @@ def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False) -> list:
         return izid
     media_servers.stremio_tokovi = stej
     try:
-        for ime in ("media.json", "debrid.json"):
+        for ime in ("media.json",) if brez_debrida else ("media.json", "debrid.json"):
             if (vir / ime).is_file():
                 shutil.copy2(vir / ime, Path(mapa) / ime)
-        if samo_webtor:
+        obdrzi = {"webtor.io"} if samo_webtor else set(dodatki)
+        if obdrzi:
             kopija = Path(mapa) / "media.json"
             d = json.loads(kopija.read_text(encoding="utf-8"))
             d["osebni_strezniki"] = [s for s in d.get("osebni_strezniki") or []
-                                     if _gostitelj(str(s.get("url") or "")) == "webtor.io"]
+                                     if _gostitelj(str(s.get("url") or "")) in obdrzi]
             kopija.write_text(json.dumps(d), encoding="utf-8")
         pomnilnik: dict = {}
 
@@ -176,9 +184,20 @@ def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False) -> list:
         if not wt:
             return [{"nacin": "webtor", "napaka": "ni_dodatka_webtor", "dodatkov": len(koreni),
                      "kljuc_debrid": bool(mc.debrid.aktivna())}]
+        sonde: list = []
+        sonda_izvirna = mc._webtor_sonda
+
+        def sonda(url, rok, *a):                    # izid sonde Webtor brez naslova (samo gostitelj, ms, posoda)
+            zacetek_s = time.monotonic()
+            s = sonda_izvirna(url, rok, *a)
+            sonde.append({"izid": s.izid, "ms": int((time.monotonic() - zacetek_s) * 1000), "gostitelj": s.gostitelj,
+                          "posoda": s.posoda})
+            return s
+        mc._webtor_sonda = sonda
         izidi = []
         for tt in idji:
             stevci.clear()
+            sonde.clear()
             ident = "meritev:" + tt
             mc._dynamic_items[ident] = {"id": ident, "naslov": tt, "vrsta": "film", "url": "stremio:%s|movie|%s" % (wt[0], tt)}
             zacetek = time.monotonic()
@@ -186,7 +205,8 @@ def webtor_pot(idji: list, sekund: float, samo_webtor: bool = False) -> list:
             izid = {"nacin": "webtor", "id": tt, "izbira_ms": int((time.monotonic() - zacetek) * 1000),
                     "pot": "webtor" if r.get("webtor") else "debrid" if r.get("debrid") else
                     (r.get("napaka_koda") or ("neposredno" if str(r.get("url") or "").startswith("https://") else "drugo")),
-                    "koncni_gostitelj": _gostitelj(r.get("url")), "tokov": dict(stevci), "samo_webtor": samo_webtor}
+                    "koncni_gostitelj": _gostitelj(r.get("url")), "tokov": dict(stevci), "samo_webtor": samo_webtor,
+                    "sonde_webtor": list(sonde)}
             if r.get("url") and not skrivni_dodatki.je_nadomestek(str(r["url"])) and str(r["url"]).startswith("https://"):
                 p = predvajaj(str(r["url"]), sekund, os_katalog.tok_za_predvajalnik(r, str(r["url"])))
                 izid.update(p)
@@ -207,12 +227,15 @@ def main(argv: list) -> int:
     a.add_argument("--ponovitve", type=int, default=1)
     a.add_argument("--sekund", type=float, default=30.0)
     a.add_argument("--samo-webtor", action="store_true", help="v kopiji nastavitev samo dodatek Webtor")
+    a.add_argument("--dodatki", default="", help="gostitelji dodatkov v kopiji, z vejico (npr. torrentio.strem.fun,webtor.io)")
+    a.add_argument("--brez-debrida", action="store_true", help="kopija brez debrid.json")
     n = a.parse_args(argv)
     for ponovitev in range(1, max(1, n.ponovitve) + 1):
         for url in n.naslov:
             print(json.dumps(dict(naslov(url, n.sekund), ponovitev=ponovitev), ensure_ascii=False), flush=True)
         if n.webtor:
-            for izid in webtor_pot(n.webtor, n.sekund, n.samo_webtor):
+            dodatki = tuple(x.strip().lower() for x in n.dodatki.split(",") if x.strip())
+            for izid in webtor_pot(n.webtor, n.sekund, n.samo_webtor, dodatki, n.brez_debrida):
                 print(json.dumps(dict(izid, ponovitev=ponovitev), ensure_ascii=False), flush=True)
     return 0
 
