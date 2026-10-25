@@ -250,8 +250,11 @@ class Predogled(unittest.TestCase):
     def setUp(self):
         self.mapa = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.mapa, True)
+        # Vrednost samo zamenjamo in vrnemo; brisanje spremenljivke v procesu z nitmi (unsetenv) ni dovoljeno (AGENTS.md).
+        prej = os.environ.get("XDG_CACHE_HOME")      # pod pytest vedno nastavljena (korenski conftest.py)
+        self.addCleanup(lambda: os.environ.pop("XDG_CACHE_HOME", None) if prej is None
+                        else os.environ.__setitem__("XDG_CACHE_HOME", prej))
         os.environ["XDG_CACHE_HOME"] = os.path.join(self.mapa, "cache")
-        self.addCleanup(os.environ.pop, "XDG_CACHE_HOME", None)
 
     def _pot(self, ime, vsebina):
         p = os.path.join(self.mapa, ime)
