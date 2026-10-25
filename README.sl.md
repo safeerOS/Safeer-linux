@@ -32,12 +32,12 @@ brskalnik za Android TV 2.1.215, Safeer OS 0.5.93 za TV, tablico in telefon ter 
 ## Kaj zna
 
 **Nativni GTK4, naš WebKit.** Nativni GTK4 z WebKitGTK 6.0 — brez Electrona, brez drugega
-brskalniškega pogona, brez posodabljalnika v ozadju. Flatpak in paketi .deb prinesejo WebKitGTK 2.54.1,
-zgrajen s Clangom 22, ThinLTO in optimizacijo po profilu (v paketih .deb še z BOLT), s popravki, ki
-smo jih razvili sami ([packaging/webkit](packaging/webkit)): plasti z backdrop-filter v kompozitorju
-Skia se ne izrisujejo več 2ⁿ-krat, utišan video MediaSource izven vidnega polja pa tokov ne pušča več
-obtičanih v »nalaganju«. Popravek za backdrop-filter je zdaj del WebKita (324100@main, tudi v veji 2.54);
-ko bo WebKitGTK imel oba popravka, naših popravkov ne bo več.
+brskalniškega pogona, brez posodabljalnika v ozadju. Flatpak in paketi .deb prinesejo WebKitGTK 2.54.2,
+zgrajen s Clangom 22, ThinLTO in optimizacijo po profilu (v paketih .deb še z BOLT), utrjen kot paket
+distribucije ([packaging/webkit](packaging/webkit)). Oba popravka pogona, ki smo ju nosili sami, sta del
+WebKitGTK 2.54.2: plasti z backdrop-filter v kompozitorju Skia se ne izrisujejo več 2ⁿ-krat (naš popravek,
+324100@main), utišan video MediaSource izven vidnega polja pa tokov ne pušča več obtičanih v »nalaganju«
+(323810@main), zato pogon gradimo iz nespremenjenega gorvodnega izvora.
 
 **Isti pogon kot Safeer OS.** Brskalnik in Splet v Safeer OS sta ena koda: vsaka izboljšava spleta je
 takoj v obeh.
