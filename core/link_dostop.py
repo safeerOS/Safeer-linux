@@ -632,6 +632,13 @@ def zmoznosti(device_id: str) -> Set[str]:
     return set(_nalozen().get(jedro(device_id)) or ())
 
 
+def v_ozjem_krogu(device_id: str) -> bool:
+    """Ali je naprava v ozjem krogu tega racunalnika (OZJI_KROG: upravljanje in mape z eno izrecno privolitvijo). Samo
+    taka vidi domaco mapo (link_datoteke, oznake dom:) - ne naprava, ki ima iz starejse razlicice samo »d« za izbrane
+    mape (sedmi pregled, naloga 6, 25. 10. 2026)."""
+    return bool(device_id) and OZJI_KROG <= zmoznosti(device_id)
+
+
 def sme(device_id: str, zahteva: str) -> bool:
     """Ali je napravi z to oznako odprto `zahteva` (za zeton streznika datotek, seznam naprav in oddaje sredisca -
     povsod, kjer ne presojamo posameznega sporocila)."""

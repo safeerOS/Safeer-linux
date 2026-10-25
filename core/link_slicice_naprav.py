@@ -16,11 +16,12 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import struct
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Dict, Iterable, Optional
+from concurrent.futures import ThreadPoolExecutor, wait
+from typing import Callable, Dict, Iterable, Optional, Tuple
 from urllib.parse import quote, urlparse
 
 ROB = 256
@@ -36,6 +37,9 @@ PREMOR_NEUSPEHA_S = 600.0
 BREZ_LAN = "192.0.2.1"
 _ODTIS = re.compile(r"^[0-9A-Fa-f:]{40,128}$")
 _KONCNICE = ("jpg", "png", "webp")
+#: Najvecja stranica prejete slicice (dogovor: rob 128-512). 2 MB PNG lahko v glavi napove 30000 x 30000 pik (~3,6 GB
+#: pri dekodiranju v Safeer OS) - tako ne shranimo (sedmi pregled, naloga 6, 25. 10. 2026).
+NAJVEC_ROB_PREJETE = 1024
 
 
 def veljaven_streznik(streznik) -> bool:
@@ -63,24 +67,85 @@ def vrsta_slike(bajti: bytes) -> str:
     return ""
 
 
+def dimenzije_slike(bajti: bytes) -> Optional[Tuple[int, int]]:
+    """(sirina, visina) iz glave JPEG (SOFn), PNG (IHDR) ali WebP (VP8, VP8L, VP8X); None, ce glave ni mogoce prebrati."""
+    try:
+        if bajti[:8] == b"\x89PNG\r\n\x1a\n" and bajti[12:16] == b"IHDR":
+            return struct.unpack(">II", bajti[16:24])
+        if bajti[:4] == b"RIFF" and bajti[8:12] == b"WEBP":
+            vrsta = bajti[12:16]
+            if vrsta == b"VP8X":
+                return (int.from_bytes(bajti[24:27], "little") + 1, int.from_bytes(bajti[27:30], "little") + 1)
+            if vrsta == b"VP8L" and bajti[20:21] == b"\x2f":
+                b = int.from_bytes(bajti[21:25], "little")
+                return ((b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1)
+            if vrsta == b"VP8 " and bajti[23:26] == b"\x9d\x01\x2a":
+                s_, v_ = struct.unpack("<HH", bajti[26:30])
+                return (s_ & 0x3FFF, v_ & 0x3FFF)
+            return None
+        if bajti[:2] == b"\xff\xd8":
+            i = 2
+            while i + 9 < len(bajti):
+                if bajti[i] != 0xFF:
+                    return None
+                oznaka = bajti[i + 1]
+                if oznaka == 0xFF:
+                    i += 1
+                    continue
+                if oznaka in (0xD8, 0x01) or 0xD0 <= oznaka <= 0xD7:
+                    i += 2
+                    continue
+                dolzina = struct.unpack(">H", bajti[i + 2:i + 4])[0]
+                if 0xC0 <= oznaka <= 0xCF and oznaka not in (0xC4, 0xC8, 0xCC):
+                    visina, sirina = struct.unpack(">HH", bajti[i + 5:i + 9])
+                    return (sirina, visina)
+                i += 2 + dolzina
+    except (struct.error, IndexError, ValueError):
+        return None
+    return None
+
+
+def ustrezna_slicica(bajti: bytes) -> str:
+    """Vrsta slike ('jpg', 'png', 'webp'), ce je to slicica razumne velikosti; sicer '' (ne shranimo)."""
+    konc = vrsta_slike(bajti)
+    if not konc:
+        return ""
+    dim = dimenzije_slike(bajti)
+    if dim is None or not (0 < dim[0] <= NAJVEC_ROB_PREJETE and 0 < dim[1] <= NAJVEC_ROB_PREJETE):
+        return ""
+    return konc
+
+
 def kljuc(id_naprave: str, oznaka: str, spremenjeno, velikost) -> str:
     return hashlib.sha256(("%s\n%s\n%s\n%s" % (id_naprave, oznaka, spremenjeno, velikost)).encode("utf-8")).hexdigest()
 
 
-def prenesi_https(streznik: dict, oznaka: str, rob: int = ROB) -> Optional[bytes]:
+def prenesi_https(streznik: dict, oznaka: str, rob: int = ROB, rok_s: float = ROK_S) -> Optional[bytes]:
     """GET /thumb/<oznaka>?s=<rob> s pripetim potrdilom naprave in zetonom; None, ce slicice ni. Preusmeritvam ne
-    sledimo (zahteva nosi zeton - AGENTS.md)."""
+    sledimo (zahteva nosi zeton - AGENTS.md). Ves prenos ima skupen rok `rok_s`: naprava, ki posilja po en bajt, ga
+    ne raztegne (prej je rok veljal za vsak recv posebej - sedmi pregled, naloga 6)."""
     from core import link_tls
+    konec = time.monotonic() + rok_s
     u = urlparse(str(streznik.get("base_url")))
-    povezava = link_tls._PripetaHttps(u.hostname, u.port or 443, str(streznik.get("fp") or ""), ROK_S)
+    povezava = link_tls._PripetaHttps(u.hostname, u.port or 443, str(streznik.get("fp") or ""), rok_s)
     try:
         pot = (u.path.rstrip("/") + "/thumb/" + quote(str(oznaka), safe="")) + "?s=%d" % int(rob)
         povezava.request("GET", pot, headers={"X-Safeer-Token": str(streznik.get("token") or "")})
         odgovor = povezava.getresponse()
         if odgovor.status != 200:
             return None
-        bajti = odgovor.read(NAJVEC_ODGOVOR + 1)
-        return bajti if len(bajti) <= NAJVEC_ODGOVOR else None
+        bajti = bytearray()
+        while len(bajti) <= NAJVEC_ODGOVOR:
+            ostane = konec - time.monotonic()
+            if ostane <= 0:
+                return None
+            if povezava.sock is not None:
+                povezava.sock.settimeout(ostane)
+            kos = odgovor.read(min(64 * 1024, NAJVEC_ODGOVOR + 1 - len(bajti)))
+            if not kos:
+                break
+            bajti += kos
+        return bytes(bajti) if len(bajti) <= NAJVEC_ODGOVOR else None
     finally:
         povezava.close()
 
@@ -141,18 +206,33 @@ class Slicice:
                     bajti = None
             finally:
                 self._mesta.release()
-            konc = vrsta_slike(bajti or b"")
+            konc = ustrezna_slicica(bajti or b"")
             if not konc:
                 with self._zaklep:
                     if len(self._neuspelo) > 5000:
                         self._neuspelo.clear()
                     self._neuspelo[k] = time.monotonic() + PREMOR_NEUSPEHA_S
                 return None
-            return oznaka, self._shrani(k, konc, bajti)
-        with ThreadPoolExecutor(max_workers=HKRATI, thread_name_prefix="safeer-slicice-naprav") as delavci:
-            for r in delavci.map(eno, manjka):
+            try:
+                return oznaka, self._shrani(k, konc, bajti)
+            except OSError as e:          # poln disk, mapa ni dosegljiva: ikona ostane, klicatelj ne dobi izjeme
+                print("[SafeerOS] slicice naprave ni bilo mogoce shraniti:", type(e).__name__, flush=True)
+                return None
+        # Skupen rok `rok` za klicatelja: pocasna naprava ga ne zadrzi (prej je cakal na vse niti). Prenos, ki do roka
+        # ni koncan, tece v ozadju do svojega roka (ROK_S) in je v predpomnilniku ob naslednjem klicu.
+        delavci = ThreadPoolExecutor(max_workers=HKRATI, thread_name_prefix="safeer-slicice-naprav")
+        try:
+            prihodnosti = [delavci.submit(eno, par) for par in manjka]
+            koncane, _ = wait(prihodnosti, timeout=max(0.0, konec - time.monotonic()))
+            for f in koncane:
+                try:
+                    r = f.result()
+                except Exception:  # noqa: BLE001 - ena slicica ne podre ostalih
+                    r = None
                 if r:
                     izid[r[0]] = r[1]
+        finally:
+            delavci.shutdown(wait=False, cancel_futures=True)
         return izid
 
     def _shrani(self, k: str, konc: str, bajti: bytes) -> str:
@@ -184,6 +264,8 @@ class Slicice:
             skupaj = 0
             for koren, _mape, imena in os.walk(self.mapa):
                 for ime in imena:
+                    if ime.endswith(".part"):
+                        continue          # zapis, ki ravno tece v drugi niti (os.replace bi sicer padel)
                     p = os.path.join(koren, ime)
                     try:
                         s = os.stat(p)

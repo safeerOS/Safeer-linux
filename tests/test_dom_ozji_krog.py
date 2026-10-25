@@ -28,7 +28,10 @@ class DomacaMapa(unittest.TestCase):
 
     def test_koren_in_seznam_brez_skritih_in_skrivnosti(self):
         m = link_datoteke.DeljeneMape([], dom=True)
-        self.assertEqual(m.koren(), [{"id": "dom:", "name": os.path.basename(self.dom), "type": "folder"}])
+        # Nevtralno ime (ne ime mape - navadno uporabnisko ime; sedmi pregled, naloga 6).
+        self.assertEqual(m.koren(), [{"id": "dom:", "name": "Home", "type": "folder"}])
+        m.jezik = "sl"
+        self.assertEqual(m.koren()[0]["name"], "Domača mapa")
         imena = [v["name"] for v in m.seznam("dom:")]
         self.assertEqual(imena, ["Dokumenti", "Slike"], "brez .ssh, .config, kljuc.pem, id_rsa, povezave na /etc")
         self.assertEqual([v["name"] for v in m.seznam("dom:Dokumenti")], ["pismo.txt"], "brez zbirke gesel")

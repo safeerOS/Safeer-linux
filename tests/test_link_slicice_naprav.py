@@ -9,7 +9,8 @@ import unittest
 from core import link_slicice_naprav as ls
 
 STREZNIK = {"base_url": "https://192.168.0.20:8443", "fp": "ab" * 32, "token": "z"}
-JPEG = b"\xff\xd8\xff\xe0" + b"x" * 100
+# JPEG z glavo SOF0 (256 x 256): prejeta slicica mora povedati svojo velikost (ustrezna_slicica).
+JPEG = b"\xff\xd8\xff\xc0\x00\x11\x08\x01\x00\x01\x00\x03" + b"\x00" * 9 + b"x" * 100
 
 
 class Streznik(unittest.TestCase):

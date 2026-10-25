@@ -1191,6 +1191,9 @@ class Zaslon:
             odjemalec, konec_prevzete = sprejet
             # Dostop je bil preverjen ob screen.start; uporabnik ga je morda vzel, medtem ko je seja cakala gledalca
             # (sedmi pregled, 25. 10. 2026: TOCTOU). Brez dostopa gledalec ne dobi ne slike ne vnosa.
+            with self._kljucavnica:
+                if self._seja_st != seja:
+                    return              # medtem se je zacela nova seja (ta gledalec ni vec njen)
             if not self._ima_dostop(seja):
                 print("[zaslon] naprava je upravljanje izgubila, preden se je gledalec povezal - seje ni", flush=True)
                 self._obvesti(odjemalec, {"konec": "dostop"})

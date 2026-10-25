@@ -286,6 +286,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if tw is None:
                 koncaj(izid(False, "Teamwork tu ni na voljo", koda="neznano"))
                 return
+            if hasattr(datoteke, "sme_oznako") and not datoteke.sme_oznako(str(parametri.get("id") or ""), posiljatelj):
+                koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
+                return
             # V svoji niti: izvedi_control tece na glavni niti (core/safeer_link), prva prijava pa prebere in kopira
             # celo datoteko (do 1 GB), seznam oken pa caka na glavno nit - na njej bi Safeer zamrznil ob vsakem
             # javljanju (vsakih 5 s). Odgovor gre prek koncaj kot pri ostalih ukazih v nitih.
@@ -314,6 +317,10 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             # Datoteko odpre racunalnik s svojim programom; televizor jo nato vidi prek zaslona.
             if datoteke is None:
                 koncaj(izid(False, "Deljenje datotek tu ni na voljo", koda="ni_na_racunalniku"))
+                return
+            if hasattr(datoteke, "sme_oznako") and not datoteke.sme_oznako(str(parametri.get("id", "") or ""), posiljatelj):
+                # Domaca mapa samo ozjemu krogu (link_datoteke.Datoteke.sme_oznako).
+                koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
                 return
             if d == "files.open_locen" or parametri.get("locen"):
                 # Namizje druge naprave (oddaljeno namizje): datoteka se odpre na LOCENEM zaslonu, uporabnik za tem

@@ -1302,6 +1302,8 @@ class SafeerControl(_OSNOVA):
                                               ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)),
                                               dom=bool(self.nastavitve.get("dom_ozjemu_krogu", True)))
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
+        # Ime domace mape za naprave v jeziku vmesnika (ne uporabnisko ime - link_datoteke.IME_DOMA).
+        self.datoteke.mape.jezik = self.nastavitve.get("ui_language")
         # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 12 ur nihce ne predvaja, odstrani sam.
         link_datoteke.zazeni_ciscenje()
         # Knjiznica kroga: film, ki ga je Safeer OS na tem racunalniku zaradi gledanja prenesel sam, vidijo in predvajajo

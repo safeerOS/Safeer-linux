@@ -547,10 +547,11 @@ class _LaznaSlika:
     zaklep = threading.Lock()
     cakaj = None
 
-    def __init__(self, velikost, po_draft=None):
+    def __init__(self, velikost, po_draft=None, oblika="PNG"):
         self.size = velikost
         self._po_draft = po_draft
         self.mode = "RGB"
+        self.format = oblika
 
     def __enter__(self):
         return self
@@ -588,7 +589,9 @@ class SliciceSlik(unittest.TestCase):
         _LaznaSlika.cakaj = None
         self.velikost = (4000, 3000)
         self.po_draft = None
-        popravki = [mock.patch("PIL.Image.open", lambda pot: _LaznaSlika(self.velikost, self.po_draft)),
+        # Format po vsebini (Pillow); tu po koncnici. Odpre se samo z omejenim naborom formatov (formats=).
+        popravki = [mock.patch("PIL.Image.open", lambda pot, formats=None: _LaznaSlika(
+                        self.velikost, self.po_draft, "JPEG" if pot.endswith(".jpg") else "PNG")),
                     mock.patch("PIL.ImageOps.exif_transpose", lambda im: im)]
         for p in popravki:
             p.start()
