@@ -71,6 +71,23 @@ _signali = VarovaloSignalov()
 _signali.namesti()
 
 
+# Pravi programi za skrbniske pravice (pkexec, sudo) in namesceni Safeer (/usr/bin/safeer-*) se v preizkusu ne zazenejo
+# (tests/varovalo_programov.py; 25. 10. 2026: preizkus je na lastnikovem zaslonu odprl okno za skrbnisko geslo).
+from varovalo_programov import Varovalo as VarovaloProgramov  # noqa: E402
+
+_programi = VarovaloProgramov()
+_programi.namesti()
+
+
+@pytest.fixture(autouse=True)
+def _brez_pravih_programov():
+    zacetek = _programi.stevilo()
+    yield
+    krsitve = _programi.od(zacetek)
+    if krsitve:
+        pytest.fail("Varovalo programov (%d): %s" % (len(krsitve), "\n".join(krsitve[:5])), pytrace=False)
+
+
 @pytest.fixture(autouse=True)
 def _signali_samo_potomcem():
     zacetek = len(_signali.krsitve)

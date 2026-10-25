@@ -134,25 +134,57 @@ class NastavitveInOrodja(_Podtaknjeno):
 
 
 class OvojiFlatpak(_Podtaknjeno):
+    """Ovoj v /app/host-bin (flatpak-spawn --host) orodje poisce samo v sistemskih mapah gostitelja.
+
+    Lazni flatpak-spawn sistemske mape ovoja zamenja z zacasno mapo: preizkus NIKOLI ne zazene pravega orodja gostitelja.
+    Prej je ovoj prek laznega flatpak-spawn zagnal pravi /usr/bin/safeer-cinnamon --od-vklopa -> pkexec: na lastnikovem
+    prenosniku dvakrat okno za skrbnisko geslo, procesa sta ostala sirota (25. 10. 2026 14:25)."""
+
+    #: Sistemske mape v ovoju (packaging/flatpak_host_wrappers.sh), v tem vrstnem redu.
+    SISTEMSKE = "/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin /snap/bin"
+
+    def _lazni_flatpak_spawn(self, sistem: str) -> None:
+        """Izpusti --host in --env=; v skripti ovoja zamenja sistemske mape z `sistem` (in pove, ce jih ni). Kar ni
+        skripta ovoja, se ne zazene (pkexec ovoja v preizkusu nikoli)."""
+        lazni = os.path.join(self.mapa, "flatpak-spawn")
+        with open(lazni, "w", encoding="utf-8") as f:
+            f.write("#!%s -I\n" % sys.executable)
+            f.write("import os, sys\n"
+                    "a = sys.argv[1:]\n"
+                    "while a and (a[0] == '--host' or a[0].startswith('--env=')):\n"
+                    "    a = a[1:]\n"
+                    "if a[:2] != ['/bin/sh', '-c'] or %r not in a[2]:\n"
+                    "    sys.exit('lazni flatpak-spawn: ni skripta ovoja s sistemskimi mapami: %%r' %% (a,))\n"
+                    "os.execv('/bin/sh', a[:2] + [a[2].replace(%r, %r)] + a[3:])\n"
+                    % (self.SISTEMSKE, self.SISTEMSKE, sistem))
+        os.chmod(lazni, 0o755)
+
     def test_orodje_gostitelja_samo_iz_sistemskih_map(self):
-        """Ovoj v /app/host-bin (flatpak-spawn --host) orodje poisce samo v sistemskih mapah gostitelja."""
         ovoji = os.path.join(self.mapa, "host-bin")
         subprocess.run(["bash", os.path.join(KOREN, "packaging", "flatpak_host_wrappers.sh"), ovoji], check=True,
                        capture_output=True, timeout=30)
-        # Lazni flatpak-spawn: izpusti --host in --env=, ostalo zazene s PATH klicatelja (s podtaknjenimi programi).
-        lazni = os.path.join(self.mapa, "flatpak-spawn")
-        with open(lazni, "w", encoding="utf-8") as f:
-            f.write('#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in --host|--env=*) shift ;; *) break ;; esac; done\n'
-                    'exec "$@"\n')
-        os.chmod(lazni, 0o755)
+        with open(os.path.join(ovoji, "safeer-cinnamon"), encoding="utf-8") as f:
+            self.assertIn("for d in %s; do" % self.SISTEMSKE, f.read(), "preizkus mora poznati sistemske mape ovoja")
+        # »Sistemske mape gostitelja« v preizkusu: ls je pravi (samo izpis), safeer-cinnamon lazen.
+        sistem = os.path.join(self.mapa, "sistem")
+        os.mkdir(sistem)
+        os.symlink(shutil.which("ls", path="/usr/bin:/bin"), os.path.join(sistem, "ls"))
+        with open(os.path.join(sistem, "safeer-cinnamon"), "w", encoding="utf-8") as f:
+            f.write('#!/bin/sh\necho SISTEMSKI "$@"\n')
+        os.chmod(os.path.join(sistem, "safeer-cinnamon"), 0o755)
+        self._lazni_flatpak_spawn(sistem)
         shutil.copy(os.path.join(ovoji, "safeer-cinnamon"), os.path.join(ovoji, "ls"))
         r = subprocess.run([os.path.join(ovoji, "ls"), "-d", "/"], capture_output=True, text=True, timeout=10)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "/"), r.stderr)
+        # Podtaknjen safeer-cinnamon je prvi v PATH; ovoj zazene tistega iz sistemske mape.
+        r = subprocess.run([os.path.join(ovoji, "safeer-cinnamon"), "--od-vklopa"], capture_output=True, text=True,
+                           timeout=10)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "SISTEMSKI --od-vklopa"), r.stderr)
+        os.remove(os.path.join(sistem, "safeer-cinnamon"))
         r = subprocess.run([os.path.join(ovoji, "safeer-cinnamon"), "--od-vklopa"], capture_output=True, text=True,
                            timeout=10)
         self.assertNotIn("PODTAKNJEN", r.stdout)
-        if not os.path.exists("/usr/bin/safeer-cinnamon"):
-            self.assertEqual(r.returncode, 127, "orodja ni na gostitelju: koda kot manjkajoc ukaz")
+        self.assertEqual(r.returncode, 127, "orodja ni na gostitelju: koda kot manjkajoc ukaz")
         with open(os.path.join(ovoji, "pkexec"), encoding="utf-8") as f:
             self.assertIn('/usr/bin/pkexec "$@"', f.read())
 
