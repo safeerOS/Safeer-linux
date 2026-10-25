@@ -3117,7 +3117,7 @@ class MediaCenter:
         if povratni is not None:
             try:
                 povratni()
-            except Exception:  # noqa: BLE001 - obvestilo strani ne sme ustaviti preverbe
+            except Exception:  # noqa: BLE001, S110 - obvestilo strani ne sme ustaviti preverbe
                 pass
 
     def _drzava_tv(self) -> str:

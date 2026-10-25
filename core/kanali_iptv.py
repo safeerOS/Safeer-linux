@@ -729,7 +729,7 @@ class PreverbaKanalov:
         if povratni is not None:
             try:
                 povratni()
-            except Exception:  # noqa: BLE001 - obvestilo zaslona ne sme ustaviti preverbe
+            except Exception:  # noqa: BLE001, S110 - obvestilo zaslona ne sme ustaviti preverbe
                 pass
 
     def pocakaj(self, rok: float) -> bool:
