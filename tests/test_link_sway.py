@@ -92,6 +92,18 @@ class Zajem(unittest.TestCase):
         self.assertIn("qp=16", u)
         self.assertIn("bf=0", u)
 
+    def test_brezizgubno_rgb_za_zicni_lan(self):
+        """Navidezno namizje na zicnem LAN (core/link_zaslon_profil): libx264rgb qp 0, RGB - pikselsko enako."""
+        d = link_sway.DrugiZaslon(mapa=tempfile.mkdtemp())
+        d.graficna = lambda: "/dev/dri/renderD128"
+        u = d.ukaz_zajema(60, 0, "24M", kodek="h264rgb")
+        i = u.index("-c")
+        self.assertEqual(u[i:i + 4], ["-c", "libx264rgb", "-x", "bgr0"])
+        for p in ("qp=0", "preset=ultrafast", "tune=zerolatency", "bf=0", "g=600"):
+            self.assertIn(p, u)
+        self.assertNotIn("h264_vaapi", u)
+        self.assertEqual(u[u.index("-m") + 1], "h264")
+
     def test_programsko_4_2_0(self):
         """Brez -x yuv420p x264 kodira 4:4:4, tega pa televizor ne zna dekodirati."""
         d = link_sway.DrugiZaslon(mapa=tempfile.mkdtemp())

@@ -1193,7 +1193,12 @@ class DrugiZaslon:
         skupina = gop if gop > 0 else max(1, fps)
         u = ["wf-recorder", "-o", IZHOD] + (["-D"] if z["no_damage"] else []) + \
             (["-r", str(max(1, fps))] if z["framerate"] else []) + ["-m", "hevc" if hevc else "h264", "-f", "/dev/stdout"]
-        if gpu:
+        if kodek == "h264rgb":
+            # Zicni LAN (core/link_zaslon_profil): brezizgubno H.264 RGB na procesorju - pikselsko enako navideznemu
+            # namizju, brez pretvorbe v YUV (lastnik 25. 10. 2026: navidezno namizje ne sme zmanjsati kakovosti).
+            parametri = ["preset=ultrafast", "tune=zerolatency", "qp=0", "bf=0", "g=%d" % (gop if gop > 0 else fps * 10)]
+            u += ["-c", "libx264rgb", "-x", "bgr0"]
+        elif gpu:
             parametri = ["rc_mode=CQP", "qp=%d" % qp, "profile=%s" % ("main" if hevc else "high"), "bf=0",
                          "g=%d" % skupina]
             u += ["-c", "hevc_vaapi" if hevc else "h264_vaapi", "-d", gpu]

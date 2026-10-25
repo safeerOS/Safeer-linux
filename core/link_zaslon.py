@@ -152,7 +152,7 @@ def zapisi_povzetek(povzetek: dict, pot: Optional[str] = None) -> None:
 
 
 #: Kodirniki v ukazu zajema (ffmpeg -c:v ..., wf-recorder -c ...).
-_KODIRNIKI = ("h264_vaapi", "hevc_vaapi", "libx264")
+_KODIRNIKI = ("h264_vaapi", "hevc_vaapi", "libx264rgb", "libx264")
 
 
 def kodirnik_ukaza(ukaz, strojno: bool = False) -> str:
@@ -949,6 +949,15 @@ class Zaslon:
                     if kodek != "h264":
                         d["kodek"] = kodek
                     return self.drugi.ukaz_zajema(int(raven["fps"]), int(raven["qp"]), str(raven["bitrate"]), **d)
+
+                def po_profilu(profil, raven, kodek, _osnova=dict(dodatki), _velikost=(sirina, visina)):
+                    """Navidezno namizje: na zicnem LAN brezizgubno H.264 RGB (velikost je ze velikost gledalca)."""
+                    if profil.get("kodek") != "h264rgb":
+                        return None
+                    d = {x: y for x, y in _osnova.items() if x != "kodek"}
+                    return (self.drugi.ukaz_zajema(int(raven["fps"]), 0, str(raven["bitrate"]), kodek="h264rgb", **d),
+                            _velikost[0], _velikost[1], "h264", "rgb")
+                self._po_profilu = po_profilu
             elif wayland:
                 self._cilj = "desktop"
                 self._okolje_zajema = None
@@ -1167,9 +1176,14 @@ class Zaslon:
             po_profilu = getattr(self, "_po_profilu", None)
             if po_profilu is not None:
                 try:
-                    ukaz, s_p, v_p, kodek_seje, barve = po_profilu(profil, KAKOVOSTI[raven_poti], kodek_poti)
+                    nov = po_profilu(profil, KAKOVOSTI[raven_poti], kodek_poti)
+                    if nov is None:
+                        raise LookupError("profil ne spremeni zajema")
+                    ukaz, s_p, v_p, kodek_seje, barve = nov
                     raven_ime = raven_poti
                     self._slika = dict(self._slika, width=s_p, height=v_p, fps=int(KAKOVOSTI[raven_poti]["fps"]))
+                except LookupError:
+                    pass
                 except Exception as e:  # noqa: BLE001 - brez profila ostane ukaz, ki je ze izbran
                     print("[zaslon] profil:", e, flush=True)
             kodirnik = kodirnik_ukaza(ukaz, self._strojno)
