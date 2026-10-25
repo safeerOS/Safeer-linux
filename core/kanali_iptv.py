@@ -255,6 +255,12 @@ VZPOREDNO = 4
 PONOVNO_PREVERI_MRTVE = True
 #: Kako dolgo velja izid; nato kanal preverimo znova v ozadju (do takrat velja stari izid).
 VELJA_S = {DELUJE: 6 * 3600, ZAKLENJEN: 24 * 3600, MRTEV: 24 * 3600}
+#: Brez odgovora v roku ali prekinjena povezava je lahko le trenutna obremenitev (izmerjeno 25. 10. 2026: od 50 kanalov z
+#: »rok« pri 4 s jih je 14 ob ponovni preverbi delovalo, 12 v manj kot 3,5 s). Tak kanal je skrit, a ga po PONOVI_PO_S
+#: enkrat preverimo znova z daljsim rokom; sele drugi neuspeh velja za 24 h.
+PONOVI_KODE = frozenset({"rok", "povezava"})
+PONOVI_PO_S = 10 * 60
+ROK_PONOVNO_S = 8.0
 NAJVEC_PREUSMERITEV = 5
 NAJVEC_SEZNAM = 256 * 1024
 BAJTOV_KOSA = 2048
@@ -593,17 +599,26 @@ class PreverbaKanalov:
     def deluje(self, url: str) -> bool:
         return self.izid(url) == DELUJE
 
+    @staticmethod
+    def _za_ponovitev(zapis: Optional[list]) -> bool:
+        """Mrtev zaradi roka ali prekinjene povezave in se ni bil ponovljen z daljsim rokom."""
+        return bool(zapis) and zapis[0] == MRTEV and zapis[1] in PONOVI_KODE and not (len(zapis) > 3 and zapis[3])
+
     def potrebuje_preverbo(self, url: str) -> bool:
         with self._lock:
             zapis = self._beri().get(kljuc(url))
         if not zapis:
             return True
+        starost = self._ura() - float(zapis[2] or 0)
+        if self._za_ponovitev(zapis):
+            return starost >= PONOVI_PO_S
         if zapis[0] == MRTEV and not PONOVNO_PREVERI_MRTVE:
             return False
-        return self._ura() - float(zapis[2] or 0) >= VELJA_S.get(zapis[0], VELJA_S[MRTEV])
+        return starost >= VELJA_S.get(zapis[0], VELJA_S[MRTEV])
 
-    def zapisi(self, url: str, izid: str, koda: str = "") -> bool:
-        """Zapise izid; vrne True, ce se je spremenilo, ali kanal deluje."""
+    def zapisi(self, url: str, izid: str, koda: str = "", ponovljeno: bool = False) -> bool:
+        """Zapise izid; vrne True, ce se je spremenilo, ali kanal deluje. `ponovljeno`: to je bila ponovitev z daljsim
+        rokom (drugi neuspeh velja 24 h)."""
         k = kljuc(url)
         with self._lock:
             izidi = self._beri()
@@ -612,7 +627,7 @@ class PreverbaKanalov:
                 self._meta["vrnjeni"] = int(self._meta.get("vrnjeni") or 0) + 1   # mrtev kanal je spet ziv
             if prej and prej[0] == MRTEV:
                 self._meta["ponovno_preverjeni"] = int(self._meta.get("ponovno_preverjeni") or 0) + 1
-            izidi[k] = [izid, str(koda)[:24], round(self._ura(), 1)]
+            izidi[k] = [izid, str(koda)[:24], round(self._ura(), 1), 1 if ponovljeno else 0]
             spremenjeno = (prej[0] == DELUJE) != (izid == DELUJE) if prej else izid == DELUJE
             if spremenjeno:
                 self._spremembe += 1
@@ -621,7 +636,7 @@ class PreverbaKanalov:
 
     def oznaci_mrtev(self, url: str, koda: str = "predvajanje") -> None:
         """Kanal ob kliku ni zaigral: takoj skrit (do ponovne preverbe)."""
-        self.zapisi(url, MRTEV, koda)
+        self.zapisi(url, MRTEV, koda, ponovljeno=True)
         with self._lock:
             self._pisi(takoj=True)
 
@@ -657,15 +672,18 @@ class PreverbaKanalov:
 
     # --- preverba v ozadju
     def preveri_v_ozadju(self, kanali: Iterable[tuple]) -> int:
-        """kanali: (url, glave, domace). Doda tiste, ki jih je treba preveriti; vrne stevilo novih v vrsti."""
+        """kanali: (url, glave, domace). Doda tiste, ki jih je treba preveriti; vrne stevilo novih v vrsti. Kanal, ki je
+        bil mrtev zaradi roka ali povezave, se preveri z daljsim rokom (ROK_PONOVNO_S)."""
         novi = 0
         with self._lock:
+            izidi = self._beri()
             for url, glave, domace in kanali:
                 k = kljuc(url)
                 if k in self._cakajo:
                     continue
                 self._cakajo.add(k)
-                self._vrsta.append((k, url, dict(glave or {}), bool(domace)))
+                ponovitev = self._za_ponovitev(izidi.get(k))
+                self._vrsta.append((k, url, dict(glave or {}), bool(domace), ponovitev))
                 novi += 1
             while self._delavci < VZPOREDNO and self._delavci < len(self._vrsta):
                 self._delavci += 1
@@ -679,12 +697,12 @@ class PreverbaKanalov:
     def _naslednji(self) -> Optional[tuple]:
         """Prvi kanal v vrsti, katerega gostitelja ta hip nihce ne sprasuje (z zaklepom)."""
         while self._vrsta:
-            for i, (k, url, glave, domace) in enumerate(self._vrsta):
+            for i, (k, url, glave, domace, ponovitev) in enumerate(self._vrsta):
                 gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower()
                 if gostitelj not in self._gostitelji:
                     del self._vrsta[i]
                     self._gostitelji.add(gostitelj)
-                    return k, url, glave, domace, gostitelj
+                    return k, url, glave, domace, ponovitev, gostitelj
             self._lock.wait(1.0)
         return None
 
@@ -695,12 +713,12 @@ class PreverbaKanalov:
                     naslednji = self._naslednji()
                     if naslednji is None:
                         break
-                k, url, glave, domace, gostitelj = naslednji
+                k, url, glave, domace, ponovitev, gostitelj = naslednji
                 try:
-                    izid, koda = self._preveri(url, glave, ROK_S, domace)
+                    izid, koda = self._preveri(url, glave, ROK_PONOVNO_S if ponovitev else ROK_S, domace)
                 except Exception:  # noqa: BLE001
                     izid, koda = MRTEV, "napaka"
-                self.zapisi(url, izid, koda)
+                self.zapisi(url, izid, koda, ponovljeno=ponovitev)
                 with self._lock:
                     self._gostitelji.discard(gostitelj)
                     self._cakajo.discard(k)

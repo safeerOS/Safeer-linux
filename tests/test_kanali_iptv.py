@@ -255,6 +255,27 @@ class PredpomnilnikPreverb(unittest.TestCase):
         with mock.patch.object(kanali_iptv, "PONOVNO_PREVERI_MRTVE", False):
             self.assertFalse(p.potrebuje_preverbo("https://a.test/2"))
 
+    def test_rok_se_enkrat_ponovi_z_daljsim_rokom(self):
+        # Izmerjeno 25. 10. 2026: 14 od 50 kanalov z »rok« (4 s) je ob ponovni preverbi delovalo.
+        ura = [1000.0]
+        roki = []
+        p = kanali_iptv.PreverbaKanalov(self.pot, preveri=lambda u, g, rok, d: (roki.append(rok), (kanali_iptv.MRTEV, "rok"))[1],
+                                        ura=lambda: ura[0])
+        p.zapisi("https://a.test/r", kanali_iptv.MRTEV, "rok")
+        p.zapisi("https://a.test/404", kanali_iptv.MRTEV, "http-404")
+        self.assertFalse(p.potrebuje_preverbo("https://a.test/r"))
+        ura[0] += kanali_iptv.PONOVI_PO_S
+        self.assertTrue(p.potrebuje_preverbo("https://a.test/r"))
+        self.assertFalse(p.potrebuje_preverbo("https://a.test/404"))      # 404 velja 24 h
+        p.preveri_v_ozadju([("https://a.test/r", {}, False)])
+        self.assertTrue(p.pocakaj(5))
+        self.assertEqual(roki, [kanali_iptv.ROK_PONOVNO_S])
+        ura[0] += kanali_iptv.PONOVI_PO_S
+        self.assertFalse(p.potrebuje_preverbo("https://a.test/r"))        # drugi neuspeh: 24 h
+        p.oznaci_mrtev("https://a.test/klik")
+        ura[0] += kanali_iptv.PONOVI_PO_S
+        self.assertFalse(p.potrebuje_preverbo("https://a.test/klik"))     # klik brez predvajanja ni »rok«
+
     def test_mrtev_kanal_se_vrne_in_steje(self):
         p = kanali_iptv.PreverbaKanalov(self.pot)
         p.oznaci_mrtev("https://a.test/1")

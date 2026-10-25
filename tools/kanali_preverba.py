@@ -112,6 +112,14 @@ def main(argv=None) -> int:
         zacetek = time.monotonic()
         preverba.preveri_v_ozadju((str(x["url"]), x.get("glave") or {}, domace) for x, _v, domace, _i in kanali)
         preverba.pocakaj(6 * 3600)
+        prvi = {k: list(v) for k, v in preverba._beri().items()}
+        # Kot Safeer OS: kanal brez odgovora v roku ali s prekinjeno povezavo se enkrat ponovi z daljsim rokom
+        # (v programu po PONOVI_PO_S, tu takoj).
+        ponovi = [(str(x["url"]), x.get("glave") or {}, domace) for x, _v, domace, _i in kanali
+                  if preverba._za_ponovitev(prvi.get(kanali_iptv.kljuc(str(x["url"]))))]
+        if ponovi:
+            preverba.preveri_v_ozadju(ponovi)
+            preverba.pocakaj(6 * 3600)
         cas_preverbe = time.monotonic() - zacetek
         zapisi = []
         for x, ime_vira, _domace, izbran in kanali:
@@ -119,12 +127,15 @@ def main(argv=None) -> int:
             zapis = preverba._beri().get(k) or ["neznano", "", 0]
             zapisi.append({"id": k, "ime": x.get("naslov"), "vir": ime_vira, "drzava": x.get("drzava"),
                            "jezik": x.get("jezik"), "izbran": izbran, "izid": zapis[0], "koda": zapis[1],
+                           "prvi_izid": (prvi.get(k) or ["neznano", ""])[0] + ":" + (prvi.get(k) or ["", ""])[1],
                            "ms": casi.get(k), "cas": zapis[2]})
 
     povzetek = {"skupaj": len(zapisi)}
     for z in zapisi:
         povzetek[z["izid"]] = povzetek.get(z["izid"], 0) + 1
     povzetek["ne_24_7"] = sum(v.get("ne_24_7", 0) for v in viri)
+    povzetek["ponovljenih"] = len(ponovi)
+    povzetek["po_ponovitvi_deluje"] = sum(1 for z in zapisi if z["izid"] == "deluje" and not z["prvi_izid"].startswith("deluje"))
     izbrani_povzetek = {}
     for z in zapisi:
         if z["izbran"]:
