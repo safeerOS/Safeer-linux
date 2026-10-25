@@ -64,11 +64,15 @@ def niz_cevovoda(ponor: str) -> str:
 
 
 def preslikaj_tocko(x: float, y: float, sirina: float, visina: float,
-                    sirina_slike: int, visina_slike: int) -> Optional[Tuple[float, float]]:
-    """Tocko widgeta preslika v sliko z razmerjem stranic; crni rob vrne None."""
+                    sirina_slike: int, visina_slike: int, povecaj: bool = True) -> Optional[Tuple[float, float]]:
+    """Tocko widgeta preslika v sliko z razmerjem stranic; crni rob vrne None.
+
+    `povecaj=False`: slika se nikoli ne poveca (prikaz 1:1, ce je prostora dovolj - Gtk.ContentFit.SCALE_DOWN)."""
     if min(sirina, visina, sirina_slike, visina_slike) <= 0:
         return None
     merilo = min(sirina / sirina_slike, visina / visina_slike)
+    if not povecaj:
+        merilo = min(1.0, merilo)
     prikaz_sirina = sirina_slike * merilo
     prikaz_visina = visina_slike * merilo
     odmik_x = (sirina - prikaz_sirina) / 2.0

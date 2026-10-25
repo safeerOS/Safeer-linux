@@ -826,6 +826,17 @@ class OddaljeniGledalec(Gtk.Window):
         self.stanje.set_visible(True)
         return False
 
+    _samo_manjsaj = False
+
+    def _slika_1_1(self, slika):
+        """Slika se ne poveca nad izvorno velikost (1:1, ce je prostora dovolj; manjse okno = gladko pomanjsanje GSK)."""
+        try:
+            slika.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
+            self._samo_manjsaj = True
+        except (AttributeError, TypeError):    # GTK pred 4.8: kot prej (raztegne na okno)
+            self._samo_manjsaj = False
+        return slika
+
     def _zamenjaj_vsebino(self, widget) -> None:
         otrok = self.dogodki.get_first_child()
         while otrok is not None:
@@ -844,10 +855,10 @@ class OddaljeniGledalec(Gtk.Window):
         self.appsrc = self.pipeline.get_by_name("vir")
         ponor = self.pipeline.get_by_name("ponor")
         if self.ponor_ime == "gtk4paintablesink":
-            self._zamenjaj_vsebino(Gtk.Picture.new_for_paintable(ponor.get_property("paintable")))
+            self._zamenjaj_vsebino(self._slika_1_1(Gtk.Picture.new_for_paintable(ponor.get_property("paintable"))))
         elif self.ponor_ime == "appsink":
             # Brez gtk4paintablesink (paket gstreamer1.0-gtk4): slike iz appsink kot Gdk.MemoryTexture v istem oknu.
-            self.slika = Gtk.Picture()
+            self.slika = self._slika_1_1(Gtk.Picture())
             self._zamenjaj_vsebino(self.slika)
             ponor.connect("new-sample", self._nova_slika)
         else:
@@ -919,6 +930,7 @@ class OddaljeniGledalec(Gtk.Window):
                 self.gledalec = gledalec
                 glava = gledalec.povezi()
                 self.sirina_slike, self.visina_slike = glava.sirina, glava.visina
+                self._glava = dict(glava.podatki or {})
                 GLib.idle_add(self._povezano)
                 for vrsta, telo in gledalec.okvirji():
                     if self.zaprto or self.gledalec is not gledalec:
@@ -931,6 +943,8 @@ class OddaljeniGledalec(Gtk.Window):
                             raise RuntimeError("Dekoder slike se je ustavil.")
                     elif vrsta == OKVIR_OBVESTILO:
                         obvestilo = json.loads(telo.decode("utf-8"))
+                        if "kazalec" in obvestilo and ("oblika" in obvestilo or "viden" in obvestilo):
+                            GLib.idle_add(self._nastavi_kazalec, obvestilo)
                         if obvestilo.get("konec"):
                             # Racunalnik pove tudi z besedami, zakaj je konec (npr. »prevzeto«: zaslon zdaj gleda
                             # druga naprava) - uporabnik naj vidi stavek, ne oznake.
@@ -945,6 +959,45 @@ class OddaljeniGledalec(Gtk.Window):
         if self.ponor_ime != "glimagesink":
             self.stanje.set_visible(False)
         self.dogodki.grab_focus()
+        # Profil seje v vrstici (»LAN · 1 Gb/s · neposredno · 2560×1440 · 60 fps · brezizgubno«) - da je meritev vidna.
+        profil = (getattr(self, "_glava", None) or {}).get("profil")
+        if isinstance(profil, dict) and profil.get("opis"):
+            ime = str(self.vrstica.ime or "").split(" · ")[0]
+            self.vrstica.ime = (ime + " · " if ime else "") + str(profil["opis"])[:160]
+            self.vrstica.napis.set_text(self.vrstica.ime)
+        return False
+
+    #: Oblike kazalca Safeer -> imena CSS za Gdk.Cursor (vir: core/link_kazalec.py).
+    _KAZALCI_CSS = {"puscica": "default", "besedilo": "text", "cakanje": "wait", "puscica_cakanje": "progress",
+                    "kriz": "crosshair", "velikost_nwse": "nwse-resize", "velikost_nesw": "nesw-resize",
+                    "velikost_we": "ew-resize", "velikost_ns": "ns-resize", "premik": "move", "roka": "pointer",
+                    "ne": "not-allowed"}
+
+    def _nastavi_kazalec(self, obvestilo: dict) -> bool:
+        """Kazalec racunalnika ni v sliki (glava "kazalec"): nasemu kazalcu nastavimo njegovo obliko - en kazalec."""
+        if self.zaprto:
+            return False
+        kljuc = (obvestilo.get("viden"), obvestilo.get("oblika"), obvestilo.get("slika"))
+        if kljuc == getattr(self, "_kazalec_kljuc", None) or (obvestilo.get("slika") is None
+                                                               and kljuc[:2] == getattr(self, "_kazalec_kljuc", (0, 0, 0))[:2]):
+            return False
+        kazalec = None
+        try:
+            if obvestilo.get("viden") is False:
+                kazalec = Gdk.Cursor.new_from_name("none", None)
+            elif isinstance(obvestilo.get("slika"), str) and obvestilo["slika"].startswith("data:image/png;base64,"):
+                import base64
+                bajti = base64.b64decode(obvestilo["slika"].split(",", 1)[1])[:262144]
+                tekstura = Gdk.Texture.new_from_bytes(GLib.Bytes.new(bajti))
+                vroca = obvestilo.get("vroca") or [0, 0]
+                kazalec = Gdk.Cursor.new_from_texture(tekstura, int(vroca[0]), int(vroca[1]), None)
+            else:
+                kazalec = Gdk.Cursor.new_from_name(self._KAZALCI_CSS.get(str(obvestilo.get("oblika")), "default"), None)
+        except Exception as e:  # noqa: BLE001 - slaba slika kazalca ne sme ustaviti gledalca
+            print("[SafeerControl] kazalec:", e)
+            kazalec = Gdk.Cursor.new_from_name(self._KAZALCI_CSS.get(str(obvestilo.get("oblika")), "default"), None)
+        self._kazalec_kljuc = kljuc
+        self.dogodki.set_cursor(kazalec)
         return False
 
     def _ustavi_pretok(self) -> None:
@@ -984,8 +1037,9 @@ class OddaljeniGledalec(Gtk.Window):
                 pass
 
     def _tocka(self, x: float, y: float):
+        # Slika se ne poveca (Gtk.ContentFit.SCALE_DOWN): 1:1, kadar je okno dovolj veliko - brez raztega.
         return preslikaj_tocko(x, y, self.dogodki.get_width(), self.dogodki.get_height(),
-                               self.sirina_slike, self.visina_slike)
+                               self.sirina_slike, self.visina_slike, povecaj=not self._samo_manjsaj)
 
     def _premik(self, _widget, dogodek) -> bool:
         # Absolutni polozaj (kot Windows gledalec): oddaljeni kazalec je vedno tam, kamor kaze nas.
@@ -1939,8 +1993,16 @@ class SafeerControl(_OSNOVA):
             return {"ok": False, "koda": "ni_naslova",
                     "message": "%s zdaj ni dosegljiv neposredno. Slika zaslona deluje samo v istem omrežju (doma), "
                                "prek Global Linka ne." % str(naprava.get("ime") or id_naprave)}
+        # Krog ostrine (25. 10. 2026): gledalec kaze kazalec sam (brez dvojnega), prikaze 1:1, zna brezizgubno H.264
+        # RGB (avdec_h264) in pokaze profil; omrezje tega racunalnika proti napravi (zicno/Wi-Fi) je izmerjeno.
+        from core import link_zaslon_profil
+        naslov = str(naprava.get("naslov") or "").strip()
+        if naslov.count(":") == 1:
+            naslov = naslov.split(":")[0]
+        omrezje = link_zaslon_profil.lokalno_omrezje(naslov.strip("[]")).get("vrsta") or ""
         odgovor = self.link.ukaz_pocakaj(id_naprave, "screen.start",
-                                         {"quality": "visoka", "screen": "desktop"}, cas=15.0)
+                                         {"quality": "najvisja", "screen": "desktop", "net": omrezje,
+                                          "caps": ["kazalec", "izvorna", "brezizgubno", "profil"]}, cas=15.0)
         if not odgovor.get("ok"):
             # Sporocilo ciljne naprave mora ostati nespremenjeno (tudi zavrnitev dovoljenja).
             return {"ok": False, "message": str(odgovor.get("message") or "Naprava je zahtevo zavrnila."),
