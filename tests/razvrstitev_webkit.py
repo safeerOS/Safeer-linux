@@ -75,6 +75,9 @@ class _Obisk(ast.NodeVisitor):
         self.uvozi_v_funkciji: Dict[str, Set[str]] = {}
         self.klici_vrh: Set[str] = set()
         self.uvozena_imena: Dict[str, str] = {}     # ime v modulu -> polno ime (modul ali modul.funkcija)
+        # Nizi, dodeljeni imenu (funkcija, ime): koda za -c v spremenljivki, npr. test_packaging
+        # »code=f"import sys; ...; import safeer_os"« in subprocess.run([sys.executable, '-c', code]) (25. 10. 2026).
+        self.nizi_imen: Dict[Tuple[Optional[str], str], List[str]] = {}
 
     def _funkcija(self, n) -> None:
         if getattr(n, "name", "").startswith("test"):
@@ -128,6 +131,24 @@ class _Obisk(ast.NodeVisitor):
                 if not self.globina:
                     self.uvozena_imena[a.asname or a.name] = polno
 
+    def visit_Assign(self, n: ast.Assign) -> None:
+        nizi = [v.value for v in ast.walk(n.value) if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                and len(v.value) < 4000]
+        if nizi:
+            for cilj in n.targets:
+                if isinstance(cilj, ast.Name):
+                    self.nizi_imen[(self.funkcija if self.globina else None, cilj.id)] = nizi
+        self.generic_visit(n)
+
+    def _nizi_zagona(self, klic: ast.Call):
+        """Nizi v argumentih zagona podprocesa, tudi prek imena, ki mu je bil niz dodeljen v isti funkciji ali na vrhu."""
+        yield from _nizi(klic)
+        for arg in list(klic.args) + [k.value for k in klic.keywords]:
+            for v in ast.walk(arg):
+                if isinstance(v, ast.Name):
+                    yield from self.nizi_imen.get((self.funkcija if self.globina else None, v.id),
+                                                  self.nizi_imen.get((None, v.id), []))
+
     def visit_Call(self, n: ast.Call) -> None:
         f = n.func
         ime = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
@@ -154,7 +175,7 @@ class _Obisk(ast.NodeVisitor):
                 and f.value.id in ("subprocess", "os", "pty", "asyncio"):
             # Samo nizi v argumentih zagona: skripta (»safeer_os.py«) ali koda za -c (»import safeer_os«). Branje izvorne
             # kode kot besedila (open(.../safeer_os.py)) ni zagon.
-            for niz in _nizi(n):
+            for niz in self._nizi_zagona(n):
                 if niz.endswith(".py") and "\n" not in niz:
                     self.podprocesi.add(os.path.basename(niz)[:-3])
                 for m in _RE_UVOZ_V_KODI.finditer(niz):
@@ -583,10 +604,12 @@ def _sporocilo(poskusi) -> str:
 
 #: Razlog preskoka, ki pomeni »WebKita ni« (ne npr. »WebKit brez WebRTC«): tak preskok bi bil tih zdrs - v hitrih vratih
 #: preizkus WebKit rabi (dopisi ga na seznam), v poslu preizkusi-webkit pa nas WebKit ne dela. Neodvisni pregled
-#: 25. 10. 2026 (M6): tudi pytest.importorskip (»could not import«), »requires«, »unavailable«, »brez/no WebKit«, »manjka«.
+#: 25. 10. 2026 (M6): tudi pytest.importorskip (»could not import«), »requires«, »unavailable«, »brez/no WebKit«, »manjka«;
+#: ponovni pregled N7: »not found« (PyGObject: »Typelib file for namespace 'WebKit' ... not found«), »absent«, »ni najden«.
 _RE_PRESKOK = re.compile(r"(?i)(webkit|javascriptcore|libsoup|\bsoup\b)")
 _RE_PRESKOK_ZAKAJ = re.compile(
     r"(?i)(potreb|ni na voljo|not installed|not available|unavailable|missing|manjka|\brequires?\b|could not import"
+    r"|not found|\babsent\b|ni najden"
     r"|cannot import|can't import|no module named|failed to load|ni namescen|\bni webkit|\bni wpe"
     r"|\bbrez (webkit|javascriptcore|libsoup|soup)|\bno (webkit|javascriptcore|libsoup|soup))")      # tudi WebKita
 

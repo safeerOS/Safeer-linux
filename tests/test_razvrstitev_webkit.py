@@ -65,6 +65,12 @@ class StaticnaAnaliza(unittest.TestCase):
                                "    subprocess.run([sys.executable, '-c', 'import sys; import program'])\n",
             "tests/test_rocno.py": "def test_r():\n    pass\n",
             "tests/test_l.py": "from core.lenobno import f\nX = f()\n",                  # klic uvozene funkcije ob uvozu
+            # Koda za -c v spremenljivki (test_packaging: namescen tovor uvozi safeer_os v podprocesu).
+            "tests/test_m.py": "import subprocess, sys\ndef test_tovor():\n    d = '/tmp/x'\n"
+                               "    koda = f\"import sys; sys.path.insert(0, {d!r}); import program\"\n"
+                               "    subprocess.run([sys.executable, '-c', koda])\n",
+            "tests/test_n.py": "import subprocess\ndef test_besedilo():\n    koda = 'import program'\n"
+                               "    print(koda)\n    subprocess.run(['true'])\n",              # niz ni argument zagona
             # Pregled M11: v podmapi z imenom datoteke na vrhu - analiza po poti, ne po imenu.
             "tests/podmapa/test_f.py": "import core.okno\ndef test_q():\n    pass\n",
             "tests/podmapa/test_c.py": "def test_z():\n    pass\n",
@@ -89,6 +95,8 @@ class StaticnaAnaliza(unittest.TestCase):
         self.assertEqual(r["tests/test_j.py"], "uvoz core.tuji_klic")    # klic core.lenobno.f (lenoben uvoz splet) ob uvozu
         self.assertIsNone(r["tests/test_k.py"])                           # klic sele v preizkusu: straza
         self.assertEqual(r["tests/test_l.py"], "uvoz (klic ob uvozu)")
+        self.assertEqual(r["tests/test_m.py"], "podproces program")
+        self.assertIsNone(r["tests/test_n.py"])
         self.assertEqual(r["tests/podmapa/test_f.py"], "uvoz core.okno")
         self.assertIsNone(r["tests/podmapa/test_c.py"])
         self.assertEqual(stevila["tests/test_a.py"], 1)
@@ -138,7 +146,10 @@ class Preskok(unittest.TestCase):
         for besedilo in ("Skipped: could not import 'gi.repository.WebKit': Namespace WebKit not available",
                          "requires WebKitGTK 6.0", "WebKit unavailable", "brez WebKita", "WebKitGTK manjka",
                          "no WebKit", "potrebuje WebKitGTK 6.0", "WebKitGTK is not installed", "ni WebKitGTK 6.0: x",
-                         "Soup 3.0 ni na voljo", "cannot import JavaScriptCore"):
+                         "Soup 3.0 ni na voljo", "cannot import JavaScriptCore",
+                         # Ponovni pregled N7: besedila PyGObject in podobna, ki jih vzorec prej ni ujel.
+                         "Typelib file for namespace 'WebKit', version '6.0' not found", "WebKitGTK absent",
+                         "WebKit not found", "typelib WebKit ni najden"):
             with self.subTest(besedilo=besedilo):
                 self.assertEqual(self.razlog(besedilo), besedilo)
 

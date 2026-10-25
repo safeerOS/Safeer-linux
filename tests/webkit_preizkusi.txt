@@ -3,3 +3,9 @@
 # Ena datoteka na vrstico, pot od korena repozitorija. Te datoteke tecejo v poslu preizkusi-webkit z nasim WebKitom,
 # ne v hitrih vratih. Kdaj dopisati: ko straza hitrih vrat preizkus podre (poskus nalaganja ali preskok »potrebuje
 # WebKit«) - povzetek teka pytest izpise datoteke pod »Poskusi nalaganja WebKita«.
+# 25. 10. 2026, hitra vrata na delo-133 natanko kot v CI: WebKit ali Soup nalozi koda, ki jo preizkus poklice (lenobno).
+tests/test_lupina_locena.py
+tests/test_os_scit.py
+tests/test_popravki_132d.py
+tests/test_popravki_138.py
+tests/test_predvajaj_na.py
