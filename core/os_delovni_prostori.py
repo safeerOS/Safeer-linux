@@ -34,8 +34,10 @@ ROK_S = 3.0
 _NAJDALJSE_IME = 60
 _NAJDALJSI_NASLOV = 80
 
+# Novo namizje ima nekaj casa delovno povrsino »WA: N/A« (izmerjeno 25. 10. 2026 v Xvfb z Muffinom) - tudi taka vrstica
+# je namizje; prej je izraz zahteval stevilke in novo namizje je bilo »nevidno«.
 _VRSTICA_NAMIZJA = re.compile(
-    r"^(\d+)\s+([*-])\s+DG:\s*(\d+)x(\d+)\s+VP:\s*\S+\s+WA:\s*(-?\d+),(-?\d+)\s+(\d+)x(\d+)\s*(.*)$")
+    r"^(\d+)\s+([*-])\s+DG:\s*(?:(\d+)x(\d+)|N/A)\s+VP:\s*\S+\s+WA:\s*(?:-?\d+,-?\d+\s+\d+x\d+|N/A)\s*(.*)$")
 _VRSTICA_OKNA = re.compile(r"^(0x[0-9a-fA-F]+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s?(.*)$")
 
 
@@ -53,8 +55,8 @@ def razcleni_namizja(izpis: str) -> List[dict]:
         st = int(m.group(1))
         if st >= NAJVEC_NAMIZIJ * 4 or st in izhod:
             continue
-        izhod[st] = {"st": st, "trenutno": m.group(2) == "*", "ime": _niz(m.group(9), _NAJDALJSE_IME),
-                     "sirina": int(m.group(3)), "visina": int(m.group(4))}
+        izhod[st] = {"st": st, "trenutno": m.group(2) == "*", "ime": _niz(m.group(5), _NAJDALJSE_IME),
+                     "sirina": int(m.group(3) or 0), "visina": int(m.group(4) or 0)}
     return [izhod[k] for k in sorted(izhod)]
 
 
@@ -80,8 +82,11 @@ def postavitev(namizja: List[dict], okna: List[dict], izloci: Optional[set] = No
     `izloci` (lastna okna, ki jih ne zelimo v shemi) se ne pokazejo; manjsa od NAJMANJSE_OKNO tudi ne."""
     izloci = {str(x).lower() for x in (izloci or ())}
     izhod = []
+    # Namizje brez znane velikosti (DG: N/A) dobi velikost najvecjega znanega - vsa so na istem zaslonu.
+    privzeta = max(((int(n.get("sirina") or 0), int(n.get("visina") or 0)) for n in namizja), default=(1, 1))
     for n in namizja[:NAJVEC_NAMIZIJ]:
-        sirina, visina = max(1, int(n.get("sirina") or 1)), max(1, int(n.get("visina") or 1))
+        sirina = max(1, int(n.get("sirina") or privzeta[0] or 1))
+        visina = max(1, int(n.get("visina") or privzeta[1] or 1))
         moja = []
         for o in okna:
             if o.get("namizje") != n["st"] or o.get("id") in izloci:
@@ -154,6 +159,13 @@ class Namizja:
             return {"ok": False, "koda": "ni_namizja"}
         return {"ok": self._klic("-s", str(st)) is not None, "st": st}
 
+    def _pocakaj(self, st: int, krat: int) -> bool:
+        for _ in range(krat):
+            if any(n["st"] == st for n in razcleni_namizja(self._klic("-d") or "")):
+                return True
+            self._cakaj(0.05)
+        return False
+
     def dodaj(self) -> dict:
         """Novo namizje na koncu in preklop nanj (kot »+« v pregledu namizij Cinnamona). Najvec NAJVEC_NAMIZIJ.
 
@@ -167,12 +179,9 @@ class Namizja:
         novo = len(namizja)
         if self._klic("-n", str(novo + 1)) is None:
             return {"ok": False, "koda": "napaka"}
-        # Muffin sporocilo obdela po svoje (nastavitev -> novo namizje): pocakamo najvec pol sekunde.
-        for _ in range(10):
-            if any(n["st"] == novo for n in razcleni_namizja(self._klic("-d") or "")):
-                break
-            self._cakaj(0.05)
-        else:
+        # Muffin sporocilo zapise v nastavitev num-workspaces in doda namizje (izmerjeno v Xvfb: < 0,5 s); prvi zapis v
+        # seji lahko caka na zagon dconf, zato najvec 2 s.
+        if not self._pocakaj(novo, 40):
             return {"ok": False, "koda": "ni_dodano"}
         self._klic("-s", str(novo))
         return {"ok": True, "st": novo}

@@ -31,8 +31,10 @@ class _Wm:
         assert kw.get("timeout") == dp.ROK_S
         izpis = ""
         if ukaz[1] == "-d":
-            izpis = "".join("%d  %s DG: 1920x1080  VP: 0,0  WA: 0,0 1920x1080  N%d\n"
-                            % (i, "*" if i == self.trenutno else "-", i + 1) for i in range(self.n))
+            # Zadnje (novo) namizje ima delovno povrsino N/A, kot jo Muffin pokaze takoj po dodajanju.
+            izpis = "".join("%d  %s DG: 1920x1080  VP: %s  WA: %s  N%d\n"
+                            % (i, "*" if i == self.trenutno else "-", "0,0" if i == self.trenutno else "N/A",
+                               "N/A" if i == self.n - 1 and i else "0,0 1920x1080", i + 1) for i in range(self.n))
         elif ukaz[1] == "-lG":
             izpis = "0x01 1 0 0 960 540 h Okno\n"
         elif ukaz[1] == "-s":
@@ -54,6 +56,17 @@ class Razclenjevanje(unittest.TestCase):
         self.assertFalse(n[1]["trenutno"])
         self.assertEqual(n[0]["ime"], "Delovna površina 1")
         self.assertEqual((n[2]["sirina"], n[2]["visina"]), (2560, 1440))
+
+    def test_novo_namizje_brez_delovne_povrsine(self):
+        # Muffin takoj po dodajanju: »WA: N/A« (izmerjeno 25. 10. 2026) - se vedno je namizje.
+        n = dp.razcleni_namizja("0  * DG: 1280x800  VP: 0,0  WA: 0,0 1280x800  W1\n"
+                                "4  - DG: 1280x800  VP: N/A  WA: N/A  Workspace 5\n"
+                                "5  - DG: N/A  VP: N/A  WA: N/A  Workspace 6\n")
+        self.assertEqual([(x["st"], x["ime"]) for x in n], [(0, "W1"), (4, "Workspace 5"), (5, "Workspace 6")])
+        self.assertEqual(n[2]["sirina"], 0)
+        # Brez velikosti namizja (DG: N/A) velja velikost drugih namizij - okno ostane v shemi.
+        o = dp.postavitev(n, [{"id": "0x1", "namizje": 5, "x": 0, "y": 0, "w": 640, "h": 400}])[2]["okna"]
+        self.assertEqual((o[0]["w"], o[0]["h"]), (0.5, 0.5))
 
     def test_okna(self):
         o = dp.razcleni_okna(L)
