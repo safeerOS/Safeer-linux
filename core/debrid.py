@@ -18,7 +18,8 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections import OrderedDict
-from concurrent.futures import Future
+from concurrent.futures import FIRST_COMPLETED, Future
+from concurrent.futures import wait as futures_wait
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
@@ -537,6 +538,48 @@ def izmeri(ponudnik: str, url: str) -> Optional[P.Meritev]:
         return None
 
 
+# ---------------------------------------------------------------------- preverba kljuca ob vnosu
+
+def torbox_preveri(kljuc: str, rok: float = 8.0) -> tuple:
+    """(P.PREVERBA_*, paket) - TorBox »user/me« s kljucem v glavi. Odgovor nosi e-naslov racuna: iz njega vzamemo samo
+    paket; odgovora ne zapisemo nikamor. Brez povezave P.PREVERBA_NI_ODGOVORA."""
+    try:
+        o = klic(P.TORBOX_UPORABNIK, kljuc, rok=rok)
+    except Exception as e:  # noqa: BLE001 - brez povezave kljuca ne zavrnemo
+        _log.info("torbox preverba: %s", type(e).__name__)
+        return P.PREVERBA_NI_ODGOVORA, None
+    izid, paket = P.torbox_preverba(o.koda, o.json)
+    _log.info("torbox preverba: HTTP %d, %s", o.koda, izid)
+    return izid, paket
+
+
+class _BrezPreusmeritve(urllib.request.HTTPRedirectHandler):
+    """Zahteva s kljucem v naslovu ne sledi preusmeritvi (AGENTS.md: omrezje s kljucem)."""
+
+    def redirect_request(self, *_a, **_k):
+        return None
+
+
+def indeksator_preveri(osn: str, kljuc: str, rok: float = 8.0) -> str:
+    """P.PREVERBA_* za kljuc indeksatorja Newznab: eno iskanje z enim zadetkom (izmerjeno 25. 10. 2026 na nzbfinder.ws:
+    napacen kljuc -> HTTP 401 in `<error code="100">`, t=caps kljuca ne preveri). Naslov s kljucem ne gre v dnevnik."""
+    zahteva = urllib.request.Request(U.naslov_preverbe(osn, kljuc),
+                                     headers={"Accept": "application/rss+xml, application/xml, text/xml",
+                                              "User-Agent": "SafeerOS/1.0"})
+    try:
+        try:
+            with urllib.request.build_opener(_BrezPreusmeritve()).open(zahteva, timeout=rok) as o:
+                koda, telo = o.status, _beri_do(o, 64 * 1024)
+        except urllib.error.HTTPError as e:
+            koda, telo = e.code, _beri_do(e, 64 * 1024) if e.fp else b""
+    except Exception as e:  # noqa: BLE001 - brez povezave kljuca ne zavrnemo
+        _log.info("preverba indeksatorja: %s", type(e).__name__)
+        return P.PREVERBA_NI_ODGOVORA
+    izid = U.preverba_indeksatorja(koda, telo.decode("utf-8", "replace"))
+    _log.info("preverba indeksatorja: HTTP %d, %s", koda, izid)
+    return izid
+
+
 # ---------------------------------------------------------------------- Usenet (indeksator Newznab + TorBox)
 
 def _beri_do(o, najvec: int) -> bytes:
@@ -674,9 +717,12 @@ class Debrid:
     centra; [sifriraj]/[desifriraj] sta sifrirnik gesel streznikov (sistemska zbirka skrivnosti)."""
 
     def __init__(self, beri: Callable[[], dict], pisi: Callable[[dict], None],
-                 sifriraj: Callable[[str], str], desifriraj: Callable[[str], str]):
+                 sifriraj: Callable[[str], str], desifriraj: Callable[[str], str],
+                 pozabi: Optional[Callable[[str], None]] = None):
         self._beri, self._pisi = beri, pisi
         self._sifriraj, self._desifriraj = sifriraj, desifriraj
+        # Odstranjen ali zamenjan kljuc izbrisemo tudi iz zbirke skrivnosti (ne samo oznako iz nastavitev).
+        self._pozabi_skrivnost = pozabi or (lambda _enc: None)
         self._zaklep = threading.Lock()
         self._kljuci: dict = {}          # predpomnilnik desifriranih kljucev (samo v pomnilniku)
         self._povezave_nzb: dict = {}    # id toka »usenet:…« -> povezava NZB s kljucem (samo v pomnilniku)
@@ -709,18 +755,63 @@ class Debrid:
     def z_kljucem(self) -> list:
         return [p for p in P.VSI if self.kljuc(p)]
 
-    def nastavi_kljuc(self, p: str, vnos: str) -> bool:
+    def _pozabi(self, *zapisi: str) -> None:
+        """Sifrirane zapise (oznake v zbirki skrivnosti), ki jih nastavitve ne uporabljajo vec, izbrisi."""
+        for enc in zapisi:
+            if enc:
+                self._kljuci.pop(enc, None)
+                try:
+                    self._pozabi_skrivnost(enc)
+                except Exception:  # noqa: BLE001 - zbirka zaklenjena: oznaka v nastavitvah je ze odstranjena
+                    _log.info("brisanje skrivnosti ni uspelo")
+
+    def nastavi_kljuc(self, p: str, vnos: str, paket: Optional[int] = None) -> bool:
         k = P.ocisti_kljuc(vnos)
         if p not in P.VSI or k is None:
             return False
         enc = self._sifriraj(k)
         if not enc:
             return False
-        self._spremeni(lambda d: d.setdefault("kljuci", {}).__setitem__(p, enc))
+        staro: list = []
+
+        def f(d: dict) -> None:
+            staro.append(str((d.get("kljuci") or {}).get(p) or ""))
+            d.setdefault("kljuci", {})[p] = enc
+            pak = d.setdefault("paketi", {})
+            if paket is None:
+                pak.pop(p, None)
+            else:
+                pak[p] = int(paket)
+        self._spremeni(f)
+        self._pozabi(*[x for x in staro if x != enc])
         return True
 
+    def vpisi_kljuc(self, p: str, vnos: str, preveri: Optional[Callable[[str], tuple]] = None) -> dict:
+        """Vnos v oknu »Debrid storitve«: oblika, preverba pri storitvi (TorBox »user/me«), shranjevanje.
+        {"ok", "preverba": P.PREVERBA_*, "paket"}. Zavrnjen kljuc se ne shrani; izpad storitve ga ne zavrne."""
+        k = P.ocisti_kljuc(vnos)
+        if p not in P.VSI or k is None:
+            return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "paket": None}
+        izid, paket = (preveri or torbox_preveri)(k) if p == P.TORBOX else (P.PREVERBA_NI, None)
+        if not P.shrani_po_preverbi(izid):
+            return {"ok": False, "preverba": izid, "paket": None}
+        return {"ok": self.nastavi_kljuc(p, k, paket), "preverba": izid, "paket": paket}
+
+    def paket(self, p: str) -> Optional[int]:
+        """Paket ob zadnji preverbi kljuca (TorBox: P.TORBOX_PAKETI) ali None, ce ga ne poznamo."""
+        v = (self._nastavitve().get("paketi") or {}).get(p)
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
     def pozabi_kljuc(self, p: str) -> None:
-        self._spremeni(lambda d: (d.setdefault("kljuci", {}).pop(p, None), d.setdefault("meritve", {}).pop(p, None)))
+        staro: list = []
+
+        def f(d: dict) -> None:
+            staro.append(str((d.get("kljuci") or {}).get(p) or ""))
+            d.setdefault("kljuci", {}).pop(p, None)
+            d.setdefault("meritve", {}).pop(p, None)
+            d.setdefault("paketi", {}).pop(p, None)
+        self._spremeni(f)
+        self._pozabi(*staro)
 
     # ---- Usenet: uporabnikov indeksator Newznab (naslov in kljuc samo sifrirana, kot kljuci storitev)
     def indeksator(self) -> Optional[tuple]:
@@ -735,6 +826,20 @@ class Debrid:
             return None
         return (osn, k) if osn and k else None
 
+    def _zamenjaj_indeksator(self, nov: Optional[dict]) -> None:
+        staro: list = []
+
+        def f(d: dict) -> None:
+            u = d.get("usenet")
+            if isinstance(u, dict):
+                staro.extend([str(u.get("url") or ""), str(u.get("kljuc") or "")])
+            if nov is None:
+                d.pop("usenet", None)
+            else:
+                d["usenet"] = nov
+        self._spremeni(f)
+        self._pozabi(*[x for x in staro if x not in (nov or {}).values()])
+
     def nastavi_indeksator(self, naslov: str, kljuc: str) -> bool:
         osn, k = U.osnova(naslov), U.ocisti_kljuc(kljuc)
         if not osn or not k:
@@ -742,11 +847,22 @@ class Debrid:
         enc_u, enc_k = self._sifriraj(osn), self._sifriraj(k)
         if not enc_u or not enc_k:
             return False
-        self._spremeni(lambda d: d.__setitem__("usenet", {"url": enc_u, "kljuc": enc_k}))
+        self._zamenjaj_indeksator({"url": enc_u, "kljuc": enc_k})
         return True
 
+    def vpisi_indeksator(self, naslov: str, kljuc: str, preveri: Optional[Callable[[str, str], str]] = None) -> dict:
+        """Vnos indeksatorja (npr. NZBFinder: kljuc s strani profila): oblika, preverba z enim iskanjem, shranjevanje.
+        {"ok", "preverba": P.PREVERBA_*}. Zavrnjen kljuc se ne shrani."""
+        osn, k = U.osnova(naslov), U.ocisti_kljuc(kljuc)
+        if not osn or not k:
+            return {"ok": False, "preverba": P.PREVERBA_OBLIKA}
+        izid = (preveri or indeksator_preveri)(osn, k)
+        if not P.shrani_po_preverbi(izid):
+            return {"ok": False, "preverba": izid}
+        return {"ok": self.nastavi_indeksator(osn, k), "preverba": izid}
+
     def pozabi_indeksator(self) -> None:
-        self._spremeni(lambda d: d.pop("usenet", None))
+        self._zamenjaj_indeksator(None)
 
     def gostitelj_indeksatorja(self) -> str:
         ix = self.indeksator()
@@ -823,20 +939,27 @@ class Debrid:
             return None
         konec = time.monotonic() + max(0.1, rok)
         preklic = threading.Event()
-        niti = [(i, v_ozadju(self.usenet_tok, str(tokovi[i].get("url") or ""), str(tokovi[i].get("naslov") or ""),
-                             None, True, P.CAKAJ_NOVEGA_S, preklic)) for i in izbrani]
+        niti = [v_ozadju(self.usenet_tok, str(tokovi[i].get("url") or ""), str(tokovi[i].get("naslov") or ""),
+                         None, True, P.CAKAJ_NOVEGA_S, preklic) for i in izbrani]
+
+        def pripravljen(f: Future) -> Optional[bool]:
+            if not f.done():
+                return None
+            izid = _izid_do(f, 0.0)
+            return isinstance(izid, Izid) and bool(izid.url)
         try:
-            pripravljene = []
-            for _i, f in niti:
-                izid = _izid_do(f, konec)
-                pripravljene.append(izid if isinstance(izid, Izid) and izid.url else None)
-                if pripravljene[-1] is not None:
-                    break           # najboljsa pripravljena po kakovosti: slabsih ne cakamo
+            # Skupno pravilo izbire (U.izberi_usenet, isti primeri kot Android): najboljsa pripravljena zmaga, ko so
+            # boljse odgovorile »ne«; dokler boljsa se caka, cakamo do roka.
+            while True:
+                k = U.izberi_usenet([pripravljen(f) for f in niti], time.monotonic() >= konec)
+                if k != U.CAKAJ:
+                    break
+                futures_wait([f for f in niti if not f.done()], timeout=max(0.01, konec - time.monotonic()),
+                             return_when=FIRST_COMPLETED)
         finally:
             preklic.set()
-        k = U.najboljsa_pripravljena([x is not None for x in pripravljene])
         _log.info("usenet takoj: %s", "izdaja %d pripravljena" % k if k >= 0 else "nobena pripravljena")
-        return (izbrani[k], pripravljene[k]) if k >= 0 else None
+        return (izbrani[k], niti[k].result()) if k >= 0 else None
 
     # ---- nastavitve
     def samo_takoj(self) -> bool:
@@ -871,11 +994,16 @@ class Debrid:
         storitve = []
         for p in P.VSI:
             m = self.zadnja_meritev(p)
-            storitve.append({"id": p, "ime": P.ime(p), "kljuc": bool(self.kljuc(p)), "kje": P.kje_kljuc(p),
-                             "meritev": P.opis_meritve(m) if m else ""})
+            kljuc = bool(self.kljuc(p))
+            storitve.append({"id": p, "ime": P.ime(p), "kljuc": kljuc, "kje": P.kje_kljuc(p),
+                             "meritev": P.opis_meritve(m) if m else "",
+                             "paket": P.ime_paketa(self.paket(p)) if kljuc else ""})
+        tb = self.paket(P.TORBOX) if self.kljuc(P.TORBOX) else None
         return {"storitve": storitve, "aktivna": self.aktivna() or "", "samo_takoj": self.samo_takoj(),
                 "oznaka": P.OZNAKA_PREDPOMNJEN,
-                "usenet": {"gostitelj": self.gostitelj_indeksatorja(), "torbox": bool(self.kljuc(P.TORBOX))}}
+                # torbox_pro: None = paketa ne poznamo (kljuc ni bil preverjen) - Usenet ima samo Pro.
+                "usenet": {"gostitelj": self.gostitelj_indeksatorja(), "torbox": bool(self.kljuc(P.TORBOX)),
+                           "torbox_pro": None if tb is None else tb == P.TORBOX_PRO}}
 
     # ---- predvajanje
     def predpomnjeni(self, hashi: Sequence[str]) -> set:
@@ -960,21 +1088,26 @@ class Debrid:
 
 def most(dbr: Debrid, a: list) -> dict:
     """Metoda mostu »mediaDebrid« (Linux os_katalog, Windows os_app): [] -> stanje; ["aktivna", p | ""];
-    ["kljuc", p, vnos] -> {"ok": bool, ...stanje}; ["pozabi", p]; ["samo_takoj", da]; ["usenet", naslov, kljuc];
-    ["pozabi_usenet"]. Vrne stanje brez kljucev (pri Usenetu samo gostitelja indeksatorja)."""
+    ["kljuc", p, vnos] -> {"ok": bool, "preverba": P.PREVERBA_*, "paket": ime, ...stanje}; ["pozabi", p];
+    ["samo_takoj", da]; ["usenet", naslov, kljuc] -> {"ok", "preverba", ...stanje}; ["pozabi_usenet"].
+    Vrne stanje brez kljucev (pri Usenetu samo gostitelja indeksatorja). Klic s preverbo je blokirajoc (do 8 s) -
+    most tece v delovni niti (os_katalog.izvedi)."""
     ukaz = str(a[0]) if a else ""
-    ok = True
+    izid: dict = {"ok": True}
     if ukaz == "aktivna":
         p = str(a[1]) if len(a) > 1 else ""
         dbr.nastavi_aktivno(p if p in P.VSI else None)
     elif ukaz == "kljuc":
-        ok = len(a) > 2 and dbr.nastavi_kljuc(str(a[1]), str(a[2]))
+        # Preverba ob vnosu (TorBox »user/me«): vmesnik dobi samo izid in ime paketa - nikoli kljuca ali e-naslova.
+        izid = dbr.vpisi_kljuc(str(a[1]), str(a[2])) if len(a) > 2 else {"ok": False, "preverba": P.PREVERBA_OBLIKA}
+        izid = dict(izid, paket=P.ime_paketa(izid.get("paket")))
     elif ukaz == "pozabi" and len(a) > 1 and str(a[1]) in P.VSI:
         dbr.pozabi_kljuc(str(a[1]))
     elif ukaz == "samo_takoj":
         dbr.nastavi_samo_takoj(bool(a[1]) if len(a) > 1 else True)
     elif ukaz == "usenet":
-        ok = len(a) > 2 and dbr.nastavi_indeksator(str(a[1]), str(a[2]))
+        izid = dbr.vpisi_indeksator(str(a[1]), str(a[2])) if len(a) > 2 else {"ok": False, "preverba": P.PREVERBA_OBLIKA}
     elif ukaz == "pozabi_usenet":
         dbr.pozabi_indeksator()
-    return dict(dbr.stanje(), ok=bool(ok))
+    return dict(dbr.stanje(), ok=bool(izid.get("ok")), preverba=str(izid.get("preverba") or ""),
+                paket=str(izid.get("paket") or ""))

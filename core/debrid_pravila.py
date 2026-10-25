@@ -177,6 +177,50 @@ def dodal_smo_mi(dodano_ms: Optional[int], odgovor_dodajanja_ms: Optional[int]) 
 NAJVEC_ODGOVORA = 8 * 1024 * 1024
 
 
+# ---------------------------------------------------------------------- preverba kljuca ob vnosu
+
+#: Lastnik 25. 10. 2026 (kljuc TorBox na prenosniku kot na TV): kljuc preverimo ob vnosu z »user/me« (nic ne doda v
+#: racun). Odgovor nosi tudi e-naslov racuna - iz njega vzamemo SAMO paket, nic ne gre v dnevnik ali vmesnik.
+TORBOX_UPORABNIK = "https://api.torbox.app/v1/api/user/me"
+#: Polje »plan« (TorBox API): 0 Free, 1 Essential, 2 Pro, 3 Standard. Usenet ima samo Pro.
+TORBOX_PAKETI = {0: "Free", 1: "Essential", 2: "Pro", 3: "Standard"}
+TORBOX_PRO = 2
+
+PREVERBA_VELJAVEN = "veljaven"
+PREVERBA_NEVELJAVEN = "neveljaven"       # storitev je kljuc zavrnila: ne shranimo
+PREVERBA_MEJA = "meja"                   # storitev odgovori »prevec zahtev« - kljuc je verjetno dober: shranimo
+PREVERBA_NI_ODGOVORA = "ni_odgovora"     # brez povezave ali napaka streznika: shranimo, preverba ob uporabi
+PREVERBA_OBLIKA = "oblika"               # to ni kljuc (presledki, naslov, prekratek): ne shranimo
+PREVERBA_NI = ""                         # storitev brez preverbe ob vnosu (Real-Debrid, AllDebrid): shranimo
+
+
+def shrani_po_preverbi(izid: str) -> bool:
+    """Kljuc shranimo, razen ce ni kljuc ali ga je storitev zavrnila (izpad storitve ne sme zavrniti dobrega kljuca)."""
+    return izid not in (PREVERBA_NEVELJAVEN, PREVERBA_OBLIKA)
+
+
+def torbox_preverba(http: int, odgovor: object) -> tuple:
+    """Odgovor TORBOX_UPORABNIK -> (izid PREVERBA_*, paket ali None). Paket je stevilo iz polja »plan«."""
+    j = odgovor if isinstance(odgovor, dict) else {}
+    if 200 <= http < 300 and j.get("success") is True and isinstance(j.get("data"), dict):
+        plan = j["data"].get("plan")
+        return PREVERBA_VELJAVEN, plan if isinstance(plan, int) and not isinstance(plan, bool) else None
+    if not http:
+        return PREVERBA_NI_ODGOVORA, None
+    koda = j.get("error") if j.get("error") not in (None, "null") else None
+    vrsta = torbox_vrsta_napake(http, str(koda) if koda is not None else None)
+    if vrsta == NAPAKA_KLJUC:
+        return PREVERBA_NEVELJAVEN, None
+    return (PREVERBA_MEJA if vrsta == NAPAKA_MEJA else PREVERBA_NI_ODGOVORA), None
+
+
+def ime_paketa(paket: object) -> str:
+    """Ime paketa TorBox za sporocilo; neznano stevilo -> »paket N«, brez paketa prazno."""
+    if not isinstance(paket, int) or isinstance(paket, bool):
+        return ""
+    return TORBOX_PAKETI.get(paket, "paket %d" % paket)
+
+
 # ---------------------------------------------------------------------- napake storitev
 
 def torbox_vrsta_napake(http: int, koda: Optional[str]) -> str:

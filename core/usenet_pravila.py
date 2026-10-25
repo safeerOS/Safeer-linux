@@ -114,6 +114,25 @@ def naslov_iskanja(osn: str, kljuc: str, ident: object) -> Optional[str]:
     return skupno + "&t=movie" if sezona is None else skupno + "&t=tvsearch&season=%d&ep=%d" % (sezona, epizoda)
 
 
+def naslov_preverbe(osn: str, kljuc: str) -> str:
+    """Preverba kljuca ob vnosu: eno iskanje z enim zadetkom (`t=caps` kljuca ne preveri - Newznab ga ne zahteva).
+    POZOR: vsebuje kljuc indeksatorja - samo za klic, nikoli v dnevnik."""
+    return "%s/api?t=search&q=safeer&limit=1&apikey=%s" % (osn, urllib.parse.quote(kljuc, safe=""))
+
+
+def preverba_indeksatorja(http: int, zacetek: str) -> str:
+    """Odgovor naslov_preverbe -> P.PREVERBA_*: RSS brez napake je veljaven, napaka 100-102 (in 401/403) neveljaven,
+    500/501 (in 429) meja; vse drugo (5xx, stran HTML, ni odgovora) ni_odgovora - kljuca zaradi izpada ne zavrnemo."""
+    n = napaka(zacetek)
+    if n == P.NAPAKA_KLJUC or http in (401, 403):
+        return P.PREVERBA_NEVELJAVEN
+    if n == P.NAPAKA_MEJA or http == 429:
+        return P.PREVERBA_MEJA
+    if 200 <= http < 300 and n is None and re.search(r"<(rss|channel)\b", zacetek or "", re.I):
+        return P.PREVERBA_VELJAVEN
+    return P.PREVERBA_NI_ODGOVORA
+
+
 def napaka(xml: str) -> Optional[str]:
     """Napaka Newznab (`<error code=…>`) v nase vrste napak; None = ni napake."""
     m = re.search(r'<error\s+code="(\d+)"', xml or "")
@@ -264,6 +283,24 @@ def za_takojsnjo(gb: Sequence[float]) -> list:
     """Indeksi izdaj (po vrstnem redu kakovosti - najboljsa predvajljiva prva) za preverbo »pri TorBoxu pripravljen«: prvih
     TAKOJ_IZDAJ do NAJVEC_GB_SAMODEJNO (neznana velikost 0 je dovoljena)."""
     return [i for i, g in enumerate(gb) if g <= NAJVEC_GB_SAMODEJNO][:TAKOJ_IZDAJ]
+
+
+#: izberi_usenet: boljsa izdaja se ni odgovorila (cakaj) / nobena ni in ne bo pripravljena.
+CAKAJ = -1
+NOBENA = -2
+
+
+def izberi_usenet(izidi: Sequence[Optional[bool]], rok_potekel: bool) -> int:
+    """Skupno pravilo (Android WebtorPravila.izberiUsenet, tests/skupni-primeri/webtor-rezerva.json): preverbe
+    »pri TorBoxu pripravljen« po kakovosti (najboljsa prva) - True pripravljena, False ne, None se brez odgovora.
+    Pripravljena zmaga, ko so vse boljse odgovorile »ne«; dokler boljsa se ni odgovorila, CAKAJ. Po roku izdaje brez
+    odgovora ne stejejo. NOBENA: nobena pripravljena."""
+    for i, x in enumerate(izidi):
+        if x is True:
+            return i
+        if x is None and not rok_potekel:
+            return CAKAJ
+    return NOBENA
 
 
 def najboljsa_pripravljena(pripravljene: Sequence[bool]) -> int:

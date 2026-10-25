@@ -102,7 +102,9 @@ class Storitev(unittest.TestCase):
 
     def test_most_izbira_in_pozabi(self):
         d, _ = _debrid()
-        debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])
+        # Preverba ob vnosu (TorBox user/me) brez omrezja: preizkus nikoli ne klice prave storitve.
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            self.assertTrue(debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])["ok"])
         self.assertEqual(debrid.most(d, ["aktivna", ""])["aktivna"], "")       # Brez debrida
         self.assertEqual(debrid.most(d, ["aktivna", P.TORBOX])["aktivna"], P.TORBOX)
         self.assertFalse(debrid.most(d, ["samo_takoj", False])["samo_takoj"])

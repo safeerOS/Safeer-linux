@@ -109,7 +109,7 @@ class Shramba(unittest.TestCase):
         self.assertEqual(st["usenet"], {"url": "enc:https://ix.example", "kljuc": "enc:0123456789abcdef"})
         self.assertEqual(d.indeksator(), ("https://ix.example", "0123456789abcdef"))
         s = debrid.most(d, [])
-        self.assertEqual(s["usenet"], {"gostitelj": "ix.example", "torbox": False})
+        self.assertEqual(s["usenet"], {"gostitelj": "ix.example", "torbox": False, "torbox_pro": None})
         self.assertNotIn("0123456789abcdef", json.dumps(s))
         self.assertFalse(d.usenet_na_voljo())                   # brez kljuca TorBox ne
         d.nastavi_kljuc(P.TORBOX, "t" * 32)

@@ -1316,7 +1316,8 @@ class MediaCenter:
         self._secret_forget = secret_forget or (lambda _vrednost: None)
         # Naloga 131: debrid storitve (TorBox, Real-Debrid, AllDebrid). Kljuci samo sifrirani (isti sifrirnik kot gesla
         # streznikov), v svoji datoteki - meritev po predvajanju ne sme ozastariti predpomnilnika kataloga.
-        self.debrid = debrid.Debrid(self._beri_debrid, self._pisi_debrid, self._secret_encryptor, self._secret_decryptor)
+        self.debrid = debrid.Debrid(self._beri_debrid, self._pisi_debrid, self._secret_encryptor, self._secret_decryptor,
+                                    self._secret_forget)
         self._server_cache: dict[str, tuple[float, list[dict]]] = {}
         #: Zahteve virov, ki se tecejo (kljuc predpomnilnika -> nit): hitro tipkanje ne sprozi iste zahteve vecrat.
         self._v_teku: dict = {}

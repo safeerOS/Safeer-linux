@@ -17,7 +17,6 @@ NI_NA_NAMIZJU = {
     "uskladitev_novejsi": "usklajevanje kljucev v ozjem krogu (secrets.sync) namizje se nima",
     "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
     "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
-    "izberi_usenet": "namizje ima svojo vzporedno preverbo Useneta (Debrid.usenet_takoj)",
 }
 #: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
 KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
@@ -147,6 +146,9 @@ def izracunaj(f, v):
         return W.skupna_velikost(v["koda"], v["content_range"], v["content_length"])
     if f == "vrstni_red_korakov":
         return _koraki_kot_android(v["ima_usenet"])
+    if f == "izberi_usenet":
+        # Debrid.usenet_takoj odloca s tem pravilom (25. 10. 2026; prej svoja zanka) - isti primeri kot Android.
+        return U.izberi_usenet(v["izidi"], v["rok_potekel"])
     if f == "scit_dovoljena":
         return W.scit_dovoljena(v["ime"], v["naucene"], v["zdaj"])
     raise KeyError("neznano pravilo: " + f)

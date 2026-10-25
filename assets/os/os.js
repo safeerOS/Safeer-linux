@@ -6051,45 +6051,90 @@
   }
   function odpriDebrid() {
     $("slojDebrid").classList.add("viden");
+    $("debridStanjeVnosa").textContent = "";
     klic("mediaDebrid", []).then(narisiDebridOkno).catch(function () {});
+  }
+  // Lastnik 25. 10. 2026 (TorBox in NZBFinder na prenosniku kot na TV): kljuc se ob vnosu preveri pri storitvi (TorBox
+  // »user/me«, indeksator z enim iskanjem) - jedro vrne samo izid in ime paketa, nikoli kljuca. Med preverbo (do 8 s) sta
+  // polje in gumb zaklenjena, izid je v vrstici stanja okna (role=status) in v obvestilu.
+  function sporociloPreverbe(o, x, usenet) {
+    var p = (o && o.preverba) || "";
+    if (usenet) {
+      if (o && o.ok) return t(p === "veljaven" ? "usenetPotrjen" : p ? "usenetNiPreverjen" : "usenetShranjen");
+      return t(p === "neveljaven" ? "usenetZavrnjen" : "usenetNiVeljaven");
+    }
+    if (o && o.ok) {
+      if (p === "veljaven") {
+        var m = o.paket ? t("debridVeljavenPaket", { ime: x.ime, paket: o.paket }) : t("debridVeljaven", { ime: x.ime });
+        return m + (x.id === "torbox" && o.paket && o.paket !== "Pro" ? " " + t("usenetBrezPro") + "." : "");
+      }
+      return t(p ? "debridNiPreverjen" : "debridShranjen", { ime: x.ime });
+    }
+    return p === "neveljaven" ? t("debridZavrnjen", { ime: x.ime, kje: x.kje }) : t("debridNiKljuc", { ime: x.ime });
+  }
+  function preveriInShrani(ukaz, polja, gumb, x, usenet, poUspehu) {
+    var stanje = $("debridStanjeVnosa");
+    polja.concat([gumb]).forEach(function (e) { e.disabled = true; });
+    gumb.setAttribute("aria-busy", "true");
+    stanje.textContent = t("debridPreverjam");
+    var naslov = usenet ? polja[0].value : "";
+    klic("mediaDebrid", ukaz).then(function (o) {
+      var sporocilo = sporociloPreverbe(o, x, usenet);
+      polja[polja.length - 1].value = "";             // kljuc nikoli ne ostane v polju
+      if (o && o.ok && poUspehu) poUspehu();
+      stanje.textContent = sporocilo; obvesti(sporocilo);
+      narisiDebridOkno(o);
+      var vrstica = '#debridSeznam [data-id="' + (usenet ? "usenet" : x.id) + '"] ';
+      var polje = document.querySelector(vrstica + 'input[type="url"]');
+      if (polje && !(o && o.ok)) polje.value = naslov;          // zavrnjen kljuc: naslova ni treba tipkati znova
+      var cilj = document.querySelector(vrstica + (o && o.ok ? "input" : 'input[type="password"]'));
+      if (cilj) cilj.focus();
+    }).catch(function () {
+      polja.concat([gumb]).forEach(function (e) { e.disabled = false; });
+      gumb.removeAttribute("aria-busy"); stanje.textContent = "";
+    });
   }
   function narisiDebridOkno(s) {
     if (!s) return;
     debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
     var sez = $("debridSeznam"); sez.innerHTML = "";
     (s.storitve || []).forEach(function (x) {
-      var vrsta = el("div", "debrid-vrstica");
+      var vrsta = el("div", "debrid-vrstica"); vrsta.dataset.id = x.id;
       var opis = el("div", "debrid-opis");
       opis.appendChild(el("strong", "", ubezi(x.ime)));
-      opis.appendChild(el("small", "", ubezi(x.kljuc ? t("debridVpisan") + (x.meritev ? " · " + x.meritev : "") : t("debridKje", { kje: x.kje }))));
+      opis.appendChild(el("small", "", ubezi(x.kljuc ? t("debridVpisan") + (x.paket ? " · " + t("debridPaket", { paket: x.paket }) : "")
+        + (x.meritev ? " · " + x.meritev : "") : t("debridKje", { kje: x.kje }))));
       vrsta.appendChild(opis);
       var polje = el("input", ""); polje.type = "password"; polje.autocomplete = "off"; polje.spellcheck = false;
       polje.placeholder = t("debridKljuc"); polje.setAttribute("aria-label", t("debridKljuc") + " – " + x.ime);
       var shrani = el("button", "gumb", ubezi(t("debridShrani"))); shrani.type = "button";
-      function shraniKljuc() {
-        klic("mediaDebrid", ["kljuc", x.id, polje.value]).then(function (o) {
-          polje.value = "";
-          obvesti(t(o && o.ok ? "debridShranjen" : "debridNiKljuc", { ime: x.ime }));
-          narisiDebridOkno(o);
-        }).catch(function () {});
-      }
+      function shraniKljuc() { preveriInShrani(["kljuc", x.id, polje.value], [polje], shrani, x, false); }
       shrani.addEventListener("click", shraniKljuc);
       polje.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniKljuc(); } });
       vrsta.appendChild(polje); vrsta.appendChild(shrani);
       if (x.kljuc) {
         var odstrani = el("button", "gumb", ubezi(t("debridOdstrani"))); odstrani.type = "button";
-        odstrani.addEventListener("click", function () { klic("mediaDebrid", ["pozabi", x.id]).then(narisiDebridOkno).catch(function () {}); });
+        odstrani.setAttribute("aria-label", t("debridOdstrani") + " – " + x.ime);
+        odstrani.addEventListener("click", function () {
+          klic("mediaDebrid", ["pozabi", x.id]).then(function (o) {
+            $("debridStanjeVnosa").textContent = t("debridOdstranjen", { ime: x.ime });
+            narisiDebridOkno(o);
+            var cilj = document.querySelector('#debridSeznam [data-id="' + x.id + '"] input');
+            if (cilj) cilj.focus();
+          }).catch(function () {});
+        });
         vrsta.appendChild(odstrani);
       }
       sez.appendChild(vrsta);
     });
     // Usenet prek TorBoxa: uporabnikov indeksator (Newznab). Naslov in kljuc ostaneta sifrirana na tem racunalniku;
     // nazaj dobimo samo gostitelja.
-    var u = s.usenet || {}, uv = el("div", "debrid-vrstica");
+    var u = s.usenet || {}, uv = el("div", "debrid-vrstica"); uv.dataset.id = "usenet";
     var uo = el("div", "debrid-opis");
     uo.appendChild(el("strong", "", ubezi(t("usenetIme"))));
-    uo.appendChild(el("small", "", ubezi(u.gostitelj ? t("usenetVpisan", { gostitelj: u.gostitelj }) + (u.torbox ? "" : " · " + t("usenetBrezTorbox"))
-      : t("usenetPojasnilo"))));
+    uo.appendChild(el("small", "", ubezi(u.gostitelj ? t("usenetVpisan", { gostitelj: u.gostitelj })
+      + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "")
+      : t("usenetPojasnilo") + " " + t("usenetKje"))));
     uv.appendChild(uo);
     var un = el("input", ""); un.type = "url"; un.autocomplete = "off"; un.spellcheck = false;
     un.placeholder = t("usenetNaslov"); un.setAttribute("aria-label", t("usenetNaslov"));
@@ -6097,19 +6142,22 @@
     uk.placeholder = t("usenetKljuc"); uk.setAttribute("aria-label", t("usenetKljuc"));
     var us = el("button", "gumb", ubezi(t("debridShrani"))); us.type = "button";
     function shraniUsenet() {
-      klic("mediaDebrid", ["usenet", un.value, uk.value]).then(function (o) {
-        uk.value = "";
-        obvesti(t(o && o.ok ? "usenetShranjen" : "usenetNiVeljaven"));
-        if (o && o.ok) un.value = "";
-        narisiDebridOkno(o);
-      }).catch(function () {});
+      preveriInShrani(["usenet", un.value, uk.value], [un, uk], us, { id: "usenet" }, true, function () { un.value = ""; });
     }
     us.addEventListener("click", shraniUsenet);
     [un, uk].forEach(function (p) { p.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniUsenet(); } }); });
     uv.appendChild(un); uv.appendChild(uk); uv.appendChild(us);
     if (u.gostitelj) {
       var uod = el("button", "gumb", ubezi(t("debridOdstrani"))); uod.type = "button";
-      uod.addEventListener("click", function () { klic("mediaDebrid", ["pozabi_usenet"]).then(narisiDebridOkno).catch(function () {}); });
+      uod.setAttribute("aria-label", t("debridOdstrani") + " – " + t("usenetIme"));
+      uod.addEventListener("click", function () {
+        klic("mediaDebrid", ["pozabi_usenet"]).then(function (o) {
+          $("debridStanjeVnosa").textContent = t("usenetOdstranjen");
+          narisiDebridOkno(o);
+          var cilj = document.querySelector('#debridSeznam [data-id="usenet"] input');
+          if (cilj) cilj.focus();
+        }).catch(function () {});
+      });
       uv.appendChild(uod);
     }
     sez.appendChild(uv);
