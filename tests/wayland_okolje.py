@@ -54,8 +54,11 @@ def _potomci(pid: int) -> List[int]:
 
 
 def koncaj_drevo(pid: int, rok_s: float = 3.0) -> None:
-    """Konca proces in vse potomce (po PID, ne pkill -f): najprej SIGTERM, po roku SIGKILL."""
-    vsi = _potomci(pid) + [pid]
+    """Konca proces in vse potomce (po PID, ne pkill -f): najprej SIGTERM, po roku SIGKILL.
+
+    Samo procese, ki se tecejo: program, ki ga je preizkus ze pocakal (Popen.wait), je pobran in njegov PID je lahko ze
+    tuj - varovalo signalov je to v polnem teku zavrnilo (test_wayland_hidpi_zivo, ERROR v pospravljanju, 25. 10. 2026)."""
+    vsi = [p for p in _potomci(pid) + [pid] if _zivi(p)]
     for p in vsi:
         try:
             os.kill(p, signal.SIGTERM)

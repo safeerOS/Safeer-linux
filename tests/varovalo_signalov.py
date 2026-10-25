@@ -22,6 +22,11 @@ Omejitve (ni prestrezeno; zanesljivo bi bilo samo s seccomp/ptrace ali locenim i
 - skripte: `python -c "os.kill(...)"`, `sh skripta.sh`, `echo kill 5 | sh`, eval, ukaz iz spremenljivke ($UKAZ);
 - tekma: pkill v nizu za lupino preverimo ob zagonu - tuj istoimenski proces, ki se zazene vmes, bi zadel;
 - ponovna uporaba PID med hojo po verigi PPid in demoni z dvojnim fork() (niso vec potomci - signal zavrnjen).
+
+Lastni procesi (25. 10. 2026): vnuk v svoji skupini osiroti, ko se glavni proces skupine konca (novi stars je init ali
+podzetnik seje), in ni vec potomec. tests/test_otroci.py preverja prav to, da core/otroci pospravi tudi njega - preizkus
+ga zato z lastni(pid) razglasi za svojega, dokler se tece. Dovoljenje velja samo za ta preizkus in samo za isti proces
+(enak cas zagona iz /proc/<pid>/stat): ponovno uporabljen PID tujega procesa ga nima.
 """
 import os
 import re
@@ -82,6 +87,42 @@ def _pgrp(pid):
             return int(f.read().decode("utf-8", "replace").rsplit(")", 1)[1].split()[2])
     except (OSError, ValueError, IndexError):
         return None
+
+
+def cas_zagona(pid):
+    """Cas zagona procesa (/proc/<pid>/stat polje 22, takti od zagona sistema) - z njim je proces dolocen enolicno,
+    tudi ko se PID ponovno uporabi. None, ce procesa ni (zombi ga se ima)."""
+    try:
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            return int(f.read().decode("utf-8", "replace").rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _preizkus():
+    """Ime tekocega preizkusa brez faze (»tests/x.py::A::b (call)« -> »tests/x.py::A::b«)."""
+    return os.environ.get("PYTEST_CURRENT_TEST", "?").rsplit(" (", 1)[0]
+
+
+#: Lastni procesi preizkusov (glej lastni): pid -> (cas zagona, preizkus).
+_LASTNI = {}
+
+
+def lastni(pid):
+    """Preizkus razglasi proces, ki ga je zagnal sam, za svojega - tudi ko osiroti in ni vec potomec. Velja samo v
+    tem preizkusu in samo za isti proces (cas zagona). Vrne cas zagona ali None, ce procesa ni."""
+    ime = _preizkus()
+    for star in [p for p, (_c, i) in _LASTNI.items() if i != ime]:      # zapisi prejsnjih preizkusov ne veljajo vec
+        _LASTNI.pop(star, None)
+    cas = cas_zagona(pid)
+    if cas is not None:
+        _LASTNI[pid] = (cas, ime)
+    return cas
+
+
+def _je_lastni(pid):
+    zapis = _LASTNI.get(pid)
+    return zapis is not None and zapis[1] == _preizkus() and cas_zagona(pid) == zapis[0]
 
 
 def _comm(pid):
@@ -149,7 +190,7 @@ class Varovalo:
     def potomec(self, pid):
         """Je proces koren sam ali njegov potomec? Proces, ki ga ni vec, je »ne potomec« (signal bi zadel tujo ponovno uporabo PID)."""
         for _ in range(64):
-            if pid == self.koren:
+            if pid == self.koren or (_LASTNI and _je_lastni(pid)):
                 return True
             if pid <= 1:
                 return False

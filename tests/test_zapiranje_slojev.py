@@ -18,8 +18,30 @@ sys.path.insert(0, os.path.join(KOREN, "tools"))
 import ruff_nove_vrstice as rnv  # noqa: E402
 
 
-def stevilo_fd() -> int:
-    return len(os.listdir("/proc/self/fd"))
+def odprte_povezave(vrata: int) -> int:
+    """Vticnice TEGA procesa, povezane na streznik preizkusa (oddaljena vrata `vrata`, /proc/self/net/tcp in tcp6).
+    Prej je preizkus stel vse deskriptorje procesa: v teku z drugimi preizkusi jih odpira in zapira tudi nit, ki jo je
+    pustil prejsnji preizkus (25. 10. 2026: 91 != 90 v teku, sam zelen)."""
+    nase = set()
+    for fd in os.listdir("/proc/self/fd"):
+        try:
+            cilj = os.readlink("/proc/self/fd/" + fd)
+        except OSError:
+            continue
+        if cilj.startswith("socket:["):
+            nase.add(cilj[len("socket:["):-1])
+    n = 0
+    for tabela in ("/proc/self/net/tcp", "/proc/self/net/tcp6"):
+        try:
+            with open(tabela, encoding="ascii") as f:
+                next(f, None)
+                for vrstica in f:
+                    polja = vrstica.split()     # 2: oddaljeni naslov:vrata (hex), 9: inode
+                    if len(polja) > 9 and int(polja[2].rsplit(":", 1)[1], 16) == vrata and polja[9] in nase:
+                        n += 1
+        except OSError:
+            continue
+    return n
 
 
 STREZNIK = r"""
@@ -79,24 +101,24 @@ class Tls(unittest.TestCase):
         streznik = StreznikTls(self.d)
         self.addCleanup(streznik.ustavi)
         g, lg = self._gledalec(streznik.vrata, "0" * 64)
-        prej = stevilo_fd()
+        prej = odprte_povezave(streznik.vrata)
         zadnja = None
         try:
             g._odpri("127.0.0.1", 5.0)
         except lg.NapakaGledalca as e:
             zadnja = e                        # kot povezi(): izjema (in z njo okvir) zivi naprej
         self.assertIsNotNone(zadnja)
-        self.assertEqual(stevilo_fd(), prej, "ovita vticnica TLS je ostala odprta")
+        self.assertEqual(odprte_povezave(streznik.vrata), prej, "ovita vticnica TLS je ostala odprta")
 
     def test_rokovanje_odpove_brez_puscanja(self):
         """Streznik ne govori TLS: ssl zapre deskriptor sam (CPython ssl._create), nic ne ostane."""
         streznik = StreznikTls(self.d, tls=False)
         self.addCleanup(streznik.ustavi)
         g, lg = self._gledalec(streznik.vrata, "0" * 64)
-        prej = stevilo_fd()
+        prej = odprte_povezave(streznik.vrata)
         with self.assertRaises(Exception):
             g._odpri("127.0.0.1", 2.0)
-        self.assertEqual(stevilo_fd(), prej)
+        self.assertEqual(odprte_povezave(streznik.vrata), prej)
 
     def test_link_tls_neujemanje_in_napaka_po_rokovanju(self):
         from core import link_tls
@@ -104,8 +126,9 @@ class Tls(unittest.TestCase):
         self.addCleanup(streznik.ustavi)
         for nacin in ("odtis", "napaka"):
             with self.subTest(nacin=nacin):
-                prej = stevilo_fd()
+                prej = odprte_povezave(streznik.vrata)
                 s = socket.create_connection(("127.0.0.1", streznik.vrata), 5)
+                self.assertEqual(odprte_povezave(streznik.vrata), prej + 1, "stetje ne vidi odprte povezave")
                 izvirnik = link_tls.odtis_potrdila
                 if nacin == "napaka":
                     link_tls.odtis_potrdila = lambda _der: (_ for _ in ()).throw(OSError("pokvarjeno potrdilo"))
@@ -118,7 +141,7 @@ class Tls(unittest.TestCase):
                     link_tls.odtis_potrdila = izvirnik
                 self.assertIsNotNone(zadnja)
                 s.close()
-                self.assertEqual(stevilo_fd(), prej)
+                self.assertEqual(odprte_povezave(streznik.vrata), prej)
                 del zadnja
 
 

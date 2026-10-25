@@ -130,6 +130,50 @@ class ZvokNaNapravo(unittest.TestCase):
         self.assertTrue(self.obnovljeno)
 
 
+class KonecSejeInBralec(unittest.TestCase):
+    """Bralec (_bdi) zazna konec povezave, ko ustavi() ze konca sejo: zajema, ki ga ustavi() ubije in pobere, ne sme
+    ubiti se enkrat (PID pobranega procesa je lahko ze tuj; varovalo signalov v CI 40193737914, 25. 10. 2026)."""
+
+    class _Zajem:
+        def __init__(self):
+            self.kill_klici = 0
+
+        def kill(self):
+            self.kill_klici += 1
+
+    class _Povezava:
+        def recv(self, _n):
+            return b""
+
+    def _zvok(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        z = link_zvok.ZvokNaNapravo(tls_mapa=tmp.name, ffmpeg=sys.executable)
+        z._seja = 5
+        z._zajem = self._Zajem()
+        return z
+
+    def test_bralec_med_ustavitvijo_ne_ubije_pobranega_zajema(self):
+        import threading
+        import time
+        z = self._zvok()
+        zajem = z._zajem
+        with z._kljuc:                          # ustavi() je sredi dela: zajem ubija in pobira pod kljucem
+            bralec = threading.Thread(target=z._bdi, args=(self._Povezava(), 5), daemon=True)
+            bralec.start()
+            time.sleep(0.3)                     # bralec je ze zaznal konec povezave
+            z._seja, z._zajem = 6, None         # ustavi(): zajem pobran, seja koncana
+        bralec.join(5)
+        self.assertFalse(bralec.is_alive())
+        self.assertEqual(zajem.kill_klici, 0, "bralec je ubijal zajem, ki ga je ustavi() ze pobral")
+
+    def test_bralec_konca_zajem_tekoce_seje(self):
+        z = self._zvok()
+        zajem = z._zajem
+        z._bdi(self._Povezava(), 5)
+        self.assertEqual(zajem.kill_klici, 1)
+
+
 class Pomozno(unittest.TestCase):
     def test_naslovi_in_ukaz(self):
         u = link_zvok.ukaz_zajema("safeer_link_zvok.monitor", "ffmpeg")

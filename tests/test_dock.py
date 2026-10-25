@@ -7,6 +7,11 @@ from core import os_dock
 class T(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp(); self.cfg = {}
+        # Vrednost samo zamenjamo in po preizkusu vrnemo (AGENTS.md: okolje procesa z nitmi) - prej je ostala za
+        # vse nadaljnje preizkuse (test_izolacija_okolja v CI 40193737914).
+        prej = os.environ.get("XDG_CONFIG_HOME")     # pod pytest vedno nastavljena (korenski conftest.py)
+        self.addCleanup(lambda: os.environ.pop("XDG_CONFIG_HOME", None) if prej is None
+                        else os.environ.__setitem__("XDG_CONFIG_HOME", prej))
         os.environ["XDG_CONFIG_HOME"] = os.path.join(self.d, "cfg")
         self.app = os.path.join(self.d, "apps"); os.makedirs(self.app)
         for n in ("a", "b", "c"):

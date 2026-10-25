@@ -68,6 +68,14 @@ def _izoliraj() -> None:
     os.environ["TMPDIR"] = mapa
     dom = os.path.join(mapa, "dom")
     prej = {}
+    # Paketi Pythona v uporabnikovi mapi (pip --user, npr. PySide6 na prenosniku): proces preizkusov jih vidi (zagnan
+    # s pravim HOME), podproces Pythona z izoliranim HOME pa ne - lupina QML v otroku se ni zagnala (lokalno 25. 10.
+    # 2026: test_wayland_hidpi_zivo, test_monitorji_zivo; v CI je PySide6 v build/vendor prek PYTHONPATH). Isti
+    # PYTHONUSERBASE da otrokom iste pakete kot procesu preizkusov; HOME in XDG ostaneta izolirana.
+    prej["PYTHONUSERBASE"] = os.environ.get("PYTHONUSERBASE")
+    if not prej["PYTHONUSERBASE"]:
+        import site
+        os.environ["PYTHONUSERBASE"] = site.getuserbase()
     for ime, pod in _IZOLIRANE:
         prej[ime] = os.environ.get(ime)
         pot = os.path.join(dom, pod) if pod else dom

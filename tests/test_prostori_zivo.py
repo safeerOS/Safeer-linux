@@ -617,7 +617,11 @@ class ProstoriKrog2(Prostori):
             self._js("document.getElementById('prostoriZapri').click(), 1")
             self._js("document.getElementById('gumbProstori').click(), 1")
             self.pocakaj_naprave()
-            _cakaj(lambda: False, 0.5)
+            # Seznam monitorjev pride od zaledja z zamikom (os.js PR.monitorji, ploscice se ob spremembi narisejo
+            # znova). Prej fiksnih 0,5 s: v CI pod obremenitvijo premalo (40193737914, 25. 10. 2026) - meni se je odprl
+            # se s starima monitorjema. Pocakamo, da ploscica pokaze stanje z enim monitorjem.
+            self.assertTrue(_cakaj(lambda: self._js(
+                "document.querySelector('[data-prostor=\"4\"]').title.indexOf('Desni klik')") == -1, 10))
             self._js("document.querySelector('[data-prostor=\"4\"]').dispatchEvent(new MouseEvent('contextmenu', "
                      "{bubbles: true, cancelable: true, button: 2})), 1")
             self.assertTrue(self._js("document.getElementById('prostoriMeni').hidden"))

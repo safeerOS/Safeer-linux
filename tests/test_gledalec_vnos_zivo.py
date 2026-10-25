@@ -14,17 +14,34 @@ skripta strani lahko sprozi lazen dogodek miske (dispatchEvent) - skripta Contro
 Preizkus potrebuje zaslon, WebKitGTK in xdotool, zato se brez njih preskoči.
 """
 
+import base64
 import json
 import os
 import shutil
+import struct
 import subprocess
 import unittest
+import zlib
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTROL = os.path.join(KOREN, "safeer_control.py")
 
+
+
+def _png(sirina: int, visina: int) -> str:
+    """Crna slika PNG kot data: naslov. Okvir zaslona naprave je rastrska slika (JPEG/PNG), njen naturalWidth je v
+    vsakem WebKitu njena velikost. Prej SVG: sistemski WebKitGTK v CI je zanj vrnil izrisano velikost (800 x 400),
+    nas WebKit 2.54.1 lastno (200 x 100) - isti preizkus je bil v CI zelen, lokalno pa rdec (25. 10. 2026)."""
+    def kos(vrsta: bytes, podatki: bytes) -> bytes:
+        return struct.pack(">I", len(podatki)) + vrsta + podatki + struct.pack(">I", zlib.crc32(vrsta + podatki))
+    vrstice = b"".join(b"\0" + bytes(sirina) for _ in range(visina))     # sivinska 8-bit, filter 0 v vsaki vrstici
+    png = (b"\x89PNG\r\n\x1a\n" + kos(b"IHDR", struct.pack(">IIBBBBB", sirina, visina, 8, 0, 0, 0, 0))
+           + kos(b"IDAT", zlib.compress(vrstice)) + kos(b"IEND", b""))
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
 # Slika 200 x 100 v oknu 800 x 600 (object-fit: contain): zgoraj in spodaj ostane po 100 px črnega roba.
-SLIKA = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'%3E%3C/svg%3E"
+SLIKA = _png(200, 100)
 STRAN = """<!doctype html><html><head><meta charset="utf-8"><title>gledalec</title>
 <style>html,body{margin:0;height:100%%;background:#000;overflow:hidden}
 img{position:absolute;inset:0;width:100%%;height:100%%;object-fit:contain}</style></head><body>
@@ -146,7 +163,7 @@ class KlikVOknuGledalca(unittest.TestCase):
         self.assertEqual(len(ukazi), 1, ukazi)
         self.assertEqual(ukazi[0]["d"], "input.tap")
         # Okno gledalca dobi velikost slike naprave (enkrat, dokler se ne spremeni), da ima obliko zaslona naprave.
-        self.assertEqual([(o["d"], o["p"]) for o in self.okna], [("okno.velikost", {"w": 800, "h": 400})])
+        self.assertEqual([(o["d"], o["p"]) for o in self.okna], [("okno.velikost", {"w": 200, "h": 100})])
         self.assertAlmostEqual(ukazi[0]["p"]["x"], 0.5, places=2)
         self.assertAlmostEqual(ukazi[0]["p"]["y"], 0.5, places=2)
 
