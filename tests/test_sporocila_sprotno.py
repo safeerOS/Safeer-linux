@@ -673,7 +673,9 @@ def test_vmesnik_dogodek_ura_preklic_v_vseh_jezikih():
     assert '_dogodek("sporocila", {})' in os_py
     js = (koren / "assets/os/os.js").read_text("utf-8")
     assert 'vrsta === "sporocila"' in js and "sporocilaPreklici" in js and 's.stanje === "caka"' in js
-    assert js.index('if (vrsta === "sporocila") sporocilaSpremenjena();') < js.index("if (EN_RAZDELEK) return;")
+    # V obdelavi dogodkov (window.safeerOsDogodek): »if (EN_RAZDELEK) return;« je tudi drugje (Zasloni, prostorSosednji).
+    dogodek = js[js.index("window.safeerOsDogodek = function"):]
+    assert dogodek.index('if (vrsta === "sporocila") sporocilaSpremenjena();') < dogodek.index("if (EN_RAZDELEK) return;")
     assert 'vrsta !== "sporocila"' in (koren / "assets/os/sporocila-plosca.js").read_text("utf-8")
     besedila = (koren / "assets/os/besedila.js").read_text("utf-8")
     for kljuc in ("sporCaka:", "sporNiPoslano:", "sporPreklici:", "sporPreklicano:", "sporCakaObvestilo:"):
