@@ -615,7 +615,7 @@
   }
   function nalozNaprave() {
     if (S.povezava.stanje !== "povezan") { S.naprave = []; narisiPrograme(); return; }
-    klic("napraveSProgrami").then(function (n) {
+    return klic("napraveSProgrami").then(function (n) {
       S.naprave = n || [];
       if (S.naprava && !S.naprave.some(function (x) { return x.id === S.naprava; })) S.naprava = "";
       narisiPrograme();
@@ -6073,6 +6073,9 @@
   }
 
   function zapriSloje() {
+    // Prostori najprej po svoji poti (aria-expanded gumba, zanka osvezitve, fokus nazaj) - tudi klik na temno ozadje
+    // gre sem, ker ga ujame splosni poslusalec vseh .tancica (pregled 25. 10. 2026).
+    zapriProstore();
     zapriVodnik();                 // tudi klik ob plosco ali Escape: vodnik je preskocen (Nastavitve ga odprejo znova)
     if (S.galerija) zapriGalerijo();
     zapriMeniSporocila();
@@ -9244,7 +9247,8 @@
   // WebKitGTK tipke Super ne sporoci zanesljivo). Izbira: puscice, poteg ali vodoraven poteg na sledilni ploscici, Super+Tab
   // naprej, Shift+Super+Tab nazaj; Enter ali klik odpre zaslon naprave po obstojeci poti (oddaljeni zaslon racunalnika ali
   // deljenje zaslona naprave Android). Ploscice so na stalnih mestih; slicica je v MVP ikona vrste naprave in stanje.
-  var PR = { seznam: [], izbran: 0, odpira: "", stanje: "", prej: null, zanka: 0, kolo: 0, poteg: null, nalozeno: false, cakaSmer: 0 };
+  var PR = { seznam: [], izbran: 0, odpira: "", stanje: "", prej: null, zanka: 0, kolo: 0, poteg: null, nalozeno: false, cakaSmer: 0,
+             zap: 0, nalaga: false };
   var PROSTOR_IKONA = { racunalnik: "namizje", tablica: "tablica", telefon: "telefon", tv: "zaslon", naprava: "naprave" };
   function prostoriOdprto() { var s = $("slojProstori"); return !!(s && s.classList.contains("viden")); }
   function prostorKdaj(sekunde) {
@@ -9330,8 +9334,15 @@
   function nalozProstore(fokus, osvezi) {
     var izbranId = (prostoriPloscice()[PR.izbran] || {}).id;
     if (!PR.nalozeno) { PR.stanje = t("prostoriIscem"); narisiProstore(fokus); }
+    // Pocasen Control (vgradnja, obvisel D-Bus): sprotna osvezitev se ne zacne, dokler prejsnji klic tece, in odgovor
+    // starejsega klica ne prepise novejsega (zaporedna stevilka; pregled 25. 10. 2026).
+    if (osvezi && PR.nalaga) return Promise.resolve();
+    var zap = ++PR.zap;
+    PR.nalaga = true;
     var prej = PR.nalozeno ? JSON.stringify(PR.seznam) + "|" + PR.stanje : "";
     return klic("prostori", [!osvezi]).then(function (r) {
+      if (zap !== PR.zap) return;
+      PR.nalaga = false;
       PR.nalozeno = true;
       PR.seznam = r && Array.isArray(r.prostori) ? r.prostori : [];
       if (r && r.koda === "ni_controla") PR.stanje = t("niControla");
@@ -9347,6 +9358,8 @@
       if (prej && prej === JSON.stringify(PR.seznam) + "|" + PR.stanje) return;
       if (prostoriOdprto()) narisiProstore(fokus && $("slojProstori").contains(document.activeElement) || fokus === "vedno");
     }, function () {
+      if (zap !== PR.zap) return;
+      PR.nalaga = false;
       PR.stanje = t("niUspelo");
       if (prostoriOdprto()) narisiProstore(false);
     });
@@ -9372,7 +9385,9 @@
     }, 5000);
   }
   function zapriProstore() {
-    if (!prostoriOdprto()) return;
+    // Pospravi tudi, ce je sloj ze skril kdo drug (aria-expanded je ostal "true").
+    var gumb = $("gumbProstori");
+    if (!gumb || (!prostoriOdprto() && gumb.getAttribute("aria-expanded") !== "true")) return;
     $("slojProstori").classList.remove("viden");
     $("gumbProstori").setAttribute("aria-expanded", "false");
     clearInterval(PR.zanka);
@@ -9425,10 +9440,22 @@
     pojdi("programi");
     // Programi naprave (S.naprave iz napraveSProgrami) - id je lahko sorodnik (x, x-os, x-control).
     var osnova = String(p.id).replace(/-(os|control)$/, "");
-    var n = (S.naprave || []).find(function (x) { return x.id === p.id || String(x.id).replace(/-(os|control)$/, "") === osnova; });
-    if (!n) return;
-    S.naprava = n.id; S.skupina = "vse"; narisiPrograme();
-    if (!S.programiNaprav[n.id] || S.programiNaprav[n.id].napaka === "prosnja") nalozProgrameNaprave(n.id);
+    function najdi() {
+      return (S.naprave || []).find(function (x) { return x.id === p.id || String(x.id).replace(/-(os|control)$/, "") === osnova; });
+    }
+    function izberi(n) {
+      S.naprava = n.id; S.skupina = "vse"; narisiPrograme();
+      if (!S.programiNaprav[n.id] || S.programiNaprav[n.id].napaka === "prosnja") nalozProgrameNaprave(n.id);
+    }
+    var n = najdi();
+    if (n) { izberi(n); return; }
+    // Seznam naprav s programi se se ni nalozil (ali je zastarel): nalozi ga zdaj in nato izberi napravo; ce je
+    // ni, uporabnik to izve (prej se je tiho odprl samo seznam programov tega racunalnika - pregled 25. 10. 2026).
+    obvesti(t("prostorAplikacijeNalagam", { ime: prostorIme(p) }));
+    Promise.resolve(nalozNaprave()).then(function () {
+      var m = najdi();
+      if (m) izberi(m); else obvesti(t("prostorAplikacijeNi", { ime: prostorIme(p) }));
+    });
   }
   function poveziProstore() {
     var gumb = $("gumbProstori"), sloj = $("slojProstori");
