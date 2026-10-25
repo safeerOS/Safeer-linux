@@ -67,7 +67,7 @@ def gostitelj(naslov: str) -> str:
     i = n.find("://")
     if i <= 0 or n[:i].lower() not in ("http", "https"):
         return ""
-    g = re.split(r"[/?#]", n[i + 3:], 1)[0].rpartition("@")[2]
+    g = re.split(r"[/?#]", n[i + 3:], maxsplit=1)[0].rpartition("@")[2]
     return g.split(":", 1)[0].lower().rstrip(".")
 
 

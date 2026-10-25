@@ -167,6 +167,10 @@ def _skrivni_konci(d: _Deli) -> list:
     for k, o in enumerate(d.pot.split("/")):
         if k == 0:
             continue
+        if webtor and o == "resolve":
+            # Webtor: »/resolve/<JWT>« ni zeton (JWT nosi samo exp, hash, idx - izmerjeno 25. 10. 2026); skrivnost je
+            # pred njim. Sicer nadomestek kratke povezave `/s/<koda>` izgubi /resolve/ in tok ni prepoznan kot Webtor.
+            break
         konec += 1 + len(o)
         if je_skriven_odsek(o, prejsnji, webtor):
             izid.append(konec)
@@ -440,6 +444,8 @@ def _skrivni_odseki(naslov: str) -> list:
     webtor = je_webtor_gostitelj(d.gostitelj)
     izid, prejsnji = [], ""
     for k, o in enumerate(d.pot.split("/")):
+        if webtor and o == "resolve":
+            break       # kot _skrivni_konci: JWT toka Webtor ni zeton (koncni naslov z JWT se sme predvajati)
         if k and je_skriven_odsek(o, prejsnji, webtor):
             izid.append(o)
         if k and o:

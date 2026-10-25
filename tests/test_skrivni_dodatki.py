@@ -194,6 +194,41 @@ class TokoviSKljucem(Osnova):
             self.assertEqual(media_servers.stremio_tokovi("https://cinemeta.example", "movie", "tt1")[0]["url"], cdn)
 
 
+
+class WebtorKratkaPovezava(Osnova):
+    """Webtor, dodan s kratko povezavo »https://webtor.io/s/<koda>/manifest.json« (izmerjeno 25. 10. 2026 na Windows in
+    na prenosniku): tokovi so »/token/<t>/stremio/resolve/<JWT>« in se ne zacnejo s predpono dodatka. JWT (exp, hash,
+    idx) ni osebni zeton: nadomestek mora ohraniti »/resolve/<JWT>«, sicer tok ni prepoznan kot Webtor."""
+    KRATKA = "https://webtor.io/s/k7Qp2x/manifest.json"
+    JWT = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTMwMDAwMDAsImhhc2giOiJhNzc5ZmE3NThmMjIyOTU4NmVlYmMyZTU5Nj"
+           "BlYjMyZmU1NjU5NTk2IiwiaWR4IjowfQ.c2lnbmF0dXJhLWJyZXotc21pc2xh")
+    TOK = "https://webtor.io/token/%s/stremio/resolve/%s" % (ZETON, JWT)
+
+    def test_nadomestek_ohrani_resolve(self):
+        from core import webtor as W
+        koren = S.nadomestna_osnova(S.odkleni(self.KRATKA))
+        odgovor = json.dumps({"streams": [{"name": "[WT]", "title": "Film", "url": self.TOK}]}).encode()
+        with mock.patch.object(media_servers, "_request", return_value=odgovor):
+            tokovi = media_servers.stremio_tokovi(koren, "movie", "tt1")
+        u = tokovi[0]["url"]
+        self.assertTrue(S.je_nadomestek(u))
+        self.assertNotIn(ZETON, json.dumps(tokovi))
+        self.assertTrue(u.endswith("/resolve/" + self.JWT), u)
+        self.assertTrue(W.je_resolve_naslov(u))
+        self.assertEqual(S.dejanski(u), self.TOK)
+
+    def test_koncni_naslov_z_jwt_ni_zeton(self):
+        # Pot kot pri predvajanju: tok gre skozi stremio_tokovi (skrij_tok si zapomni predpono), nato sonda preveri,
+        # ali koncni naslov nosi zeton (nosi_skrivnost) - JWT ni zeton, osebni zeton pa je.
+        koren = S.nadomestna_osnova(S.odkleni(self.KRATKA))
+        odgovor = json.dumps({"streams": [{"name": "[WT]", "title": "Film", "url": self.TOK}]}).encode()
+        with mock.patch.object(media_servers, "_request", return_value=odgovor):
+            media_servers.stremio_tokovi(koren, "movie", "tt1")
+        koncni = "https://abra--1.api.cosmic-crab.buzz/%s/Film.mp4" % self.JWT
+        self.assertFalse(S.nosi_skrivnost(koncni, self.TOK))
+        self.assertTrue(S.nosi_skrivnost("https://abra--1.api.cosmic-crab.buzz/%s/Film.mp4" % ZETON, self.TOK))
+
+
 class Dodajanje(Osnova):
     def dodaj(self, mc, url):
         with mock.patch.object(media_servers, "stremio_preveri", return_value=""), \
@@ -374,7 +409,8 @@ class PrehodPonovljiv(Osnova):
         self.preveri_brez_zetona(vse, "vse datoteke")
         self.assertNotIn("Q8zR2LmX0pVt7WbN4kHs1Dxx", vse)
         self.assertNotIn(ZETON.encode(), latin.read_bytes())
-        self.assertEqual(os.stat(latin).st_mode & 0o777, 0o600)
+        if os.name != "nt":     # Windows nima bitov POSIX (dovoljenja so ACL)
+            self.assertEqual(os.stat(latin).st_mode & 0o777, 0o600)
 
     def test_nezavarovan_ne_gre_na_stran_tokovi_dobijo_nadomestek(self):
         self.stari()
