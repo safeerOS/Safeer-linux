@@ -369,6 +369,9 @@ _hubi_cache: dict = {"cas": 0.0, "hubi": []}
 
 
 _hubi_isce = threading.Lock()
+# Prostori: branje, zdruzitev in zapis "prostori" v os.json naenkrat - hkratni klici (pocasen Control) ne smejo zapisati
+# starejsega izida cez novejsega (pregled 25. 10. 2026).
+_prostori_zaklep = threading.Lock()
 
 
 def hubi_v_omrezju(cas: float = 1.5, cakaj: bool = True) -> list:
@@ -7881,10 +7884,12 @@ class SafeerOS(Gtk.Application):
         if tece:
             izid = _control_naprave("Seznam")
         zive = izid.get("naprave") if izid.get("ok") and isinstance(izid.get("naprave"), list) else []
-        znane = link_prostori.ocisti_znane(self.shramba.get("prostori", []))
-        nove = link_prostori.zapomni(znane, zive, int(time.time()))
-        if nove != znane:
-            self.shramba.set("prostori", nove)
+        with _prostori_zaklep:
+            znane = link_prostori.ocisti_znane(self.shramba.get("prostori", []))
+            nove = link_prostori.zapomni(znane, zive, int(time.time()))
+            # Pise samo ob bistveni spremembi (link_prostori.zapomni: nova naprava, ime, `videna` najvec na minuto).
+            if nove != znane:
+                self.shramba.set("prostori", nove)
         return {"ok": bool(izid.get("ok")), "koda": str(izid.get("koda") or ""),
                 "prostori": link_prostori.prostori(nove, zive)}
 
