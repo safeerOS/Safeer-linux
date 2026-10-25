@@ -74,10 +74,11 @@ def _sme_naprava(id_naprave: str, zmoznost: str) -> bool:
 
 
 def _v_ozjem_krogu(id_naprave: str) -> bool:
-    """Ali je naprava v ozjem krogu (link_dostop.v_ozjem_krogu): samo taka vidi domaco mapo. Napaka pomeni ne."""
+    """Ali naprava sme do domace mape (link_dostop.sme_domaco_mapo): ozji krog z izrecno privolitvijo za domaco mapo -
+    zapis d+z iz prejsnje razlicice je nima, dokler je uporabnik ne dovoli (vodja 25. 10. 2026). Napaka pomeni ne."""
     try:
         from core import link_dostop
-        return link_dostop.v_ozjem_krogu(id_naprave)
+        return link_dostop.sme_domaco_mapo(id_naprave)
     except Exception:  # noqa: BLE001
         return False
 

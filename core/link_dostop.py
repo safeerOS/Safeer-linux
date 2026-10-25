@@ -263,6 +263,8 @@ _zascita_disk: Set[str] = set()
 _zapis_spodletel_ob: Optional[float] = None
 #: Polje »zavrnjeno« z diska (glej prosnje spodaj): "<jedro>|<crka>" -> cas zavrnitve (unix).
 _zavrnjeno_disk: Dict[str, float] = {}
+#: Polje »dom« z diska: jedra z izrecno privolitvijo za domaco mapo v tej razlicici (glej sme_domaco_mapo).
+_dom_disk: Set[str] = set()
 
 
 def _pot() -> str:
@@ -533,6 +535,31 @@ def _dano_ob(ostalo: dict) -> Dict[str, float]:
     return izid
 
 
+def _dom_iz(ostalo: dict) -> Set[str]:
+    """Polje »dom« zapisa: jedro -> cas izrecne privolitve za domaco mapo (unix). Samo prava jedra."""
+    surovo = ostalo.get("dom") if isinstance(ostalo, dict) else None
+    return {str(j) for j in surovo if _je_jedro(j)} if isinstance(surovo, dict) else set()
+
+
+def _dovoli_dom(j: str, ostalo: dict) -> None:
+    surovo = ostalo.get("dom")
+    dom = dict(surovo) if isinstance(surovo, dict) else {}
+    dom[j] = time.time()
+    ostalo["dom"] = dom
+
+
+def _pocisti_dom(naprave: Dict[str, Set[str]], ostalo: dict) -> None:
+    """Privolitev za domaco mapo velja, dokler je naprava v ozjem krogu: kdor ga izgubi (odvzem, umik), jo potrebuje
+    znova - nova seznanitev ali stikalo ne vrne domace mape brez nove privolitve."""
+    surovo = ostalo.get("dom")
+    ostane = {str(j): t for j, t in surovo.items() if _je_jedro(j) and OZJI_KROG <= set(naprave.get(str(j)) or ())} \
+        if isinstance(surovo, dict) else {}
+    if ostane:
+        ostalo["dom"] = ostane
+    else:
+        ostalo.pop("dom", None)
+
+
 def _zabelezi_dano(prej: Dict[str, Set[str]], naprave: Dict[str, Set[str]], ostalo: dict) -> None:
     """Ob vsakem zapisu: jedro, ki je dobilo novo zmoznost, dobi cas zdaj, jedro brez zmoznosti izgubi cas. Vrnitev
     naprave v krog po njem vzame samo pravice, dane pred umikom - nove privolitve ne (pregled 17, M2)."""
@@ -627,7 +654,7 @@ def _spremeni(sprememba: Callable[..., None],
     dedovanja - podedovanim napravam vzame ozji krog; oznako zapise samo, ce je podedovane mogoce dolociti (pregled 17,
     M1: prej jo je zapisal vsak zapis, tudi ko kroga ni bilo mogoce prebrati)."""
     global _zapis, _zascita, _prebran_odtis, _prebrana_pot, _zascita_disk, _zapis_spodletel_ob, _zavrnjeno_disk
-    global _migracija_caka_ob
+    global _migracija_caka_ob, _dom_disk
     with _zaklep:
         pot = _pot()
         migracija_caka, zmanjsana = False, set()
@@ -672,6 +699,7 @@ def _spremeni(sprememba: Callable[..., None],
                     if sprememba_ostalega is not None:
                         sprememba_ostalega(ostalo)
                     _zabelezi_dano(prej, naprave, ostalo)
+                    _pocisti_dom(naprave, ostalo)
                     # Zamenjamo samo, ce je zapis se tak, kot smo ga prebrali - vedno, tudi v zadnjem poskusu.
                     odtis = _na_disk(pot, naprave, zascita, ob, odtis_prej, ostalo=ostalo)
                     if odtis is not None:
@@ -697,6 +725,7 @@ def _spremeni(sprememba: Callable[..., None],
         _zapis, _zascita, _prebran_odtis, _prebrana_pot = naprave, zascita, odtis, pot
         _zascita_disk, _zapis_spodletel_ob = set(zascita), None
         _zavrnjeno_disk = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
+        _dom_disk = _dom_iz(ostalo)
         return naprave
 
 
@@ -707,13 +736,13 @@ def _migracija_na_vrsti() -> bool:
 
 def _nalozen() -> Dict[str, Set[str]]:
     """Zapis dovoljenj; znova prebran, ce ga je spremenil drug program na tem racunalniku (Control, brskalnik)."""
-    global _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zavrnjeno_disk
+    global _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zavrnjeno_disk, _dom_disk
     with _zaklep:
         pot = _pot()
         if pot != _prebrana_pot:
             # Drug zapis (preizkusi): kar smo vedeli za prejsnjega, zanj ne velja.
             _zascita, _zascita_disk, _zapis, _prebran_odtis, _prebrana_pot = set(), set(), None, None, pot
-            _zavrnjeno_disk = {}
+            _zavrnjeno_disk, _dom_disk = {}, set()
         try:
             odtis = _odtis_zapisa(pot)
         except OSError:
@@ -746,6 +775,7 @@ def _nalozen() -> Dict[str, Set[str]]:
             _zascita = _zascita | zascita
             _zascita_disk = set(zascita)
             _zavrnjeno_disk = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
+            _dom_disk = _dom_iz(ostalo)
             if not _dedovanje_opravljeno(pot):
                 # Zapis iz razlicice pred oznako dedovanja: ta je podedovanim napravam dala vse stiri (dpvz) - torej
                 # tudi ozji krog (domaca mapa, Safeer Vnos) brez privolitve. Enkrat jih zmanjsamo na PODEDOVANO
@@ -757,7 +787,7 @@ def _nalozen() -> Dict[str, Set[str]]:
             # Pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova. Kar ta program ze ve o
             # napravah z dokazanim kljucem, OSTANE: pokvarjen zapis ne sme ugasniti pravila »samo zasciteno«.
             naprave = {}
-            _zascita_disk = set()
+            _zascita_disk, _dom_disk = set(), set()
         _zapis, _prebran_odtis = naprave, odtis
         return _brez_cakajocih(naprave)
 
@@ -840,6 +870,25 @@ def v_ozjem_krogu(device_id: str) -> bool:
     taka vidi domaco mapo (link_datoteke, oznake dom:) - ne naprava, ki ima iz starejse razlicice samo »d« za izbrane
     mape (sedmi pregled, naloga 6, 25. 10. 2026)."""
     return bool(device_id) and OZJI_KROG <= zmoznosti(device_id)
+
+
+def sme_domaco_mapo(device_id: str) -> bool:
+    """Domaca mapa (oznake dom: in domaci del »vsega diska«, core/link_datoteke): ozji krog IN izrecna privolitev zanjo
+    v tej razlicici (polje »dom«: stikalo ozjega kroga, »Dovoli« v obvestilu, »Dovoli domaco mapo« v oknu Link - vsako
+    pove, da gre za domaco mapo). Zapis d+z iz prejsnje razlicice obdrzi datoteke in upravljanje, domaco mapo pa dobi
+    sele z novo privolitvijo - ob prvem zagonu nove razlicice se ne podeli sama (vodja 25. 10. 2026: privolitev mora
+    biti informirana). Napaka pomeni ne."""
+    try:
+        if not device_id:
+            return False
+        if je_ta_naprava(device_id):
+            return True
+        j = jedro(device_id)
+        with _zaklep:
+            naprave = _nalozen()
+            return bool(j) and OZJI_KROG <= set(naprave.get(j) or ()) and j in _dom_disk
+    except Exception:  # noqa: BLE001 - »ne vem« ni »da«
+        return False
 
 
 def sme(device_id: str, zahteva: str) -> bool:
@@ -972,33 +1021,63 @@ def nastavi(device_id: str, dano: Iterable[str]) -> bool:
     """Napravi zapise natanko `dano`; prazen nabor = brez dostopa (naprava samo pomaga pri povezavi). Ozjega kroga
     ne doda (to je nastavi_ozji_krog - stikalo uporabnika). Ce je napravi kaj vzeto, pocakajoce prosnje in obvestila
     izginejo in programi, ki so se javili (ob_odvzemu), takoj koncajo, kar zanjo tece."""
+    return _nastavi(device_id, dano, dom=False)
+
+
+def _nastavi(device_id: str, dano: Iterable[str], dom: bool) -> bool:
     if not device_id or je_ta_naprava(device_id):
         return False
     j = jedro(device_id)
     if not j:
         return False
-    return _zapisi_jedru(j, iz_niza(v_niz(dano)))
+    return _zapisi_jedru(j, iz_niza(v_niz(dano)), dom=dom)
 
 
 def nastavi_ozji_krog(device_id: str, dano: Iterable[str]) -> bool:
     """Stikala v oknu Safeer Link (izrecna privolitev uporabnika na TEM racunalniku): katerokoli dovoljenje da ozji
-    krog (ozji_krog), prazen nabor ga vzame v celoti."""
-    return nastavi(device_id, ozji_krog(iz_niza(v_niz(dano))))
+    krog (ozji_krog), prazen nabor ga vzame v celoti. Stikalo ozjega kroga pove, da vsebuje domaco mapo (link.js
+    dostopZaslonOpis): vklop je tudi privolitev zanjo (sme_domaco_mapo)."""
+    return _nastavi(device_id, ozji_krog(iz_niza(v_niz(dano))), dom=True)
 
 
-def _zapisi_jedru(j: str, nabor: Set[str]) -> bool:
+def dovoli_domaco_mapo(device_id: str) -> bool:
+    """»Dovoli domaco mapo« v oknu Safeer Link: napravi v ozjem krogu iz prejsnje razlicice (d+z brez polja »dom«)
+    doda samo privolitev za domaco mapo; zmoznosti ostanejo, kot so. Naprava zunaj ozjega kroga je ne dobi."""
+    if not device_id or je_ta_naprava(device_id):
+        return False
+    j = jedro(device_id)
+    if not j:
+        return False
+
+    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
+        if OZJI_KROG <= set(naprave.get(j) or ()):
+            _dovoli_dom(j, ostalo)
+    with _zaklep:
+        _nalozen()
+        try:
+            _spremeni(sprememba, z_ostalim=True)
+        except OSError:
+            return False
+        stanje, na_disku, _z, _ob, ostalo = _z_diska(_pot())
+        return stanje == "ok" and OZJI_KROG <= set(na_disku.get(j) or ()) and j in _dom_iz(ostalo)
+
+
+def _zapisi_jedru(j: str, nabor: Set[str], dom: bool = False) -> bool:
     prej: List[Optional[Set[str]]] = [None]
+    dom = dom and OZJI_KROG <= set(nabor)
 
-    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
+    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
         if prej[0] is None:
             prej[0] = set(naprave.get(j) or ())
         naprave[j] = set(nabor)
+        if dom:
+            _dovoli_dom(j, ostalo)
     with _zaklep:
         _nalozen()                      # prvi zagon (podedovane naprave) se zgodi pred prvo spremembo
         ok = False
         for _poskus in range(2):
             try:
-                _spremeni(sprememba)
+                _spremeni(sprememba, z_ostalim=True)
             except OSError:
                 break                   # zapisa ni mogoce prebrati ali zapisati: spremembe ni (klicatelj to pove)
             # Zapis preverimo na disku: starejsi program (brez preverbe zapisa) ga lahko takoj povozi s starim stanjem
@@ -1006,7 +1085,7 @@ def _zapisi_jedru(j: str, nabor: Set[str]) -> bool:
             # samo, ce je res zapisana (pregled 17, M10).
             stanje, na_disku, _z, _ob, _o = _z_diska(_pot())
             if stanje == "ok":
-                ok = set(na_disku.get(j) or ()) == set(nabor)
+                ok = set(na_disku.get(j) or ()) == set(nabor) and (not dom or j in _dom_iz(_o))
             else:
                 ok = not nabor and stanje in ("ni", "pokvarjen")     # brez zapisa nima nihce nicesar
             if ok:
@@ -1478,6 +1557,9 @@ def _dodaj_zmoznosti(device_id: str, zmoznosti: Iterable[str], ozji: bool) -> bo
             for k in kljuci:
                 z.pop(k, None)
             ostalo["zavrnjeno"] = z
+        if ozji:
+            # »Dovoli« v obvestilu: telo obvestila pove, da naprava dobi tudi domaco mapo (telo_obvestila).
+            _dovoli_dom(j, ostalo)
     with _zaklep:
         _nalozen()
         try:
@@ -1663,22 +1745,28 @@ NASLOV = "Safeer Link"
 BESEDILA_OBVESTILA = {
     "sl": {"prosnja": "{ime} prosi za dostop: {kaj} na tem računalniku.", "dovoli": "Dovoli", "zavrni": "Zavrni",
            "d": "datoteke", "p": "programi", "v": "predvajalnik", "z": "zaslon, upravljanje in Safeer Vnos",
-           "ozji": "Z »Dovoli« pride v ožji krog: dobi tudi upravljanje tega računalnika s Safeer Vnos (miška, tipkovnica) in tvoje mape (brez skritih map in ključev)."},
+           "ozji": "Z »Dovoli« pride v ožji krog: dobi tudi upravljanje tega računalnika s Safeer Vnos (miška, tipkovnica) in tvoje mape (brez skritih map in ključev).",
+           "dom": "Z »Dovoli« dobi tudi tvojo domačo mapo (brez skritih map in ključev)."},
     "en": {"prosnja": "{ime} is asking for access: {kaj} on this computer.", "dovoli": "Allow", "zavrni": "Deny",
            "d": "files", "p": "apps", "v": "player", "z": "screen, control and Safeer Input",
-           "ozji": "Allow puts it in your inner circle: it also gets control of this computer with Safeer Input (mouse, keyboard) and your folders (without hidden folders and keys)."},
+           "ozji": "Allow puts it in your inner circle: it also gets control of this computer with Safeer Input (mouse, keyboard) and your folders (without hidden folders and keys).",
+           "dom": "Allow also gives it your home folder (without hidden folders and keys)."},
     "de": {"prosnja": "{ime} bittet um Zugriff: {kaj} auf diesem Computer.", "dovoli": "Erlauben", "zavrni": "Ablehnen",
            "d": "Dateien", "p": "Programme", "v": "Player", "z": "Bildschirm, Steuerung und Safeer Eingabe",
-           "ozji": "Mit »Erlauben« kommt es in den engen Kreis: Es darf diesen Computer auch steuern, mit Safeer Eingabe (Maus, Tastatur), und sieht deine Ordner (ohne versteckte Ordner und Schlüssel)."},
+           "ozji": "Mit »Erlauben« kommt es in den engen Kreis: Es darf diesen Computer auch steuern, mit Safeer Eingabe (Maus, Tastatur), und sieht deine Ordner (ohne versteckte Ordner und Schlüssel).",
+           "dom": "Mit »Erlauben« sieht es auch deinen persönlichen Ordner (ohne versteckte Ordner und Schlüssel)."},
     "es": {"prosnja": "{ime} pide acceso: {kaj} en este ordenador.", "dovoli": "Permitir", "zavrni": "Rechazar",
            "d": "archivos", "p": "programas", "v": "reproductor", "z": "pantalla, control y Safeer Entrada",
-           "ozji": "Con «Permitir» entra en tu círculo de confianza: también podrá controlar este ordenador con Safeer Entrada (ratón, teclado) y ver tus carpetas (sin carpetas ocultas ni claves)."},
+           "ozji": "Con «Permitir» entra en tu círculo de confianza: también podrá controlar este ordenador con Safeer Entrada (ratón, teclado) y ver tus carpetas (sin carpetas ocultas ni claves).",
+           "dom": "Con «Permitir» también verá tu carpeta personal (sin carpetas ocultas ni claves)."},
     "fr": {"prosnja": "{ime} demande l'accès : {kaj} sur cet ordinateur.", "dovoli": "Autoriser", "zavrni": "Refuser",
            "d": "fichiers", "p": "programmes", "v": "lecteur", "z": "écran, contrôle et Safeer Saisie",
-           "ozji": "« Autoriser » l'ajoute au cercle de confiance : il pourra aussi contrôler cet ordinateur avec Safeer Saisie (souris, clavier) et voir tes dossiers (sans dossiers cachés ni clés)."},
+           "ozji": "« Autoriser » l'ajoute au cercle de confiance : il pourra aussi contrôler cet ordinateur avec Safeer Saisie (souris, clavier) et voir tes dossiers (sans dossiers cachés ni clés).",
+           "dom": "« Autoriser » lui donne aussi ton dossier personnel (sans dossiers cachés ni clés)."},
     "it": {"prosnja": "{ime} chiede l'accesso: {kaj} su questo computer.", "dovoli": "Consenti", "zavrni": "Rifiuta",
            "d": "file", "p": "programmi", "v": "lettore", "z": "schermo, controllo e Safeer Input",
-           "ozji": "Con «Consenti» entra nella cerchia ristretta: potrà anche controllare questo computer con Safeer Input (mouse, tastiera) e vedere le tue cartelle (senza cartelle nascoste né chiavi)."},
+           "ozji": "Con «Consenti» entra nella cerchia ristretta: potrà anche controllare questo computer con Safeer Input (mouse, tastiera) e vedere le tue cartelle (senza cartelle nascoste né chiavi).",
+           "dom": "Con «Consenti» vedrà anche la tua cartella home (senza cartelle nascoste né chiavi)."},
 }
 
 #: Stevec na ikoni Safeer Link: (ednina, mnozina) oz. v slovenscini (1, 2, 3-4, 5+).
@@ -1725,11 +1813,25 @@ def telo_obvestila(prosnja: dict, jezik: Optional[str]) -> str:
     crke = _crke(prosnja)
     kaj = ", ".join(besedilo_obvestila(jezik, c) for c in crke)
     telo = besedilo_obvestila(jezik, "prosnja").format(ime=ime, kaj=kaj)
-    # »Dovoli« napravo da v ozji krog (ozji_krog): ce v njem se ni in ne prosi za vse, kar ga sestavlja, obvestilo
-    # pove, kaj se doda (upravljanje s Safeer Vnos, mape).
-    if crke and not OZJI_KROG <= set(crke) and not OZJI_KROG <= zmoznosti_jedra(str(prosnja.get("jedro") or "")):
-        telo += " " + besedilo_obvestila(jezik, "ozji")
+    # »Dovoli« napravo da v ozji krog (ozji_krog) z domaco mapo: ce v njem se ni in ne prosi za vse, kar ga sestavlja,
+    # obvestilo pove, kaj se doda (upravljanje s Safeer Vnos, mape); ce domace mape se nima (tudi zapis d+z iz prejsnje
+    # razlicice), pove vsaj to - privolitev mora biti informirana (vodja 25. 10. 2026).
+    j = str(prosnja.get("jedro") or "")
+    if crke and not _ima_dom_jedra(j):
+        if not OZJI_KROG <= set(crke) and not OZJI_KROG <= zmoznosti_jedra(j):
+            telo += " " + besedilo_obvestila(jezik, "ozji")
+        else:
+            telo += " " + besedilo_obvestila(jezik, "dom")
     return telo
+
+
+def _ima_dom_jedra(j: str) -> bool:
+    try:
+        with _zaklep:
+            naprave = _nalozen()
+            return OZJI_KROG <= set(naprave.get(j) or ()) and j in _dom_disk
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def id_obvestila(kljuc: str) -> str:
@@ -1845,7 +1947,7 @@ def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], za
 def _za_preizkus(pot: Optional[str]) -> None:
     """Preizkusi: zapis v zacasni datoteki (None vrne pravo pot)."""
     global _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zapis_spodletel_ob
-    global _zavrnjeno_disk, _prikaz, _umik, _umik_casovnik, _migracija_caka_ob
+    global _zavrnjeno_disk, _prikaz, _umik, _umik_casovnik, _migracija_caka_ob, _dom_disk
     with _zaklep:
         if _umik_casovnik is not None:
             _umik_casovnik.cancel()
@@ -1853,6 +1955,7 @@ def _za_preizkus(pot: Optional[str]) -> None:
         _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita = pot, None, None, "", set()
         _zascita_disk, _zapis_spodletel_ob = set(), None
         _zavrnjeno_disk, _prikaz, _umik = {}, None, None
+        _dom_disk = set()
         _prosnje.clear()
         _zadnji_poziv.clear()
         _zavrnjeno.clear()

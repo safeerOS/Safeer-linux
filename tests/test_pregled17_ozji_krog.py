@@ -255,3 +255,65 @@ class M10PrivolitevPreverjena(_Osnova):
                 os.replace(pot + ".star", pot)
         with mock.patch.object(link_dostop, "_fsync_mape", star_program):
             self.assertFalse(link_dostop.nastavi(B, "p"), "»Shranjeno« samo, ce je zapisano")
+
+
+class DomacaMapaIzrecno(_Osnova):
+    """Vodja 25. 10. 2026: zapis d+z iz prejsnje razlicice obdrzi datoteke in upravljanje; domaco mapo dobi sele z
+    izrecno, informirano privolitvijo - ob prvem zagonu nove razlicice se ne podeli sama."""
+
+    def _star_zapis(self, naprave):
+        pot = link_dostop._pot()
+        with open(pot, "w", encoding="utf-8") as d:
+            json.dump({"v": 1, "podedovano_ob": MEJA + 100, "naprave": naprave}, d)
+        with open(pot + ".podedovano", "w", encoding="utf-8") as d:
+            d.write("{}")
+        link_dostop._za_preizkus(pot)
+
+    def test_star_zapis_dz_brez_domace_mape(self):
+        self._star_zapis({B: "dz"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"d", "z"}, "datoteke in upravljanje ostanejo")
+        self.assertTrue(link_dostop.v_ozjem_krogu(B))
+        self.assertFalse(link_dostop.sme_domaco_mapo(B), "domaca mapa se ne podeli sama")
+        self.assertTrue(link_dostop.dovoli_domaco_mapo(B))
+        self.assertTrue(link_dostop.sme_domaco_mapo(B))
+        self.assertEqual(link_dostop.zmoznosti(B), {"d", "z"})
+        link_dostop.nastavi(B, "d")                  # izgubi ozji krog: privolitev za domaco mapo gre z njim
+        link_dostop.nastavi(B, "dz")
+        self.assertFalse(link_dostop.sme_domaco_mapo(B))
+
+    def test_stikalo_ozjega_kroga_je_privolitev(self):
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "p"))
+        self.assertTrue(link_dostop.sme_domaco_mapo(B))
+        link_dostop.nastavi(A, "p")                  # zunaj ozjega kroga domace mape ne da niti gumb
+        self.assertFalse(link_dostop.dovoli_domaco_mapo(A))
+        self.assertFalse(link_dostop.sme_domaco_mapo(A))
+
+    def test_obvestilo_pove_domaco_mapo(self):
+        self._star_zapis({B: "dz"})
+        prosnja = {"jedro": B, "ime": "Televizor", "zmoznost": "p"}
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertIn(link_dostop.besedilo_obvestila(jezik, "dom"), link_dostop.telo_obvestila(prosnja, jezik))
+        self.assertTrue(link_dostop.dovoli_domaco_mapo(B))
+        self.assertNotIn(link_dostop.besedilo_obvestila("sl", "dom"), link_dostop.telo_obvestila(prosnja, "sl"))
+
+    def test_seznam_datotek_brez_domace_mape(self):
+        self._star_zapis({B: "dz"})
+        d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self._mapa.name, ".tls"), dom=True)
+        self.addCleanup(d.ustavi)
+        with mock.patch.object(d, "streznik_za", return_value={}):
+            self.assertNotIn("dom:", [v["id"] for v in d.seznam("", B)["items"]])
+            self.assertTrue(link_dostop.dovoli_domaco_mapo(B))
+            self.assertIn("dom:", [v["id"] for v in d.seznam("", B)["items"]])
+
+
+class OknoLinkDomacaMapa(unittest.TestCase):
+    def test_gumb_most_in_besedila_v_vseh_jezikih(self):
+        from pathlib import Path
+        koren = Path(__file__).resolve().parents[1]
+        js = (koren / "assets" / "link" / "link.js").read_text(encoding="utf-8")
+        self.assertEqual((js.count("dostopDomOpis:"), js.count("dostopDomDovoli:")), (6, 6))
+        self.assertIn('id="gumbDostopDom"', (koren / "assets" / "link" / "index.html").read_text(encoding="utf-8"))
+        vir = (koren / "core" / "safeer_link.py").read_text(encoding="utf-8")
+        self.assertIn('dovoliDomacoMapo: function (id) { poslji("dovoliDomacoMapo", [id]); }', vir)
+        self.assertIn('"dovoliDomacoMapo": lambda: self._dovoli_domaco_mapo(*argumenti[:1])', vir)
+        self.assertIn('"dom": bool(link_dostop.sme_domaco_mapo(id_naprave))', vir)

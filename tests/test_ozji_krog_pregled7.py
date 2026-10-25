@@ -46,7 +46,9 @@ class U8Natancno(_Osnova):
         link._odziv = lambda vrsta, podatki: odzivi.append((vrsta, podatki))
         link._nastavi_dostop(B, "v")
         self.assertEqual(link_dostop.zmoznosti(B), {"v", "d", "z"})
-        self.assertIn(("dostop", {"id": B, "ok": True, "dostop": "dvz", "jaz": False}), odzivi, "dejanski nabor")
+        # Stikalo ozjega kroga je tudi privolitev za domaco mapo (vodja 25. 10. 2026, link_dostop.sme_domaco_mapo).
+        self.assertIn(("dostop", {"id": B, "ok": True, "dostop": "dvz", "jaz": False, "dom": True}), odzivi,
+                      "dejanski nabor")
 
 
 class U4Dedovanje(_Osnova):

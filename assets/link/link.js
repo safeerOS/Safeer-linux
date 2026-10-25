@@ -932,6 +932,8 @@
       dostopZaslon: "Ožji krog: upravljanje, Safeer Vnos in moje mape",
       dostopZaslonOpis: "Zaslon, miška in tipkovnica tega računalnika ter domača mapa (brez skritih map in ključev). Vklopi se z vsakim dovoljenjem spodaj; izklop vzame ves dostop.",
       dostopBrez: "Brez dostopa: naprava samo pomaga pri povezavi in ti lahko kaj pošlje.",
+      dostopDomOpis: "Ta naprava ima datoteke in upravljanje iz prejšnje različice. Domače mape (brez skritih map in ključev) ne vidi, dokler je ne dovoliš.",
+      dostopDomDovoli: "Dovoli domačo mapo",
       dostopShranjeno: "Shranjeno.",
       dostopNapaka: "Dostopa ni bilo mogoče shraniti. Velja to, kar je prikazano; poskusi znova.",
       dostopPoln: "poln dostop",
@@ -1008,6 +1010,8 @@
       dostopZaslon: "Inner circle: control, Safeer Input and my folders",
       dostopZaslonOpis: "This computer’s screen, mouse and keyboard and the home folder (without hidden folders and keys). Turns on with any permission below; turning it off removes all access.",
       dostopBrez: "No access: the device only helps with the connection and can send you things.",
+      dostopDomOpis: "This device has files and control from the previous version. It does not see your home folder (without hidden folders and keys) until you allow it.",
+      dostopDomDovoli: "Allow home folder",
       dostopShranjeno: "Saved.",
       dostopNapaka: "Access could not be saved. What is shown applies; try again.",
       dostopPoln: "full access",
@@ -1077,6 +1081,8 @@
       dostopZaslon: "Enger Kreis: Steuerung, Safeer Eingabe und meine Ordner",
       dostopZaslonOpis: "Bildschirm, Maus und Tastatur dieses Computers und der persönliche Ordner (ohne versteckte Ordner und Schlüssel). Schaltet sich mit jeder Berechtigung unten ein; Ausschalten entzieht jeden Zugriff.",
       dostopBrez: "Kein Zugriff: Das Gerät hilft nur bei der Verbindung und kann dir etwas senden.",
+      dostopDomOpis: "Dieses Gerät hat Dateien und Steuerung aus der vorherigen Version. Deinen persönlichen Ordner (ohne versteckte Ordner und Schlüssel) sieht es erst, wenn du ihn erlaubst.",
+      dostopDomDovoli: "Persönlichen Ordner erlauben",
       dostopShranjeno: "Gespeichert.",
       dostopNapaka: "Der Zugriff konnte nicht gespeichert werden. Es gilt, was angezeigt wird; versuche es erneut.",
       dostopPoln: "voller Zugriff",
@@ -1146,6 +1152,8 @@
       dostopZaslon: "Círculo de confianza: control, Safeer Entrada y mis carpetas",
       dostopZaslonOpis: "Pantalla, ratón y teclado de este ordenador y la carpeta personal (sin carpetas ocultas ni claves). Se activa con cualquier permiso de abajo; desactivarlo quita todo el acceso.",
       dostopBrez: "Sin acceso: el dispositivo solo ayuda con la conexión y puede enviarte cosas.",
+      dostopDomOpis: "Este dispositivo tiene archivos y control de la versión anterior. No ve tu carpeta personal (sin carpetas ocultas ni claves) hasta que la permitas.",
+      dostopDomDovoli: "Permitir carpeta personal",
       dostopShranjeno: "Guardado.",
       dostopNapaka: "No se pudo guardar el acceso. Vale lo que se muestra; inténtalo de nuevo.",
       dostopPoln: "acceso completo",
@@ -1215,6 +1223,8 @@
       dostopZaslon: "Cercle de confiance : contrôle, Safeer Saisie et mes dossiers",
       dostopZaslonOpis: "Écran, souris et clavier de cet ordinateur et le dossier personnel (sans dossiers cachés ni clés). S'active avec toute autorisation ci-dessous ; le désactiver retire tout accès.",
       dostopBrez: "Aucun accès : l'appareil aide seulement à la connexion et peut vous envoyer des choses.",
+      dostopDomOpis: "Cet appareil a les fichiers et le contrôle de la version précédente. Il ne voit pas votre dossier personnel (sans dossiers cachés ni clés) tant que vous ne l'autorisez pas.",
+      dostopDomDovoli: "Autoriser le dossier personnel",
       dostopShranjeno: "Enregistré.",
       dostopNapaka: "L'accès n'a pas pu être enregistré. Ce qui est affiché s'applique ; réessaie.",
       dostopPoln: "accès complet",
@@ -1284,6 +1294,8 @@
       dostopZaslon: "Cerchia ristretta: controllo, Safeer Input e le mie cartelle",
       dostopZaslonOpis: "Schermo, mouse e tastiera di questo computer e la cartella home (senza cartelle nascoste né chiavi). Si attiva con qualsiasi permesso qui sotto; disattivarlo toglie ogni accesso.",
       dostopBrez: "Nessun accesso: il dispositivo aiuta solo con la connessione e può inviarti qualcosa.",
+      dostopDomOpis: "Questo dispositivo ha file e controllo dalla versione precedente. Non vede la tua cartella home (senza cartelle nascoste né chiavi) finché non la consenti.",
+      dostopDomDovoli: "Consenti cartella home",
       dostopShranjeno: "Salvato.",
       dostopNapaka: "Non è stato possibile salvare l'accesso. Vale ciò che è mostrato; riprova.",
       dostopPoln: "accesso completo",
@@ -3257,6 +3269,7 @@
         // pregled, 25. 10. 2026: prej je plosca kazala izbiro in »Shranjeno«, ceprav odvzem ni bil zapisan).
         if (podatki && deljenje.naprava && deljenje.naprava.id === podatki.id) {
           deljenje.naprava.dostop = String(podatki.dostop || "");
+          if (typeof podatki.dom === "boolean") deljenje.naprava.dom = podatki.dom;
           pokaziDostop(deljenje.naprava);
           if (znaDostop(deljenje.naprava)) {
             besedilo("dostopOpomba", !podatki.ok ? t("dostopNapaka")
@@ -3488,7 +3501,18 @@
       var s = el("dostop_" + DOSTOP_CRKE[i]);
       if (s) s.checked = ima.indexOf(DOSTOP_CRKE[i]) >= 0;
     }
+    // Ozji krog iz prejsnje razlicice (d+z brez privolitve za domaco mapo): datoteke in upravljanje ostanejo, domaca
+    // mapa sele z izrecnim »Dovoli domaco mapo« (vodja 25. 10. 2026). Starejsi racunalnik polja »dom« ne poslje: nic.
+    pokazi("dostopDom", ima.indexOf("d") >= 0 && ima.indexOf("z") >= 0 && naprava.dom === false &&
+      !!(most && most.dovoliDomacoMapo));
     besedilo("dostopOpomba", ima ? "" : t("dostopBrez"));
+  }
+
+  function dovoliDomacoMapo() {
+    var n = deljenje.naprava;
+    if (!znaDostop(n) || !most.dovoliDomacoMapo) return;
+    besedilo("dostopOpomba", "");
+    most.dovoliDomacoMapo(n.id);
   }
 
   function shraniDostop(e) {
@@ -3722,6 +3746,7 @@
       var stikalo = el("dostop_" + DOSTOP_CRKE[di]);
       if (stikalo) stikalo.addEventListener("change", shraniDostop);
     }
+    naKlik("gumbDostopDom", dovoliDomacoMapo);
     naKlik("gumbShraniIme", shraniIme);
     var vnosImena = el("vnosImena");
     if (vnosImena) vnosImena.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniIme(); } });
