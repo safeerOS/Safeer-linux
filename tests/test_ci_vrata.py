@@ -178,6 +178,18 @@ class DelovniTok(unittest.TestCase):
                 self.assertIn("--safeer-del=${{ matrix.del }}/%d" % deli, vsi)
                 self.assertIn("-p no:cacheprovider", vsi)                              # pytest cache ostane izklopljen
 
+    def test_orodja_zivih_preizkusov(self):
+        """Hitra vrata in preizkusi-webkit imata isti nabor odvisnosti (razen paketa safeer-webkit); x11-utils (xwininfo)
+        potrebuje zivi preizkus test_lupina_locena::Zivo - brez njega se preskoci z razlogom »... WebKitGTK« in posel
+        preizkusi-webkit pade (izmerjeno 25. 10. 2026 v vsebniku ubuntu:24.04 z nasim WebKitom)."""
+        def apt(posel):
+            vrstica = next(v for v in self._ukazi(posel).splitlines() if "apt-get install -y -q ca-certificates" in v)
+            return set(vrstica.split()[4:])
+        self.assertEqual(apt("hitra-vrata"), apt("preizkusi-webkit"))
+        self.assertIn("x11-utils", apt("preizkusi-webkit"))
+        vir = (KOREN / "tests" / "test_lupina_locena.py").read_text(encoding="utf-8")
+        self.assertIn('shutil.which("xwininfo")', vir)
+
     def test_preizkusi_z_nasim_webkitom(self):
         p = self.posli["preizkusi-webkit"]
         self.assertIn("webkit-deb", self._potrebe("preizkusi-webkit"))
