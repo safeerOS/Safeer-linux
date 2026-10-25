@@ -3,15 +3,19 @@
 Datoteka tests/skupni-primeri/debrid-serije.json je ista v repozitorijih Android-tv, Safeer-linux in Safeer-windows:
 pravilo, spremenjeno samo na eni strani, tu ali tam pade. null v primeru = ni vrednosti (None ali prazen niz).
 """
+import base64
 import json
 import unittest
 from pathlib import Path
 
 from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
+from core import usenet_nntp as NN, usenet_nzb as NZ, usenet_yenc as Y
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
 #: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
 PRIMERI_WEBTOR = Path(__file__).resolve().parent / "skupni-primeri" / "webtor-rezerva.json"
+#: Lasten pogon Usenet (lastnik 25. 10. 2026 22:10): yEnc, NZB, kode NNTP - lastnik datoteke je Safeer-linux.
+PRIMERI_USENET = Path(__file__).resolve().parent / "skupni-primeri" / "usenet-pogon.json"
 #: Pravila iz PRIMERI_WEBTOR, ki jih namizje se nima - in zakaj. Novo pravilo v datoteki mora priti sem ali v izracunaj.
 NI_NA_NAMIZJU = {
     "uskladitev_novejsi": "usklajevanje kljucev v ozjem krogu (secrets.sync) namizje se nima",
@@ -43,8 +47,69 @@ def _ali_none(v):
     return v if v not in ("",) else None
 
 
+def _b64(b):
+    return base64.b64encode(b).decode("ascii")
+
+
+def _yenc_izhod(telo):
+    try:
+        d = Y.dekodiraj(telo)
+    except Y.NapakaYenc as e:
+        return {"izid": e.izid}
+    return {"izid": Y.OK, "ime": d.ime, "del": d.del_, "skupaj": d.skupaj, "velikost": d.velikost,
+            "zacetek": d.zacetek, "konec": d.konec, "crc32": "%08x" % d.crc32, "crc_preverjen": d.crc_preverjen,
+            "podatki_b64": _b64(d.podatki)}
+
+
+def _nzb_izhod(podatki):
+    try:
+        n = NZ.razcleni(podatki)
+    except NZ.NapakaNzb as e:
+        return {"izid": e.izid}
+    return {"izid": NZ.OK, "naslov": n.naslov, "ima_geslo": n.ima_geslo, "datoteke": [
+        {"ime": d.ime, "skupine": list(d.skupine), "bajtov_nzb": d.bajtov_nzb, "manjka": d.manjka,
+         "segmenti": [[x.stevilka, x.bajtov, x.id] for x in d.segmenti]} for d in n.datoteke]}
+
+
+def _usenet(f, v):
+    """Lasten pogon Usenet (core/usenet_yenc.py, usenet_nzb.py, usenet_nntp.py; Android isto v Kotlinu)."""
+    if f == "yenc_dekodiraj":
+        return _yenc_izhod(base64.b64decode(v["telo_b64"]))
+    if f in ("nntp_telo", "yenc_iz_nntp"):
+        r = NN.odpakiraj_telo(base64.b64decode(v["surovo_b64"]))
+        if f == "yenc_iz_nntp":
+            return {"izid": Y.PRIREZANO} if r is None else _yenc_izhod(r[0])
+        return None if r is None else {"telo_b64": _b64(r[0]), "ostanek_b64": _b64(r[1])}
+    if f == "nntp_izid":
+        return NN.izid_odgovora(v["ukaz"], v["vrstica"])
+    if f == "nntp_id":
+        return NZ.id_clanka(v["id"])
+    if f == "varno_ime":
+        return NZ.varno_ime(v["ime"])
+    if f == "nzb_ime":
+        return NZ.ime_iz_subject(v["subject"])
+    if f == "nzb_razcleni":
+        return _nzb_izhod(base64.b64decode(v["xml_b64"]) if "xml_b64" in v else v["xml"].encode("utf-8"))
+    if f == "usenet_meje":
+        return {"nzb_bajtov": U.NAJVEC_NZB_BAJTOV, "nzb_datotek": NZ.NAJVEC_DATOTEK,
+                "nzb_segmentov": NZ.NAJVEC_SEGMENTOV, "nzb_elementov": NZ.NAJVEC_ELEMENTOV,
+                "segmentov_datoteke": NZ.NAJVEC_SEGMENTOV_DATOTEKE,
+                "telo_bajtov": NN.NAJVEC_TELO_BAJTOV, "del_bajtov": Y.NAJVEC_DEL_BAJTOV,
+                "ime_znakov": NZ.NAJVEC_IME_ZNAKOV, "naslov_znakov": NZ.NAJVEC_NASLOV_ZNAKOV,
+                "skupin": NZ.NAJVEC_SKUPIN, "vrstica_bajtov": NN.NAJVEC_VRSTICA_BAJTOV,
+                "id_znakov": NZ.NAJVEC_ID_ZNAKOV, "povezav_privzeto": NN.PRIVZETO_POVEZAV,
+                "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA}
+    raise KeyError("neznano pravilo: " + f)
+
+
+USENET_POGON = {"yenc_dekodiraj", "nntp_telo", "yenc_iz_nntp", "nntp_izid", "nntp_id", "varno_ime", "nzb_ime",
+                "nzb_razcleni", "usenet_meje"}
+
+
 def izracunaj(f, v):
     """Isto ime pravila kot v primerih (in v Kotlinu preslikano)."""
+    if f in USENET_POGON:
+        return _usenet(f, v)
     if f == "vrstni_red":
         return P.vrstni_red(set(v["z_kljucem"]), v["prednostna"])
     if f == "aktivna":
@@ -162,6 +227,9 @@ class SkupniPrimeri(unittest.TestCase):
 
     def test_webtor_rezerva(self):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
+
+    def test_usenet_pogon(self):
+        self._preveri(PRIMERI_USENET, set(), 160)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

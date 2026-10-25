@@ -1,0 +1,414 @@
+"""Lasten pogon Usenet, korak 1 (25. 10. 2026): odjemalec NNTP prek TLS proti laznemu strezniku na 127.0.0.1.
+
+Potrdila ustvari openssl v zacasni mapi (CA, potrdilo za 127.0.0.1 in potrdilo za napacno ime); odjemalec CA zaupa samo
+prek izrecnega konteksta v preizkusu. Poverilnice in message-id so izmisljeni. Vsak preizkus streznik ustavi in
+povezave zapre (addCleanup); niti streznika so demonske z roki 0,2 s.
+"""
+import logging
+import os
+import shutil
+import socket
+import ssl
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+import warnings
+import zlib
+from unittest import mock
+
+from core import usenet_nntp as N, usenet_yenc as Y
+
+UPORABNIK = "preizkus-uporabnik-7f3a"
+GESLO = "preizkus-geslo-Qx9"
+ID_OK = "clanek-1.AbC@primer.invalid"
+ID_PIKA = "pika.Zz@primer.invalid"
+ID_NI = "ni-ga.Yy@primer.invalid"
+ID_PREKINI = "prekini.Ww@primer.invalid"
+ID_ROK = "rok.Vv@primer.invalid"
+VSI_ID = (ID_OK, ID_PIKA, ID_NI, ID_PREKINI, ID_ROK)
+
+PODATKI = bytes(range(256)) * 20
+CLANKI = {
+    ID_OK: Y.kodiraj(PODATKI, "film.mkv"),
+    # vrstica s piko na zacetku (kodirnik je ne ubeza): streznik jo podvoji, odjemalec mora podvojitev odstraniti
+    ID_PIKA: b"=ybegin line=128 size=3 name=p\r\n.//\r\n=yend size=3 crc32=%08x\r\n" % zlib.crc32(bytes([4, 5, 5])),
+}
+
+CA_CNF = """[req]
+distinguished_name = dn
+prompt = no
+x509_extensions = v3_ca
+[dn]
+CN = Safeer preizkus CA
+[v3_ca]
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+"""
+LIST_CNF = """[req]
+distinguished_name = dn
+prompt = no
+[dn]
+CN = lazni-nntp
+"""
+LIST_EXT = """subjectAltName = %s
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = serverAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
+"""
+
+
+def _openssl(mapa, *argumenti):
+    subprocess.run(["openssl", *argumenti], cwd=mapa, check=True, capture_output=True, timeout=60)
+
+
+def ustvari_potrdila(mapa):
+    for ime, vsebina in (("ca.cnf", CA_CNF), ("list.cnf", LIST_CNF), ("prav.ext", LIST_EXT % "IP:127.0.0.1"),
+                         ("napacno.ext", LIST_EXT % "DNS:napacno.invalid")):
+        with open(os.path.join(mapa, ime), "w") as f:
+            f.write(vsebina)
+    ec = ("-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes")
+    _openssl(mapa, "req", "-x509", "-config", "ca.cnf", *ec, "-keyout", "ca.key", "-out", "ca.pem", "-days", "2")
+    for n, ime in enumerate(("prav", "napacno"), 2):
+        _openssl(mapa, "req", "-new", "-config", "list.cnf", *ec, "-keyout", ime + ".key", "-out", ime + ".csr")
+        _openssl(mapa, "x509", "-req", "-in", ime + ".csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-set_serial", str(n),
+                 "-days", "2", "-extfile", ime + ".ext", "-out", ime + ".pem")
+
+
+def _nntp(telo):
+    vrstice = telo.split(b"\r\n")[:-1]
+    return b"".join((b"." + v if v.startswith(b".") else v) + b"\r\n" for v in vrstice) + b".\r\n"
+
+
+class LazniStreznik:
+    """Streznik NNTP prek TLS z vnaprej znanimi clanki; vedenje po message-id (430, prekinitev, brez odgovora)."""
+
+    def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False):
+        self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
+        self.pozdrav = pozdrav
+        self.zapri_po_zahtevi = zapri_po_zahtevi
+        self.ustavi_dogodek = threading.Event()
+        self.zaklep = threading.Lock()
+        self.sprejete = self.hkrati = self.najvec_hkrati = 0
+        self.ukazi = []
+        self.vticnik = socket.create_server(("127.0.0.1", 0))
+        self.vticnik.settimeout(0.2)
+        self.vrata = self.vticnik.getsockname()[1]
+        self.niti = [threading.Thread(target=self._sprejemaj, daemon=True)]
+        self.niti[0].start()
+
+    def ustavi(self):
+        self.ustavi_dogodek.set()
+        self.vticnik.close()
+        for t in list(self.niti):
+            t.join(3)
+
+    def _sprejemaj(self):
+        while not self.ustavi_dogodek.is_set():
+            try:
+                s, _ = self.vticnik.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            with self.zaklep:
+                self.sprejete += 1
+            t = threading.Thread(target=self._obdelaj, args=(s,), daemon=True)
+            self.niti.append(t)
+            t.start()
+
+    def _vrstica(self, s, buf):
+        while b"\r\n" not in buf:
+            if self.ustavi_dogodek.is_set():
+                return None, buf
+            try:
+                kos = s.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                return None, buf
+            if not kos:
+                return None, buf
+            buf += kos
+        v, _, buf = buf.partition(b"\r\n")
+        return v.decode("latin-1"), buf
+
+    def _obdelaj(self, surov):
+        with self.zaklep:
+            self.hkrati += 1
+            self.najvec_hkrati = max(self.najvec_hkrati, self.hkrati)
+        try:
+            surov.settimeout(5)
+            try:
+                s = self.kontekst.wrap_socket(surov, server_side=True)
+            except (ssl.SSLError, OSError):
+                return
+            s.settimeout(0.2)
+            s.sendall(self.pozdrav.encode() + b"\r\n")
+            if not self.pozdrav.startswith("20"):
+                return
+            buf, uporabnik, prijavljen = b"", None, False
+            while True:
+                vrstica, buf = self._vrstica(s, buf)
+                if vrstica is None:
+                    return
+                with self.zaklep:
+                    self.ukazi.append(vrstica)
+                ukaz, _, arg = vrstica.partition(" ")
+                if ukaz == "AUTHINFO" and arg.startswith("USER "):
+                    uporabnik = arg[5:]
+                    s.sendall(b"381 PASS required\r\n")
+                elif ukaz == "AUTHINFO" and arg.startswith("PASS "):
+                    prijavljen = uporabnik == UPORABNIK and arg[5:] == GESLO
+                    s.sendall(b"281 Authentication accepted\r\n" if prijavljen else b"481 Authentication failed\r\n")
+                elif ukaz in ("BODY", "STAT"):
+                    mid = arg.strip("<>")
+                    if not prijavljen:
+                        s.sendall(b"480 Authentication required\r\n")
+                    elif mid == ID_ROK:
+                        self.ustavi_dogodek.wait(10)
+                        return
+                    elif mid == ID_PREKINI:
+                        s.sendall(b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[ID_OK])[:3000])
+                        return
+                    elif mid in CLANKI:
+                        if ukaz == "STAT":
+                            s.sendall(b"223 0 <%s>\r\n" % mid.encode())
+                        else:
+                            s.sendall(b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[mid]))
+                    else:
+                        # streznik ponovi message-id - odjemalec besedila odgovora ne sme prenesti v izjemo ali dnevnik
+                        s.sendall(b"430 No such article <%s>\r\n" % mid.encode())
+                    if self.zapri_po_zahtevi:
+                        return
+                elif ukaz == "QUIT":
+                    s.sendall(b"205 Bye\r\n")
+                    return
+                else:
+                    s.sendall(b"500 What?\r\n")
+        finally:
+            with self.zaklep:
+                self.hkrati -= 1
+            surov.close()
+
+
+class Zajem(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.besedila = []
+
+    def emit(self, zapis):
+        self.besedila.append(zapis.getMessage())
+
+
+@unittest.skipUnless(shutil.which("openssl"), "brez openssl ni potrdil za lazni streznik")
+class Nntp(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._mapa = tempfile.TemporaryDirectory()
+        ustvari_potrdila(cls._mapa.name)
+        cls.ca = os.path.join(cls._mapa.name, "ca.pem")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._mapa.cleanup()
+
+    def setUp(self):
+        self.zajem = Zajem()
+        logging.getLogger("safeer.usenet").addHandler(self.zajem)
+        logging.getLogger("safeer.usenet").setLevel(logging.DEBUG)
+        self.addCleanup(logging.getLogger("safeer.usenet").removeHandler, self.zajem)
+
+    def kontekst(self):
+        return ssl.create_default_context(cafile=self.ca)
+
+    def streznik(self, **k):
+        s = LazniStreznik(self._mapa.name, **k)
+        self.addCleanup(s.ustavi)
+        return s
+
+    def bazen(self, s, **k):
+        nastavitve = dict(uporabnik=UPORABNIK, geslo=GESLO, kontekst=self.kontekst(), rok_povezave=5.0, rok=5.0)
+        nastavitve.update(k)
+        b = N.Bazen("127.0.0.1", s.vrata, **nastavitve)
+        self.addCleanup(b.zapri)
+        return b
+
+    def napaka(self, fn):
+        with self.assertRaises(N.NapakaNntp) as e:
+            fn()
+        return e.exception
+
+    def brez_skrivnosti(self, *besedila):
+        vse = " ".join(list(besedila) + self.zajem.besedila)
+        for skrivno in (UPORABNIK, GESLO) + VSI_ID + ("napacno-geslo",):
+            self.assertNotIn(skrivno, vse)
+
+    def test_prijava_telo_in_pika(self):
+        s = self.streznik()
+        b = self.bazen(s, povezav=2)
+        telo = b.telo(ID_OK)
+        self.assertEqual(telo, CLANKI[ID_OK])
+        self.assertEqual(Y.dekodiraj(telo).podatki, PODATKI)
+        self.assertEqual(Y.dekodiraj(b.telo("<%s>" % ID_PIKA)).podatki, bytes([4, 5, 5]))
+        self.assertEqual(s.sprejete, 1, "druga zahteva gre po isti povezavi")
+        self.assertEqual([u for u in s.ukazi if u.startswith("AUTHINFO")],
+                         ["AUTHINFO USER " + UPORABNIK, "AUTHINFO PASS " + GESLO])
+        self.brez_skrivnosti(repr(b))
+
+    def test_napacno_geslo(self):
+        s = self.streznik()
+        b = self.bazen(s, geslo="napacno-geslo")
+        e = self.napaka(lambda: b.telo(ID_OK))
+        self.assertEqual(e.izid, N.PRIJAVA)
+        e2 = self.napaka(lambda: b.telo(ID_OK))
+        self.assertEqual(e2.izid, N.PRIJAVA)
+        self.assertEqual(s.sprejete, 1, "napacnega gesla ne ponavljamo")
+        self.brez_skrivnosti(str(e), repr(e), str(e2), repr(b))
+
+    def test_430_povezava_ostane(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        e = self.napaka(lambda: b.telo(ID_NI))
+        self.assertEqual((e.izid, e.koda), (N.NI_CLANKA, 430))
+        self.assertFalse(b.stat(ID_NI))
+        self.assertTrue(b.stat(ID_OK))
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 1)
+        self.brez_skrivnosti(str(e), repr(e))
+
+    def test_prekinitev_sredi_body(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        e = self.napaka(lambda: b.telo(ID_PREKINI))
+        self.assertEqual(e.izid, N.OMREZJE)
+        self.assertEqual(sum(1 for u in s.ukazi if u.startswith("BODY")), 2, "enkrat znova po novi povezavi")
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 3)
+        self.brez_skrivnosti(str(e), repr(e))
+
+    def test_stara_povezava_se_zamenja(self):
+        s = self.streznik(zapri_po_zahtevi=True)
+        b = self.bazen(s)
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        time.sleep(0.1)
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 2)
+
+    def test_rok_zahteve(self):
+        s = self.streznik()
+        b = self.bazen(s, rok=0.6)
+        zacetek = time.monotonic()
+        e = self.napaka(lambda: b.telo(ID_ROK))
+        trajanje = time.monotonic() - zacetek
+        self.assertEqual(e.izid, N.ROK)
+        self.assertLess(trajanje, 3.0)
+        self.brez_skrivnosti(str(e), repr(e))
+
+    def test_rok_povezave_brez_tls(self):
+        tih = socket.create_server(("127.0.0.1", 0))  # sprejme TCP (zaledje), na TLS nikoli ne odgovori
+        self.addCleanup(tih.close)
+        b = N.Bazen("127.0.0.1", tih.getsockname()[1], kontekst=self.kontekst(), rok_povezave=0.5, rok=0.5)
+        self.addCleanup(b.zapri)
+        zacetek = time.monotonic()
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ROK)
+        self.assertLess(time.monotonic() - zacetek, 3.0)
+
+    def test_napacno_ime_v_potrdilu(self):
+        s = self.streznik(potrdilo="napacno")
+        e = self.napaka(lambda: self.bazen(s).telo(ID_OK))
+        self.assertEqual(e.izid, N.POTRDILO)
+        self.assertEqual(s.ukazi, [], "poverilnice ne gredo k strezniku z napacnim potrdilom")
+        self.brez_skrivnosti(str(e), repr(e))
+
+    def test_potrdilo_brez_zaupanja(self):
+        s = self.streznik()
+        b = N.Bazen("127.0.0.1", s.vrata, uporabnik=UPORABNIK, geslo=GESLO, rok_povezave=5.0)  # sistemski CA
+        self.addCleanup(b.zapri)
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.POTRDILO)
+        self.assertEqual(s.ukazi, [])
+
+    def test_nevaren_kontekst_zavrnjen(self):
+        k = ssl.create_default_context()
+        k.check_hostname = False
+        with self.assertRaises(ValueError):
+            N.Bazen("127.0.0.1", 1, kontekst=k)
+        k.verify_mode = ssl.CERT_NONE
+        with self.assertRaises(ValueError):
+            N.Bazen("127.0.0.1", 1, kontekst=k)
+        k = ssl.create_default_context()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            k.minimum_version = ssl.TLSVersion.TLSv1
+        N.Bazen("127.0.0.1", 1, kontekst=k)
+        self.assertGreaterEqual(k.minimum_version, ssl.TLSVersion.TLSv1_2)
+        self.assertGreaterEqual(N.varen_kontekst().minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_neveljaven_id_ne_gre_k_strezniku(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        for mid in ("a@primer.invalid>\r\nQUIT", "ima presledek@x", ""):
+            with self.assertRaises(ValueError) as e:
+                b.telo(mid)
+            self.assertNotIn("QUIT", str(e.exception))
+        self.assertEqual(s.sprejete, 0)
+
+    def test_poverilnica_s_crlf(self):
+        with self.assertRaises(ValueError) as e:
+            N.Bazen("127.0.0.1", 1, uporabnik="x\r\nAUTHINFO", kontekst=self.kontekst())
+        self.assertNotIn("AUTHINFO", str(e.exception))
+
+    def test_zaseden_pozdrav_zmanjsa_bazen(self):
+        s = self.streznik(pozdrav="502 Too many connections")
+        b = self.bazen(s, povezav=3)
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ZASEDEN)
+        self.assertEqual(b.najvec, 2)
+
+    def test_vzporedno_najvec_povezav(self):
+        s = self.streznik()
+        b = self.bazen(s, povezav=3)
+        izidi, napake = [], []
+
+        def delo():
+            try:
+                izidi.append(b.telo(ID_OK))
+            except Exception as e:  # noqa: BLE001
+                napake.append(e)
+        niti = [threading.Thread(target=delo) for _ in range(12)]
+        for t in niti:
+            t.start()
+        for t in niti:
+            t.join(20)
+        self.assertEqual(napake, [])
+        self.assertEqual(izidi, [CLANKI[ID_OK]] * 12)
+        self.assertLessEqual(s.najvec_hkrati, 3)
+        self.assertLessEqual(s.sprejete, 3)
+
+    def test_meje_bazena(self):
+        k = self.kontekst()
+        self.assertEqual(N.Bazen("h", kontekst=k).najvec, N.PRIVZETO_POVEZAV)
+        self.assertEqual(N.Bazen("h", povezav=0, kontekst=k).najvec, 1)
+        self.assertEqual(N.Bazen("h", povezav=500, kontekst=k).najvec, N.NAJVEC_POVEZAV)
+        self.assertEqual((N.PRIVZETO_POVEZAV, N.NAJVEC_POVEZAV, N.VRATA), (8, 50, 563))
+
+    def test_telo_vecje_od_meje(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1000):
+            self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
+
+    def test_zaprt_bazen(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        b.telo(ID_OK)
+        b.zapri()
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ZAPRTO)
+
+
+if __name__ == "__main__":
+    unittest.main()

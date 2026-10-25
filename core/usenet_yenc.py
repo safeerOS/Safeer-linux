@@ -6,8 +6,8 @@ robu vrstice) so ubezani kot '=' + (o + 64) & 255. Glava '=ybegin [part= total=]
 pri vecdelnem '=ypart begin= end=' (od 1, vkljucno), konec '=yend size= [part= pcrc32=] [crc32=]'.
 
 Hitrost: zanka po bajtih v Pythonu je prepocasna, zato CR/LF izpusti bytes.translate, '=' razdeli bytes.split,
-popravek ubeznih znakov je ena operacija na ubezni znak (~1,6 % bajtov), odmik -42 pa spet translate - vse razen popravka
-tece v C.
+popravek ubeznih znakov je ena operacija na ubezni znak (~1,6 % bajtov), odmik -42 pa spet translate - vse razen
+popravka tece v C.
 Izmerjeno 25. 10. 2026 22:51 na prenosniku (i5-1135G7, obremenitev 2,1; tools/meri_yenc.py: 50 MiB nakljucnih
 podatkov v delih po 750 KiB, s CRC32, 3 ponovitve): 129,6 / 142,6 / 140,7 MB/s na eni niti (cilj 50 MB/s; tok 4K pri
 80 Mbit/s je 10 MB/s). Kodo GPL (sabyenc, sabctools) namenoma ne uporabljamo.
