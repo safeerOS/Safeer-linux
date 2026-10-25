@@ -213,7 +213,8 @@ class Zavrnitev(_Osnova):
 
 class Dovoli(_Osnova):
     def test_dovoli_doda_samo_zaprosen_crko(self):
-        link_dostop.nastavi(A, "v")
+        from tests.test_link_dostop import zapis_pred_pravilom
+        zapis_pred_pravilom(A, "v")                                     # star zapis (pred pravilom ozjega kroga)
         _vprasaj(A + "-os", "d", zdaj=ZDAJ)
         self.assertTrue(link_dostop.odobri_prosnjo(A, "d"))
         self.assertEqual(link_dostop.zmoznosti(A), {"v", "d", "z"})       # ozji krog: tudi upravljanje
@@ -467,8 +468,8 @@ class Obvestilo(unittest.TestCase):
         Gio.Notification.new.assert_called_once_with("Safeer Link")
         o = Gio.Notification.new.return_value
         o.set_body.assert_called_once_with("Druzinski telefon prosi za dostop: datoteke na tem računalniku. Z »Dovoli« "
-                                           "pride v ožji krog: dobi tudi upravljanje tega računalnika in Safeer Vnos "
-                                           "(miška, tipkovnica).")
+                                           "pride v ožji krog: dobi tudi upravljanje tega računalnika s Safeer Vnos "
+                                           "(miška, tipkovnica) in tvoje mape (brez skritih map in ključev).")
         o.set_default_action.assert_called_once_with("app.dostop-naprave")
         # Varna izbira prva (pregled 18. 10. 2026), klik na obvestilo odpre seznam naprav - nikoli ne odobri.
         self.assertEqual([c.args for c in o.add_button_with_target.call_args_list],
@@ -478,7 +479,9 @@ class Obvestilo(unittest.TestCase):
 
     def test_anglesko_in_neznan_jezik(self):
         p = {"jedro": A, "ime": "Phone", "zmoznost": "z"}
-        self.assertEqual(link_dostop.telo_obvestila(p, "en"), "Phone is asking for access: screen, control and Safeer Input on this computer.")
+        self.assertEqual(link_dostop.telo_obvestila(p, "en"), "Phone is asking for access: screen, control and Safeer Input on this computer. Allow puts it in your "
+                         "inner circle: it also gets control of this computer with Safeer Input (mouse, keyboard) and "
+                         "your folders (without hidden folders and keys).")
         self.assertEqual(link_dostop.telo_obvestila(p, "xx"), link_dostop.telo_obvestila(p, "en"))
         for jezik, b in link_dostop.BESEDILA_OBVESTILA.items():
             self.assertEqual(set(b), set(link_dostop.BESEDILA_OBVESTILA["en"]), jezik)
@@ -528,7 +531,7 @@ class VecProgramovZavrnjeno(_Osnova):
         zapis = self._zapis()
         self.assertEqual(zapis["novo_polje"], {"x": 1})
         self.assertEqual(zapis["zavrnjeno"], {A + "|p": ZDAJ})
-        self.assertEqual(zapis["naprave"], {A: "dz", DRUGI[0]: "vz"})
+        self.assertEqual(zapis["naprave"], {A: "dz", DRUGI[0]: "dvz"})
 
     def test_zavrnitev_ne_povozi_spremembe_drugega_programa_tik_pred_zamenjavo(self):
         link_dostop.nastavi(A, "dpvz")
@@ -624,10 +627,12 @@ class Zdruzevanje(_Osnova):
         self.assertEqual((p["jedro"], p["zmoznosti"], p["ime"]), (A, "vzp", "Druzinski telefon"))
         self.assertEqual(link_dostop.telo_obvestila(p, "sl"),
                          "Druzinski telefon prosi za dostop: predvajalnik, zaslon, upravljanje in Safeer Vnos, programi na "
-                         "tem računalniku.")
+                         "tem računalniku. Z »Dovoli« pride v ožji krog: dobi tudi upravljanje tega računalnika s "
+                         "Safeer Vnos (miška, tipkovnica) in tvoje mape (brez skritih map in ključev).")
         self.assertEqual(link_dostop.telo_obvestila(p, "en"),
                          "Druzinski telefon is asking for access: player, screen, control and Safeer Input, apps on this "
-                         "computer.")
+                         "computer. Allow puts it in your inner circle: it also gets control of this computer with "
+                         "Safeer Input (mouse, keyboard) and your folders (without hidden folders and keys).")
         self.assertEqual(link_dostop.zmoznosti(A), set())               # prosnje same ne odprejo nicesar
 
     def test_poznejsa_prosnja_iste_naprave_zamenja_obvestilo(self):
@@ -661,8 +666,8 @@ class Zdruzevanje(_Osnova):
         with mock.patch.object(link_dostop, "_na_disk", side_effect=pravi) as zapis:
             self.assertTrue(link_dostop.odobri_prosnjo(A, "vzp"))
         self.assertEqual(zapis.call_count, 1)
-        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p"})
-        self.assertEqual(self._zapis()["naprave"], {A: "pvz"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p", "d"})   # ozji krog: tudi mape
+        self.assertEqual(self._zapis()["naprave"], {A: "dpvz"})
         self.assertEqual(link_dostop.odprte_prosnje(), [])
         self.assertIn(A, self.umaknjeno)                                # obvestilo se umakne
         self.assertFalse(link_dostop.odobri_prosnjo(A, "vzp"))         # enkrat
@@ -671,11 +676,11 @@ class Zdruzevanje(_Osnova):
     def test_dovoli_samo_nasteto_in_samo_odprto(self):
         for crka in "vz":
             _vprasaj(A, crka, zdaj=ZDAJ)
-        self.assertTrue(link_dostop.odobri_prosnjo(A, "vzd"))           # d ni bil zaprosen: ne odpre se
-        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+        self.assertTrue(link_dostop.odobri_prosnjo(A, "vzd"))           # d ni bil zaprosen: gumb ga ne doda ...
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "d"})     # ... doda ga pravilo ozjega kroga (mape)
         self.assertFalse(link_dostop.odobri_prosnjo(A, "d"))
         self.assertFalse(link_dostop.odobri_prosnjo(A, "dpvz*"))
-        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "d"}, "p ni bil zaprosen")
 
     def test_dovoli_delno_pusti_ostalo_v_obvestilu(self):
         for crka in "vzp":
@@ -683,7 +688,7 @@ class Zdruzevanje(_Osnova):
         self._izvedi()
         self.pokazano.clear()
         self.assertTrue(link_dostop.odobri_prosnjo(A, "vz"))            # obvestilo je bilo pokazano pred »p«
-        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "d"})
         self._izvedi()
         self.assertEqual([p["zmoznosti"] for p in self.pokazano], ["p"])
 
@@ -756,7 +761,7 @@ class Zdruzevanje(_Osnova):
             _vprasaj(A, crka, zdaj=ZDAJ)
         _vprasaj(DRUGI[0], "d", zdaj=ZDAJ)
         dejanja["dostop-dovoli"](None, A + "|vzp")
-        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p", "d"})
         dejanja["dostop-zavrni"](None, DRUGI[0] + "|d")
         self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 60)[0], "declined")
         self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), set())

@@ -166,7 +166,7 @@ class Zapis(_Osnova):
         self.assertTrue(link_dostop.sme_dejanje(B, "play.state"))
         self.assertFalse(link_dostop.sme_dejanje(B, "apps.list"))
         self.assertFalse(link_dostop.sme_sporocilo(B, "sync.data"))     # usklajevanje samo ozji krog (vse stiri)
-        self.assertEqual(link_dostop.vsi(), {B: "dvz"})                 # ozji krog: tudi upravljanje (ozji_krog)
+        self.assertEqual(link_dostop.vsi(), {B: "dvz"})                 # ozji krog: tudi upravljanje in mape (ozji_krog)
         link_dostop.nastavi(B, "")
         self.assertFalse(link_dostop.sme_dejanje(B, "files.list"))
 
@@ -195,7 +195,7 @@ class Zapis(_Osnova):
         pot = link_dostop._pot()
         self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
         link_dostop._za_preizkus(pot)                   # kot nov zagon programa: zapis se prebere z diska
-        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
 
     def test_pokvarjen_zapis_ne_odpre_nicesar(self):
         link_dostop.nastavi(B, "dpvz")
@@ -449,7 +449,7 @@ class VecProgramov(_Osnova):
         link_dostop.nastavi(B, "p")                     # naslednji zapis zascito vrne tudi na disk
         with open(pot, encoding="utf-8") as d:
             zapis = json.load(d)
-        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "pz"}))
+        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "dpz"}))
 
     def test_sprememba_drugega_programa_v_istem_trenutku_se_opazi(self):
         """Dva zapisa v istem trenutku imata lahko isti cas spremembe: spremembo drugega programa moramo vseeno opaziti
@@ -581,7 +581,7 @@ class PetiPregled(_Osnova):
             self.assertLess(trajalo, 3)
         finally:
             os.close(rocaj)
-        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
 
 
 class SestiPregled(_Osnova):
@@ -625,7 +625,7 @@ class SestiPregled(_Osnova):
             self.assertTrue(link_dostop.nastavi(B, "p"))
             trajalo = time.monotonic() - zacetek
         self.assertLess(trajalo, 0.5)
-        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
 
     def test_zapis_zascite_se_vrne_tudi_ko_je_zapis_izginil_in_ga_ni_bilo_mogoce_ustvariti(self):
         """Zapis izgine in ga takrat ni mogoce ustvariti znova (disk je poln). Ko disk spet dela, se zapis »zascita«

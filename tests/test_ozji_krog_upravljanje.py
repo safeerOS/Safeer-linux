@@ -20,7 +20,8 @@ class Pravilo(unittest.TestCase):
     def test_ozji_krog_doda_upravljanje(self):
         self.assertEqual(link_dostop.ozji_krog(set()), set())
         self.assertEqual(link_dostop.ozji_krog("d"), {"d", "z"})
-        self.assertEqual(link_dostop.ozji_krog({"v", "x"}), {"v", "z"}, "neznana crka ne steje")
+        self.assertEqual(link_dostop.ozji_krog({"v", "x"}), {"v", "d", "z"}, "neznana crka ne steje")
+        self.assertEqual(link_dostop.ozji_krog("z"), {"d", "z"}, "ozji krog: tudi mape")
         self.assertEqual(link_dostop.ozji_krog("dpvz"), set(link_dostop.VSE_ZMOZNOSTI))
 
 
@@ -44,7 +45,7 @@ class EnaPrivolitev(_Osnova):
             self.assertNotEqual(link_dostop.telo_obvestila(prosnja, jezik), link_dostop.telo_obvestila(
                 dict(prosnja, zmoznost="z"), jezik), jezik)
         self.assertNotIn("ožji krog", link_dostop.telo_obvestila(dict(prosnja, zmoznost="dz"), "sl"),
-                         "ce prosi tudi za upravljanje, ga obvestilo ze nasteje")
+                         "ce prosi za upravljanje in mape, ju obvestilo ze nasteje")
         with mock.patch.object(link_dostop, "_prosnje", {link_dostop.kljuc_prosnje(B, "d"): 1.0,
                                                           link_dostop.kljuc_prosnje(B, "z"): 1.0}), \
                 mock.patch.object(link_dostop, "_osvezi_prikaz"), mock.patch.object(link_dostop, "_pocisti_prosnje"):
@@ -134,8 +135,9 @@ class OknoLink(unittest.TestCase):
         with open(os.path.join(koren, "assets", "link", "index.html"), encoding="utf-8") as d:
             html = d.read()
         blok = html[html.index('id="dostopBlok"'):]
-        self.assertLess(blok.index('id="dostop_z"'), blok.index('id="dostop_d"'))
+        self.assertLess(blok.index('id="dostop_z"'), blok.index('id="dostop_p"'))
         with open(os.path.join(koren, "assets", "link", "link.js"), encoding="utf-8") as d:
             js = d.read()
         self.assertEqual(js.count('dostopZaslon: "'), 6, "besedilo v vseh 6 jezikih")
+        self.assertNotIn('id="dostop_d"', blok, "mape so del ozjega kroga, ne posebno stikalo")
         self.assertIn("Safeer Vnos", js)

@@ -1212,8 +1212,11 @@ class SafeerControl(_OSNOVA):
         self._ponovni_zagon = False
         # Deljene mape za televizor; seznam poti je v control.json ("deljene_mape").
         mape = self.nastavitve.get("deljene_mape")
+        # Ena privolitev v Linku (lastnik 25. 10. 2026 10:49): naprava v ozjem krogu vidi tudi domaco mapo (brez skritih
+        # map in skrivnosti, core/link_datoteke.DeljeneMape.dom); "dom_ozjemu_krogu" v control.json, privzeto vklopljeno.
         self.datoteke = link_datoteke.Datoteke(mape if isinstance(mape, list) else [],
-                                              ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)))
+                                              ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)),
+                                              dom=bool(self.nastavitve.get("dom_ozjemu_krogu", True)))
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
         # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 12 ur nihce ne predvaja, odstrani sam.
         link_datoteke.zazeni_ciscenje()

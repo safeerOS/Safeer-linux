@@ -122,13 +122,18 @@ def iz_niza(s: Optional[str]) -> Set[str]:
     return {c for c in (s or "") if c in VSE_ZMOZNOSTI}
 
 
+#: Kar ozji krog dobi vedno: upravljanje s Safeer Vnos in uporabnikove mape (domaca mapa, link_datoteke.DeljeneMape.dom).
+OZJI_KROG = frozenset((DATOTEKE, ZASLON))
+
+
 def ozji_krog(dano: Iterable[str]) -> Set[str]:
     """Pravilo lastnika (25. 10. 2026 10:49, velja povsod): naprava, ki jo uporabnik da v ozji krog (katerakoli
     zmoznost), dobi z ISTO privolitvijo tudi upravljanje tega racunalnika in Safeer Vnos (ZASLON: zaslon, miska,
-    tipkovnica, input.*) - brez locenega stikala. Prazen nabor ostane prazen (naprava samo pomaga pri povezavi).
+    tipkovnica, input.*) in uporabnikove mape (DATOTEKE; brez skritih map in skrivnosti - odlocitev vodje 25. 10.
+    po istem pravilu) - brez locenih stikal. Prazen nabor ostane prazen (naprava samo pomaga pri povezavi).
     Zapisov, ki so nastali pred tem pravilom, ne siri samo od sebe: velja ob naslednji privolitvi uporabnika."""
     nabor = {c for c in (dano or ()) if c in VSE_ZMOZNOSTI}
-    return nabor | {ZASLON} if nabor else nabor
+    return nabor | OZJI_KROG if nabor else nabor
 
 
 def v_niz(dano: Iterable[str]) -> str:
@@ -1054,8 +1059,8 @@ def odobri_prosnjo(jedro_naprave: str, zmoznosti: str) -> bool:
         _osvezi_prikaz(j)               # zapis ni uspel: prosnje ostanejo odprte, obvestilo se pokaze znova
         return False
     with _zaklep:
-        # Z odobritvijo je naprava v ozjem krogu (ozji_krog): tudi prosnja za upravljanje ne caka vec.
-        for c in set(odprte) | {ZASLON}:
+        # Z odobritvijo je naprava v ozjem krogu (ozji_krog): tudi prosnji za upravljanje in mape ne cakata vec.
+        for c in set(odprte) | OZJI_KROG:
             _prosnje.pop(kljuc_prosnje(j, c), None)
             _zadnji_poziv.pop(kljuc_prosnje(j, c), None)
     print(f"[SafeerDostop] Uporabnik je dovolil: {j[:2]}…{j[-4:]} dobi {odprte}", flush=True)
@@ -1204,22 +1209,22 @@ NASLOV = "Safeer Link"
 BESEDILA_OBVESTILA = {
     "sl": {"prosnja": "{ime} prosi za dostop: {kaj} na tem računalniku.", "dovoli": "Dovoli", "zavrni": "Zavrni",
            "d": "datoteke", "p": "programi", "v": "predvajalnik", "z": "zaslon, upravljanje in Safeer Vnos",
-           "ozji": "Z »Dovoli« pride v ožji krog: dobi tudi upravljanje tega računalnika in Safeer Vnos (miška, tipkovnica)."},
+           "ozji": "Z »Dovoli« pride v ožji krog: dobi tudi upravljanje tega računalnika s Safeer Vnos (miška, tipkovnica) in tvoje mape (brez skritih map in ključev)."},
     "en": {"prosnja": "{ime} is asking for access: {kaj} on this computer.", "dovoli": "Allow", "zavrni": "Deny",
            "d": "files", "p": "apps", "v": "player", "z": "screen, control and Safeer Input",
-           "ozji": "Allow puts it in your inner circle: it also gets control of this computer and Safeer Input (mouse, keyboard)."},
+           "ozji": "Allow puts it in your inner circle: it also gets control of this computer with Safeer Input (mouse, keyboard) and your folders (without hidden folders and keys)."},
     "de": {"prosnja": "{ime} bittet um Zugriff: {kaj} auf diesem Computer.", "dovoli": "Erlauben", "zavrni": "Ablehnen",
            "d": "Dateien", "p": "Programme", "v": "Player", "z": "Bildschirm, Steuerung und Safeer Eingabe",
-           "ozji": "Mit »Erlauben« kommt es in den engen Kreis: Es darf diesen Computer auch steuern, mit Safeer Eingabe (Maus, Tastatur)."},
+           "ozji": "Mit »Erlauben« kommt es in den engen Kreis: Es darf diesen Computer auch steuern, mit Safeer Eingabe (Maus, Tastatur), und sieht deine Ordner (ohne versteckte Ordner und Schlüssel)."},
     "es": {"prosnja": "{ime} pide acceso: {kaj} en este ordenador.", "dovoli": "Permitir", "zavrni": "Rechazar",
            "d": "archivos", "p": "programas", "v": "reproductor", "z": "pantalla, control y Safeer Entrada",
-           "ozji": "Con «Permitir» entra en tu círculo de confianza: también podrá controlar este ordenador con Safeer Entrada (ratón, teclado)."},
+           "ozji": "Con «Permitir» entra en tu círculo de confianza: también podrá controlar este ordenador con Safeer Entrada (ratón, teclado) y ver tus carpetas (sin carpetas ocultas ni claves)."},
     "fr": {"prosnja": "{ime} demande l'accès : {kaj} sur cet ordinateur.", "dovoli": "Autoriser", "zavrni": "Refuser",
            "d": "fichiers", "p": "programmes", "v": "lecteur", "z": "écran, contrôle et Safeer Saisie",
-           "ozji": "« Autoriser » l'ajoute au cercle de confiance : il pourra aussi contrôler cet ordinateur avec Safeer Saisie (souris, clavier)."},
+           "ozji": "« Autoriser » l'ajoute au cercle de confiance : il pourra aussi contrôler cet ordinateur avec Safeer Saisie (souris, clavier) et voir tes dossiers (sans dossiers cachés ni clés)."},
     "it": {"prosnja": "{ime} chiede l'accesso: {kaj} su questo computer.", "dovoli": "Consenti", "zavrni": "Rifiuta",
            "d": "file", "p": "programmi", "v": "lettore", "z": "schermo, controllo e Safeer Input",
-           "ozji": "Con «Consenti» entra nella cerchia ristretta: potrà anche controllare questo computer con Safeer Input (mouse, tastiera)."},
+           "ozji": "Con «Consenti» entra nella cerchia ristretta: potrà anche controllare questo computer con Safeer Input (mouse, tastiera) e vedere le tue cartelle (senza cartelle nascoste né chiavi)."},
 }
 
 #: Stevec na ikoni Safeer Link: (ednina, mnozina) oz. v slovenscini (1, 2, 3-4, 5+).
@@ -1266,8 +1271,9 @@ def telo_obvestila(prosnja: dict, jezik: Optional[str]) -> str:
     crke = _crke(prosnja)
     kaj = ", ".join(besedilo_obvestila(jezik, c) for c in crke)
     telo = besedilo_obvestila(jezik, "prosnja").format(ime=ime, kaj=kaj)
-    # »Dovoli« napravo da v ozji krog (ozji_krog): ce upravljanja se nima in ga ne prosi, obvestilo to pove.
-    if crke and ZASLON not in crke and ZASLON not in zmoznosti_jedra(str(prosnja.get("jedro") or "")):
+    # »Dovoli« napravo da v ozji krog (ozji_krog): ce v njem se ni in ne prosi za vse, kar ga sestavlja, obvestilo
+    # pove, kaj se doda (upravljanje s Safeer Vnos, mape).
+    if crke and not OZJI_KROG <= set(crke) and not OZJI_KROG <= zmoznosti_jedra(str(prosnja.get("jedro") or "")):
         telo += " " + besedilo_obvestila(jezik, "ozji")
     return telo
 
