@@ -8187,7 +8187,10 @@
     }
     klic("mediaZvrsti", [skupina]).then(function (zvrsti) {
       if (kat.zanri !== skupina + "|" + jezik) return;
-      (zvrsti || []).forEach(function (z) { gumb(z.id, z.ime, false); });
+      // TV v zivo: drzave v jeziku vmesnika (jedro pozna slovenska imena le za nekaj drzav).
+      (zvrsti || []).forEach(function (z) {
+        gumb(z.id, skupina === "tv-v-zivo" && /^[A-Z]{2}$/.test(z.id || "") ? imeDrzave(z.id, z.ime) : z.ime, false);
+      });
     }).catch(function () {});
   }
 

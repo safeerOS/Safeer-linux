@@ -365,6 +365,13 @@ class Katalog(unittest.TestCase):
         na_voljo = self.mc.tv_izbira_na_voljo()
         self.assertEqual({d["id"] for d in na_voljo["drzave"]}, {"SI", "HU"})
 
+    def test_gumbi_drzav_tv_samo_z_dovolj_kanali(self):
+        self.mc.nastavi_tv_izbiro(["SI", "HU"], ["en"])
+        self.assertNotIn("HU", [d["id"] for d in self.mc.tv_drzave()])           # en sam kanal: brez gumba
+        with mock.patch.object(os_media.MediaCenter, "TV_DRZAVA_KANALOV", 1):
+            self.assertIn("HU", [d["id"] for d in self.mc.tv_drzave()])
+        self.assertEqual(self.mc.catalog("", "tv-v-zivo", "HU")["vnosi"][0]["naslov"], "Sosednji kanal (Hungary)")
+
     def test_stevec_virov_steje_samo_delujoce(self):
         vir = next(v for v in self.mc.sources() if v.get("id") == "si")
         self.assertEqual(vir["stevilo"], 2)

@@ -3097,17 +3097,26 @@ class MediaCenter:
                        for x in data.get("osebni_strezniki", []))
         drzava = self._drzava_uporabnika()
         izid = zakoniti_viri.tv_drzave(drzava, moji)
-        # Drzave delujocih kanalov iz seznamov IPTV (izbira v Virih) kot gumbi; »Moji kanali« ostanejo zadnji.
+        # Drzave delujocih kanalov iz seznamov IPTV (izbira v Virih) kot gumbi: drzava uporabnika, nato tiste z najvec
+        # kanali (najvec TV_DRZAV_GUMBOV, vsaj TV_DRZAVA_KANALOV kanalov - eng.m3u ima kanale iz ~100 drzav, vrsta gumbov
+        # bi zakrila mrezo). »Moji kanali« ostanejo zadnji.
         znane = {d["id"] for d in izid}
-        dodatne = sorted({str(x.get("drzava") or "").upper() for x in self._vnosi_virov(data, "tv-v-zivo", preveri=False)
-                          if str(x.get("drzava") or "").upper() not in znane and re.fullmatch(r"[A-Z]{2}", str(x.get("drzava") or "").upper())},
-                         key=lambda d: (d != drzava.upper(), zakoniti_viri.DRZAVE.get(d, d)))
+        stevilo: dict[str, int] = {}
+        for x in self._vnosi_virov(data, "tv-v-zivo", preveri=False):
+            d = str(x.get("drzava") or "").upper()
+            if d not in znane and re.fullmatch(r"[A-Z]{2}", d):
+                stevilo[d] = stevilo.get(d, 0) + 1
+        dodatne = sorted((d for d, n in stevilo.items() if n >= self.TV_DRZAVA_KANALOV or d == drzava.upper()),
+                         key=lambda d: (d != drzava.upper(), -stevilo[d], d))[:self.TV_DRZAV_GUMBOV]
         if dodatne:
             konec = [d for d in izid if d["id"] == "moji"]
             izid = [d for d in izid if d["id"] != "moji"] + [{"id": d, "ime": zakoniti_viri.DRZAVE.get(d, d)} for d in dodatne] + konec
         return izid
 
     # --- kanali seznamov IPTV (core/kanali_iptv.py) -------------------------------------------------------------
+    TV_DRZAV_GUMBOV = 24
+    TV_DRZAVA_KANALOV = 3
+
     def _kanali_spremenjeni(self, viri: bool = False) -> None:
         """Preverba v ozadju je nasla nov delujoc kanal ali kanal ne deluje vec: pogledi se ob naslednjem odprtju osvezijo,
         stran dobi dogodek (mediaKanaliPreverjeni - stevci v Virih brez ponovnega nalaganja mreze, po kateri uporabnik
