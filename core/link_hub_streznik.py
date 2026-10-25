@@ -4039,12 +4039,11 @@ DODATEK_VRSTE = {
 VKLOP_BATERIJA = 40
 IZKLOP_BATERIJA = 30
 #: Cas cakanja na soseda v Mesh pred prehodom v rezervni nacin
-#: Samodejni prehod iz Mesha v rezervo (izvolitev enega Huba). IZKLOPLJEN v 1.0.129 (neodvisni pregled OpenAI,
-#: 20. 10. 2026): SafeerLink._gostitelj ustvari HubGostitelj brez hubi/clan/nas_id, zato bi tuj Safeer Hub v istem
-#: omrezju (ni v krogu) po 60 s sprozil rezervo in racunalnik bi nehal gostiti; iz rezerve pa se ne vrne, ker
-#: _mesh_lastni_hub v rezervi preveri() ne klice. Do popravka in preizkusa na testnem PC (1.0.130) velja vedenje
-#: 1.0.128: Mesh, rezerva samo rocno (SAFEER_LINK_MESH=0).
-SAMODEJNA_REZERVA = False
+#: Samodejni prehod iz Mesha v rezervo (izvolitev enega Huba) in vrnitev, ko Mesh spet dela. Izklopljen v 1.0.129-1.0.132
+#: (neodvisni pregled OpenAI, 20. 10. 2026: HubGostitelj brez hubi/clan/nas_id, brez rednega preveri() - iz rezerve ni
+#: bilo poti). Popravljeno 25. 10. 2026 (PreverjeniHubi, zacni_nadzor, odziv SafeerLink) in vklopljeno z lastnikovim
+#: »da« (25. 10. 07:26); preizkus na testnem PC pred izdajo. Rocno vsiljena rezerva ostane SAFEER_LINK_MESH=0.
+SAMODEJNA_REZERVA = True
 ROK_REZERVNEGA_NACINA_S = 60.0
 #: Cas v rezervnem nacinu pred ponovnim poskusom Link Mesh
 ROK_POSKUSA_MESH_S = 60.0
