@@ -14,7 +14,9 @@ Iz dokumentacije (prebrano 24. 10. 2026, ne ugibano):
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
@@ -24,6 +26,8 @@ ALLDEBRID = "alldebrid"
 
 #: Privzeti vrstni red (ce uporabnik ne izbere prednostne storitve).
 VSI = (TORBOX, REAL_DEBRID, ALLDEBRID)
+#: Indeksator Usenet v pravilih kljucev (= usenet_pravila.VRSTA; ta modul ga ne uvozi - krozni uvoz).
+INDEKSATOR = "usenet"
 
 TORBOX_OSNOVA = "https://api.torbox.app/v1/api/torrents"
 RD_OSNOVA = "https://api.real-debrid.com/rest/1.0"
@@ -186,32 +190,135 @@ TORBOX_UPORABNIK = "https://api.torbox.app/v1/api/user/me"
 TORBOX_PAKETI = {0: "Free", 1: "Essential", 2: "Pro", 3: "Standard"}
 TORBOX_PRO = 2
 
+#: Real-Debrid in AllDebrid: podatki racuna (nic ne doda v racun). Odgovor nosi uporabnisko ime in e-naslov - iz njega
+#: vzamemo samo izid preverbe (Android DebridPravila.RD_UPORABNIK, AD_UPORABNIK).
+RD_UPORABNIK = RD_OSNOVA + "/user"
+AD_UPORABNIK = AD_OSNOVA + "/user"
+
+#: Izidi preverbe (skupni primeri kljuci-preverba.json imajo Androidova imena velja/ne_velja - tekac jih preslika).
 PREVERBA_VELJAVEN = "veljaven"
 PREVERBA_NEVELJAVEN = "neveljaven"       # storitev je kljuc zavrnila: ne shranimo
-PREVERBA_MEJA = "meja"                   # storitev odgovori »prevec zahtev« - kljuc je verjetno dober: shranimo
-PREVERBA_NI_ODGOVORA = "ni_odgovora"     # brez povezave ali napaka streznika: shranimo, preverba ob uporabi
-PREVERBA_OBLIKA = "oblika"               # to ni kljuc (presledki, naslov, prekratek): ne shranimo
-PREVERBA_NI = ""                         # storitev brez preverbe ob vnosu (Real-Debrid, AllDebrid): shranimo
+PREVERBA_MEJA = "meja"                   # storitev odgovori »prevec zahtev« - kljuc je verjetno dober: nepreverjen
+PREVERBA_NI_ODGOVORA = "ni_odgovora"     # brez povezave ali napaka streznika: nepreverjen, preverba znova
+PREVERBA_OBLIKA = "oblika"               # to ni kljuc (presledki, naslov, prekratek, vzorec): ne shranimo
+
+#: Stanje shranjenega kljuca - vezano na kljuc (odtis_stanja), nikoli med naprave.
+STANJE_VELJA = "velja"
+STANJE_NE_VELJA = "ne_velja"
+STANJE_NEPREVERJEN = "nepreverjen"
+
+#: Nepreverjen kljuc (izpad ob vpisu) preverimo znova najvec tako pogosto (Android PREVERI_ZNOVA_MS).
+PREVERI_ZNOVA_S = 600.0
+
+_KLJUC_TORBOX = re.compile(r"[A-Za-z0-9_-]{20,128}")     # Android TorBoxPravila.ocistiKljuc
+_KLJUC_INDEKSATORJA = re.compile(r"[A-Za-z0-9_-]{8,128}")  # = usenet_pravila.ocisti_kljuc
+_BESEDE_VZORCA = ("xxxxxx", "your_", "your-", "yourapi", "yourkey", "apikey", "api_key", "api-key", "kljuc", "example",
+                  "placeholder")
+
+
+def je_vzorec_kljuca(kljuc: object) -> bool:
+    """Lastnik 25. 10. 2026: na eni napravi je bil v polje TorBox vpisan vzorec »XXXXXXXX-XXXX-…« in Safeer ga je shranil
+    kot »kljuc vpisan ✓« (Android ga je nato z usklajevanjem raznesel po ozjem krogu). Vzorec iz navodil ali nadomestek,
+    ne pravi kljuc: najvec 3 razlicni znaki, en znak v vsaj polovici crk in stevk ali besede vzorca. Nakljucni kljuci
+    storitev (UUID, 20-52 znakov) imajo 10+ razlicnih znakov. Kot Android DebridPravila.jeVzorecKljuca (isDecimal =
+    Kotlin isDigit, isalpha = isLetter)."""
+    k = str(kljuc or "")
+    z = "".join(c for c in k if c.isalpha() or c.isdecimal()).lower()
+    if not z:
+        return True
+    pogostost = Counter(z)
+    return (len(pogostost) <= 3 or max(pogostost.values()) * 2 >= len(z)
+            or any(b in k.lower() for b in _BESEDE_VZORCA))
+
+
+def kljuc_iz_vnosa(vnos: object, ponudnik: str) -> Optional[str]:
+    """Vnos uporabnika ali prejet kljuc: oblika (TorBox 20-128 znakov, Real-Debrid in AllDebrid 16-128, indeksator
+    Usenet 8-128; samo A-Z a-z 0-9 - _, presledki ob robu odpadejo) in ne vzorec. None = to ni kljuc (PREVERBA_OBLIKA)."""
+    k = str(vnos or "").strip()
+    oblika = _KLJUC_TORBOX if ponudnik == TORBOX else _KLJUC_INDEKSATORJA if ponudnik == INDEKSATOR else _KLJUC
+    return k if oblika.fullmatch(k) and not je_vzorec_kljuca(k) else None
+
+
+def preverba_iz_napake(vrsta: str) -> str:
+    """Napaka storitve (NAPAKA_*) -> izid preverbe: zavrnjen kljuc ne velja; paket pomeni, da storitev kljuc pozna."""
+    return {NAPAKA_KLJUC: PREVERBA_NEVELJAVEN, NAPAKA_MEJA: PREVERBA_MEJA,
+            NAPAKA_PAKET: PREVERBA_VELJAVEN}.get(vrsta, PREVERBA_NI_ODGOVORA)
+
+
+def stanje_po_preverbi(izid: str) -> Optional[str]:
+    """Ali kljuc shranimo in s katerim stanjem: zavrnjen ali ne-kljuc ne (None); izpad ali meja ga ne zavrne (nepreverjen)."""
+    return {PREVERBA_VELJAVEN: STANJE_VELJA, PREVERBA_MEJA: STANJE_NEPREVERJEN,
+            PREVERBA_NI_ODGOVORA: STANJE_NEPREVERJEN}.get(izid)
 
 
 def shrani_po_preverbi(izid: str) -> bool:
     """Kljuc shranimo, razen ce ni kljuc ali ga je storitev zavrnila (izpad storitve ne sme zavrniti dobrega kljuca)."""
-    return izid not in (PREVERBA_NEVELJAVEN, PREVERBA_OBLIKA)
+    return stanje_po_preverbi(izid) is not None
+
+
+def za_uskladitev(stanje: Optional[str]) -> bool:
+    """Med naprave v ozjem krogu gre samo kljuc, ki ga je storitev potrdila. Namizje kljucev se ne usklajuje
+    (secrets.sync ni): pravilo je tu, da ga uskladitev uporabi od prvega dne."""
+    return stanje == STANJE_VELJA
+
+
+def sprejmi_prejetega(izid: str) -> bool:
+    """Prejet kljuc se uporabi samo, ce ga storitev potrdi tudi s te naprave - zavrnjen ne prepise veljavnega."""
+    return izid == PREVERBA_VELJAVEN
+
+
+def preveri_zdaj(stanje: Optional[str], zadnjic: float, zdaj: float) -> bool:
+    """Ali kljuc (brez stanja ali nepreverjen, zadnja preverba ob [zadnjic] s) preverimo zdaj; ura nazaj = preveri."""
+    return stanje is None or (stanje == STANJE_NEPREVERJEN and not 0 <= zdaj - zadnjic < PREVERI_ZNOVA_S)
+
+
+def odtis_stanja(kljuc: str) -> str:
+    """Stanje velja za natanko ta kljuc (zamenjan kljuc nima stanja prejsnjega); kljuc iz odtisa ni berljiv.
+    Isti odtis kot Android (SHA-256 s predpono, prvih 16 heks)."""
+    return hashlib.sha256(("safeer-debrid-stanje|" + kljuc).encode("utf-8")).hexdigest()[:16]
+
+
+def _niz(v: object) -> Optional[str]:
+    return v if isinstance(v, str) and v not in ("", "null") else None
+
+
+def _stevilo(v: object) -> Optional[int]:
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
 def torbox_preverba(http: int, odgovor: object) -> tuple:
-    """Odgovor TORBOX_UPORABNIK -> (izid PREVERBA_*, paket ali None). Paket je stevilo iz polja »plan«."""
+    """Odgovor TORBOX_UPORABNIK -> (izid PREVERBA_*, paket ali None). Polja strogo: success mora biti true, plan stevilo
+    >= 0 (iz odgovora samo paket - e-naslov racuna nikamor)."""
     j = odgovor if isinstance(odgovor, dict) else {}
     if 200 <= http < 300 and j.get("success") is True and isinstance(j.get("data"), dict):
-        plan = j["data"].get("plan")
-        return PREVERBA_VELJAVEN, plan if isinstance(plan, int) and not isinstance(plan, bool) else None
+        plan = _stevilo(j["data"].get("plan"))
+        return PREVERBA_VELJAVEN, plan if plan is not None and plan >= 0 else None
     if not http:
         return PREVERBA_NI_ODGOVORA, None
-    koda = j.get("error") if j.get("error") not in (None, "null") else None
-    vrsta = torbox_vrsta_napake(http, str(koda) if koda is not None else None)
-    if vrsta == NAPAKA_KLJUC:
-        return PREVERBA_NEVELJAVEN, None
-    return (PREVERBA_MEJA if vrsta == NAPAKA_MEJA else PREVERBA_NI_ODGOVORA), None
+    return preverba_iz_napake(torbox_vrsta_napake(http, _niz(j.get("error")))), None
+
+
+def rd_preverba(http: int, odgovor: object) -> str:
+    """Odgovor RD_UPORABNIK -> PREVERBA_*. 2xx s podatki racuna brez error_code velja; 2xx, ki ni JSON (npr. prijavna
+    stran javnega omrezja), ni potrditev - »ni odgovora«. error_code samo kot stevilo."""
+    if not http:
+        return PREVERBA_NI_ODGOVORA
+    j = odgovor if isinstance(odgovor, dict) else None
+    koda = _stevilo(j.get("error_code")) if j is not None else None
+    if 200 <= http < 300 and koda is None:
+        return PREVERBA_VELJAVEN if j is not None else PREVERBA_NI_ODGOVORA
+    return preverba_iz_napake(rd_vrsta_napake(http, koda))
+
+
+def ad_preverba(http: int, odgovor: object) -> str:
+    """Odgovor AD_UPORABNIK -> PREVERBA_*: status »success« velja; AllDebrid napako (AUTH_*) vrne tudi s HTTP 200."""
+    j = odgovor if isinstance(odgovor, dict) else {}
+    if 200 <= http < 300 and j.get("status") == "success":
+        return PREVERBA_VELJAVEN
+    if not http:
+        return PREVERBA_NI_ODGOVORA
+    e = j.get("error")
+    return preverba_iz_napake(ad_vrsta_napake(http, _niz(e.get("code")) if isinstance(e, dict) else None))
 
 
 def ime_paketa(paket: object) -> str:

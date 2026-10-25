@@ -82,7 +82,8 @@ _KLJUC = re.compile(r"[A-Za-z0-9_-]{8,128}")
 
 
 def ocisti_kljuc(vnos: object) -> Optional[str]:
-    """Kljuc API indeksatorja: 8-128 znakov, crke, stevke, '-', '_' (Newznab: obicajno 32 heks)."""
+    """Kljuc API indeksatorja: 8-128 znakov, crke, stevke, '-', '_' (Newznab: obicajno 32 heks). Vnos uporabnika gre
+    skozi P.kljuc_iz_vnosa (ista oblika in se zavrnitev vzorca)."""
     k = str(vnos or "").strip()
     return k if _KLJUC.fullmatch(k) else None
 
@@ -121,10 +122,12 @@ def naslov_preverbe(osn: str, kljuc: str) -> str:
 
 
 def preverba_indeksatorja(http: int, zacetek: str) -> str:
-    """Odgovor naslov_preverbe -> P.PREVERBA_*: RSS brez napake je veljaven, napaka 100-102 (in 401/403) neveljaven,
-    500/501 (in 429) meja; vse drugo (5xx, stran HTML, ni odgovora) ni_odgovora - kljuca zaradi izpada ne zavrnemo."""
+    """Odgovor naslov_preverbe -> P.PREVERBA_*: RSS brez napake je veljaven, napaka 100-102 (in 401) neveljaven,
+    500/501 (in 429) meja; vse drugo (5xx, stran HTML, ni odgovora) ni_odgovora - kljuca zaradi izpada ne zavrnemo.
+    403 brez napake Newznab ni zavrnjen kljuc: izmerjeno 25. 10. 2026 na nzbfinder.ws s streznikov - Cloudflare vrne 403
+    s stranjo »Just a moment« (skupni primeri kljuci-preverba.json)."""
     n = napaka(zacetek)
-    if n == P.NAPAKA_KLJUC or http in (401, 403):
+    if n == P.NAPAKA_KLJUC or http == 401:
         return P.PREVERBA_NEVELJAVEN
     if n == P.NAPAKA_MEJA or http == 429:
         return P.PREVERBA_MEJA

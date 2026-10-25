@@ -109,7 +109,7 @@ class Shramba(unittest.TestCase):
         self.assertEqual(st["usenet"], {"url": "enc:https://ix.example", "kljuc": "enc:0123456789abcdef"})
         self.assertEqual(d.indeksator(), ("https://ix.example", "0123456789abcdef"))
         s = debrid.most(d, [])
-        self.assertEqual(s["usenet"], {"gostitelj": "ix.example", "torbox": False, "torbox_pro": None})
+        self.assertEqual(s["usenet"], {"gostitelj": "ix.example", "torbox": False, "torbox_pro": None, "stanje": "nepreverjen"})
         self.assertNotIn("0123456789abcdef", json.dumps(s))
         self.assertFalse(d.usenet_na_voljo())                   # brez kljuca TorBox ne
         d.nastavi_kljuc(P.TORBOX, "t" * 32)
@@ -128,7 +128,8 @@ class Shramba(unittest.TestCase):
         z = [U.Zadetek("Film.1080p", "https://ix.example/getnzb/a.nzb?apikey=0123456789abcdef", 2 * 1073741824)]
         with mock.patch.object(debrid, "usenet_isci", return_value=z) as isci:
             tokovi = d.usenet_isci("tt1375666")
-        isci.assert_called_once_with("https://ix.example", "0123456789abcdef", "tt1375666")
+        isci.assert_called_once()
+        self.assertEqual(isci.call_args[0], ("https://ix.example", "0123456789abcdef", "tt1375666"))
         self.assertEqual(len(tokovi), 1)
         self.assertNotIn("0123456789abcdef", json.dumps(tokovi))
         with mock.patch.object(debrid, "usenet_nzb", return_value=(b"<nzb/>", "")) as nzb, \
@@ -137,6 +138,8 @@ class Shramba(unittest.TestCase):
         nzb.assert_called_once_with(z[0].povezava)
         self.assertEqual(tb.call_args[0][0], "t" * 32)
         self.assertEqual(izid.url, "https://cdn.example/f")
+        # NZB od indeksatorja in povezava TorBoxa potrdita oba kljuca (stanje sledi uporabi).
+        self.assertEqual((d.stanje_kljuca(P.INDEKSATOR), d.stanje_kljuca(P.TORBOX)), (P.STANJE_VELJA, P.STANJE_VELJA))
         self.assertEqual(d.usenet_tok("usenet:neznan", "x").napaka, U.NAPAKA_INDEKSATOR)
 
     def test_torbox_usenet_pot(self):

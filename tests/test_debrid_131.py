@@ -8,7 +8,8 @@ from core import debrid, debrid_pravila as P, media_servers, os_media
 
 H1 = "2849211f150e966ef7924f43aec22727a644e10d"
 H2 = "9f23769f0000000000000000000000000000abcd"
-KLJUC_TB = "0f0e0d0c-0b0a-0908-0706-050403020100"
+#: Izmisljen; prejsnji (0f0e0d0c-…-050403020100, 17 nicel od 32 znakov) je vzorec (P.je_vzorec_kljuca).
+KLJUC_TB = "7c1e9a4b-2f6d-4e8a-b3c5-9d0f1a2e6b74"
 KLJUC_RD = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOP"
 
 
