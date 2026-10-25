@@ -65,6 +65,9 @@ class NaslovIzSeznamaHuba(unittest.TestCase):
         link.internet = None
         link.internet_upravitelj = None
         link.zvok = None
+        # SafeerLink.__init__ ga vedno nastavi; od b3c51f9 (Sporocila: cakajoca brisanja) ga bere tudi seznam naprav.
+        # Safeer Link brez Controla: brisanja Sporocil niso del tega preizkusa.
+        link.control = False
         return link
 
     SEZNAM = {"type": "cast.devices", "devices": [
