@@ -191,6 +191,55 @@ class DelovniTok(unittest.TestCase):
                             ukazi.index("tar -I zstd -xf build/fb-artefakt/flatpak-builder.tar.zst"))
             shrani = next(x for x in self.posli[posel]["steps"] if x.get("name") == "Save flatpak-builder cache (WebKitGTK with PGO)")
             self.assertIn("steps.fb.outputs.run_id == ''", shrani["if"])     # artefakt ne gre se v predpomnilnik veje
+            self.assertIn("!cancelled()", shrani["if"])                       # pregled M13: ne ob preklicu (concurrency)
+            self.assertNotIn("always()", shrani["if"])
+
+    def test_meja_zaupanja_artefaktov(self):
+        """Neodvisni pregled 25. 10. 2026 (M1-M4): vir artefakta odloci samo tools/ci_artefakt.py iz GITHUB_REF (ne vec
+        IZDAJA in veja v*); artefakt za druge teke nalozi samo tek, ki je komu vir (izhod nalozi); profil .deb s SHA-256."""
+        klici = [(posel, k) for posel, p in self.posli.items() for k in p.get("steps", [])
+                 if "tools/ci_artefakt.py" in (k.get("run") or "")]
+        self.assertEqual(sorted({posel for posel, _ in klici}),
+                         ["flatpak", "flatpak-brskalnik", "webkit-kljuc", "webkit-pgo-profil"])
+        for posel, k in klici:
+            with self.subTest(posel=posel, korak=k.get("name")):
+                self.assertNotIn("IZDAJA", k.get("env") or {})
+                self.assertEqual((k.get("env") or {}).get("GH_TOKEN"), "${{ github.token }}")
+                self.assertEqual(self.posli[posel]["permissions"], {"contents": "read", "actions": "read"})
+        besedilo = DELOVNI_TOK.read_text(encoding="utf-8")
+        self.assertNotIn("gtk4-deb-webkit|v*)", besedilo)                  # stara lastna skripta profila PGO
+        self.assertEqual(self.posli["webkit-kljuc"]["outputs"]["webkit_nalozi"], "${{ steps.webkit.outputs.nalozi }}")
+        for posel, ime, pogoj in (
+                ("webkit-deb", "Our WebKitGTK for later runs (artifact with the key, 90 days)",
+                 "needs.webkit-kljuc.outputs.webkit_nalozi == 'true'"),
+                ("flatpak", "flatpak-builder cache for later runs (artifact with the key, 90 days)", "steps.fb.outputs.nalozi == 'true'"),
+                ("flatpak-brskalnik", "flatpak-builder cache for later runs (artifact with the key, 90 days)",
+                 "steps.fb.outputs.nalozi == 'true'")):
+            with self.subTest(posel=posel):
+                self.assertEqual(next(k for k in self.posli[posel]["steps"] if k.get("name") == ime)["if"], pogoj)
+        # Profil PGO .deb: vsote v artefaktu, preverba pred uporabo (iz drugega teka in iz tega teka).
+        profil = self._ukazi("webkit-deb-profil")
+        self.assertIn("sha256sum -- *.profraw > SHA256SUMS", profil)
+        self.assertLess(profil.index("sha256sum -c SHA256SUMS"), profil.index("sha256sum -- *.profraw > SHA256SUMS"))
+        self.assertIn("sha256sum -c SHA256SUMS", self._ukazi("webkit-deb"))
+        nalozi = next(k for k in self.posli["webkit-deb-profil"]["steps"] if "upload-artifact" in str(k.get("uses")))
+        self.assertIn("build/pgo/profraw/SHA256SUMS", nalozi["with"]["path"])
+
+    def test_pripete_akcije_in_gostitelji_github(self):
+        """Pregled M7: akcije na polnem SHA commita (Dependabot github-actions jih posodablja); M10: samo gostitelji GitHub
+        (vsebnik --privileged tece v enkratnem VM, nikoli na lastnem tekacu)."""
+        besedilo = DELOVNI_TOK.read_text(encoding="utf-8")
+        uporabe = re.findall(r"uses: (\S+)(.*)", besedilo)
+        self.assertGreater(len(uporabe), 50)
+        for akcija, komentar in uporabe:
+            with self.subTest(akcija=akcija):
+                self.assertRegex(akcija, r"^actions/[a-z-]+(/[a-z]+)?@[0-9a-f]{40}$")
+                self.assertRegex(komentar, r"^ # v\d+\.\d+\.\d+$")
+        self.assertIn("package-ecosystem: github-actions", (KOREN / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+        for ime, posel in self.posli.items():
+            with self.subTest(posel=ime):
+                self.assertNotIn("self-hosted", str(posel.get("runs-on")))
+                self.assertTrue(str(posel.get("runs-on")).startswith(("ubuntu-", "${{")), posel.get("runs-on"))
 
     def test_brez_appimage(self):
         besedilo = DELOVNI_TOK.read_text(encoding="utf-8")

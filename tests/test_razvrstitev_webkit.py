@@ -1,11 +1,14 @@
 """Razvrstitev preizkusov CI po WebKitu (tests/razvrstitev_webkit.py, lastnik 25. 10. 2026): staticna analiza, razdelitev
 hitrih vrat in straza, ki vsak poskus nalaganja WebKita v hitrih vratih glasno podre (nic ne zdrsne tiho)."""
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 from pathlib import Path
 
@@ -61,6 +64,10 @@ class StaticnaAnaliza(unittest.TestCase):
             "tests/test_h.py": "import subprocess, sys\ndef test_koda():\n"
                                "    subprocess.run([sys.executable, '-c', 'import sys; import program'])\n",
             "tests/test_rocno.py": "def test_r():\n    pass\n",
+            "tests/test_l.py": "from core.lenobno import f\nX = f()\n",                  # klic uvozene funkcije ob uvozu
+            # Pregled M11: v podmapi z imenom datoteke na vrhu - analiza po poti, ne po imenu.
+            "tests/podmapa/test_f.py": "import core.okno\ndef test_q():\n    pass\n",
+            "tests/podmapa/test_c.py": "def test_z():\n    pass\n",
             "tests/webkit_preizkusi.txt": "# komentar\ntests/test_rocno.py\n",
         })
 
@@ -81,6 +88,9 @@ class StaticnaAnaliza(unittest.TestCase):
         self.assertEqual(r["tests/test_i.py"], "uvoz core.vrh_klic")
         self.assertEqual(r["tests/test_j.py"], "uvoz core.tuji_klic")    # klic core.lenobno.f (lenoben uvoz splet) ob uvozu
         self.assertIsNone(r["tests/test_k.py"])                           # klic sele v preizkusu: straza
+        self.assertEqual(r["tests/test_l.py"], "uvoz (klic ob uvozu)")
+        self.assertEqual(r["tests/podmapa/test_f.py"], "uvoz core.okno")
+        self.assertIsNone(r["tests/podmapa/test_c.py"])
         self.assertEqual(stevila["tests/test_a.py"], 1)
 
     def test_razdelitev_pokrije_vse_enkrat(self):
@@ -116,6 +126,48 @@ class StaticnaAnaliza(unittest.TestCase):
         p = rw.preslikane_knjiznice(maps)
         self.assertEqual(sorted(p), ["libsoup-3.0", "libwebkitgtk-6.0"])
         self.assertEqual(rw.tuje_knjiznice(p, "/usr/lib/safeer-webkit"), ["/usr/lib/x86_64-linux-gnu/libsoup-3.0.so.0.4.4"])
+
+
+class Preskok(unittest.TestCase):
+    """Preskok, ker WebKita ni, je v obeh nacinih padec (pregled M6: tudi importorskip, »requires«, »brez WebKita«)."""
+
+    def razlog(self, besedilo):
+        return rw._razlog_preskoka(types.SimpleNamespace(skipped=True, longrepr=("f.py", 1, besedilo)))
+
+    def test_tih_zdrs(self):
+        for besedilo in ("Skipped: could not import 'gi.repository.WebKit': Namespace WebKit not available",
+                         "requires WebKitGTK 6.0", "WebKit unavailable", "brez WebKita", "WebKitGTK manjka",
+                         "no WebKit", "potrebuje WebKitGTK 6.0", "WebKitGTK is not installed", "ni WebKitGTK 6.0: x",
+                         "Soup 3.0 ni na voljo", "cannot import JavaScriptCore"):
+            with self.subTest(besedilo=besedilo):
+                self.assertEqual(self.razlog(besedilo), besedilo)
+
+    def test_drug_razlog(self):
+        for besedilo in ("WebKit brez WebRTC: ni podpore", "ni xdotool", "brez python3-yaml", "samo na Windows",
+                         "WebKit test traja predolgo"):
+            with self.subTest(besedilo=besedilo):
+                self.assertIsNone(self.razlog(besedilo))
+        self.assertIsNone(rw._razlog_preskoka(types.SimpleNamespace(skipped=False, longrepr=None)))
+
+
+class Trajanja(unittest.TestCase):
+    """Pregled M12: zdruzi sprejme samo datoteke preizkusov in koncna nenegativna trajanja."""
+
+    def test_zdruzi(self):
+        with tempfile.TemporaryDirectory() as d:
+            dobro, slabo = Path(d) / "dobro.json", Path(d) / "slabo.json"
+            dobro.write_text(json.dumps({"tests/test_a.py": 2.5, "tests/test_b.py": 1}))
+            izhod = io.StringIO()
+            with contextlib.redirect_stdout(izhod):
+                self.assertEqual(rw._glavni(["zdruzi", str(dobro), str(dobro)]), 0)
+            self.assertEqual(json.loads(izhod.getvalue())["datoteke"], {"tests/test_a.py": 5.0, "tests/test_b.py": 2.0})
+            for vsebina in ({"tests/test_a.py": "nan"}, {"tests/test_a.py": -1}, {"tests/test_a.py": "inf"},
+                            {"core/x.py": 1}, {"tests/../etc/x.py": 1}, {"tests/test_a.py": "x"}):
+                with self.subTest(vsebina=vsebina):
+                    slabo.write_text(json.dumps(vsebina))
+                    with self.assertRaises(SystemExit) as e, contextlib.redirect_stdout(io.StringIO()):
+                        rw._glavni(["zdruzi", str(slabo)])
+                    self.assertIn("zdruzi:", str(e.exception.code))
 
 
 class Straza(unittest.TestCase):

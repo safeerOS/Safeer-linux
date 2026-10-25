@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import os
 import re
 import sys
@@ -288,21 +289,30 @@ def _razvrsti(koren: Path) -> Tuple[Dict[str, Optional[str]], Dict[str, int]]:
                 for ime, a in analiza.items()}
     ob_uvozu = _ob_uvozu(analiza, moduli, vrh)
     rocno = rocni_seznam(koren)
+    po_poti = {pot.resolve(): ime for ime, pot in moduli.items()}
     izid: Dict[str, Optional[str]] = {}
     stevila: Dict[str, int] = {}
     for p in sorted((koren / "tests").rglob("*.py")):
         if not _je_datoteka_preizkusov(p.name) or "__pycache__" in p.parts:
             continue
         rel = p.relative_to(koren).as_posix()
-        a = analiza.get(p.stem)
+        # Analiza po poti, ne po imenu (pregled M11): datoteka v podmapi tests/ z imenom drugega modula ni ta modul.
+        ime = po_poti.get(p.resolve())
+        if ime is not None:
+            a, vrh_p, kjer_p = analiza.get(ime), vrh.get(ime, set()), kjerkoli.get(ime, set())
+        else:
+            a = _beri(p)
+            vrh_p = set().union(*[_razresi(u, [], moduli) for u in a.uvozi_vrh] or [set()]) if a else set()
+            kjer_p = set().union(*[_razresi(u, [], moduli) for u in a.uvozi_kjerkoli] or [set()]) if a else set()
         stevila[rel] = a.preizkusov if a else 0
         razlog: Optional[str] = None
         if a is None:
             razlog = None                         # napaka skladnje: pytest jo pokaze v hitrih vratih
         elif a.webkit_kjerkoli:
             razlog = "neposredno"
-        elif p.stem in ob_uvozu or kjerkoli[p.stem] & ob_uvozu:
-            razlog = "uvoz " + sorted((kjerkoli[p.stem] | vrh[p.stem]) & ob_uvozu)[0]
+        elif (ime is not None and ime in ob_uvozu) or kjer_p & ob_uvozu:
+            vzrok = sorted((kjer_p | vrh_p) & ob_uvozu)
+            razlog = "uvoz " + (vzrok[0] if vzrok else "(klic ob uvozu)")
         elif {x for u in a.podprocesi for x in _razresi(u, [], moduli)} & ob_uvozu:
             razlog = "podproces " + sorted({x for u in a.podprocesi for x in _razresi(u, [], moduli)} & ob_uvozu)[0]
         if razlog is None and rel in rocno:
@@ -316,7 +326,15 @@ def trajanja(koren: Path) -> Dict[str, float]:
         podatki = json.loads((Path(koren) / TRAJANJA).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: float(v) for k, v in podatki.get("datoteke", {}).items()}
+    izid: Dict[str, float] = {}
+    for k, v in podatki.get("datoteke", {}).items():
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v) and v >= 0:
+            izid[k] = v
+    return izid
 
 
 def razdeli(datoteke: Iterable[str], n: int, stevila: Dict[str, int], ocene: Dict[str, float]) -> Dict[str, int]:
@@ -564,9 +582,13 @@ def _sporocilo(poskusi) -> str:
 
 
 #: Razlog preskoka, ki pomeni »WebKita ni« (ne npr. »WebKit brez WebRTC«): tak preskok bi bil tih zdrs - v hitrih vratih
-#: preizkus WebKit rabi (dopisi ga na seznam), v poslu preizkusi-webkit pa nas WebKit ne dela.
+#: preizkus WebKit rabi (dopisi ga na seznam), v poslu preizkusi-webkit pa nas WebKit ne dela. Neodvisni pregled
+#: 25. 10. 2026 (M6): tudi pytest.importorskip (»could not import«), »requires«, »unavailable«, »brez/no WebKit«, »manjka«.
 _RE_PRESKOK = re.compile(r"(?i)(webkit|javascriptcore|libsoup|\bsoup\b)")
-_RE_PRESKOK_ZAKAJ = re.compile(r"(?i)(potreb|ni na voljo|not installed|not available|is missing|\bni webkit|\bni wpe)")
+_RE_PRESKOK_ZAKAJ = re.compile(
+    r"(?i)(potreb|ni na voljo|not installed|not available|unavailable|missing|manjka|\brequires?\b|could not import"
+    r"|cannot import|can't import|no module named|failed to load|ni namescen|\bni webkit|\bni wpe"
+    r"|\bbrez (webkit|javascriptcore|libsoup|soup)|\bno (webkit|javascriptcore|libsoup|soup))")      # tudi WebKita
 
 
 def _razlog_preskoka(porocilo) -> Optional[str]:
@@ -766,13 +788,25 @@ def pytest_sessionfinish(session, exitstatus) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ ukazna vrstica
+_RE_DATOTEKA_TRAJANJA = re.compile(r"tests/[\w/.-]+\.py")
+
+
 def _glavni(argv: List[str]) -> int:
     koren = Path(__file__).resolve().parents[1]
     if argv and argv[0] == "zdruzi":
         vsote: Dict[str, float] = {}
         for pot in argv[1:]:
             for k, v in json.loads(Path(pot).read_text(encoding="utf-8")).items():
-                vsote[k] = vsote.get(k, 0.0) + float(v)
+                # Pregled M12: samo datoteke preizkusov in koncna nenegativna trajanja (slab vnos bi podrl razdelitev).
+                if not _RE_DATOTEKA_TRAJANJA.fullmatch(str(k)) or ".." in str(k):
+                    raise SystemExit("zdruzi: %s: neznana datoteka %r" % (pot, k))
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    v = float("nan")
+                if not math.isfinite(v) or v < 0:
+                    raise SystemExit("zdruzi: %s: neveljavno trajanje %r za %s" % (pot, v, k))
+                vsote[k] = vsote.get(k, 0.0) + v
         json.dump({"opis": "Trajanje preizkusov po datotekah v CI (s), za enakomerno razdelitev hitrih vrat "
                            "(tests/razvrstitev_webkit.py zdruzi).", "datoteke": {k: round(v, 1) for k, v in sorted(vsote.items())}},
                   sys.stdout, indent=1, ensure_ascii=False)

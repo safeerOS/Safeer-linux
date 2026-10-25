@@ -371,8 +371,8 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('webkit-pgo-brskalnik',posli)
         profil=posli['webkit-pgo-profil']
         self.assertIn('python3 packaging/webkit/pgo.py kljuc',profil)
-        self.assertIn('actions/artifacts?name=$IME',profil)
-        self.assertIn('IME="webkit-pgo-profraw-$KLJUC"',profil)
+        # Vir profila po pravilih tools/ci_artefakt.py (neodvisni pregled 25. 10. 2026; preizkus koraka v test_ci_artefakt.py).
+        self.assertIn('python3 tools/ci_artefakt.py najdi "webkit-pgo-profraw-$KLJUC" --tek "$TEK"',profil)
         ucenje=posli['webkit-pgo-ucenje']
         self.assertIn("    needs: webkit-pgo-profil\n    if: needs.webkit-pgo-profil.outputs.run_id == ''\n",ucenje)
         self.assertIn('name: webkit-pgo-profraw-${{ needs.webkit-pgo-profil.outputs.kljuc }}',ucenje)
@@ -1769,38 +1769,6 @@ sys.exit("neznan ukaz")
         env=dict(os.environ,GITHUB_REPOSITORY='lastnik/repo',GITHUB_OUTPUT=str(izhod),GH_TOKEN='x',**okolje)
         r=subprocess.run(['bash','-e','-c',skripta],cwd=d,env=env,capture_output=True,text=True)
         return r.returncode,dict(v.split('=',1) for v in izhod.read_text().splitlines() if '=' in v),r.stdout+r.stderr
-
-    def test_profil_pgo_samo_iz_zaupanja_vrednega_teka(self):
-        skripta=self._korak('webkit-pgo-profil','Profile with this key (artifact of an earlier trusted run)')['run']
-        artefakti=lambda *teki: {'artifacts':[{'expired':t==1,'created_at':'2026-10-1%dT10:00:00Z'%t,'workflow_run':{'id':t}}
-                                             for t in teki]}
-        runs=lambda t,dogodek,repo,veja: {'event':dogodek,'head_repository':{'id':repo},'head_branch':veja}
-        osnova={'repos/lastnik/repo/actions/runs/1':runs(1,'push',42,'main'),
-                'repos/lastnik/repo/actions/runs/2':runs(2,'push',42,'nova-funkcija'),
-                'repos/lastnik/repo/actions/runs/3':runs(3,'pull_request',999,'main'),
-                'repos/lastnik/repo/actions/runs/4':runs(4,'push',42,'gtk4-deb-webkit'),
-                'repos/lastnik/repo/actions/runs/5':runs(5,'pull_request',42,'main')}
-        ime='repos/lastnik/repo/actions/artifacts?name=webkit-pgo-profraw-K&per_page=100'
-        primeri=[  # (teki z artefaktom, izdaja, izbran tek, pricakovana koda, pricakovan run_id)
-            ((1,2,3),'false','',0,'2'),      # fork PR (3) in iztekel (1) izpuscena; veja istega repozitorija je OK
-            ((1,2,3),'true','',0,None),      # izdaja: veja nova-funkcija ni dovoljena -> ucni tek v tem teku
-            ((2,3,4,5),'true','',0,'4'),     # izdaja: najnovejsi zaupanja vreden (5 je pull_request)
-            ((2,3,4),'false','3',1,None),    # izrecno izbran tek iz forka: napaka, ne tiho
-            ((2,3,4),'true','2',1,None),     # izrecno izbran tek z druge veje pri izdaji: napaka
-            ((2,3,4),'false','4',0,'4'),
-        ]
-        for teki,izdaja,tek,koda,run_id in primeri:
-            with self.subTest(teki=teki,izdaja=izdaja,tek=tek), tempfile.TemporaryDirectory() as d:
-                pot=self._gh(d,dict(osnova,**{ime:artefakti(*teki)}))
-                k,izhod,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'',
-                                                     'TEK':tek,'REPO_ID':'42','IZDAJA':izdaja})
-                self.assertEqual(k,koda,izpis)
-                self.assertEqual(izhod.get('run_id'),run_id,izpis)
-        with tempfile.TemporaryDirectory() as d:   # napaka API ustavi korak (ne tiho ucni tek)
-            pot=self._gh(d,osnova)
-            k,_i,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'','TEK':'',
-                                              'REPO_ID':'42','IZDAJA':'true'})
-            self.assertNotEqual(k,0,izpis)
 
     def test_nadgradnja_ni_tiho_preskocena(self):
         skripta=self._korak('mint','Packages of the last published release (for the upgrade test)')['run']
