@@ -539,10 +539,200 @@ class X11:
         x11.premakni(okno, x, y)
 
 
+def _jezik_controla(control) -> str:
+    try:
+        return str(control.nastavitve.get("ui_language") or "") or "en"
+    except Exception:  # noqa: BLE001 - brez nastavitev anglesko
+        return "en"
+
+
+class _VrsticaGledalca:
+    """Vrstica gledalca zaslona naprave (Prostori, krog 2; core/prostori_gledalec.py): Celozaslonsko / Izhod, Prilepi
+    besedilo, Zapri. V celozaslonskem nacinu se skrije in se pokaze ob odprtju in ko kazalec pride na zgornji rob.
+    Drzan Esc zapusti cel zaslon, kratek gre napravi (`ob_esc`). Spuscene datoteke gredo napravi (`ob_datotekah`, v
+    niti). Super+Tab in Super+Alt/Ctrl+levo/desno gredo preklopniku Prostori, ce ga Safeer OS ponuja (control.ob_prostorih)."""
+
+    def __init__(self, okno, prekrivnik, control, ime: str, ob_esc, ob_besedilu, ob_datotekah, id_naprave) -> None:
+        from core import prostori_gledalec as pg
+        self.pg, self.okno, self.control, self.ime = pg, okno, control, ime
+        self.jezik = _jezik_controla(control)
+        self.ob_esc, self.ob_besedilu, self.ob_datotekah, self.id_naprave = ob_esc, ob_besedilu, ob_datotekah, id_naprave
+        self.esc = pg.DrzanaTipka()
+        self._esc_cas = 0
+        self._skrij_cas = 0
+        self._napis_cas = 0
+        self.razkrij = Gtk.Revealer()
+        self.razkrij.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.razkrij.set_halign(Gtk.Align.CENTER)
+        self.razkrij.set_valign(Gtk.Align.START)
+        skatla = Gtk.Box(spacing=8)
+        skatla.add_css_class("toolbar")
+        skatla.add_css_class("osd")
+        skatla.set_margin_top(8)
+        self.napis = Gtk.Label(label=ime)
+        self.napis.set_margin_start(8)
+        self.napis.set_margin_end(4)
+        skatla.append(self.napis)
+        self.gumb_celo = Gtk.Button(label=self.t("celo"))
+        self.gumb_celo.connect("clicked", lambda *_a: self.preklopi())
+        skatla.append(self.gumb_celo)
+        prilepi = Gtk.Button(label=self.t("prilepi"))
+        prilepi.set_tooltip_text(self.t("prilepi_namig"))
+        prilepi.connect("clicked", lambda *_a: self.prilepi())
+        skatla.append(prilepi)
+        zapri = Gtk.Button(label=self.t("zapri"))
+        zapri.connect("clicked", lambda *_a: okno.close())
+        skatla.append(zapri)
+        self.razkrij.set_child(skatla)
+        self.razkrij.set_reveal_child(True)
+        prekrivnik.add_overlay(self.razkrij)
+        premik = Gtk.EventControllerMotion()
+        premik.connect("motion", self._premik)
+        okno.add_controller(premik)
+        tipke = Gtk.EventControllerKey()
+        tipke.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        tipke.connect("key-pressed", self._tipka_dol)
+        tipke.connect("key-released", self._tipka_gor)
+        okno.add_controller(tipke)
+        try:
+            spust = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+            # Faza zajema: datoteke dobi vrstica, ne pogled WebKit pod njo (ta bi spusceno datoteko odprl kot stran).
+            spust.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            spust.connect("drop", self._spust)
+            okno.add_controller(spust)
+        except Exception as e:  # noqa: BLE001 - GTK pred 4.6: brez spuscanja datotek, gledalec dela naprej
+            print("[SafeerControl] spuscanje datotek v gledalec ni na voljo:", e)
+        okno.connect("notify::fullscreened", lambda *_a: self._ob_celem())
+
+    def t(self, kljuc: str, **v) -> str:
+        return self.pg.besedilo(self.jezik, kljuc, **v)
+
+    def preklopi(self) -> None:
+        if self.okno.is_fullscreen():
+            self.okno.unfullscreen()
+        else:
+            self.okno.fullscreen()
+
+    def _ob_celem(self) -> None:
+        celo = self.okno.is_fullscreen()
+        self.gumb_celo.set_label(self.t("izhod") if celo else self.t("celo"))
+        self.gumb_celo.set_tooltip_text(self.t("namig") if celo else None)
+        self.esc.ponastavi()
+        self.pokazi()
+
+    def pokazi(self) -> None:
+        """Vrstico pokaze; v celozaslonskem nacinu jo cez VRSTICA_VIDNA_S spet skrije (v oknu ostane vidna)."""
+        self.razkrij.set_reveal_child(True)
+        if self._skrij_cas:
+            GLib.source_remove(self._skrij_cas)
+            self._skrij_cas = 0
+        if self.okno.is_fullscreen():
+            self._skrij_cas = GLib.timeout_add(int(self.pg.VRSTICA_VIDNA_S * 1000), self._skrij)
+
+    def _skrij(self) -> bool:
+        self._skrij_cas = 0
+        if self.okno.is_fullscreen():
+            self.razkrij.set_reveal_child(False)
+        return False
+
+    def _premik(self, _k, _x, y) -> None:
+        if self.okno.is_fullscreen() and y <= self.pg.ROB_PX:
+            self.pokazi()
+
+    def sporoci(self, besedilo: str) -> bool:
+        """Kratko sporocilo v vrstici namesto imena naprave (4 s)."""
+        self.napis.set_text(besedilo)
+        self.pokazi()
+        if self._napis_cas:
+            GLib.source_remove(self._napis_cas)
+
+        def nazaj() -> bool:
+            self._napis_cas = 0
+            self.napis.set_text(self.ime)
+            return False
+        self._napis_cas = GLib.timeout_add(4000, nazaj)
+        return False
+
+    def _prostori(self):
+        return getattr(self.control, "ob_prostorih", None)
+
+    def _tipka_dol(self, _k, keyval, _koda, stanje) -> bool:
+        superj = bool(stanje & Gdk.ModifierType.SUPER_MASK)
+        prostori = self._prostori()
+        if superj and prostori is not None and keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            nazaj = keyval == Gdk.KEY_ISO_Left_Tab or bool(stanje & Gdk.ModifierType.SHIFT_MASK)
+            prostori({"smer": -1 if nazaj else 1, "od": self.id_naprave()})
+            return True
+        if superj and prostori is not None and stanje & (Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.CONTROL_MASK) \
+                and keyval in (Gdk.KEY_Left, Gdk.KEY_Right):
+            prostori({"sosednji": -1 if keyval == Gdk.KEY_Left else 1, "od": self.id_naprave()})
+            return True
+        if keyval == Gdk.KEY_Escape and self.okno.is_fullscreen():
+            self.esc.pritisk(time.monotonic())
+            if not self._esc_cas:
+                self._esc_cas = GLib.timeout_add(int(self.pg.DRZI_ESC_S * 1000) + 30, self._esc_poteklo)
+            return True
+        return False
+
+    def _esc_poteklo(self) -> bool:
+        self._esc_cas = 0
+        if self.esc.poteklo(time.monotonic()):
+            self.okno.unfullscreen()
+        return False
+
+    def _tipka_gor(self, _k, keyval, _koda, _stanje) -> None:
+        if keyval != Gdk.KEY_Escape:
+            return
+        if self._esc_cas:
+            GLib.source_remove(self._esc_cas)
+            self._esc_cas = 0
+        izid = self.esc.spust(time.monotonic())
+        if izid == "kratko":
+            self.ob_esc()
+        elif izid == "izhod":
+            self.okno.unfullscreen()
+
+    def prilepi(self) -> None:
+        """Besedilo iz odlozisca TEGA racunalnika natipka na napravi (vnos »besedilo« / input.text)."""
+        odlozisce = self.okno.get_clipboard()
+
+        def konec(o, rezultat) -> None:
+            try:
+                besedilo = o.read_text_finish(rezultat)
+            except GLib.Error:
+                besedilo = None
+            if not besedilo:
+                self.sporoci(self.t("prazno"))
+                return
+            self.ob_besedilu(besedilo[:self.pg.NAJVEC_BESEDILA])
+            self.sporoci(self.t("prilepljeno"))
+        odlozisce.read_text_async(None, konec)
+
+    def _spust(self, _cilj, vrednost, _x, _y) -> bool:
+        try:
+            poti = self.pg.poti_spuscenih([f.get_path() for f in vrednost.get_files()])
+        except Exception:  # noqa: BLE001 - spuscena vsebina ni seznam datotek
+            poti = []
+        if not poti:
+            return False
+        self.sporoci(self.t("posiljam", n=len(poti)))
+
+        def delo() -> None:
+            try:
+                r = self.ob_datotekah(poti)
+            except Exception as e:  # noqa: BLE001 - uporabnik izve, da ni slo
+                print("[SafeerControl] datoteke v gledalcu:", e)
+                r = {"ok": False}
+            ok = isinstance(r, dict) and r.get("ok")
+            GLib.idle_add(self.sporoci, self.t("poslano" if ok else "ni_poslano", n=len(poti)))
+        threading.Thread(target=delo, name="safeer-gledalec-datoteke", daemon=True).start()
+        return True
+
+
 class OddaljeniGledalec(Gtk.Window):
     """GTK4 gledalec H.264, ki tece v istem procesu kot Safeer Control."""
 
-    def __init__(self, control, id_naprave: str, podatki: dict) -> None:
+    def __init__(self, control, id_naprave: str, podatki: dict, celo: bool = False) -> None:
         super().__init__(title="Oddaljeni zaslon - " + str(podatki.get("ime") or "racunalnik"))
         self.control = control
         self.id_naprave = id_naprave
@@ -581,13 +771,16 @@ class OddaljeniGledalec(Gtk.Window):
         self.stanje.append(self.ponovno)
         prekrivnik.add_overlay(self.stanje)
 
-        celo = Gtk.Button(label="Celozaslonsko")
-        celo.set_halign(Gtk.Align.END)
-        celo.set_valign(Gtk.Align.START)
-        celo.set_margin_top(12)
-        celo.set_margin_end(12)
-        celo.connect("clicked", self._celo)
-        prekrivnik.add_overlay(celo)
+        # Vrstica: Celozaslonsko / Izhod (drzan Esc), Prilepi besedilo, Zapri; datoteke spusti v okno (Prostori, krog 2).
+        self.vrstica = _VrsticaGledalca(
+            self, prekrivnik, control, str(podatki.get("ime") or ""),
+            ob_esc=self._esc_napravi,
+            ob_besedilu=lambda b: self._poslji({"vrsta": "besedilo", "besedilo": b}),
+            ob_datotekah=lambda poti: (control.link.poslji_datoteke(self.id_naprave, poti, obvesti=True)
+                                       if getattr(control, "link", None) is not None else {"ok": False}),
+            id_naprave=lambda: self.id_naprave)
+        if celo:
+            self.fullscreen()
 
         premik = Gtk.EventControllerMotion()
         premik.connect("motion", lambda _k, x, y: self._premik(None, _Dogodek(x=x, y=y)))
@@ -618,10 +811,12 @@ class OddaljeniGledalec(Gtk.Window):
         return Gst
 
     def _celo(self, *_a) -> None:
-        if self.is_fullscreen():
-            self.unfullscreen()
-        else:
-            self.fullscreen()
+        self.vrstica.preklopi()
+
+    def _esc_napravi(self) -> None:
+        """Kratek Esc v celozaslonskem nacinu: tipka gre racunalniku (drzan zapusti cel zaslon)."""
+        self._poslji(preslikaj_tipko("Escape", "", True))
+        self._poslji(preslikaj_tipko("Escape", "", False))
 
     def _pokazi_napako(self, sporocilo: str) -> bool:
         if self.zaprto:
@@ -840,6 +1035,8 @@ class OddaljeniGledalec(Gtk.Window):
 
     def _tipka(self, _widget, dogodek, dol: bool) -> bool:
         ime = Gdk.keyval_name(dogodek.keyval) or ""
+        if ime == "Escape" and self.is_fullscreen():
+            return True                 # Esc v celozaslonskem nacinu obdela vrstica (kratek -> napravi, drzan -> izhod)
         unicode_vrednost = Gdk.keyval_to_unicode(dogodek.keyval)
         znak = chr(unicode_vrednost) if unicode_vrednost else ""
         bliznjice = {"c": "kopiraj", "v": "prilepi", "x": "izrezi", "z": "razveljavi",
@@ -1208,6 +1405,7 @@ class SafeerControl(_OSNOVA):
       <method name="OdpriTukaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="app" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Preimenuj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="ime" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Upravljaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="ProstorOdpri"><arg type="s" name="naprava" direction="in"/><arg type="s" name="program" direction="in"/><arg type="s" name="celo" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
       <method name="Magnet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="uri" direction="in"/><arg type="s" name="json" direction="out"/></method>
@@ -1321,6 +1519,22 @@ class SafeerControl(_OSNOVA):
                     "message": "" if ok else n.get("sporocilo", "")}
         if metoda == "Upravljaj":
             return self.upravljaj_racunalnik(str(a[0]) if a else "")
+        if metoda == "ProstorOdpri":
+            # Prostori (Safeer OS, krog 2): zaslon naprave odpri takoj celozaslonsko. Program je "" (oddaljeni zaslon
+            # racunalnika) ali eden od dveh programov zaslona naprave Android - nic drugega (preveri tudi Safeer OS).
+            from core import link_prostori
+            id_cilja = str(a[0]) if a else ""
+            program = str(a[1]) if len(a) > 1 else ""
+            celo = len(a) > 2 and str(a[2]) == "1"
+            if not id_cilja:
+                return {"ok": False, "koda": "napacna_zahteva"}
+            if program == "":
+                return self.upravljaj_racunalnik(id_cilja, celo=celo)
+            if program not in (link_prostori.CEL_ZASLON, link_prostori.PROGRAM_NAMIZNI):
+                return {"ok": False, "koda": "napacna_zahteva"}
+            # Gledalec Androida se odpre sele, ko naprava zacne deliti (share.screen): takrat ga razpnemo.
+            self._celo_za = (link_prostori.kljuc(id_cilja), time.monotonic()) if celo else None
+            return self._naprave_metoda("OdpriTukaj", [id_cilja, program])
         if metoda == "Teamwork":
             # Safeer OS po »Nadaljuj tukaj«: delovno kopijo spremljamo; odgovor pove program lastnika (JSON).
             if self.teamwork is None:
@@ -1739,8 +1953,8 @@ class SafeerControl(_OSNOVA):
         return {"ok": True, "ime": str(naprava.get("ime") or id_naprave),
                 "naslov": str(naprava.get("naslov") or ""), "seja": seja}
 
-    def upravljaj_racunalnik(self, id_naprave: str) -> dict:
-        """Pripravi sejo in odpre GTK3 gledalec v glavnem procesu Controla."""
+    def upravljaj_racunalnik(self, id_naprave: str, celo: bool = False) -> dict:
+        """Pripravi sejo in odpre gledalec v glavnem procesu Controla (`celo`: takoj celozaslonsko - Prostori)."""
         id_naprave = str(id_naprave or "")
         if not id_naprave:
             return {"ok": False, "message": "Naprava ni izbrana."}
@@ -1760,12 +1974,12 @@ class SafeerControl(_OSNOVA):
         zacetna = self._nova_oddaljena_seja(id_naprave)
         if not zacetna.get("ok"):
             return zacetna
-        GLib.idle_add(self._odpri_oddaljeni_gledalec, id_naprave, zacetna)
+        GLib.idle_add(self._odpri_oddaljeni_gledalec, id_naprave, zacetna, celo)
         return {"ok": True}
 
-    def _odpri_oddaljeni_gledalec(self, id_naprave: str, podatki: dict) -> bool:
+    def _odpri_oddaljeni_gledalec(self, id_naprave: str, podatki: dict, celo: bool = False) -> bool:
         try:
-            okno = OddaljeniGledalec(self, id_naprave, podatki)
+            okno = OddaljeniGledalec(self, id_naprave, podatki, celo=celo)
             self._oddaljeni_gledalec = okno
             self._dodaj_okno(okno)
             okno.present()
@@ -2646,7 +2860,17 @@ class SafeerControl(_OSNOVA):
             nastavitve.set_property("enable-developer-extras", False)
             okno = Gtk.Window(title="Safeer Control — zaslon")
             okno.set_default_size(960, 600)
-            okno.set_child(pogled)
+            # Pogled v prekrivniku: nad njim vrstica gledalca (celozaslonsko, drzan Esc, prilepi, datoteke - Prostori).
+            prekrivnik = Gtk.Overlay()
+            prekrivnik.set_child(pogled)
+            okno.set_child(prekrivnik)
+            okno.vrstica = _VrsticaGledalca(
+                okno, prekrivnik, self, "",
+                ob_esc=lambda: self.link is not None and self.link.poslji_vnos("input.key", {"key": "back"}),
+                ob_besedilu=lambda b: self.link is not None and self.link.poslji_vnos("input.text", {"text": b}),
+                ob_datotekah=lambda poti: (self.link.poslji_datoteke(self._gledalec_naprava, poti, obvesti=True)
+                                           if self.link is not None and self._gledalec_naprava else {"ok": False}),
+                id_naprave=lambda: self._gledalec_naprava)
 
             def zaprto(*_a):
                 # Uporabnik je okno zaprl sam: self.gledalec je še to okno. Kadar deljenje konča naprava,
@@ -2664,7 +2888,7 @@ class SafeerControl(_OSNOVA):
             okno.present()
             if self.link is not None:
                 self.link.ob_odzivu_vnosa = self._odziv_vnosa
-        pogled = self.gledalec.get_child()
+        pogled = _pogled_gledalca(self.gledalec)
         pogled.load_uri(url)
         self.gledalec.present()
         # Okno je eno samo. Link napravo, katere deljenje se odpira, šteje za gledano že od začetka deljenja; okno jo
@@ -2674,6 +2898,18 @@ class SafeerControl(_OSNOVA):
         prej, self._gledalec_naprava = self._gledalec_naprava, nova
         if prej and nova and prej != nova:
             self._povej_konec_gledanja([prej])
+        # Odprto iz Prostorov (ProstorOdpri s »celo«): gledalec te naprave takoj celozaslonsko, najvec 90 s po ukazu.
+        celo_za = getattr(self, "_celo_za", None)
+        if celo_za and nova:
+            from core import link_prostori
+            if link_prostori.kljuc(nova) == celo_za[0] and time.monotonic() - celo_za[1] < 90:
+                self._celo_za = None
+                self.gledalec.fullscreen()
+        vrstica = getattr(self.gledalec, "vrstica", None)
+        if vrstica is not None and link is not None:
+            vrstica.ime = next((str(n.get("ime") or "") for n in (getattr(link, "naprave", None) or [])
+                                if n.get("id") == nova), "")
+            vrstica.napis.set_text(vrstica.ime)
 
     def _konec_gledanja(self, pocakaj: float = 0.0) -> None:
         """Uporabnik je zaprl okno z zaslonom druge naprave: naprava naj neha deliti zaslon (ukaz `apps.close`); če je
@@ -2718,7 +2954,7 @@ class SafeerControl(_OSNOVA):
         okno = self.gledalec
         self.gledalec = None
         try:
-            pogled = okno.get_child()
+            pogled = _pogled_gledalca(okno)
             if pogled is not None:
                 pogled.load_uri("about:blank")
             okno.destroy()
@@ -2780,6 +3016,12 @@ class SafeerControl(_OSNOVA):
             if not getattr(self, "_vnos_nastavitve_odprte", False) and self.link is not None:
                 self._vnos_nastavitve_odprte = True
                 self.link.poslji_vnos("input.enable", {})
+
+
+def _pogled_gledalca(okno):
+    """Pogled WebKit v oknu gledalca Androida (od kroga 2 Prostorov je v prekrivniku pod vrstico)."""
+    otrok = okno.get_child() if okno is not None else None
+    return otrok.get_child() if isinstance(otrok, Gtk.Overlay) else otrok
 
 
 #: Zaklep enega primerka (drzimo ga do konca programa).
