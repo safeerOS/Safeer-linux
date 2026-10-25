@@ -115,23 +115,10 @@ def _monitor_okna(okno) -> Optional[dict]:
 
 
 def _postavi_okno(okno, geom: dict) -> None:
-    """X11: okno na tocen polozaj in velikost (GTK4 tega ne zna; wmctrl kot core/os_delovni_prostori). Po prikazu."""
-    import shutil
-    wmctrl = shutil.which("wmctrl")
-    if not wmctrl:
-        return
-    try:
-        gi.require_version("GdkX11", "4.0")
-        from gi.repository import GdkX11
-        povrsina = okno.get_surface()
-        if povrsina is None or not isinstance(povrsina, GdkX11.X11Surface):
-            return
-        xid = GdkX11.X11Surface.get_xid(povrsina)
-    except Exception:  # noqa: BLE001 - brez X11 ostane, kjer ga postavi upravljalnik oken
-        return
-    subprocess.run([wmctrl, "-i", "-r", "0x%x" % int(xid), "-e", "0,%d,%d,%d,%d" % (
-        int(geom["x"]), int(geom["y"]), int(geom["w"]), int(geom["h"]))], check=False, timeout=3,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Okno na tocen polozaj in velikost: velikost z set_default_size (GTK4: velja tudi za prikazano okno), polozaj z
+    obstojecim X11.premakni (core/x11, kot _prilagodi_gledalca). Po prikazu."""
+    okno.set_default_size(int(geom["w"]), int(geom["h"]))
+    X11.premakni(okno, int(geom["x"]), int(geom["y"]))
 
 
 def _kje_odpreti(okno, kako: dict, velikost=None, vrsta: str = "") -> None:
@@ -3212,6 +3199,13 @@ class SafeerControl(_OSNOVA):
         except (TypeError, ValueError):
             return
         if okno is None or w <= 0 or h <= 0:
+            return
+        if okno.has_css_class("okvir-naprave"):
+            # Zasloni: telefon/tablica v okvirju naprave - zdaj je znana prava velikost slike naprave.
+            from core import zaslon_monitorji
+            monitor = _monitor_okna(okno)
+            if monitor is not None:
+                _postavi_okno(okno, zaslon_monitorji.okvir_naprave(w, h, monitor))
             return
         g = _obmocje_zaslona(okno)
         if g is None:

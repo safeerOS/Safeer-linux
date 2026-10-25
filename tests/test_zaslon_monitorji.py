@@ -130,5 +130,26 @@ class VrstniRed(unittest.TestCase):
         self.assertTrue(all("mesto" not in x for x in link_prostori.ocisti_znane(z)))
 
 
+
+class ControlOkvir(unittest.TestCase):
+    """Okno gledalca v okvirju: ko stran pove pravo velikost slike naprave (okno.velikost), okvir dobi njeno razmerje."""
+
+    def test_prava_velikost_slike_naprave(self):
+        from unittest import mock
+        import safeer_control as sc
+
+        class Okno:
+            def has_css_class(self, ime):
+                return ime == "okvir-naprave"
+        c = sc.SafeerControl.__new__(sc.SafeerControl)
+        c.gledalec = Okno()
+        m = {"x": 0, "y": 0, "w": 1920, "h": 1080}
+        with mock.patch.object(sc, "_monitor_okna", return_value=m), mock.patch.object(sc, "_postavi_okno") as postavi:
+            c._prilagodi_gledalca(1080, 2400)
+        postavi.assert_called_once_with(c.gledalec, zm.okvir_naprave(1080, 2400, m))
+        g = postavi.call_args[0][1]
+        self.assertAlmostEqual(g["w"] / g["h"], 1080 / 2400, places=2)
+
+
 if __name__ == "__main__":
     unittest.main()
