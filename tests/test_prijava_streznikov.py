@@ -6,6 +6,7 @@ import json
 import tempfile
 import threading
 import time
+import re
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -261,22 +262,35 @@ class LogotipiTv(unittest.TestCase):
         self.assertEqual(ZV.LOGOTIP_ZNOVA_S, 600.0)
 
 
+#: Nastavitev lastnosti GStreamer (souphttpsrc), ne poljuben niz: set_property / set_object_arg z imenom lastnosti,
+#: props.<lastnost> = ..., ali lastnost=vrednost v opisu cevovoda (souphttpsrc ... cookies=...). Prej je preizkus iskal
+#: vsak niz "cookies" in padel na imenu datoteke profila brskalnika v core/link_datoteke.py (25. 10. 2026).
+_LASTNOSTI_PRIJAVE = r"(?:user-id|user-pw|proxy-id|proxy-pw|cookies)"
+_NASTAVI_PRIJAVO_GST = re.compile(
+    r"(?:set_property|set_object_arg)\(\s*(?:[\w.]+\s*,\s*)?[\"']" + _LASTNOSTI_PRIJAVE + r"[\"']"
+    r"|\bprops\.(?:user_id|user_pw|proxy_id|proxy_pw|cookies)\s*="
+    r"|setattr\(\s*[\w.]+\.props\s*,\s*[\"'](?:user_id|user_pw|proxy_id|proxy_pw|cookies)[\"']"
+    r"|(?<![\w-])(?:user-id|user-pw|proxy-id|proxy-pw)\s*="
+    r"|souphttpsrc[^\n]*\bcookies\s*=")
+_NASTAVI_GLAVE_GST = re.compile(
+    r"[\"']extra-headers[\"']|\bprops\.extra_headers\s*=|(?<![\w-])extra-headers\s*=")
+
+
 class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
     def test_souphttpsrc_ne_dobi_glav_piskotkov_ali_gesla(self):
         """GStreamer-SA-2026-0080: souphttpsrc pred 1.28.7 ob preusmeritvi na drug izvor poslje naprej extra-headers,
         piskotke in user-id/user-pw. Runtime 50 ima GStreamer 1.26.11, zato prijava gre samo v naslov (ApiKey, u/t/s,
         uporabnik@): nov naslov iz Location je nima, libsoup pa prijavo iz naslova uporabi le za ta izvor
         (soup-auth-manager.c jo po uporabi odstrani). Teh lastnosti ne nastavljamo nikjer."""
-        import re
         koren = Path(__file__).resolve().parent.parent
         datoteke = list((koren / "core").rglob("*.py")) + list(koren.glob("*.py"))
-        vzorec = re.compile(r"[\"'](user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
-        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        najdeno = [str(p.relative_to(koren)) for p in datoteke
+                   if _NASTAVI_PRIJAVO_GST.search(p.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(najdeno, [])
         # extra-headers samo za javne glave toka (Referer ...), ki jih zahteva dodatek - 15. 10. 2026: brez glave Referer
         # streznik toka vrne 429. V njih nikoli prijave ali piskotkov (te bi sle ob preusmeritvi naprej).
-        vzorec = re.compile(r"[\"']extra-headers[\"']")
-        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        najdeno = [str(p.relative_to(koren)) for p in datoteke
+                   if _NASTAVI_GLAVE_GST.search(p.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(najdeno, ["core/os_predvajalnik.py"])
         from core import os_predvajalnik
         self.assertFalse({"authorization", "cookie", "proxy-authorization"} & os_predvajalnik._DOVOLJENE_GLAVE)
