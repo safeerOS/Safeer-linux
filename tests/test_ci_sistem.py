@@ -139,11 +139,15 @@ class ClangInKljuc(unittest.TestCase):
                     subprocess.run(["gpgconf", "--homedir", mapa, "--kill", "all"], capture_output=True, timeout=30)
 
     def test_kljuc_predpomnilnika_vsebuje_skripto(self):
-        """Sprememba prevajalnika mora spremeniti kljuc predpomnilnika WebKita (nova gradnja, ne star arhiv)."""
+        """Sprememba prevajalnika mora spremeniti kljuc WebKita (nova gradnja, ne star arhiv). Od 25. 10. 2026 kljuca
+        izracuna posel webkit-kljuc (isti za predpomnilnik veje in artefakt za vse veje)."""
         besedilo = DELOVNI_TOK.read_text(encoding="utf-8")
+        for izhod in ("profil", "webkit"):
+            vrstica = next(v for v in besedilo.splitlines() if 'echo "%s=${{ hashFiles(' % izhod in v)
+            self.assertIn("packaging/webkit-deb/odvisnosti.sh", vrstica)
         for posel in ("webkit-deb-profil-", "webkit-deb-pgo-"):
             vrstica = next(v for v in besedilo.splitlines() if "key: " + posel in v)
-            self.assertIn("packaging/webkit-deb/odvisnosti.sh", vrstica)
+            self.assertRegex(vrstica, r"\$\{\{ needs\.webkit-kljuc\.outputs\.(profil|webkit) \}\}$")
 
 
 def shutil_which(ime):

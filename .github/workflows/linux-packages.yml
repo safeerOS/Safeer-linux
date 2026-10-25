@@ -24,12 +24,15 @@ on:
         default: ''
 permissions:
   contents: read
-env:
-  # AppImage izdaje opuscene (lastnik, 21. 10. 2026, od 1.0.132): AppImage 1.0.131 je nosil Ubuntujev WebKitGTK 2.52.6 in
-  # libsoup 3.4.4 s puscanjem (packaging/prepare_appdir.py kopira knjiznice sistema gradnje), ne nasega WebKita.
-  # Dokler AppImage ne nosi nasega WebKita IN libsoup z nasim popravkom, se ne gradi in ne gre v izdajo; .deb in Flatpak
-  # imata nas WebKit. Ponovni vklop: '1' - in v AppImage mora biti share/webkitgtk-safeer/odtis (preveri_nas_webkit).
-  SAFEER_APPIMAGE: '0'
+# Ena veja = en tek (lastnik 25. 10. 2026: »za veliko gradnje je relativno malo uspehov«): nov potisk ali rocni zagon iste
+# veje preklice starejsi tek te veje, ki bi sicer gradil in preizkusal zastarel commit. Oznake (v*, izdaje) se nikoli ne
+# preklicejo; posla release/beta-izdaja imata se svojo skupino.
+concurrency:
+  group: linux-packages-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+# AppImage izdaje so opuscene (lastnik, 21. 10. 2026, od 1.0.132): AppImage 1.0.131 je nosil Ubuntujev WebKitGTK 2.52.6 in
+# libsoup 3.4.4 s puscanjem, ne nasega WebKita. CI AppImage ne gradi (koraki odstranjeni 25. 10. 2026: 12 padcev v oktobru)
+# in izdaja AppImage zavrne; skripte packaging/build_*appimage.sh ostanejo za ponovni vklop, ko bo nosil nas WebKit z odtisom.
 jobs:
   # ---- ruff za novo kodo (naloga 45): S110/BLE001/E722 samo v vrsticah, ki jih veja doda ali spremeni ------------------
   ruff-nova-koda:
@@ -55,6 +58,133 @@ jobs:
             fi
           fi
           python3 tools/ruff_nove_vrstice.py "$OSNOVA"
+      - name: Verify version consistency
+        run: python3 packaging/check_version.py
+  # ---- Hitra vrata: preizkusi brez WebKita v minutah (lastnik 25. 10. 2026) -------------------------------------------
+  # Prej so vsi preizkusi (35 min) tekli sele po gradnji WebKita v poslu safeer-os: v teku 40153444414 so se zaceli
+  # 4 h 10 min po zacetku; v 57 tekih z needs webkit-deb je prva napaka preizkusa prisla mediano 35 min po zacetku
+  # (zacetek koraka do 306 min); 79 od 144 padlih tekov v oktobru so bili nasi preizkusi. Zdaj tecejo preizkusi,
+  # ki WebKita ne nalozijo, takoj in v 6 vzporednih delih (ocena ~5 min na del, tests/trajanja_preizkusov.json). V vsebniku
+  # ni WebKitGTK ne libsoup GI (AGENTS.md: preizkus s sistemskim WebKitGTK ni veljaven); tests/razvrstitev_webkit.py izbere
+  # datoteke in vsak poskus nalaganja WebKita ali preskok »potrebuje WebKit« preizkus podre. Preizkusi z WebKitom tecejo
+  # v poslu preizkusi-webkit z nasim WebKitom. Vse gradnje (webkit-*, flatpak*, paketi, qt-xcb, mint, debian) cakajo na
+  # hitra-vrata in ruff-nova-koda (needs neposredno ali prek webkit-kljuc / webkit-pgo-profil).
+  hitra-vrata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        del: [1, 2, 3, 4, 5, 6]
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Test dependencies (no WebKitGTK, no libsoup GI)
+        run: |
+          apt-get update -q
+          apt-get install -y -q ca-certificates curl git sudo python3-cryptography python3-qrcode python3-zeroconf python3-ifaddr python3-pytest python3-yaml python3-gi python3-gi-cairo python3-pil python3-numpy gir1.2-gtk-4.0 gir1.2-secret-1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb xdotool bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1 libfontconfig1 libdbus-1-3 zstd dbus gcc gobject-introspection
+          [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39' ]
+          # Spletnega pogona v hitrih vratih ni: nobena odvisnost ga ne sme pripeljati tiho.
+          if dpkg-query -W -f '${Package}\n' | grep -E '^(libwebkit|libjavascriptcoregtk|gir1\.2-(webkit|javascriptcoregtk|soup))'; then echo "::error::v hitrih vratih je WebKitGTK ali libsoup GI"; exit 1; fi
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: PySide6 (QML shell) - the same wheels as the package and the Flatpak
+        run: python3 packaging/pyside6_vendor.py build/vendor
+      - name: Failed tests of the previous run of this branch (this part)
+        # Lastnik 25. 10. 2026 (»nadaljuj od tam, kjer je preizkus padel«): seznam padlih preizkusov tega dela iz
+        # prejsnjega teka iste veje (tudi »Re-run failed jobs«); predpomnilnik veje, datoteka JSON z node id.
+        uses: actions/cache/restore@v4
+        with:
+          path: build/padli.json
+          key: padli-${{ github.ref_name }}-vrata-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            padli-${{ github.ref_name }}-vrata-${{ matrix.del }}-
+      - name: Previously failed tests first (part ${{ matrix.del }} of 6)
+        # Samo prej padli preizkusi tega dela (zbere le njihove datoteke): ce padejo znova, del pade v sekundah, ne po
+        # celem teku. Sele ko uspejo, tece cel del (naslednji korak).
+        if: hashFiles('build/padli.json') != ''
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          if python3 -c 'import json, sys; sys.exit(0 if json.load(open("build/padli.json")) else 1)'; then
+            PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m pytest -q -rs -p no:cacheprovider \
+              -p razvrstitev_webkit --safeer-webkit=brez --safeer-del=${{ matrix.del }}/6 --safeer-padli=build/padli.json --safeer-najprej-padli tests/
+          else
+            echo "Prejsnji tek te veje v tem delu ni imel padlih preizkusov."
+          fi
+      - name: Unit tests without WebKit (part ${{ matrix.del }} of 6)
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m pytest -q -rs -p no:cacheprovider \
+            -p razvrstitev_webkit --safeer-webkit=brez --safeer-del=${{ matrix.del }}/6 --safeer-trajanja=build/trajanja.json \
+            --safeer-padli=build/padli.json --continue-on-collection-errors --durations=15 tests/
+      - name: Memory of the runner after the tests
+        # Tek 40193737914 (25. 10. 2026): posel s celotnimi preizkusi je bil po 38 min ubit (exit 137, »runner has received
+        # a shutdown signal«) brez podatka o pomnilniku; vticnik izpise se najvecji RSS procesa preizkusov in otrok.
+        if: always()
+        run: grep -E '^(MemTotal|MemAvailable|SwapFree):' /proc/meminfo
+      - name: Test durations (tests/razvrstitev_webkit.py zdruzi -> tests/trajanja_preizkusov.json)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trajanja-vrata-${{ matrix.del }}
+          path: build/trajanja.json
+          if-no-files-found: ignore
+          retention-days: 14
+          overwrite: true
+      - name: Failed tests for the next run of this branch (this part)
+        if: always() && hashFiles('build/padli.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/padli.json
+          key: padli-${{ github.ref_name }}-vrata-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
+  # ---- Nas WebKit enkrat na kljuc (lastnik 25. 10. 2026) ---------------------------------------------------------------
+  # actions/cache vidi samo predpomnilnik svoje veje in privzete veje (main): vsaka nova veja je WebKit prevedla znova
+  # (oktober 2026: 243 gradenj WebKita, 468 h; isti kljuc 46e9abaa... so zgradile izdaja-132, zdruzi-132b in v1.0.132).
+  # Gotov WebKit .deb in profil PGO sta zato tudi artefakta s kljucem v imenu (90 dni), ki ju vidijo vse veje - kot profil
+  # PGO Flatpaka (webkit-pgo-profraw-<kljuc>). Vir samo zaupanja vreden tek tega repozitorija (tools/ci_artefakt.py);
+  # zapis gradnje, utrjenost vsakega ELF in preizkusi tecejo v poslu webkit-deb VEDNO na koncnem paketu.
+  # Kljuca sta ista kot kljuca actions/cache (iste datoteke): predpomnilnik veje, zgrajen pred to spremembo, ostane veljaven.
+  webkit-kljuc:
+    needs: [ruff-nova-koda, hitra-vrata]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      profil: ${{ steps.kljuc.outputs.profil }}
+      webkit: ${{ steps.kljuc.outputs.webkit }}
+      profil_run: ${{ steps.profil.outputs.run_id }}
+      profil_osvezi: ${{ steps.profil.outputs.osvezi }}
+      webkit_run: ${{ steps.webkit.outputs.run_id }}
+      webkit_osvezi: ${{ steps.webkit.outputs.osvezi }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Keys of our WebKitGTK (all build and training files; the cache keys of webkit-deb-profil and webkit-deb)
+        id: kljuc
+        run: |
+          echo "profil=${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}" >> "$GITHUB_OUTPUT"
+          echo "webkit=${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}" >> "$GITHUB_OUTPUT"
+      - name: Finished WebKitGTK with this key (artifact of a trusted run, any branch)
+        id: webkit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python3 tools/ci_artefakt.py najdi "safeer-webkit-tar-${{ steps.kljuc.outputs.webkit }}"
+      - name: PGO profile with this key (artifact of a trusted run, any branch)
+        id: profil
+        if: steps.webkit.outputs.run_id == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python3 tools/ci_artefakt.py najdi "webkit-deb-profraw-${{ steps.kljuc.outputs.profil }}"
   # ---- Nas WebKitGTK za pakete .deb (PGO je privzet, lastnik 15. 10. 2026) ---------------------------------------------
   # En paket safeer-webkit (/usr/lib/safeer-webkit) za safeer-os in safeer-browser (lastnik, 19. 10. 2026): prej je imel
   # vsak paket svojo kopijo in CI je WebKit s PGO in BOLT gradil dvakrat (matrika, ~2,5 h vsaka gradnja).
@@ -65,7 +195,12 @@ jobs:
   webkit-deb-profil:
     # PGO 1/2: instrumentiran WebKitGTK (-DENABLE_LLVM_PROFILE_GENERATION=ON) za predpono /usr/lib/safeer-webkit, ucni
     # tek pod Xvfb, .profraw v predpomnilnik s kljucem iz datotek gradnje (ista predpona in mapa izvora kot gradnja s
-    # profilom, build/webkit-deb/izvor). ~2,5 h ob spremembi.
+    # profilom, build/webkit-deb/izvor). ~2,5 h ob spremembi. Ne tece, ce gotov WebKit s tem kljucem ze obstaja (webkit-kljuc).
+    needs: webkit-kljuc
+    if: needs.webkit-kljuc.outputs.webkit_run == ''
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     container:
@@ -88,38 +223,53 @@ jobs:
           apt-get update -q
           apt-get install -y -q --no-install-recommends ca-certificates zstd git
       - uses: actions/checkout@v5
+      - name: PGO profile with this key from a trusted run (artifact, all branches)
+        if: needs.webkit-kljuc.outputs.profil_run != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: webkit-deb-profraw-${{ needs.webkit-kljuc.outputs.profil }}
+          path: build/pgo/profraw
+          run-id: ${{ needs.webkit-kljuc.outputs.profil_run }}
+          github-token: ${{ github.token }}
       - name: Restore the PGO profile (recorded earlier from the same files)
         id: profil
+        if: needs.webkit-kljuc.outputs.profil_run == ''
         uses: actions/cache/restore@v4
         with:
           path: build/pgo/profraw
-          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-profil-${{ needs.webkit-kljuc.outputs.profil }}
       - name: Build dependencies and the training run tools
-        if: steps.profil.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.profil_run == '' && steps.profil.outputs.cache-hit != 'true'
         run: |
           bash packaging/webkit-deb/odvisnosti.sh
           apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps
       - name: Instrumented WebKitGTK (Clang 22, ThinLTO, -fprofile-generate)
-        if: steps.profil.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.profil_run == '' && steps.profil.outputs.cache-hit != 'true'
         run: SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit
       - name: Training run (Speedometer 3.1, pinned offline copy)
-        if: steps.profil.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.profil_run == '' && steps.profil.outputs.cache-hit != 'true'
         run: bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-webkit build/pgo/profraw
       - name: Save the PGO profile
-        if: steps.profil.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.profil_run == '' && steps.profil.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: build/pgo/profraw
-          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-profil-${{ needs.webkit-kljuc.outputs.profil }}
       - name: Profile summary
         run: |
           ls -l build/pgo/profraw
+          test "$(find build/pgo/profraw -name '*.profraw' -size +1k | wc -l)" -ge 1
           echo "::notice::profil .deb: $(ls build/pgo/profraw/*.profraw | wc -l) .profraw, $(du -sh build/pgo/profraw | cut -f1)"
-      - uses: actions/upload-artifact@v7
+      - name: PGO profile for all branches (artifact with the key, 90 days)
+        # Tudi profil iz predpomnilnika veje (zgrajen pred 25. 10. 2026) gre enkrat v artefakt; starejsega od 60 dni znova.
+        if: needs.webkit-kljuc.outputs.profil_run == '' || needs.webkit-kljuc.outputs.profil_osvezi == 'true'
+        uses: actions/upload-artifact@v7
         with:
-          name: webkit-deb-profraw
+          name: webkit-deb-profraw-${{ needs.webkit-kljuc.outputs.profil }}
           path: build/pgo/profraw/*.profraw
-          retention-days: 14
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
   webkit-deb:
     # PGO 2/2: nas WebKitGTK 6.0 in libsoup 3.8 za pakete .deb (lastnik, 15. 10. 2026: .deb dobi vse izboljsave
     # Flatpaka): isti izvor, popravki in moznosti kot modula Flatpak (packaging/webkit-deb/modul.py), Clang 22 iz
@@ -127,8 +277,13 @@ jobs:
     # ENA gradnja za predpono /usr/lib/safeer-webkit (~2,5 h; prej matrika safeer-browser/safeer-os, dvakrat) in iz nje
     # paket safeer-webkit (packaging/webkit-deb/paket.sh, z dekoderjem AV1 iz dav1d-deb), ki ga zahtevata safeer-os in
     # safeer-browser. Gotov arhiv je v predpomnilniku s kljucem iz datotek gradnje: ob spremembi samo kode Safeerja
-    # posel traja nekaj minut (pakiranje).
-    needs: [webkit-deb-profil, dav1d-deb]
+    # posel traja nekaj minut (pakiranje). Od 25. 10. 2026 je gotov arhiv tudi artefakt s kljucem (vse veje, webkit-kljuc):
+    # nova veja z istim kljucem WebKita ne prevaja, ampak samo prenese arhiv (SHA-256) in ga zapakira ter preveri.
+    needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]
+    if: ${{ !cancelled() && needs.webkit-kljuc.result == 'success' && needs.dav1d-deb.result == 'success' && (needs.webkit-deb-profil.result == 'success' || (needs.webkit-deb-profil.result == 'skipped' && needs.webkit-kljuc.outputs.webkit_run != '')) }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     container:
@@ -151,29 +306,45 @@ jobs:
           apt-get update -q
           apt-get install -y -q --no-install-recommends ca-certificates zstd
       - uses: actions/checkout@v5
+      - name: Our WebKitGTK with this key from a trusted run (artifact, all branches)
+        if: needs.webkit-kljuc.outputs.webkit_run != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: safeer-webkit-tar-${{ needs.webkit-kljuc.outputs.webkit }}
+          path: build
+          run-id: ${{ needs.webkit-kljuc.outputs.webkit_run }}
+          github-token: ${{ github.token }}
+      - name: The archive is the one that was uploaded (SHA-256)
+        if: needs.webkit-kljuc.outputs.webkit_run != ''
+        run: |
+          cd build
+          sha256sum -c safeer-webkit.tar.zst.sha256
       - name: Restore our WebKitGTK (built earlier from the same files and profile)
         id: wk
+        if: needs.webkit-kljuc.outputs.webkit_run == ''
         uses: actions/cache/restore@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.webkit }}
       - name: Restore our WebKitGTK before BOLT (resume after a failed BOLT, without the 2.5 h build)
         # Lastnik, 19. 10. 2026: gradnja nadaljuje tam, kjer je padla. bolt.sh shrani stanje pred BOLT (namescena
         # predpona s simboli in relokacijami); kljuc iz istih datotek kot profil PGO (brez datotek BOLT), zato popravek
         # BOLT (bolt.sh, bolt_trening.py) pomeni samo nadaljuj.sh, ne novega prevajanja.
         id: predbolt
-        if: steps.wk.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: build/webkit-predbolt.tar.zst
-          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-predbolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.profil }}
       - uses: actions/download-artifact@v8
-        if: steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true'
         with:
-          name: webkit-deb-profraw
+          name: webkit-deb-profraw-${{ needs.webkit-kljuc.outputs.profil }}
           path: build/pgo/profraw
+          run-id: ${{ needs.webkit-kljuc.outputs.profil_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Build dependencies (Clang 22 and BOLT 22 from apt.llvm.org, noble libraries, BOLT training run tools)
-        if: steps.wk.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true'
         run: |
           bash packaging/webkit-deb/odvisnosti.sh
           apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps git gdb
@@ -181,7 +352,7 @@ jobs:
         # BOLT (lastnik 18. 10. 2026: v izdaji): packaging/webkit-deb/bolt.sh po namestitvi; ce noben poskus ne uspe,
         # pade gradnja. Stanje pred BOLT je v build/webkit-predbolt.tar.zst (naslednji korak ga shrani tudi ob padcu);
         # ce je iz predpomnilnika, nadaljuj.sh naredi samo BOLT, zapis gradnje, strip in arhiv.
-        if: steps.wk.outputs.cache-hit != 'true'
+        if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true'
         run: |
           export SAFEER_BOLT_PREDBOLT="$PWD/build/webkit-predbolt.tar.zst"
           if [ -f "$SAFEER_BOLT_PREDBOLT" ]; then
@@ -195,17 +366,18 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: build/webkit-predbolt.tar.zst
-          key: webkit-deb-predbolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+          key: webkit-deb-predbolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.profil }}
       - name: Archive is complete (zstd -t)
         # Tudi arhiv iz predpomnilnika; prirezan arhiv (poln disk, preklic) ne gre v predpomnilnik ne v paket.
         run: zstd -q -t build/safeer-webkit.tar.zst
       - name: Save our WebKitGTK
         # Samo po uspesni gradnji in preverbi arhiva (prej always(): prirezan arhiv bi ostal pod koncnim kljucem za vedno).
-        if: success() && steps.wk.outputs.cache-hit != 'true'
+        # Arhiv iz artefakta drugega teka ne gre v predpomnilnik veje (prostor 10 GB je za Flatpak).
+        if: success() && steps.wk.outputs.cache-hit != 'true' && needs.webkit-kljuc.outputs.webkit_run == ''
         uses: actions/cache/save@v4
         with:
           path: build/safeer-webkit.tar.zst
-          key: webkit-deb-pgo-bolt-safeer-webkit-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/libxml2/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh', 'packaging/webkit-deb/bolt.sh', 'packaging/webkit-deb/bolt_trening.py', 'packaging/webkit-deb/nadaljuj.sh') }}
+          key: webkit-deb-pgo-bolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.webkit }}
       - name: Build record (Clang 22, ThinLTO, lld, PGO, BOLT)
         run: |
           tar -I zstd -xOf build/safeer-webkit.tar.zst usr/lib/safeer-webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt
@@ -282,6 +454,25 @@ jobs:
           name: safeer-webkit
           path: safeer-webkit_*_amd64.deb
           retention-days: 14
+      - name: SHA-256 of our WebKitGTK archive (for other branches)
+        # Sele po zapisu gradnje in preverbi utrjenosti paketa: v artefakt gre samo arhiv, iz katerega je nastal preverjen paket.
+        if: needs.webkit-kljuc.outputs.webkit_run == '' || needs.webkit-kljuc.outputs.webkit_osvezi == 'true'
+        run: |
+          cd build
+          sha256sum safeer-webkit.tar.zst > safeer-webkit.tar.zst.sha256
+          cat safeer-webkit.tar.zst.sha256
+      - name: Our WebKitGTK for all branches (artifact with the key, 90 days)
+        if: needs.webkit-kljuc.outputs.webkit_run == '' || needs.webkit-kljuc.outputs.webkit_osvezi == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: safeer-webkit-tar-${{ needs.webkit-kljuc.outputs.webkit }}
+          path: |
+            build/safeer-webkit.tar.zst
+            build/safeer-webkit.tar.zst.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: true
   dav1d-deb:
     # Dekoder AV1 dav1ddec (gst-plugins-rs, packaging/webkit-deb/dav1d.sh) v paket safeer-webkit, zraven nasega WebKitGTK:
     # noble ima libdav1d7, nima pa vticnika GStreamer zanj (ostane le pocasni libaom av1dec). Lastnik, 18. 10. 2026:
@@ -361,9 +552,9 @@ jobs:
           path: build/rqbit/
           retention-days: 14
   brskalnik:
-    # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb in AppImage za Linux Mint 22 / Ubuntu 24.04
-    # naprej (kot Safeer OS). Paket .deb (amd64) tece na nasem WebKitGTK in libsoup iz paketa safeer-webkit (posel
-    # webkit-deb, /usr/lib/safeer-webkit); AppImage se nosi WebKitGTK sistema gradnje (Ubuntu).
+    # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb za Linux Mint 22 / Ubuntu 24.04 naprej (kot
+    # Safeer OS). Paket .deb (amd64) tece na nasem WebKitGTK in libsoup iz paketa safeer-webkit (posel webkit-deb,
+    # /usr/lib/safeer-webkit). AppImage CI ne gradi (opuscen, glej zacetek datoteke).
     needs: webkit-deb
     # Preizkus brskalnika (packaging/smoke_brskalnik.py): stran, prenos, nastavitve in vstavitev Safeer DRM v okno.
     runs-on: ubuntu-24.04
@@ -441,18 +632,10 @@ jobs:
           [ ! -e /usr/lib/safeer-webkit ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-webkit"; find /usr/lib/safeer-webkit | head; exit 1; }
           # Sistemski WebKitGTK ostane nedotaknjen.
           dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
-      - name: AppImage
-        if: env.SAFEER_APPIMAGE == '1'
-        run: |
-          bash packaging/fetch_linuxdeploy.sh
-          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dbus-run-session -- python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
       - uses: actions/upload-artifact@v7
         with:
           name: brskalnik
-          path: |
-            *.deb
-            dist/*.AppImage
+          path: '*.deb'
   safeer-os:
     # Safeer OS na GTK4 + WebKitGTK 6.0 z lupino v Qt Quick (en proces). Ubuntu 24.04 je osnova Linux Mint 22 - prve
     # razlicice Minta z WebKitGTK 6.0 (Mint 21 ga nima; lastnik 14. 10. 2026: .deb za Mint 22+, PySide6 v paketu).
@@ -486,12 +669,8 @@ jobs:
           node-version: '22'
       - name: PySide6 (QML shell) - the same wheels as the package and the Flatpak
         run: python3 packaging/pyside6_vendor.py build/vendor
-      - name: Unit tests (all - Safeer is GTK 4 and WebKitGTK 6.0 only since 18 Oct 2026)
-        # En proces za vse preizkuse: GTK3 je umaknjen, zato delitve na skupine (razdeli_teste.py) ni vec.
-        shell: bash -e {0}
-        run: |
-          set -euo pipefail
-          PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m pytest -q -p no:cacheprovider tests/
+      # Enotski preizkusi od 25. 10. 2026 niso vec tu (prej 35 min po ~4 h gradnje, s sistemskim WebKitGTK): preizkusi brez
+      # WebKita tecejo v poslu hitra-vrata takoj ob potisku, preizkusi z WebKitom v poslu preizkusi-webkit z nasim WebKitom.
       - name: Safeer DRM for the packages (pinned castLabs ECS, SHA-256)
         # Kot v poslu brskalnik: Safeer DRM je del paketa (packaging/safeer-drm.json); Widevine CDM namesti ECS sam.
         run: python3 packaging/safeer_drm_paket.py pripravi build/safeer-drm
@@ -604,39 +783,12 @@ jobs:
           for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-cinnamon /usr/lib/safeer-webkit /usr/bin/safeer-control /usr/bin/safeer-cinnamon; do
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }
           done
-      - name: Fetch linuxdeploy
-        if: env.SAFEER_APPIMAGE == '1'
-        run: bash packaging/fetch_linuxdeploy.sh
-      - name: Safeer OS AppImage (Safeer OS + Safeer Control)
-        if: env.SAFEER_APPIMAGE == '1'
-        run: |
-          SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
-          chmod +x dist/Safeer-OS-*.AppImage
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/Safeer-OS-*.AppImage --ctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
-          rm -rf build/os-appimage-x
-          mkdir -p build/os-appimage-x
-          (cd build/os-appimage-x && ../../dist/Safeer-OS-*.AppImage --appimage-extract >/dev/null)
-          for modul in qrcode zeroconf ifaddr; do test -d "build/os-appimage-x/squashfs-root/usr/lib/python3/dist-packages/$modul"; done
-          # Safeer DRM izven usr/ (linuxdeploy ga ne spreminja), s pripetimi odtisi; AppRun-os poda SAFEER_DRM_MAPA.
-          python3 packaging/safeer_drm_paket.py preveri build/os-appimage-x/squashfs-root/opt/safeer-drm
-          grep -F 'export SAFEER_DRM_MAPA="$APPDIR/opt/safeer-drm"' build/os-appimage-x/squashfs-root/AppRun
-          # Nas rqbit izven usr/ (linuxdeploy ga ne spreminja): isti program kot v paketu .deb, AppRun-os poda SAFEER_RQBIT
-          # in core/os_torrent.py ga uporabi namesto prenosa z GitHuba.
-          RQ=build/os-appimage-x/squashfs-root/opt/rqbit/rqbit
-          echo "$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')  $RQ" | sha256sum -c -
-          "$RQ" --version | grep -Fx "rqbit $(python3 -c 'import json; print(json.load(open("packaging/rqbit/rqbit.json"))["razlicica"])')"
-          test -f build/os-appimage-x/squashfs-root/usr/share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt
-          grep -F 'export SAFEER_RQBIT="$APPDIR/opt/rqbit/rqbit"' build/os-appimage-x/squashfs-root/AppRun
-          SAFEER_RQBIT="$PWD/$RQ" /usr/bin/python3 -c "import os, sys; sys.path.insert(0, 'build/os-appimage-x/squashfs-root/usr/lib/safeer-os'); from core import os_torrent as t; p = t.pot_programa(); assert p == os.environ['SAFEER_RQBIT'] and t.program_na_voljo(), p"
       - uses: actions/upload-artifact@v7
         with:
           name: safeer-os
           path: |
             safeer-os_*.deb
             safeer-os-app_*.deb
-            dist/Safeer-OS-*.AppImage
   qt-xcb:
     # Vticnik Qt xcb lupine QML (PySide6 iz paketa) nalozi libxcb-* neposredno. Posel safeer-os pred tem namesti cel
     # seznam razvojnih knjiznic, zato tam manjkajoca odvisnost paketa ne bi padla. Tu: cist vsebnik ubuntu:24.04 (osnova
@@ -754,6 +906,8 @@ jobs:
     # od cesar je profil odvisen: izvor in popravke WebKita, ucni tek in razlicico Clang/LLVM. Profil s tem kljucem
     # iscemo med artefakti repozitorija (webkit-pgo-profraw-<kljuc>, 90 dni): vidijo jih vse veje in oznake v*, actions/cache
     # pa bi oznaka izdaje videla samo z glavne veje. Ucni tek (posel webkit-pgo-ucenje) tece samo, ce profila ni.
+    # Koren verige Flatpak: caka na hitra vrata (napaka preizkusa ustavi tek, preden se zacnejo ure gradnje).
+    needs: [ruff-nova-koda, hitra-vrata]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -902,6 +1056,7 @@ jobs:
           path: build/pgo/profraw/*.profraw
           if-no-files-found: error
           retention-days: 90
+          overwrite: true
   flatpak:
     # Safeer OS Flatpak (Safeer OS + Safeer Control) z WebKitGTK s PGO - paket izdaje. Brez veljavnega profila posel ne
     # tece (ne gradi tiho brez PGO): ce ucni tek pade, ga ni in izdaja (needs) se ne ustvari, tek pa je rdec.
@@ -955,8 +1110,34 @@ jobs:
           echo "manifest=$(python3 packaging/webkit/pgo.py uporaba build/pgo/profraw io.github.memelandfaner.SafeerOS.yml)" >> "$GITHUB_OUTPUT"
           echo "zacetek=flatpak-os-pgo-$K-" >> "$GITHUB_OUTPUT"
           echo "predpomnilnik=flatpak-os-pgo-$K-$PROFIL-$(python3 packaging/webkit/pgo.py okolje)-${{ hashFiles('io.github.memelandfaner.SafeerOS.yml', 'packaging/webkit/*.yml', 'packaging/webkit/pgo.py', 'packaging/libsoup/**', 'packaging/zypak/**') }}" >> "$GITHUB_OUTPUT"
+      - name: flatpak-builder cache with this key from a trusted run (artifact, all branches)
+        # Lastnik 25. 10. 2026 (WebKit enkrat na kljuc): actions/cache vidi samo svojo vejo in main, zato je vsaka nova veja
+        # WebKit v Flatpaku prevedla znova (oktober 2026: flatpak 106x, flatpak-brskalnik 87x po ~2 h). Predpomnilnik
+        # flatpak-builderja s tem kljucem je zato tudi artefakt (90 dni, tools/ci_artefakt.py); preverbe paketa spodaj
+        # (utrjenost, zapis gradnje, PGO, peskovnik) tecejo vedno.
+        id: fb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          KLJUC: ${{ steps.pgo.outputs.predpomnilnik }}
+        run: python3 tools/ci_artefakt.py najdi "flatpak-builder-os-$(printf '%s' "$KLJUC" | sha256sum | cut -c1-40)"
+      - uses: actions/download-artifact@v8
+        if: steps.fb.outputs.run_id != ''
+        with:
+          name: ${{ steps.fb.outputs.ime }}
+          path: build/fb-artefakt
+          run-id: ${{ steps.fb.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: flatpak-builder cache from the artifact (SHA-256)
+        if: steps.fb.outputs.run_id != ''
+        run: |
+          (cd build/fb-artefakt && sha256sum -c flatpak-builder.tar.zst.sha256)
+          tar -I zstd -xf build/fb-artefakt/flatpak-builder.tar.zst
+          rm -rf build/fb-artefakt
+          echo "::notice::flatpak-builder iz artefakta teka ${{ steps.fb.outputs.run_id }}: $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Restore flatpak-builder cache (WebKitGTK with PGO)
         id: webkit-cache
+        if: steps.fb.outputs.run_id == ''
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -978,13 +1159,31 @@ jobs:
           echo "::notice::flatpak-builder: $(grep -iE 'cache (hit|miss)' "$RUNNER_TEMP/gradnja.log" | paste -sd '|') | predpomnilnik $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Save flatpak-builder cache (WebKitGTK with PGO)
         # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu.
-        if: always() && steps.webkit-cache.outputs.cache-hit != 'true'
+        if: always() && steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
         uses: actions/cache/save@v4
         with:
           path: |
             .flatpak-builder/cache
             .flatpak-builder/downloads
           key: ${{ steps.pgo.outputs.predpomnilnik }}
+      - name: flatpak-builder cache for all branches (archive with SHA-256)
+        # Samo po uspesni gradnji; ze uporabljen artefakt znova le, ce je starejsi od 60 dni (artefakt potece po 90).
+        if: steps.fb.outputs.run_id == '' || steps.fb.outputs.osvezi == 'true'
+        run: |
+          mkdir -p build/fb-artefakt .flatpak-builder/downloads
+          tar -I 'zstd -T0 -3' -cf build/fb-artefakt/flatpak-builder.tar.zst .flatpak-builder/cache .flatpak-builder/downloads
+          (cd build/fb-artefakt && sha256sum flatpak-builder.tar.zst > flatpak-builder.tar.zst.sha256)
+          ls -l build/fb-artefakt
+      - name: flatpak-builder cache for all branches (artifact with the key, 90 days)
+        if: steps.fb.outputs.run_id == '' || steps.fb.outputs.osvezi == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.fb.outputs.ime }}
+          path: build/fb-artefakt/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: true
       - name: Safeer OS Flatpak runs, with Safeer Control inside
         # Kot pri AppImage: paket se ne sme samo zgraditi, v njem morata res teci Safeer OS in Control
         # (Safeer OS brez Controla nima Safeer Linka). Namestimo prav datoteko, ki gre v izdajo.
@@ -1144,8 +1343,35 @@ jobs:
           path: build/pgo/profraw/*.profraw
           if-no-files-found: error
           retention-days: 90
+          overwrite: true
+      - name: flatpak-builder cache with this key from a trusted run (artifact, all branches)
+        # Lastnik 25. 10. 2026 (WebKit enkrat na kljuc): actions/cache vidi samo svojo vejo in main, zato je vsaka nova veja
+        # WebKit v Flatpaku prevedla znova (oktober 2026: flatpak 106x, flatpak-brskalnik 87x po ~2 h). Predpomnilnik
+        # flatpak-builderja s tem kljucem je zato tudi artefakt (90 dni, tools/ci_artefakt.py); preverbe paketa spodaj
+        # (utrjenost, zapis gradnje, PGO, peskovnik) tecejo vedno.
+        id: fb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          KLJUC: ${{ steps.pgo.outputs.predpomnilnik }}
+        run: python3 tools/ci_artefakt.py najdi "flatpak-builder-brskalnik-$(printf '%s' "$KLJUC" | sha256sum | cut -c1-40)"
+      - uses: actions/download-artifact@v8
+        if: steps.fb.outputs.run_id != ''
+        with:
+          name: ${{ steps.fb.outputs.ime }}
+          path: build/fb-artefakt
+          run-id: ${{ steps.fb.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: flatpak-builder cache from the artifact (SHA-256)
+        if: steps.fb.outputs.run_id != ''
+        run: |
+          (cd build/fb-artefakt && sha256sum -c flatpak-builder.tar.zst.sha256)
+          tar -I zstd -xf build/fb-artefakt/flatpak-builder.tar.zst
+          rm -rf build/fb-artefakt
+          echo "::notice::flatpak-builder iz artefakta teka ${{ steps.fb.outputs.run_id }}: $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Restore flatpak-builder cache (WebKitGTK with PGO)
         id: webkit-cache
+        if: steps.fb.outputs.run_id == ''
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -1165,13 +1391,31 @@ jobs:
           echo "::notice::flatpak-builder: $(grep -iE 'cache (hit|miss)' "$RUNNER_TEMP/gradnja.log" | paste -sd '|') | predpomnilnik $(du -sh .flatpak-builder/cache .flatpak-builder/downloads | cut -f1 | paste -sd ' ')"
       - name: Save flatpak-builder cache (WebKitGTK with PGO)
         # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu.
-        if: always() && steps.webkit-cache.outputs.cache-hit != 'true'
+        if: always() && steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
         uses: actions/cache/save@v4
         with:
           path: |
             .flatpak-builder/cache
             .flatpak-builder/downloads
           key: ${{ steps.pgo.outputs.predpomnilnik }}
+      - name: flatpak-builder cache for all branches (archive with SHA-256)
+        # Samo po uspesni gradnji; ze uporabljen artefakt znova le, ce je starejsi od 60 dni (artefakt potece po 90).
+        if: steps.fb.outputs.run_id == '' || steps.fb.outputs.osvezi == 'true'
+        run: |
+          mkdir -p build/fb-artefakt .flatpak-builder/downloads
+          tar -I 'zstd -T0 -3' -cf build/fb-artefakt/flatpak-builder.tar.zst .flatpak-builder/cache .flatpak-builder/downloads
+          (cd build/fb-artefakt && sha256sum flatpak-builder.tar.zst > flatpak-builder.tar.zst.sha256)
+          ls -l build/fb-artefakt
+      - name: flatpak-builder cache for all branches (artifact with the key, 90 days)
+        if: steps.fb.outputs.run_id == '' || steps.fb.outputs.osvezi == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.fb.outputs.ime }}
+          path: build/fb-artefakt/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: true
       - name: Unprivileged user namespaces for the WebKit sandbox
         # Kot v poslu mint: spletni proces WebKita v Flatpaku tece v podpeskovniku (flatpak-spawn --sandbox).
         run: |
@@ -1272,10 +1516,108 @@ jobs:
         run: bash tools/scit_lab/lab.sh zgradi
       - name: Shield against a real systemd-resolved and NetworkManager
         run: bash tools/scit_lab/lab.sh preizkus
+  preizkusi-webkit:
+    # Enotski preizkusi, ki WebKit nalozijo (tests/razvrstitev_webkit.py --safeer-webkit=samo: ~100 datotek, ocena ~8 min),
+    # z NASIM WebKitGTK in libsoup iz paketa safeer-webkit tega teka (lastnik 21. 10. 2026: preizkus s sistemskim WebKitGTK
+    # ni veljaven). Sistemskega WebKitGTK in libsoup GI v vsebniku ni; vticnik pred prvim preizkusom preveri knjiznico in
+    # odtis gradnje, ob koncu pa, da je vsaka preslikana knjiznica WebKit/JavaScriptCore/libsoup iz /usr/lib/safeer-webkit.
+    # Preizkus, ki bi preskocil, ker »WebKita ni«, pade. Preizkusi brez WebKita so v hitrih vratih (hitra-vrata).
+    # Dva dela (vsak svoj posel): »Re-run failed jobs« znova pozene samo padli del, z istim paketom safeer-webkit teka.
+    needs: webkit-deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        del: [1, 2]
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Test dependencies (no system WebKitGTK, no libsoup GI)
+        run: |
+          apt-get update -q
+          apt-get install -y -q ca-certificates curl git sudo python3-cryptography python3-qrcode python3-zeroconf python3-ifaddr python3-pytest python3-yaml python3-gi python3-gi-cairo python3-pil python3-numpy gir1.2-gtk-4.0 gir1.2-secret-1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb xdotool bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1 libfontconfig1 libdbus-1-3 zstd dbus gcc gobject-introspection
+          [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39' ]
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: safeer-webkit
+          path: build/safeer-webkit
+      - name: Our WebKitGTK (package safeer-webkit of this run), no system WebKitGTK
+        run: |
+          apt-get install -y -q --no-install-recommends ./build/safeer-webkit/safeer-webkit_*_amd64.deb
+          if dpkg-query -W -f '${Package}\n' | grep -E '^(libwebkit|libjavascriptcoregtk|gir1\.2-(webkit|javascriptcoregtk|soup))'; then echo "::error::sistemski WebKitGTK ali libsoup GI je namescen"; exit 1; fi
+          test -f /usr/lib/safeer-webkit/share/webkitgtk-safeer/odtis
+          test -f /usr/lib/safeer-webkit/lib/girepository-1.0/WebKit-6.0.typelib
+          test -f /usr/lib/safeer-webkit/lib/girepository-1.0/Soup-3.0.typelib
+          cat /usr/lib/safeer-webkit/share/webkitgtk-safeer/gradnja.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: PySide6 (QML shell) - the same wheels as the package and the Flatpak
+        run: python3 packaging/pyside6_vendor.py build/vendor
+      - name: Failed tests of the previous run of this branch (this part)
+        # Lastnik 25. 10. 2026 (»nadaljuj od tam, kjer je preizkus padel«): seznam padlih preizkusov tega dela iz
+        # prejsnjega teka iste veje (tudi »Re-run failed jobs«); predpomnilnik veje, datoteka JSON z node id.
+        uses: actions/cache/restore@v4
+        with:
+          path: build/padli.json
+          key: padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-
+      - name: Previously failed tests first (part ${{ matrix.del }} of 2)
+        # Samo prej padli preizkusi tega dela (zbere le njihove datoteke): ce padejo znova, del pade v sekundah, ne po
+        # celem teku. Sele ko uspejo, tece cel del (naslednji korak).
+        if: hashFiles('build/padli.json') != ''
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          W=/usr/lib/safeer-webkit/lib
+          if python3 -c 'import json, sys; sys.exit(0 if json.load(open("build/padli.json")) else 1)'; then
+            GI_TYPELIB_PATH="$W/girepository-1.0" GST_PLUGIN_PATH="$W/gstreamer-1.0" PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m pytest -q -rs -p no:cacheprovider \
+              -p razvrstitev_webkit --safeer-webkit=samo --safeer-del=${{ matrix.del }}/2 --safeer-padli=build/padli.json --safeer-najprej-padli tests/
+          else
+            echo "Prejsnji tek te veje v tem delu ni imel padlih preizkusov."
+          fi
+      - name: Unit tests with our WebKitGTK (part ${{ matrix.del }} of 2)
+        # Okolje kot ga nastavi core/zasebni_webkit.nastavi() namescenemu programu (typelibi in vticniki GStreamer nase
+        # predpone, brez LD_LIBRARY_PATH: knjiznice najdejo druga drugo prek RUNPATH).
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          W=/usr/lib/safeer-webkit/lib
+          GI_TYPELIB_PATH="$W/girepository-1.0" GST_PLUGIN_PATH="$W/gstreamer-1.0" PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software \
+            xvfb-run -a /usr/bin/python3 -m pytest -q -rs -p no:cacheprovider -p razvrstitev_webkit --safeer-webkit=samo \
+            --safeer-del=${{ matrix.del }}/2 --safeer-trajanja=build/trajanja.json --safeer-padli=build/padli.json \
+            --continue-on-collection-errors --durations=15 tests/
+      - name: Memory of the runner after the tests
+        # Tek 40193737914 (25. 10. 2026): posel s celotnimi preizkusi je bil po 38 min ubit (exit 137, »runner has received
+        # a shutdown signal«) brez podatka o pomnilniku; vticnik izpise se najvecji RSS procesa preizkusov in otrok.
+        if: always()
+        run: grep -E '^(MemTotal|MemAvailable|SwapFree):' /proc/meminfo
+      - name: Test durations (tests/razvrstitev_webkit.py zdruzi -> tests/trajanja_preizkusov.json)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trajanja-webkit-${{ matrix.del }}
+          path: build/trajanja.json
+          if-no-files-found: ignore
+          retention-days: 14
+          overwrite: true
+      - name: Failed tests for the next run of this branch (this part)
+        if: always() && hashFiles('build/padli.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/padli.json
+          key: padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
   release:
     # Beta oznake (v1.0.128-beta.1) gredo v posel beta-izdaja (osnutek predizdaje), nikoli v stabilno izdajo.
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-beta.')
-    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
+    needs: [hitra-vrata, preizkusi-webkit, brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
@@ -1312,9 +1654,9 @@ jobs:
         run: |
           mkdir -p release
           # Vsak artefakt je v svoji mapi.
-          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
-          # 1.0.132: AppImage s tujim WebKitom ne sme v izdajo (env SAFEER_APPIMAGE zgoraj).
-          if [ "$SAFEER_APPIMAGE" != 1 ] && ls release/*.AppImage 2>/dev/null; then echo "::error::AppImage v izdaji, SAFEER_APPIMAGE=$SAFEER_APPIMAGE"; exit 1; fi
+          # AppImage s tujim WebKitom ne sme v izdajo (od 1.0.132; CI ga ne gradi, glej zacetek datoteke).
+          if find artifacts -type f -name '*.AppImage' | grep .; then echo "::error::AppImage med artefakti izdaje"; exit 1; fi
+          find artifacts -type f \( -name '*.deb' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           # A tag push gets a draft with the packages attached. A published release is final: its files
           # are the ones that were tested and whose checksums are in the update manifest, so a re-run of
@@ -1334,7 +1676,7 @@ jobs:
     # zadnjo izdajo ostanejo na stabilni), Safeer OS pa jo ponudi samo uporabnikom z vklopljenim Beta kanalom - in sele,
     # ko je beta seznam (razlicice-beta.json, tools/beta_seznam.py) podpisan in na safeer.si.
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')
-    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
+    needs: [hitra-vrata, preizkusi-webkit, brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint, debian]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
@@ -1371,9 +1713,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
-          # 1.0.132: AppImage s tujim WebKitom ne sme v izdajo (env SAFEER_APPIMAGE zgoraj).
-          if [ "$SAFEER_APPIMAGE" != 1 ] && ls release/*.AppImage 2>/dev/null; then echo "::error::AppImage v izdaji, SAFEER_APPIMAGE=$SAFEER_APPIMAGE"; exit 1; fi
+          # AppImage s tujim WebKitom ne sme v izdajo (od 1.0.132; CI ga ne gradi, glej zacetek datoteke).
+          if find artifacts -type f -name '*.AppImage' | grep .; then echo "::error::AppImage med artefakti izdaje"; exit 1; fi
+          find artifacts -type f \( -name '*.deb' -o -name '*.flatpak' \) ! -name 'safeer-webkit_*' -exec mv -t release {} +
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --prerelease --verify-tag --title "Safeer $TAG (beta)" \

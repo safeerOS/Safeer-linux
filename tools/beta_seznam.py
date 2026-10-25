@@ -98,8 +98,8 @@ def zgradi_seznam(oznaka: str, mapa: str, zdaj: datetime, dni: int = 30, repo: s
         "safeer-browser": {"razlicica": brskalnik, "deb": vnos("safeer-browser_%s_amd64.deb" % brskalnik),
                            "flatpak": vnos("Safeer-Browser-%s-x86_64.flatpak" % brskalnik)},
     }
-    # AppImage samo, ce je v izdaji (od 1.0.132 se ne gradi, dokler ne nosi nasega WebKita - linux-packages.yml,
-    # SAFEER_APPIMAGE). Brez vnosa uporabnik AppImage dobi stran s prenosi, ne polovicne posodobitve.
+    # AppImage samo, ce je v izdaji (od 1.0.132 se ne gradi, dokler ne nosi nasega WebKita; od 25. 10. 2026 ga CI sploh
+    # ne gradi - linux-packages.yml). Brez vnosa uporabnik AppImage dobi stran s prenosi, ne polovicne posodobitve.
     for kljuc, ime in (("safeer-os", "Safeer-OS-%s-x86_64.AppImage" % razlicica_os),
                        ("safeer-browser", "Safeer-Browser-%s-x86_64.AppImage" % brskalnik)):
         if os.path.isfile(os.path.join(mapa, ime)) or ime in sums:     # v SHA256SUMS, a manjka: napaka (vnos)
