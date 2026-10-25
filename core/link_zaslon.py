@@ -28,7 +28,7 @@ import ssl
 import subprocess
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from core import link_kazalec, link_vticnik, link_zaslon_meritve, link_zaslon_profil
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
@@ -112,6 +112,8 @@ PREVERI_PREVZETE_S = 0.2
 UTRIP_S = 0.5
 #: Nit meritev: TCP_INFO vticnice seje enkrat na sekundo, vrstica v dnevnik vsakih 10 s. Na vticnico ne pise nikoli.
 MERITVE_S = 1.0
+#: Straza dostopa: tako pogosto seja preveri, ali ima naprava se upravljanje tega racunalnika (Zaslon.dostop).
+DOSTOP_PREVERI_S = 1.0
 MERITVE_DNEVNIK_S = 10.0
 #: Povzetek vsake seje gre v dnevnik, seje s sliko pa se kot ena vrstica JSON v
 #: <link_hub.NASTAVITVE_MAPA>/meritve/zaslon-seje.jsonl; SAFEER_ZASLON_MERITVE pove drugo pot.
@@ -667,6 +669,10 @@ class Zaslon:
         self.vrata = 0
         self._zeton = ""
         self._naprava = ""
+        #: Ali ima naprava se upravljanje tega racunalnika (core/link_dostop ZASLON); nastavi ga Control. Seja ga
+        #: preveri vsako DOSTOP_PREVERI_S in ob vsaki spremembi dostopa (preveri_dostop) - umik iz ozjega kroga ali
+        #: odvzem upravljanja sejo konca takoj, ne sele, ko gledalec odide (AGENTS.md, pravilo 25. 10. 2026 10:49).
+        self.dostop: Optional[Callable[[str], bool]] = None
         self._kakovost = PRIVZETA_KAKOVOST
         #: Omrezje gledalca, kot ga pove sam (`net` v screen.start): wifi, ethernet, 5g, 4g ... ali prazno.
         self._omrezje = ""
@@ -1264,6 +1270,9 @@ class Zaslon:
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
             niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,), kwargs={"meritve": meritve},
                                          name="safeer-zaslon-vnos", daemon=True))
+            if self.dostop is not None:
+                niti.append(threading.Thread(target=self._strazi_dostop, args=(seja, konec_seje),
+                                             name="safeer-zaslon-dostop", daemon=True))
             # Meritve: TCP_INFO in dnevnik (vedno; na vticnico ne pise), ping samo gledalcu, ki ga zna.
             niti.append(threading.Thread(target=self._meri, args=(odjemalec, meritve, konec_seje),
                                          name="safeer-zaslon-meritve", daemon=True))
@@ -1402,6 +1411,36 @@ class Zaslon:
             print("[zaslon] drugi zaslon je prazen (%s), seja koncana" % razlog, flush=True)
             self.ustavi()
             return
+
+    def _strazi_dostop(self, seja: int, konec: threading.Event) -> None:
+        """Dokler tece seja: naprava brez upravljanja tega racunalnika (umik iz kroga, odvzem v drugem programu) jo konca."""
+        while not konec.wait(DOSTOP_PREVERI_S):
+            if self._seja_st != seja or self.preveri_dostop(seja):
+                return
+
+    def preveri_dostop(self, seja: Optional[int] = None) -> bool:
+        """Ce naprava tekoce seje nima vec upravljanja tega racunalnika, sejo konca (gledalec dobi {"konec": "dostop"}).
+        True, ce je bila seja koncana. Klice ga straza seje in Safeer Link takoj po spremembi dostopa."""
+        preveri, naprava = self.dostop, self._naprava
+        if preveri is None or not naprava or not (self._povezan or self._posluh is not None):
+            return False
+        try:
+            ima = bool(preveri(naprava))
+        except Exception:  # noqa: BLE001 - zapisa dovoljenj ni mogoce prebrati: varna stran (link_dostop »ne vem« ni »da«)
+            ima = False
+        if ima:
+            return False
+        if seja is not None and self._seja_st != seja:
+            return False
+        odjemalec = self._odjemalec
+        if odjemalec is not None:
+            try:
+                odjemalec.sendall(_okvir(OKVIR_OBVESTILO, json.dumps({"konec": "dostop"}).encode("utf-8")))
+            except (OSError, ssl.SSLError, ValueError):
+                pass
+        print("[zaslon] naprava nima vec upravljanja tega racunalnika (ozji krog), seja koncana", flush=True)
+        self.ustavi(seja=seja)
+        return True
 
     def _izid_zagona(self) -> str:
         """Izid zadnjega zagona na locenem zaslonu ("" | "koncan" | "na_namizju"); napaka pomeni »ne vemo«."""

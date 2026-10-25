@@ -22,6 +22,14 @@ JAZ = "n-cccccccccccccccc"    # ta racunalnik
 KLJUCI = {"KJAZ": JAZ, "KA": A, "KB": B, "KS": S}
 
 
+def zapis_pred_pravilom(device_id, crke):
+    """Zapis dovoljenj, kot je nastal pred pravilom ozjega kroga (25. 10. 2026 10:49): brez samodejnega upravljanja.
+    Preizkusi pravil dejanj (zaslon zahteva »z«, usklajevanje vse stiri) tako ostanejo preizkusi teh pravil - tudi za
+    stare zapise, ki jih pravilo ne siri samo. Pravilo samo: tests/test_ozji_krog_upravljanje.py."""
+    with mock.patch.object(link_dostop, "ozji_krog", lambda dano: set(dano)):
+        return link_dostop.nastavi(device_id, crke)
+
+
 class _Krog:
     def __init__(self, clani=()):
         import threading
@@ -158,7 +166,7 @@ class Zapis(_Osnova):
         self.assertTrue(link_dostop.sme_dejanje(B, "play.state"))
         self.assertFalse(link_dostop.sme_dejanje(B, "apps.list"))
         self.assertFalse(link_dostop.sme_sporocilo(B, "sync.data"))     # usklajevanje samo ozji krog (vse stiri)
-        self.assertEqual(link_dostop.vsi(), {B: "dv"})
+        self.assertEqual(link_dostop.vsi(), {B: "dvz"})                 # ozji krog: tudi upravljanje (ozji_krog)
         link_dostop.nastavi(B, "")
         self.assertFalse(link_dostop.sme_dejanje(B, "files.list"))
 
@@ -187,7 +195,7 @@ class Zapis(_Osnova):
         pot = link_dostop._pot()
         self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
         link_dostop._za_preizkus(pot)                   # kot nov zagon programa: zapis se prebere z diska
-        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
 
     def test_pokvarjen_zapis_ne_odpre_nicesar(self):
         link_dostop.nastavi(B, "dpvz")
@@ -214,7 +222,7 @@ class Zascita(_Osnova):
     brez nje ne more vec javiti - tudi nihce v njenem imenu."""
 
     def test_po_vzpostavljeni_zasciti_nezascitenega_ukaza_ne_sprejmemo(self):
-        link_dostop.nastavi(A, "dp")
+        zapis_pred_pravilom(A, "dp")
         self.assertTrue(link_dostop.sme_dejanje(A + "-os", "files.list"))               # starejsa razlicica: po oznaki
         link_dostop.zabelezi_zascito(A)
         self.assertTrue(link_dostop.zahteva_zascito(A + "-os"))
@@ -379,7 +387,7 @@ class VecProgramov(_Osnova):
         self.assertEqual(klici, [1])
         link_dostop._za_preizkus(pot)                   # kot nov zagon programa: stanje z diska
         self.assertEqual(link_dostop.zmoznosti(B), set("dpvz"))
-        self.assertEqual(link_dostop.zmoznosti(A), {"d"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"d", "z"})
         self.assertTrue(link_dostop.zna_zascito(A))
 
     def test_dva_programa_hkrati_ne_pokvarita_zapisa(self):
@@ -441,7 +449,7 @@ class VecProgramov(_Osnova):
         link_dostop.nastavi(B, "p")                     # naslednji zapis zascito vrne tudi na disk
         with open(pot, encoding="utf-8") as d:
             zapis = json.load(d)
-        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "p"}))
+        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "pz"}))
 
     def test_sprememba_drugega_programa_v_istem_trenutku_se_opazi(self):
         """Dva zapisa v istem trenutku imata lahko isti cas spremembe: spremembo drugega programa moramo vseeno opaziti
@@ -536,7 +544,7 @@ class PetiPregled(_Osnova):
             self.assertTrue(link_dostop.zna_zascito(A))
         with open(pot, encoding="utf-8") as d:
             self.assertEqual(d.read(), prej)
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "p"}))     # spet berljiv
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "p", "z"}))     # spet berljiv
 
     def test_napaka_pri_branju_ni_prvi_zagon(self):
         """Zapis je neberljiv IN pisati se ne da (disk samo za branje): prej je program takrat v pomnilniku znova
@@ -573,7 +581,7 @@ class PetiPregled(_Osnova):
             self.assertLess(trajalo, 3)
         finally:
             os.close(rocaj)
-        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
 
 
 class SestiPregled(_Osnova):
@@ -602,9 +610,9 @@ class SestiPregled(_Osnova):
         with mock.patch.object(link_dostop.os, "fsync", fsync):
             self.assertTrue(link_dostop.nastavi(B, "d"))
         self.assertEqual(klici, [1])
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d"}))
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "z"}))
         link_dostop._za_preizkus(pot)                           # kot nov zagon programa: stanje z diska
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d"}))
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "z"}))
         self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
 
     def test_brez_podpore_za_zaklep_pisanje_ne_caka(self):
@@ -617,7 +625,7 @@ class SestiPregled(_Osnova):
             self.assertTrue(link_dostop.nastavi(B, "p"))
             trajalo = time.monotonic() - zacetek
         self.assertLess(trajalo, 0.5)
-        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p", "z"})
 
     def test_zapis_zascite_se_vrne_tudi_ko_je_zapis_izginil_in_ga_ni_bilo_mogoce_ustvariti(self):
         """Zapis izgine in ga takrat ni mogoce ustvariti znova (disk je poln). Ko disk spet dela, se zapis »zascita«
@@ -764,7 +772,7 @@ class RacunalnikZavrneSam(_Osnova):
 
     def test_usklajevanje_samo_od_ozjega_kroga(self):
         self.link._na_sporocilo_huba({"type": "sync.data", "sender": B, "payload": {"category": "bookmarks"}})
-        link_dostop.nastavi(B, "dpv")          # tri od stirih: se vedno ni ozji krog
+        zapis_pred_pravilom(B, "dpv")          # star zapis, tri od stirih: se vedno ni ozji krog
         self.link._na_sporocilo_huba({"type": "sync.data", "sender": B, "payload": {"category": "bookmarks"}})
         self.link._na_sporocilo_huba({"type": "sync.data", "payload": {"category": "bookmarks"}})   # brez posiljatelja
         self.link._prejmi_zaznamke.assert_not_called()

@@ -43,7 +43,9 @@ class ZaslonSamoZDovoljenjem(unittest.TestCase):
         with mock.patch.object(link_dostop, "_lastni_kljuc", lambda: None), \
                 mock.patch.object(link_dostop, "_krog", side_effect=RuntimeError("brez kroga")):
             self.assertFalse(link_dostop.sme_dejanje(naprava, "screen.start", zascita=naprava))
-            link_dostop.nastavi(naprava, "dpv")
+            # Star zapis brez upravljanja (pred pravilom ozjega kroga 25. 10. 2026): zaslon ostane zaprt.
+            with mock.patch.object(link_dostop, "ozji_krog", lambda dano: set(dano)):
+                link_dostop.nastavi(naprava, "dpv")
             self.assertFalse(link_dostop.sme_dejanje(naprava, "screen.start", zascita=naprava))
             link_dostop.nastavi(naprava, "z")
             self.assertTrue(link_dostop.sme_dejanje(naprava, "screen.start", zascita=naprava))

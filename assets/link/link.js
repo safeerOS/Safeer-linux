@@ -929,8 +929,8 @@
       dostopProgramiOpis: "Seznam programov in njihov zagon.",
       dostopPredvajalnik: "Predvajalnik",
       dostopPredvajalnikOpis: "Kaj predvajam, nadaljevanje predvajanja in vsebina, ki se tu odpre sama.",
-      dostopZaslon: "Zaslon in upravljanje",
-      dostopZaslonOpis: "Ogled zaslona, miška in tipkovnica.",
+      dostopZaslon: "Ožji krog: upravljanje in Safeer Vnos",
+      dostopZaslonOpis: "Ogled zaslona tega računalnika, miška in tipkovnica. Vklopi se z vsakim dovoljenjem spodaj; izklop vzame ves dostop.",
       dostopBrez: "Brez dostopa: naprava samo pomaga pri povezavi in ti lahko kaj pošlje.",
       dostopShranjeno: "Shranjeno.",
       dostopPoln: "poln dostop",
@@ -1004,8 +1004,8 @@
       dostopProgramiOpis: "The list of apps and starting them.",
       dostopPredvajalnik: "Player",
       dostopPredvajalnikOpis: "What I am playing, continuing playback and content that opens here by itself.",
-      dostopZaslon: "Screen and control",
-      dostopZaslonOpis: "Viewing the screen, mouse and keyboard.",
+      dostopZaslon: "Inner circle: control and Safeer Input",
+      dostopZaslonOpis: "Viewing this computer’s screen, mouse and keyboard. Turns on with any permission below; turning it off removes all access.",
       dostopBrez: "No access: the device only helps with the connection and can send you things.",
       dostopShranjeno: "Saved.",
       dostopPoln: "full access",
@@ -1072,8 +1072,8 @@
       dostopProgramiOpis: "Programmliste und Starten von Programmen.",
       dostopPredvajalnik: "Player",
       dostopPredvajalnikOpis: "Was ich abspiele, Fortsetzen der Wiedergabe und Inhalte, die sich hier von selbst öffnen.",
-      dostopZaslon: "Bildschirm und Steuerung",
-      dostopZaslonOpis: "Bildschirm ansehen, Maus und Tastatur.",
+      dostopZaslon: "Enger Kreis: Steuerung und Safeer Eingabe",
+      dostopZaslonOpis: "Bildschirm dieses Computers ansehen, Maus und Tastatur. Schaltet sich mit jeder Berechtigung unten ein; Ausschalten entzieht jeden Zugriff.",
       dostopBrez: "Kein Zugriff: Das Gerät hilft nur bei der Verbindung und kann dir etwas senden.",
       dostopShranjeno: "Gespeichert.",
       dostopPoln: "voller Zugriff",
@@ -1140,8 +1140,8 @@
       dostopProgramiOpis: "La lista de programas y su inicio.",
       dostopPredvajalnik: "Reproductor",
       dostopPredvajalnikOpis: "Lo que reproduzco, continuar la reproducción y contenido que se abre aquí solo.",
-      dostopZaslon: "Pantalla y control",
-      dostopZaslonOpis: "Ver la pantalla, ratón y teclado.",
+      dostopZaslon: "Círculo de confianza: control y Safeer Entrada",
+      dostopZaslonOpis: "Ver la pantalla de este ordenador, ratón y teclado. Se activa con cualquier permiso de abajo; desactivarlo quita todo el acceso.",
       dostopBrez: "Sin acceso: el dispositivo solo ayuda con la conexión y puede enviarte cosas.",
       dostopShranjeno: "Guardado.",
       dostopPoln: "acceso completo",
@@ -1208,8 +1208,8 @@
       dostopProgramiOpis: "La liste des programmes et leur lancement.",
       dostopPredvajalnik: "Lecteur",
       dostopPredvajalnikOpis: "Ce que je lis, la reprise de la lecture et le contenu qui s'ouvre ici tout seul.",
-      dostopZaslon: "Écran et contrôle",
-      dostopZaslonOpis: "Voir l'écran, souris et clavier.",
+      dostopZaslon: "Cercle de confiance : contrôle et Safeer Saisie",
+      dostopZaslonOpis: "Voir l'écran de cet ordinateur, souris et clavier. S'active avec toute autorisation ci-dessous ; le désactiver retire tout accès.",
       dostopBrez: "Aucun accès : l'appareil aide seulement à la connexion et peut vous envoyer des choses.",
       dostopShranjeno: "Enregistré.",
       dostopPoln: "accès complet",
@@ -1276,8 +1276,8 @@
       dostopProgramiOpis: "L'elenco dei programmi e il loro avvio.",
       dostopPredvajalnik: "Lettore",
       dostopPredvajalnikOpis: "Cosa sto riproducendo, continuare la riproduzione e contenuti che si aprono qui da soli.",
-      dostopZaslon: "Schermo e controllo",
-      dostopZaslonOpis: "Vedere lo schermo, mouse e tastiera.",
+      dostopZaslon: "Cerchia ristretta: controllo e Safeer Input",
+      dostopZaslonOpis: "Vedere lo schermo di questo computer, mouse e tastiera. Si attiva con qualsiasi permesso qui sotto; disattivarlo toglie ogni accesso.",
       dostopBrez: "Nessun accesso: il dispositivo aiuta solo con la connessione e può inviarti qualcosa.",
       dostopShranjeno: "Salvato.",
       dostopPoln: "accesso completo",
@@ -3479,9 +3479,19 @@
     besedilo("dostopOpomba", ima ? "" : t("dostopBrez"));
   }
 
-  function shraniDostop() {
+  function shraniDostop(e) {
     var n = deljenje.naprava;
     if (!znaDostop(n)) return;
+    // Ozji krog (lastnik 25. 10. 2026 10:49): vsako dovoljenje vklopi tudi upravljanje in Safeer Vnos (»z«), izklop »z«
+    // vzame ves dostop - ena privolitev, brez locenega stikala (isto pravilo v core/link_dostop.ozji_krog).
+    var gumb = e && e.target, z = el("dostop_z");
+    if (gumb && z) {
+      if (gumb === z && !z.checked) {
+        for (var k = 0; k < DOSTOP_CRKE.length; k++) { var o = el("dostop_" + DOSTOP_CRKE[k]); if (o) o.checked = false; }
+      } else if (gumb !== z && gumb.checked) {
+        z.checked = true;
+      }
+    }
     var crke = "";
     for (var i = 0; i < DOSTOP_CRKE.length; i++) {
       var s = el("dostop_" + DOSTOP_CRKE[i]);

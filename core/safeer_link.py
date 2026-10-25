@@ -2493,6 +2493,14 @@ class SafeerLink:
         # Za vsako oznako iste naprave (odobritev iz obvestila pozna samo jedro, okno pa oznako programa).
         for i in idji:
             self._odziv("dostop", {"id": i, "ok": bool(ok), **_dostop_naprave(i)})
+        # Umik iz ozjega kroga ali odvzem upravljanja velja TAKOJ tudi za tekoco sejo zaslona (AGENTS.md: umik preklice
+        # zetone in seje). Zetoni datotek se preverijo ob vsaki zahtevi (link_datoteke.zeton_velja).
+        zaslon = getattr(self, "zaslon", None)
+        if zaslon is not None and hasattr(zaslon, "preveri_dostop"):
+            try:
+                zaslon.preveri_dostop()
+            except Exception as e:  # noqa: BLE001 - seja ostane pod strazo (vsako sekundo)
+                print(f"[SafeerLink] Preverba seje zaslona: {e}")
 
     def odobri_prosnjo_dostopa(self, jedro: str, zmoznost: str) -> bool:
         """»Dovoli« v obvestilu na tem racunalniku (klik uporabnika - glej safeer_control): napravi doda samo zaprošene
