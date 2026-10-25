@@ -933,6 +933,7 @@
       dostopZaslonOpis: "Zaslon, miška in tipkovnica tega računalnika ter domača mapa (brez skritih map in ključev). Vklopi se z vsakim dovoljenjem spodaj; izklop vzame ves dostop.",
       dostopBrez: "Brez dostopa: naprava samo pomaga pri povezavi in ti lahko kaj pošlje.",
       dostopShranjeno: "Shranjeno.",
+      dostopNapaka: "Dostopa ni bilo mogoče shraniti. Velja to, kar je prikazano; poskusi znova.",
       dostopPoln: "poln dostop",
       dostopDelni: "delni dostop",
       dostopSamoPomaga: "samo pomaga",
@@ -1008,6 +1009,7 @@
       dostopZaslonOpis: "This computer’s screen, mouse and keyboard and the home folder (without hidden folders and keys). Turns on with any permission below; turning it off removes all access.",
       dostopBrez: "No access: the device only helps with the connection and can send you things.",
       dostopShranjeno: "Saved.",
+      dostopNapaka: "Access could not be saved. What is shown applies; try again.",
       dostopPoln: "full access",
       dostopDelni: "partial access",
       dostopSamoPomaga: "helps only",
@@ -1076,6 +1078,7 @@
       dostopZaslonOpis: "Bildschirm, Maus und Tastatur dieses Computers und der persönliche Ordner (ohne versteckte Ordner und Schlüssel). Schaltet sich mit jeder Berechtigung unten ein; Ausschalten entzieht jeden Zugriff.",
       dostopBrez: "Kein Zugriff: Das Gerät hilft nur bei der Verbindung und kann dir etwas senden.",
       dostopShranjeno: "Gespeichert.",
+      dostopNapaka: "Der Zugriff konnte nicht gespeichert werden. Es gilt, was angezeigt wird; versuche es erneut.",
       dostopPoln: "voller Zugriff",
       dostopDelni: "teilweiser Zugriff",
       dostopSamoPomaga: "hilft nur",
@@ -1144,6 +1147,7 @@
       dostopZaslonOpis: "Pantalla, ratón y teclado de este ordenador y la carpeta personal (sin carpetas ocultas ni claves). Se activa con cualquier permiso de abajo; desactivarlo quita todo el acceso.",
       dostopBrez: "Sin acceso: el dispositivo solo ayuda con la conexión y puede enviarte cosas.",
       dostopShranjeno: "Guardado.",
+      dostopNapaka: "No se pudo guardar el acceso. Vale lo que se muestra; inténtalo de nuevo.",
       dostopPoln: "acceso completo",
       dostopDelni: "acceso parcial",
       dostopSamoPomaga: "solo ayuda",
@@ -1212,6 +1216,7 @@
       dostopZaslonOpis: "Écran, souris et clavier de cet ordinateur et le dossier personnel (sans dossiers cachés ni clés). S'active avec toute autorisation ci-dessous ; le désactiver retire tout accès.",
       dostopBrez: "Aucun accès : l'appareil aide seulement à la connexion et peut vous envoyer des choses.",
       dostopShranjeno: "Enregistré.",
+      dostopNapaka: "L'accès n'a pas pu être enregistré. Ce qui est affiché s'applique ; réessaie.",
       dostopPoln: "accès complet",
       dostopDelni: "accès partiel",
       dostopSamoPomaga: "aide seulement",
@@ -1280,6 +1285,7 @@
       dostopZaslonOpis: "Schermo, mouse e tastiera di questo computer e la cartella home (senza cartelle nascoste né chiavi). Si attiva con qualsiasi permesso qui sotto; disattivarlo toglie ogni accesso.",
       dostopBrez: "Nessun accesso: il dispositivo aiuta solo con la connessione e può inviarti qualcosa.",
       dostopShranjeno: "Salvato.",
+      dostopNapaka: "Non è stato possibile salvare l'accesso. Vale ciò che è mostrato; riprova.",
       dostopPoln: "accesso completo",
       dostopDelni: "accesso parziale",
       dostopSamoPomaga: "aiuta soltanto",
@@ -3246,10 +3252,16 @@
         // Klik na obvestilo »naprava prosi za dostop«: seznam naprav (safeer_control.dostop_odpri_naprave).
         if (stanje.control && typeof podatki === "string") izberiRazdelek(podatki);
       } else if (vrsta === "dostop") {
-        // Dostop naprave se je spremenil (stikala ali »Dovoli« v obvestilu): odprta plosca pokaze novo stanje.
-        if (podatki && deljenje.naprava && deljenje.naprava.id === podatki.id && podatki.ok) {
+        // Dostop naprave se je spremenil (stikala ali »Dovoli« v obvestilu): odprta plosca pokaze DEJANSKO stanje iz
+        // zapisa racunalnika. Ce shranjevanje ni uspelo, stikala pokazejo, kar velja, in uporabnik vidi napako (sedmi
+        // pregled, 25. 10. 2026: prej je plosca kazala izbiro in »Shranjeno«, ceprav odvzem ni bil zapisan).
+        if (podatki && deljenje.naprava && deljenje.naprava.id === podatki.id) {
           deljenje.naprava.dostop = String(podatki.dostop || "");
           pokaziDostop(deljenje.naprava);
+          if (znaDostop(deljenje.naprava)) {
+            besedilo("dostopOpomba", !podatki.ok ? t("dostopNapaka")
+              : (deljenje.naprava.dostop ? t("dostopShranjeno") : t("dostopBrez")));
+          }
         }
       } else if (vrsta === "naprave") {
         stanje.naprave = podatki || [];
@@ -3497,8 +3509,8 @@
       var s = el("dostop_" + DOSTOP_CRKE[i]);
       if (s && s.checked) crke += DOSTOP_CRKE[i];
     }
-    n.dostop = crke;
-    besedilo("dostopOpomba", crke ? t("dostopShranjeno") : t("dostopBrez"));
+    // »Shranjeno« pove sele odgovor racunalnika (dogodek "dostop" z dejanskim stanjem), ne izbira sama.
+    besedilo("dostopOpomba", "");
     most.nastaviDostop(n.id, crke);
   }
 

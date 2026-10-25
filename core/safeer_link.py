@@ -396,6 +396,8 @@ class SafeerLink:
         self.datoteke = None
         self.programi = None
         self.zaslon = None
+        # Odvzem dostopa (okno, umik iz kroga, odjava) takoj konca, kar za napravo tece (_ob_odvzemu_dostopa).
+        link_dostop.ob_odvzemu(self._ob_odvzemu_dostopa)
         # Safeer Control: kaj racunalnik predvaja, za »Nadaljuj z druge naprave« (core/link_predvajanje.Predvajanje).
         self.predvajanje = None
         # Safeer Control: zvok racunalnika na napravi v Linku (core/link_zvok.ZvokNaNapravo).
@@ -1913,7 +1915,14 @@ class SafeerLink:
                 except Exception as e:  # noqa: BLE001
                     print(f"[SafeerLink] Odgovora na ukaz ni bilo mogoče poslati: {e}")
 
-        if not link_dostop.sme_dejanje(posiljatelj, dejanje, zascita=sporocilo.get("_zascita")):
+        zascita = str(sporocilo.get("_zascita") or "")
+        if zascita and not link_dostop.ujema_zascito(posiljatelj, zascita):
+            # Oznako zascitenega ukaza vpise preverjena seja; ce ne pripada kljucu, ukaz ni od naprave, za katero se
+            # izdaja (sedmi pregled, 25. 10. 2026). Seja zaslona bi sicer veljala za drugo oznako kot dovoljenje.
+            link_dostop.zabelezi(posiljatelj, f"{dejanje} (oznaka ne pripada kljucu)")
+            koncaj(link_dostop.zavrnitev(dejanje))
+            return
+        if not link_dostop.sme_dejanje(posiljatelj, dejanje, zascita=zascita or None):
             # Naprava je v Safeer Linku (pomaga pri povezavi), a ji uporabnik tega na TEM racunalniku ni odprl:
             # zavrne racunalnik sam, ne glede na to, kaj druga naprava kaze ali skriva.
             link_dostop.zabelezi(posiljatelj, dejanje)
@@ -1928,10 +1937,17 @@ class SafeerLink:
             return
 
         def izvedi() -> bool:
+            # Dovoljenje je bilo preverjeno na bralni niti; do izvedbe na glavni niti ga je uporabnik morda vzel (umik
+            # iz ozjega kroga) - preverimo znova tik pred izvedbo (sedmi pregled, 25. 10. 2026: TOCTOU).
+            if not link_dostop.sme_dejanje(posiljatelj, dejanje, zascita=zascita or None):
+                link_dostop.zabelezi(posiljatelj, dejanje)
+                koncaj(link_dostop.zavrnitev(dejanje))
+                return False
             if self.control:
                 link_daljinec.izvedi_control(dejanje, parametri, self.odpri_naslov, koncaj,
                                              datoteke=self.datoteke, posiljatelj=posiljatelj, hub_url=self._hub(),
-                                             programi=self.programi, zaslon=self.zaslon, predvajanje=self.predvajanje)
+                                             programi=self.programi, zaslon=self.zaslon, predvajanje=self.predvajanje,
+                                             zascita=zascita)
                 return False
             if self.starsevsko is None:
                 koncaj(link_daljinec.izid(False, "Brskalnik ni odprt"))
@@ -2470,7 +2486,8 @@ class SafeerLink:
         """Uporabnik je v oknu Safeer Link napravi dolocil, kaj ji ta racunalnik odpre (core/link_dostop)."""
         id_naprave = str(id_naprave or "")
         try:
-            ok = link_dostop.nastavi(id_naprave, link_dostop.iz_niza(str(crke or "")))
+            # Stikala okna so izrecna privolitev: katerokoli dovoljenje da ozji krog (link_dostop.nastavi_ozji_krog).
+            ok = link_dostop.nastavi_ozji_krog(id_naprave, link_dostop.iz_niza(str(crke or "")))
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Dostopa ni bilo mogoče shraniti: {e}")
             ok = False
@@ -2493,14 +2510,40 @@ class SafeerLink:
         # Za vsako oznako iste naprave (odobritev iz obvestila pozna samo jedro, okno pa oznako programa).
         for i in idji:
             self._odziv("dostop", {"id": i, "ok": bool(ok), **_dostop_naprave(i)})
-        # Umik iz ozjega kroga ali odvzem upravljanja velja TAKOJ tudi za tekoco sejo zaslona (AGENTS.md: umik preklice
-        # zetone in seje). Zetoni datotek se preverijo ob vsaki zahtevi (link_datoteke.zeton_velja).
+        # Umik iz ozjega kroga (izklop stikala »Ozji krog« vzame ves dostop - upravljanja ni mogoce vzeti posebej)
+        # velja TAKOJ tudi za tekoco sejo zaslona (AGENTS.md: umik preklice zetone in seje). Odvzem sam konca se
+        # zetone in Teamwork (_ob_odvzemu_dostopa, ki ga poklice core/link_dostop). Ne na glavni niti: konec seje
+        # caka na zajem (do 3 s) in na gledalca (link_zaslon.OBVESTILO_ROK_S).
         zaslon = getattr(self, "zaslon", None)
         if zaslon is not None and hasattr(zaslon, "preveri_dostop"):
-            try:
-                zaslon.preveri_dostop()
-            except Exception as e:  # noqa: BLE001 - seja ostane pod strazo (vsako sekundo)
-                print(f"[SafeerLink] Preverba seje zaslona: {e}")
+            self._v_ozadju(lambda: self._preveri_sejo_zaslona(zaslon))
+
+    @staticmethod
+    def _preveri_sejo_zaslona(zaslon) -> None:
+        try:
+            zaslon.preveri_dostop()
+        except Exception as e:  # noqa: BLE001 - seja ostane pod strazo (vsako sekundo)
+            print(f"[SafeerLink] Preverba seje zaslona: {e}")
+
+    def _ob_odvzemu_dostopa(self, jedro: str) -> None:
+        """core/link_dostop.ob_odvzemu: napravi je bilo kaj vzeto (okno Link, umik iz Safeer Linka, odjava - katerakoli
+        nit). Kar zanjo tece in nima vec dovoljenja, se konca takoj: seja zaslona z vnosom, zetoni streznika datotek
+        (tudi tekoci prenosi in tokovi, ki zeton preverijo med posiljanjem) in Teamwork (AGENTS.md, sedmi pregled)."""
+        def delo() -> None:
+            zaslon = getattr(self, "zaslon", None)
+            if zaslon is not None and hasattr(zaslon, "preveri_dostop"):
+                self._preveri_sejo_zaslona(zaslon)
+            datoteke = getattr(self, "datoteke", None)
+            if datoteke is not None and hasattr(datoteke, "preklici_napravo"):
+                try:
+                    datoteke.preklici_napravo(jedro)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[SafeerLink] Zetoni naprave ob odvzemu: {e}")
+        self._v_ozadju(delo)
+        if threading.current_thread() is not threading.main_thread():
+            # Umik iz kroga ali drug program: seznam naprav in okno dobita novo stanje (stikala in odobritve osvezijo
+            # seznam same, na glavni niti).
+            GLib.idle_add(lambda: (self._po_spremembi_dostopa(jedro, True), False)[1])
 
     def odobri_prosnjo_dostopa(self, jedro: str, zmoznost: str) -> bool:
         """»Dovoli« v obvestilu na tem racunalniku (klik uporabnika - glej safeer_control): napravi doda samo zaprošene

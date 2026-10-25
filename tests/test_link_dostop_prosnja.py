@@ -472,9 +472,12 @@ class Obvestilo(unittest.TestCase):
                                            "(miška, tipkovnica) in tvoje mape (brez skritih map in ključev).")
         o.set_default_action.assert_called_once_with("app.dostop-naprave")
         # Varna izbira prva (pregled 18. 10. 2026), klik na obvestilo odpre seznam naprav - nikoli ne odobri.
+        # Gumba nosita enkraten zeton tega obvestila (sedmi pregled, 25. 10. 2026).
+        zeton = link_dostop._zetoni_gumbov[A]
+        self.assertGreaterEqual(len(zeton), 20)
         self.assertEqual([c.args for c in o.add_button_with_target.call_args_list],
-                         [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|d")),
-                          ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|d"))])
+                         [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|d|" + zeton)),
+                          ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|d|" + zeton))])
         app.send_notification.assert_called_once_with(ident, o)
 
     def test_anglesko_in_neznan_jezik(self):
@@ -500,13 +503,19 @@ class Obvestilo(unittest.TestCase):
         link_dostop.registriraj_dejanja(app, Gio, GLib, dovoli, zavrni, odpri)
         self.assertEqual(set(dejanja), {"dostop-dovoli", "dostop-zavrni", "dostop-naprave"})
         self.assertEqual(app.add_action.call_count, 3)
-        for slab in ("", "karkoli", A + "|*", A + "-os|d", A + "|dd", A + "|dx", A + "|", None):
+        zeton = link_dostop._nov_zeton_gumbov(A)            # obvestilo, ki ga je ta program pokazal
+        for slab in ("", "karkoli", A + "|*", A + "-os|d", A + "|dd", A + "|dx", A + "|", None, A + "|p",
+                     A + "|p|", A + "|p|napacen", A + "|p|" + zeton + "x", A + "|*|" + zeton):
             dejanja["dostop-dovoli"](None, slab)
-        dovoli.assert_not_called()
-        dejanja["dostop-dovoli"](None, mock.Mock(get_string=lambda: A + "|p"))
+        dovoli.assert_not_called()                          # tudi pravilna oblika brez pravega zetona ne odobri
+        dejanja["dostop-dovoli"](None, mock.Mock(get_string=lambda: A + "|p|" + zeton))
         dovoli.assert_called_once_with(A, "p")
         app.withdraw_notification.assert_called_once_with("safeer-dostop-" + A)
+        dejanja["dostop-dovoli"](None, A + "|p|" + zeton)  # zeton je enkraten
+        dovoli.assert_called_once()
         dejanja["dostop-zavrni"](None, A + "|d")
+        zavrni.assert_not_called()
+        dejanja["dostop-zavrni"](None, A + "|d|" + link_dostop._nov_zeton_gumbov(A))
         zavrni.assert_called_once_with(A, "d")
         dejanja["dostop-naprave"](None, None)
         odpri.assert_called_once_with()
@@ -531,7 +540,7 @@ class VecProgramovZavrnjeno(_Osnova):
         zapis = self._zapis()
         self.assertEqual(zapis["novo_polje"], {"x": 1})
         self.assertEqual(zapis["zavrnjeno"], {A + "|p": ZDAJ})
-        self.assertEqual(zapis["naprave"], {A: "dz", DRUGI[0]: "dvz"})
+        self.assertEqual(zapis["naprave"], {A: "d", DRUGI[0]: "v"})
 
     def test_zavrnitev_ne_povozi_spremembe_drugega_programa_tik_pred_zamenjavo(self):
         link_dostop.nastavi(A, "dpvz")
@@ -556,7 +565,7 @@ class VecProgramovZavrnjeno(_Osnova):
         zapis = self._zapis()
         self.assertEqual(zapis["naprave"][A], "")
         self.assertEqual(zapis["zavrnjeno"], {DRUGI[1] + "|d": ZDAJ, A + "|p": ZDAJ + 1})
-        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
+        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock", "dostop.json.podedovano"])
 
     def test_dva_programa_hkrati_ne_izgubita_zavrnitev_ne_dovoljenj(self):
         """Pravi drug proces 100-krat spremeni dostop, ta proces medtem 100-krat zabelezi zavrnitev: na koncu so v
@@ -598,7 +607,7 @@ class VecProgramovZavrnjeno(_Osnova):
         zapis = self._zapis()
         self.assertEqual(sorted(zapis["naprave"]), sorted([A] + ["n-%016x" % (0x3000 + i) for i in range(100)]))
         self.assertEqual(sorted(zapis["zavrnjeno"]), sorted("n-%016x|d" % (0x4000 + i) for i in range(100)))
-        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
+        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock", "dostop.json.podedovano"])
 
 
 class Zdruzevanje(_Osnova):
@@ -647,9 +656,10 @@ class Zdruzevanje(_Osnova):
         idji = {link_dostop.poslji_obvestilo(app, Gio, GLib, p, "sl") for p in self.pokazano}
         self.assertEqual(idji, {"safeer-dostop-" + A})                  # isti id: namizje ga zamenja
         gumbi = [c.args for c in Gio.Notification.new.return_value.add_button_with_target.call_args_list[-2:]]
-        # Varna izbira prva (pregled 18. 10. 2026: privzeta izbira na daljincu je varna).
-        self.assertEqual(gumbi, [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|vd")),
-                                 ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|vd"))])
+        # Varna izbira prva (pregled 18. 10. 2026: privzeta izbira na daljincu je varna); zeton zadnjega obvestila.
+        zeton = link_dostop._zetoni_gumbov[A]
+        self.assertEqual(gumbi, [("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|vd|" + zeton)),
+                                 ("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|vd|" + zeton))])
 
     def test_razlicni_napravi_dve_obvestili(self):
         _vprasaj(A, "v", zdaj=ZDAJ)
@@ -760,9 +770,9 @@ class Zdruzevanje(_Osnova):
         for crka in "vzp":
             _vprasaj(A, crka, zdaj=ZDAJ)
         _vprasaj(DRUGI[0], "d", zdaj=ZDAJ)
-        dejanja["dostop-dovoli"](None, A + "|vzp")
+        dejanja["dostop-dovoli"](None, A + "|vzp|" + link_dostop._nov_zeton_gumbov(A))
         self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p", "d"})
-        dejanja["dostop-zavrni"](None, DRUGI[0] + "|d")
+        dejanja["dostop-zavrni"](None, DRUGI[0] + "|d|" + link_dostop._nov_zeton_gumbov(DRUGI[0]))
         self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 60)[0], "declined")
         self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), set())
 

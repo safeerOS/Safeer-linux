@@ -789,6 +789,23 @@ class Teamwork:
             self._posodobi_teamwork(s)
             return self._stanje_seje(s, posiljatelj)
 
+    def odjavi_napravo(self, pripada: Callable[[str], bool]) -> int:
+        """Naprava je izgubila dostop do datotek tega racunalnika (core/link_dostop.ob_odvzemu): iz vseh sej gre takoj -
+        drugi je ne vidijo vec kot sourednika, popravkov pa itak ne more vec poslati (zeton_velja z zmoznostjo datotek).
+        Vrne stevilo odjav."""
+        with self._zaklep:
+            seje = list(self._seje.values())
+        st = 0
+        for s in seje:
+            with s.zaklep:
+                idji = [i for i in list(s.udelezenci) if pripada(i)]
+                for i in idji:
+                    s.udelezenci.pop(i, None)
+                if idji:
+                    st += len(idji)
+                    self._posodobi_teamwork(s)
+        return st
+
     def _stanje_seje(self, s: _Seja, za: str) -> dict:
         urejajo = self._urejajo(s)
         return {"ok": True, "sha256": s.sha, "verzija": s.verzija, "ime": os.path.basename(s.pot),

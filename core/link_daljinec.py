@@ -257,10 +257,11 @@ def _lastni_naslovi(hub_url: str) -> list:
 
 def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], None],
                    koncaj: Callable[[dict], None], datoteke=None, posiljatelj: str = "",
-                   hub_url: str = "", programi=None, zaslon=None, predvajanje=None) -> None:
+                   hub_url: str = "", programi=None, zaslon=None, predvajanje=None, zascita: str = "") -> None:
     """Safeer Control (namizna aplikacija brez brskalnika): kar zna racunalnik brez brskalnika --
     glasnost, odpiranje strani v sistemskem brskalniku, stanje in seznam deljenih map
-    (`files.list`, core/link_datoteke.py, ce je `datoteke` podan). Vse drugo vrne razumljivo napako."""
+    (`files.list`, core/link_datoteke.py, ce je `datoteke` podan). Vse drugo vrne razumljivo napako.
+    `zascita`: jedro preverjenega kljuca posiljatelja (zasciten ukaz, core/link_e2e) ali "" - seja zaslona se veze nanj."""
     d = (dejanje or "").strip().lower()
     parametri = parametri if isinstance(parametri, dict) else {}
     try:
@@ -452,6 +453,11 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 threading.Thread(target=slicica, name="safeer-slicica-zaslona", daemon=True).start()
                 return
             if d == "screen.stop":
+                # Sejo konca samo naprava, ki jo je zacela (ali ta racunalnik): druga naprava iz ozjega kroga ne sme
+                # ustaviti tuje seje in zapreti njenih oken (sedmi pregled, 25. 10. 2026).
+                if hasattr(zaslon, "sme_ustaviti") and not zaslon.sme_ustaviti(posiljatelj, zascita):
+                    koncaj(izid(False, "Deljenja zaslona ni zacela ta naprava", koda="ni_seje"))
+                    return
                 # Uporabnik je na televizorju koncal program: zapremo ga tudi na racunalniku
                 # (samo okna na locenem zaslonu - kar je odprto na namizju, ostane).
                 drugi = getattr(zaslon, "drugi", None)
@@ -486,6 +492,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if isinstance(parametri.get("caps"), list):
                 # Kaj naprava zna (npr. "handoff": preklop na namizje, kadar je program odprt tam).
                 dodatno["zmoznosti"] = [str(z)[:32] for z in parametri["caps"][:16] if isinstance(z, str)]
+            if zascita:
+                # Straza seje preverja dostop po jedru preverjenega kljuca, ne po oznaki posiljatelja.
+                dodatno["jedro"] = str(zascita)
             try:
                 seja = zaslon.zacni(posiljatelj, kakovost, cilj, **dodatno)
             except RuntimeError as e:

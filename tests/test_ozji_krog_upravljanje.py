@@ -27,12 +27,13 @@ class Pravilo(unittest.TestCase):
 
 class EnaPrivolitev(_Osnova):
     def test_katerokoli_dovoljenje_odpre_upravljanje_in_vnos(self):
-        self.assertTrue(link_dostop.nastavi(B, "d"))
+        # Stikala okna Link (izrecna privolitev): nastavi_ozji_krog; nastavi sam je natancen (test_ozji_krog_pregled7).
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "d"))
         self.assertEqual(link_dostop.zmoznosti(B), {"d", "z"})
         self.assertTrue(link_dostop.sme_dejanje(B, "screen.start"))
         self.assertTrue(link_dostop.sme_dejanje(B, "input.key"), "Safeer Vnos z isto privolitvijo")
         self.assertFalse(link_dostop.sme_dejanje(B, "apps.list"), "drugih zmoznosti ne doda")
-        link_dostop.nastavi(B, "")
+        link_dostop.nastavi_ozji_krog(B, "")
         self.assertEqual(link_dostop.zmoznosti(B), set(), "umik iz kroga vzame vse")
         self.assertFalse(link_dostop.sme_dejanje(B, "input.key"))
 
@@ -84,8 +85,8 @@ class SejaZaslona(unittest.TestCase):
     def test_odvzem_konca_sejo_takoj(self):
         z = self._seja(lambda naprava: False)
         self.assertTrue(z.preveri_dostop())
-        z.ustavi.assert_called_once()
-        self.assertTrue(any(b"dostop" in p for p in z._odjemalec.poslano), "gledalec izve, zakaj je konec")
+        # Gledalec izve, zakaj je konec - obvestilo poslje ustavi() v svoji niti, ko sta zajem in vnos ze ustavljena.
+        z.ustavi.assert_called_once_with(seja=7, obvestilo={"konec": "dostop"})
 
     def test_z_dostopom_seja_tece(self):
         z = self._seja(lambda naprava: naprava == B)
@@ -108,7 +109,7 @@ class SejaZaslona(unittest.TestCase):
             nit.join(2.0)
         konec.set()
         self.assertFalse(nit.is_alive())
-        z.ustavi.assert_called_once_with(seja=7)
+        z.ustavi.assert_called_once_with(seja=7, obvestilo={"konec": "dostop"})
 
     def test_brez_seje_ni_dela(self):
         z = link_zaslon.Zaslon(vklopljeno=True)
@@ -125,6 +126,7 @@ class SafeerLinkOdvzem(_Osnova):
         link.naprave, link.naprave_vse = [], None
         link._odziv = lambda *a: None
         link.zaslon = mock.Mock()
+        link._v_ozadju = lambda f: f()          # preverba gre v delovno nit (ne na glavno); tu takoj
         link._po_spremembi_dostopa(A, True)
         link.zaslon.preveri_dostop.assert_called_once_with()
 

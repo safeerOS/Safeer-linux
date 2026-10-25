@@ -44,6 +44,9 @@ NAJVEC_TELESA = 64 * 1024
 #: Kaj naprava sme narediti z datoteko racunalnika (POST /d/<id>, telo JSON {"op": ...}).
 UKAZI = ("delete", "rename", "move", "rotate")
 VELIKOST_KOSA = 256 * 1024
+#: Med posiljanjem datoteke ali toka tako pogosto preverimo, ali zeton in dovoljenje naprave se veljata: odvzem dostopa
+#: (umik iz ozjega kroga) konca tudi prenos, ki ze tece - ne sele naslednjo zahtevo (sedmi pregled, 25. 10. 2026).
+PREVERI_MED_POSILJANJEM_S = 1.0
 #: Zeton za prenos velja 12 ur od zadnje rabe; nato mora naprava znova po seznam.
 ZETON_VELJA_S = 12 * 3600.0
 #: Na NAPRAVO najvec toliko zivih zetonov (izpade njen najdlje nerabljen). Skupne meje ni vec (lastnik, 18. 10. 2026:
@@ -624,11 +627,31 @@ def postrezi_datoteko(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_
     if r is None or not os.path.isfile(r[1]):
         _napaka_http(obravnava, 404, "datoteke ni")
         return
-    _poslji_datoteko(obravnava, r[1], samo_glava)
+    zeton = z.strip() if z else None
+    _poslji_datoteko(obravnava, r[1], samo_glava,
+                     se_velja=lambda: streznik.zeton_velja(zeton, zmoznost=ZMOZNOST_DATOTEKE, oznaka=oznaka))
 
 
-def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
-    """Datoteka z diska s podporo za `Range` (zeton je ze preverjen)."""
+class _Straza:
+    """Med posiljanjem: `se_velja()` najvec enkrat na PREVERI_MED_POSILJANJEM_S (zeton in dovoljenje naprave)."""
+
+    def __init__(self, se_velja) -> None:
+        self._se_velja = se_velja
+        self._naslednja = time.monotonic() + PREVERI_MED_POSILJANJEM_S
+
+    def velja(self) -> bool:
+        if self._se_velja is None or time.monotonic() < self._naslednja:
+            return True
+        self._naslednja = time.monotonic() + PREVERI_MED_POSILJANJEM_S
+        try:
+            return bool(self._se_velja())
+        except Exception:  # noqa: BLE001 - »ne vem« ni »da«
+            return False
+
+
+def _poslji_datoteko(obravnava, pot: str, samo_glava: bool, se_velja=None) -> None:
+    """Datoteka z diska s podporo za `Range` (zeton je ze preverjen). `se_velja()`: ali naprava datoteko se sme dobiti
+    (preverba med posiljanjem, glej _Straza); ko ne vec, se posiljanje prekine in povezava zapre."""
     velikost = os.path.getsize(pot)
     vrsta = mimetypes.guess_type(pot)[0] or "application/octet-stream"
     zacetek, konec = 0, velikost - 1
@@ -663,11 +686,16 @@ def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
     obravnava.end_headers()
     if samo_glava:
         return
+    straza = _Straza(se_velja)
     try:
         with open(pot, "rb") as d:
             d.seek(zacetek)
             ostane = dolzina
             while ostane > 0:
+                if not straza.velja():
+                    print("[SafeerDatoteke] prenos prekinjen: naprava nima vec dostopa", flush=True)
+                    obravnava.close_connection = True
+                    break
                 kos = d.read(min(VELIKOST_KOSA, ostane))
                 if not kos:
                     break
@@ -1101,6 +1129,10 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
     if tok is None:
         _napaka_http(obravnava, 404, "toka ni")
         return
+    zeton, zmoznost_toka = (z.strip() if z else None), tok[1]
+
+    def se_velja() -> bool:
+        return streznik.tok(skrivnost) is not None and streznik.zeton_velja(zeton, zmoznost=zmoznost_toka)
     cilj = tok[0]
     if cilj.startswith("file://"):
         # Film je na tem racunalniku ze v celoti (npr. prenesen v Safeer OS): postrezemo ga z diska.
@@ -1108,7 +1140,7 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
         if not os.path.isfile(pot):
             _napaka_http(obravnava, 404, "datoteke ni")
             return
-        _poslji_datoteko(obravnava, pot, samo_glava)
+        _poslji_datoteko(obravnava, pot, samo_glava, se_velja=se_velja)
         return
     u = urllib.parse.urlparse(cilj)
     glave = {"Range": obravnava.headers["Range"]} if obravnava.headers.get("Range") else {}
@@ -1125,7 +1157,12 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
         obravnava.end_headers()
         if samo_glava:
             return
+        straza = _Straza(se_velja)
         while True:
+            if not straza.velja():
+                print("[SafeerDatoteke] tok prekinjen: naprava nima vec dostopa", flush=True)
+                obravnava.close_connection = True
+                break
             kos = r.read(VELIKOST_KOSA)
             if not kos:
                 break
@@ -1470,6 +1507,21 @@ class StreznikDatotek:
                 self._zetoni.pop(z, None)
         return len(stari)
 
+    def preklici_jedro(self, jedro_naprave: str) -> int:
+        """Preklice zetone VSEH oznak naprave s tem jedrom (Safeer OS, Control, brskalnik na njej): odvzem dostopa ali
+        umik iz kroga (sedmi pregled, 25. 10. 2026). Prenosi in tokovi, ki tecejo, se koncajo ob naslednji preverbi
+        (PREVERI_MED_POSILJANJEM_S); naprava, ki dostop se ima, dobi nov zeton ob naslednjem seznamu. Vrne stevilo."""
+        if not jedro_naprave:
+            return 0
+        with self._kljucavnica:
+            naprave = {v[0] for v in self._zetoni.values()}
+        njene = {n for n in naprave if _jedro_naprave(n) == jedro_naprave}
+        with self._kljucavnica:
+            stari = [z for z, v in self._zetoni.items() if v[0] in njene]
+            for z in stari:
+                self._zetoni.pop(z, None)
+        return len(stari)
+
     def dodaj_tok(self, lokalni_url: str, zmoznost: Optional[str] = None) -> str:
         """Lokalni tok (samo 127.0.0.1) objavi za naprave z zetonom; vrne pot `/m/<skrivnost>/<ime>`. `zmoznost`: tok je
         naprava narocila s to zmoznostjo in jo mora imeti odprto tudi ob vsaki zahtevi toka."""
@@ -1640,6 +1692,17 @@ class Datoteke:
 
     def ustavi(self) -> None:
         self.streznik.ustavi()
+
+    def preklici_napravo(self, jedro_naprave: str) -> None:
+        """Napravi je bil dostop vzet (core/link_dostop.ob_odvzemu): njeni zetoni ne veljajo vec (tekoci prenosi se
+        prekinejo) in iz sej Teamwork gre takoj (sourednik, ki ga ni vec)."""
+        n = self.streznik.preklici_jedro(jedro_naprave)
+        tw = self.teamwork
+        odjavljen = 0
+        if tw is not None and hasattr(tw, "odjavi_napravo"):
+            odjavljen = tw.odjavi_napravo(lambda i: _jedro_naprave(i) == jedro_naprave)
+        if n or odjavljen:
+            print(f"[SafeerDatoteke] odvzem dostopa: {n} zetonov preklicanih, {odjavljen} sej Teamwork koncanih", flush=True)
 
     def seznam(self, oznaka: str, id_naprave: str, hub_url: str = "") -> dict:
         """Odgovor na ukaz `files.list` (podatki v `control.result`).

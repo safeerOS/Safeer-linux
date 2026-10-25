@@ -166,7 +166,7 @@ class Zapis(_Osnova):
         self.assertTrue(link_dostop.sme_dejanje(B, "play.state"))
         self.assertFalse(link_dostop.sme_dejanje(B, "apps.list"))
         self.assertFalse(link_dostop.sme_sporocilo(B, "sync.data"))     # usklajevanje samo ozji krog (vse stiri)
-        self.assertEqual(link_dostop.vsi(), {B: "dvz"})                 # ozji krog: tudi upravljanje in mape (ozji_krog)
+        self.assertEqual(link_dostop.vsi(), {B: "dv"})                  # natancno: ozji krog doda samo nastavi_ozji_krog
         link_dostop.nastavi(B, "")
         self.assertFalse(link_dostop.sme_dejanje(B, "files.list"))
 
@@ -195,7 +195,7 @@ class Zapis(_Osnova):
         pot = link_dostop._pot()
         self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
         link_dostop._za_preizkus(pot)                   # kot nov zagon programa: zapis se prebere z diska
-        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
 
     def test_pokvarjen_zapis_ne_odpre_nicesar(self):
         link_dostop.nastavi(B, "dpvz")
@@ -387,7 +387,7 @@ class VecProgramov(_Osnova):
         self.assertEqual(klici, [1])
         link_dostop._za_preizkus(pot)                   # kot nov zagon programa: stanje z diska
         self.assertEqual(link_dostop.zmoznosti(B), set("dpvz"))
-        self.assertEqual(link_dostop.zmoznosti(A), {"d", "z"})
+        self.assertEqual(link_dostop.zmoznosti(A), {"d"})
         self.assertTrue(link_dostop.zna_zascito(A))
 
     def test_dva_programa_hkrati_ne_pokvarita_zapisa(self):
@@ -432,7 +432,7 @@ class VecProgramov(_Osnova):
             zapis = json.load(d)
         self.assertEqual(sorted(zapis["naprave"]), sorted([A] + ["n-%016x" % (0x1000 + i) for i in range(100)]))
         self.assertEqual(zapis["zascita"], ["n-%016x" % (0x2000 + i) for i in range(100)])
-        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
+        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock", "dostop.json.podedovano"])
 
     def test_pokvarjen_zapis_ne_zbrise_zascite_v_pomnilniku(self):
         """Zapis na disku se pokvari: dostopa nima nihce (varna stran), za napravo, ki je kljuc ze dokazala, pa v tem
@@ -449,7 +449,7 @@ class VecProgramov(_Osnova):
         link_dostop.nastavi(B, "p")                     # naslednji zapis zascito vrne tudi na disk
         with open(pot, encoding="utf-8") as d:
             zapis = json.load(d)
-        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "dpz"}))
+        self.assertEqual((zapis["zascita"], zapis["naprave"]), ([A], {B: "p"}))
 
     def test_sprememba_drugega_programa_v_istem_trenutku_se_opazi(self):
         """Dva zapisa v istem trenutku imata lahko isti cas spremembe: spremembo drugega programa moramo vseeno opaziti
@@ -529,7 +529,7 @@ class PetiPregled(_Osnova):
         """Uporabnik je napravi A (ki bi ob prvem zagonu dostop podedovala) dostop vzel, napravi B ga je odprl. Zapis
         je trenutno neberljiv: dostopa nima nihce, spremembe ni mogoce shraniti - in veljavnega zapisa ne prepisemo
         (prej ga je program ob taki napaki zamenjal s praznim)."""
-        self.assertEqual(link_dostop.zmoznosti(A), set(link_dostop.VSE_ZMOZNOSTI))     # prvi zagon: podedovano
+        self.assertEqual(link_dostop.zmoznosti(A), set(link_dostop.PODEDOVANO))     # prvi zagon: podedovano (brez ozjega kroga)
         link_dostop.nastavi(A, "")
         link_dostop.nastavi(B, "dp")
         pot = link_dostop._pot()
@@ -544,12 +544,12 @@ class PetiPregled(_Osnova):
             self.assertTrue(link_dostop.zna_zascito(A))
         with open(pot, encoding="utf-8") as d:
             self.assertEqual(d.read(), prej)
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "p", "z"}))     # spet berljiv
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "p"}))     # spet berljiv
 
     def test_napaka_pri_branju_ni_prvi_zagon(self):
         """Zapis je neberljiv IN pisati se ne da (disk samo za branje): prej je program takrat v pomnilniku znova
         podedoval dostop - naprava A, ki ji ga je uporabnik vzel, ga je dobila nazaj."""
-        self.assertEqual(link_dostop.zmoznosti(A), set(link_dostop.VSE_ZMOZNOSTI))
+        self.assertEqual(link_dostop.zmoznosti(A), set(link_dostop.PODEDOVANO))
         link_dostop.nastavi(A, "")
         pot = link_dostop._pot()
         link_dostop._za_preizkus(pot)
@@ -581,7 +581,7 @@ class PetiPregled(_Osnova):
             self.assertLess(trajalo, 3)
         finally:
             os.close(rocaj)
-        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
 
 
 class SestiPregled(_Osnova):
@@ -610,10 +610,10 @@ class SestiPregled(_Osnova):
         with mock.patch.object(link_dostop.os, "fsync", fsync):
             self.assertTrue(link_dostop.nastavi(B, "d"))
         self.assertEqual(klici, [1])
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "z"}))
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d"}))
         link_dostop._za_preizkus(pot)                           # kot nov zagon programa: stanje z diska
-        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d", "z"}))
-        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
+        self.assertEqual((link_dostop.zmoznosti(A), link_dostop.zmoznosti(B)), (set(), {"d"}))
+        self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock", "dostop.json.podedovano"])
 
     def test_brez_podpore_za_zaklep_pisanje_ne_caka(self):
         """Datotecni sistem zaklepanja ne podpira (napaka, ki ni »zaseden«): pisemo takoj - prej je vsak zapis cakal
@@ -625,7 +625,7 @@ class SestiPregled(_Osnova):
             self.assertTrue(link_dostop.nastavi(B, "p"))
             trajalo = time.monotonic() - zacetek
         self.assertLess(trajalo, 0.5)
-        self.assertEqual(link_dostop.zmoznosti(B), {"d", "p", "z"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p"})
 
     def test_zapis_zascite_se_vrne_tudi_ko_je_zapis_izginil_in_ga_ni_bilo_mogoce_ustvariti(self):
         """Zapis izgine in ga takrat ni mogoce ustvariti znova (disk je poln). Ko disk spet dela, se zapis »zascita«
@@ -650,12 +650,15 @@ class PrviZagon(_Osnova):
              {"id": "b", "kljuc": "KB", "dodano": MEJA + 68580})
 
     def test_dosedanje_naprave_obdrzijo_nova_zacne_brez(self):
-        self.assertEqual(link_dostop.zmoznosti(A), set(link_dostop.VSE_ZMOZNOSTI))
+        # Podedovana naprava obdrzi programe in predvajalnik; ozji krog (upravljanje s Safeer Vnos, domaca mapa) samo
+        # z izrecno privolitvijo (sedmi pregled, 25. 10. 2026: prej je dobila vse stiri).
+        self.assertEqual(link_dostop.zmoznosti(A), {"p", "v"})
+        self.assertFalse(link_dostop.sme_dejanje(A, "input.key"))
         self.assertEqual(link_dostop.zmoznosti(B), set())
         self.assertEqual(link_dostop.zmoznosti("b"), set())       # star id iste naprave se prevede prek kljuca
-        self.assertEqual(link_dostop.zmoznosti("a"), set(link_dostop.VSE_ZMOZNOSTI))
+        self.assertEqual(link_dostop.zmoznosti("a"), {"p", "v"})
         with open(link_dostop._pot(), encoding="utf-8") as d:
-            self.assertEqual(json.load(d)["naprave"], {A: "dpvz"})
+            self.assertEqual(json.load(d)["naprave"], {A: "pv"})
 
     def test_podeduje_se_samo_enkrat(self):
         link_dostop.zmoznosti(A)

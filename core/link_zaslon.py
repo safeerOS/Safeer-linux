@@ -113,7 +113,24 @@ UTRIP_S = 0.5
 #: Nit meritev: TCP_INFO vticnice seje enkrat na sekundo, vrstica v dnevnik vsakih 10 s. Na vticnico ne pise nikoli.
 MERITVE_S = 1.0
 #: Straza dostopa: tako pogosto seja preveri, ali ima naprava se upravljanje tega racunalnika (Zaslon.dostop).
+#: Prvic takoj ob povezavi gledalca, nato na DOSTOP_PREVERI_S (sedmi pregled, 25. 10. 2026: prej sele po sekundi).
 DOSTOP_PREVERI_S = 1.0
+#: Ob odvzemu dostopa: najvec toliko casa cakamo, da gledalec dobi {"konec": "dostop"}; seja (zajem, vnos) je takrat
+#: ze ustavljena, povezava se zapre najpozneje po tem roku - tudi ce gledalec ne bere (polna vrsta pisanja).
+OBVESTILO_ROK_S = 0.5
+
+
+def _privzeti_dostop(naprava: str) -> bool:
+    """Ali ima naprava upravljanje tega racunalnika (ozji krog, core/link_dostop.ZASLON). Privzeta preverba vsake
+    seje: brez nje seja nikoli ne tece (prej je bil Zaslon.dostop None - straze ni bilo, umik seje ni koncal)."""
+    from core import link_dostop
+    return link_dostop.sme(naprava, link_dostop.ZASLON)
+
+
+def _privzeti_dostop_jedra(jedro: str) -> bool:
+    """Kot _privzeti_dostop, za sejo iz zascitenega ukaza: jedro iz PREVERJENEGA kljuca (core/link_e2e), ne oznaka."""
+    from core import link_dostop
+    return link_dostop.sme_z(link_dostop.zmoznosti_jedra(jedro), link_dostop.ZASLON)
 MERITVE_DNEVNIK_S = 10.0
 #: Povzetek vsake seje gre v dnevnik, seje s sliko pa se kot ena vrstica JSON v
 #: <link_hub.NASTAVITVE_MAPA>/meritve/zaslon-seje.jsonl; SAFEER_ZASLON_MERITVE pove drugo pot.
@@ -669,10 +686,16 @@ class Zaslon:
         self.vrata = 0
         self._zeton = ""
         self._naprava = ""
-        #: Ali ima naprava se upravljanje tega racunalnika (core/link_dostop ZASLON); nastavi ga Control. Seja ga
-        #: preveri vsako DOSTOP_PREVERI_S in ob vsaki spremembi dostopa (preveri_dostop) - umik iz ozjega kroga ali
-        #: odvzem upravljanja sejo konca takoj, ne sele, ko gledalec odide (AGENTS.md, pravilo 25. 10. 2026 10:49).
-        self.dostop: Optional[Callable[[str], bool]] = None
+        #: Jedro PREVERJENEGA kljuca naprave tekoce seje (zasciten screen.start, core/link_e2e) ali "" (starejsa naprava
+        #: brez zascite): straza preverja to jedro, ne oznake »sender« (sedmi pregled, 25. 10. 2026).
+        self._jedro = ""
+        #: Ali ima naprava se upravljanje tega racunalnika (core/link_dostop ZASLON). Seja ga preveri ob povezavi
+        #: gledalca, nato vsako DOSTOP_PREVERI_S in ob vsaki spremembi dostopa (preveri_dostop) - umik iz ozjega kroga
+        #: sejo konca takoj, ne sele, ko gledalec odide (AGENTS.md, pravilo 25. 10. 2026 10:49). Privzeto
+        #: link_dostop - Zaslon brez preverbe ne obstaja (None velja kot privzeto, nikoli kot »dovoli«).
+        self.dostop: Optional[Callable[[str], bool]] = _privzeti_dostop
+        #: Isto za sejo z jedrom (zasciten ukaz): jedro -> ali ima upravljanje.
+        self.dostop_jedra: Optional[Callable[[str], bool]] = _privzeti_dostop_jedra
         self._kakovost = PRIVZETA_KAKOVOST
         #: Omrezje gledalca, kot ga pove sam (`net` v screen.start): wifi, ethernet, 5g, 4g ... ali prazno.
         self._omrezje = ""
@@ -851,14 +874,15 @@ class Zaslon:
 
     def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
               prek_huba: bool = False, pogled: Optional[dict] = None, zmoznosti=None, kodeki=None,
-              omrezje: str = "") -> dict:
+              omrezje: str = "", jedro: str = "") -> dict:
         """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
 
         `pogled`: povrsina naprave, ki gleda (`view` iz `screen.start`). Loceni zaslon dobi njeno obliko in
         velikost; pravega zaslona racunalnika ne spreminjamo nikoli.
         `prek_huba`: gledalec zna po sliko tudi do vrat Huba (pot `/cast/desktop`, Global Link). Po kateri poti res
         pride, vemo sele ob povezavi: takrat izberemo kodek (kodek_za_pot) in stopnjo (kakovost_za_pot).
-        `omrezje`: omrezje naprave, ki gleda (`net`: wifi, ethernet, 5g, 4g ...); po njem je umerjena kakovost zdoma."""
+        `omrezje`: omrezje naprave, ki gleda (`net`: wifi, ethernet, 5g, 4g ...); po njem je umerjena kakovost zdoma.
+        `jedro`: jedro preverjenega kljuca naprave (zasciten screen.start); po njem straza preverja dostop."""
         if not self.vklopljeno:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
         if not self.ffmpeg:
@@ -908,6 +932,7 @@ class Zaslon:
         with self._kljucavnica:
             self._kakovost = kakovost if kakovost in KAKOVOSTI else PRIVZETA_KAKOVOST
             self._naprava = id_naprave
+            self._jedro = str(jedro or "")
             self._zeton = secrets.token_urlsafe(24)
             self._slika = {"width": sirina, "height": visina, "fps": int(k["fps"])}
             self._izvor = (int(izvor[0]), int(izvor[1]))
@@ -1164,6 +1189,12 @@ class Zaslon:
             if sprejet is None:
                 return
             odjemalec, konec_prevzete = sprejet
+            # Dostop je bil preverjen ob screen.start; uporabnik ga je morda vzel, medtem ko je seja cakala gledalca
+            # (sedmi pregled, 25. 10. 2026: TOCTOU). Brez dostopa gledalec ne dobi ne slike ne vnosa.
+            if not self._ima_dostop(seja):
+                print("[zaslon] naprava je upravljanje izgubila, preden se je gledalec povezal - seje ni", flush=True)
+                self._obvesti(odjemalec, {"konec": "dostop"})
+                return
             # Sele zdaj vemo, po kateri poti je gledalec prisel. Doma (neposredno): zahtevana kakovost in H.264.
             # Zdoma (prek Huba): kakovost za omrezje gledalca (kakovost_za_pot) in HEVC, ce je dogovorjen
             # (kodek_za_pot). Kodek, kvantizator in stopnjo pove glava toka.
@@ -1273,9 +1304,9 @@ class Zaslon:
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
             niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,), kwargs={"meritve": meritve},
                                          name="safeer-zaslon-vnos", daemon=True))
-            if self.dostop is not None:
-                niti.append(threading.Thread(target=self._strazi_dostop, args=(seja, konec_seje),
-                                             name="safeer-zaslon-dostop", daemon=True))
+            # Straza dostopa tece v vsaki seji (privzeta preverba je link_dostop, glej Zaslon.dostop).
+            niti.append(threading.Thread(target=self._strazi_dostop, args=(seja, konec_seje),
+                                         name="safeer-zaslon-dostop", daemon=True))
             # Meritve: TCP_INFO in dnevnik (vedno; na vticnico ne pise), ping samo gledalcu, ki ga zna.
             niti.append(threading.Thread(target=self._meri, args=(odjemalec, meritve, konec_seje),
                                          name="safeer-zaslon-meritve", daemon=True))
@@ -1424,34 +1455,77 @@ class Zaslon:
             return 1.0
 
     def _strazi_dostop(self, seja: int, konec: threading.Event) -> None:
-        """Dokler tece seja: naprava brez upravljanja tega racunalnika (umik iz kroga, odvzem v drugem programu) jo konca."""
-        while not konec.wait(DOSTOP_PREVERI_S):
+        """Dokler tece seja: naprava brez upravljanja tega racunalnika (umik iz kroga, odvzem v drugem programu) jo
+        konca. Prva preverba takoj, nato vsako DOSTOP_PREVERI_S."""
+        while True:
             if self._seja_st != seja or self.preveri_dostop(seja):
                 return
+            if konec.wait(DOSTOP_PREVERI_S):
+                return
+
+    def _dovoljeno(self, naprava: str, jedro: str) -> bool:
+        """Ali ima naprava (po jedru preverjenega kljuca, ce ga seja ima) upravljanje tega racunalnika. Napaka = ne."""
+        try:
+            if jedro:
+                return bool((self.dostop_jedra or _privzeti_dostop_jedra)(jedro))
+            if not naprava:
+                return False
+            return bool((self.dostop or _privzeti_dostop)(naprava))
+        except Exception:  # noqa: BLE001 - zapisa dovoljenj ni mogoce prebrati: varna stran (link_dostop »ne vem« ni »da«)
+            return False
+
+    def _ima_dostop(self, seja: int) -> bool:
+        """Ali sme seja `seja` teci (njena naprava ima upravljanje in seja je se ta)."""
+        with self._kljucavnica:
+            if self._seja_st != seja:
+                return False
+            naprava, jedro = self._naprava, self._jedro
+        return self._dovoljeno(naprava, jedro)
 
     def preveri_dostop(self, seja: Optional[int] = None) -> bool:
         """Ce naprava tekoce seje nima vec upravljanja tega racunalnika, sejo konca (gledalec dobi {"konec": "dostop"}).
-        True, ce je bila seja koncana. Klice ga straza seje in Safeer Link takoj po spremembi dostopa."""
-        preveri, naprava = self.dostop, self._naprava
-        if preveri is None or not naprava or not (self._povezan or self._posluh is not None):
+        True, ce je bila seja koncana. Klice ga straza seje in Safeer Link takoj po spremembi dostopa (iz katerekoli
+        niti). Seja se ustavi PRED obvestilom gledalcu: zajem in vnos koncata takoj, obvestilo gre v svoji niti z rokom
+        (OBVESTILO_ROK_S) - pocasen gledalec umika ne zadrzi in ne zamrzne klicatelja (sedmi pregled, 25. 10. 2026)."""
+        with self._kljucavnica:
+            if seja is None:
+                seja = self._seja_st     # ustavi samo to sejo, ne tiste, ki bi se zacela medtem
+            if self._seja_st != seja or not (self._povezan or self._posluh is not None):
+                return False
+            naprava, jedro = self._naprava, self._jedro
+        if not naprava and not jedro:
             return False
-        try:
-            ima = bool(preveri(naprava))
-        except Exception:  # noqa: BLE001 - zapisa dovoljenj ni mogoce prebrati: varna stran (link_dostop »ne vem« ni »da«)
-            ima = False
-        if ima:
+        if self._dovoljeno(naprava, jedro):
             return False
-        if seja is not None and self._seja_st != seja:
-            return False
-        odjemalec = self._odjemalec
-        if odjemalec is not None:
-            try:
-                odjemalec.sendall(_okvir(OKVIR_OBVESTILO, json.dumps({"konec": "dostop"}).encode("utf-8")))
-            except (OSError, ssl.SSLError, ValueError):
-                pass
         print("[zaslon] naprava nima vec upravljanja tega racunalnika (ozji krog), seja koncana", flush=True)
-        self.ustavi(seja=seja)
+        self.ustavi(seja=seja, obvestilo={"konec": "dostop"})
+        if self._cilj == "apps" and self.drugi is not None and hasattr(self.drugi, "zapri_okna"):
+            # Programi, ki jih je naprava odprla na locenem (nevidnem) zaslonu, ne tecejo naprej brez nje.
+            threading.Thread(target=self._zapri_locena_okna, name="safeer-zaslon-okna", daemon=True).start()
         return True
+
+    def _zapri_locena_okna(self) -> None:
+        try:
+            self.drugi.zapri_okna()
+        except Exception as e:  # noqa: BLE001
+            print("[zaslon] okna locenega zaslona:", e, flush=True)
+
+    def sme_ustaviti(self, naprava: str, jedro: str = "") -> bool:
+        """screen.stop: sejo (in okna locenega zaslona) konca samo naprava, ki jo je zacela, ali ta racunalnik sam -
+        ne vsaka naprava z upravljanjem (sedmi pregled, 25. 10. 2026). Seje se ni bilo: nic ne tece, velja."""
+        from core import link_dostop
+        with self._kljucavnica:
+            lastnik, lastnik_jedro = self._naprava, self._jedro
+        if not lastnik and not lastnik_jedro:
+            return True
+        try:
+            if link_dostop.je_ta_naprava(naprava):
+                return True
+            prej = lastnik_jedro or link_dostop.jedro(lastnik)
+            zdaj = str(jedro or "") or link_dostop.jedro(naprava)
+        except Exception:  # noqa: BLE001
+            return False
+        return bool(prej) and zdaj == prej
 
     def _izid_zagona(self) -> str:
         """Izid zadnjega zagona na locenem zaslonu ("" | "koncan" | "na_namizju"); napaka pomeni »ne vemo«."""
@@ -1622,6 +1696,38 @@ class Zaslon:
         except (OSError, ssl.SSLError, ValueError):
             pass
 
+    @staticmethod
+    def _obvesti_in_zapri(odjemalec, podatki: dict, rok_s: Optional[float] = None) -> threading.Thread:
+        """Zadnje obvestilo gledalcu (npr. konec zaradi dostopa) in zaprtje povezave - v svoji niti. Pisanje gre prek
+        zaklepa ovite vticnice (link_vticnik.VarnaTls), kot okvirji slike; ce ne gre ven v roku (gledalec ne bere,
+        nit slike drzi pisanje), povezavo zapremo vseeno."""
+        okvir = _okvir(OKVIR_OBVESTILO, json.dumps(podatki).encode("utf-8"))
+        zaklep = threading.Lock()
+        zaprto = [False]
+
+        def zapri() -> None:
+            with zaklep:
+                if zaprto[0]:
+                    return
+                zaprto[0] = True
+            _zapri(odjemalec)
+        casovnik = threading.Timer(OBVESTILO_ROK_S if rok_s is None else rok_s, zapri)
+        casovnik.daemon = True
+        casovnik.start()
+
+        def poslji() -> None:
+            try:
+                odjemalec.sendall(okvir)
+            except (OSError, ssl.SSLError, ValueError) as e:
+                # Povezava je ze zaprta ali gledalec ne bere (rok): seja je ustavljena vseeno.
+                print("[zaslon] zadnje obvestilo gledalcu ni slo ven:", type(e).__name__, flush=True)
+            finally:
+                casovnik.cancel()
+                zapri()
+        nit = threading.Thread(target=poslji, name="safeer-zaslon-konec", daemon=True)
+        nit.start()
+        return nit
+
     # ------------------------------------------------------------------ meritve seje (1. faza: samo merimo)
 
     def _utrip(self, odjemalec, meritve, konec: threading.Event) -> None:
@@ -1736,6 +1842,10 @@ class Zaslon:
                         dogodek = json.loads(vrstica.decode("utf-8", "replace"))
                     except ValueError:
                         continue
+                    if self._odjemalec is not odjemalec:
+                        # Seja je ustavljena (odvzem dostopa, nova seja): noben dogodek iz medpomnilnika ne gre vec
+                        # v vnos, medije ali plosek, ceprav povezava se ni zaprta (sedmi pregled, 25. 10. 2026).
+                        return
                     if isinstance(dogodek, dict) and dogodek.get("vrsta") == "rtt":
                         if meritve is not None:
                             try:
@@ -1831,8 +1941,11 @@ class Zaslon:
             return self._plosek.os(str(dogodek.get("os", "") or ""), dogodek.get("vrednost"))
         return False
 
-    def ustavi(self, seja: Optional[int] = None, pocakaj_s: float = 0.0) -> None:
+    def ustavi(self, seja: Optional[int] = None, pocakaj_s: float = 0.0, obvestilo: Optional[dict] = None) -> None:
         """Konca zajem in zapre vrata; zeton takoj ne velja vec.
+
+        `obvestilo` (npr. {"konec": "dostop"}) gledalec dobi pred koncem povezave - v svoji niti in z rokom
+        OBVESTILO_ROK_S: zajem in vnos se ustavita takoj, ne glede na to, ali gledalec bere.
 
         Nit seje, ki pospravlja za sabo, poda svojo stevilko `seja`: ce se je medtem zacela nova seja, klic ne
         naredi nicesar (sicer bi konec stare seje ustavil novo).
@@ -1857,6 +1970,9 @@ class Zaslon:
             self._tece_od = 0.0
         for _vticnica, dogodek, _seja in prevzeti:
             dogodek.set()                   # povezave, ki jih seja ni vec prevzela: Hub jih zapre
+        if obvestilo is not None and odjemalec is not None:
+            self._obvesti_in_zapri(odjemalec, obvestilo)
+            odjemalec = None                # zapre ga nit obvestila (najpozneje po OBVESTILO_ROK_S)
         self._vnos.sprosti_vse()
         self._plosek.zapri()
         for p in (proces, zvocni):
