@@ -369,6 +369,17 @@ class Izbira(unittest.TestCase):
         self.assertEqual([u[-1] for u, _r in self.sonde], ["b", "c"])     # P2P (oglas) skrit, najvec 2 sondi
         self.assertTrue(all(r <= W.PRVI_BAJT_MS for _u, r in self.sonde))
 
+    def test_hitro_zavrnjena_vsebina_ni_poskus(self):
+        """Naloga 21 B1 (skupni primeri v4): pri torrentih YTS CDN TorBox za idx filma vrne .srt; sonda ga zavrne hitro
+        (NAPACNA_VSEBINA v < 3 s) in to ne porabi enega od 2 poskusov - naslednji tokovi pridejo na vrsto."""
+        self.wt = [{"url": self.wt_url + "a", "vir": "[WT] A"}, {"url": self.wt_url + "b", "vir": "[WT] B"},
+                   {"url": self.wt_url + "c", "vir": "[WT] C"}]
+        srt = W.Sonda(koda=206, prvi_bajt_ms=300, koncni="https://cdn.tb.test/f.srt", vsebina="BESEDILO", posoda="")
+        self.izidi = [srt, srt, W.Sonda(koda=206, prvi_bajt_ms=400, koncni=CDN, vsebina="VIDEO", posoda="MKV")]
+        izid, _rd = self.resolve()
+        self.assertEqual((izid.get("url"), [u[-1] for u, _r in self.sonde]), (CDN, ["a", "b", "c"]))
+        # Pocasne zavrnitve (in vse druge) stejejo naprej: 404 + 429 = konec (test_najvec_dve_sondi_in_skrite_vrste).
+
     def test_koncni_naslov_z_zetonom_ne_gre_v_predvajalnik(self):
         self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=5, koncni=RESOLVE, vsebina="VIDEO", posoda="MKV")]         # brez preusmeritve (zeton v naslovu)
         izid, _rd = self.resolve()

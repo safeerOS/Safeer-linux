@@ -375,6 +375,17 @@ def odlocitev(koda: int, prvi_bajt_ms: Optional[int], potekel: bool, vsebina: Op
     return NAPAKA
 
 
+#: Hitra zavrnitev vsebine ne steje kot poskus (skupno pravilo v4, pomocnik Windows 25. 10. 2026, naloga 21 B1): pri
+#: torrentih YTS CDN TorBox za idx filma vrne .srt; sonda ga zavrne v ~0,3-0,7 s, a je porabila enega od 2 poskusov.
+HITRA_ZAVRNITEV_MS = 3_000
+
+
+def steje_kot_poskus(izid: str, trajanje_ms: int) -> bool:
+    """Ali sonda steje med NAJVEC_POSKUSOV: NAPACNA_VSEBINA v manj kot HITRA_ZAVRNITEV_MS ne (skupni rok 15 s velja
+    naprej - naslednji tok dobi preostanek). Vse drugo (tudi hitra 404/402/429) steje."""
+    return not (izid == NAPACNA_VSEBINA and 0 <= int(trajanje_ms) < HITRA_ZAVRNITEV_MS)
+
+
 def rok_sonde(zacetek_prve: Optional[int], zdaj: int, poskusov: int) -> int:
     """Koliko ms ima naslednja sonda v eni izbiri toka: skupaj najvec PRVI_BAJT_MS in najvec NAJVEC_POSKUSOV sond."""
     if poskusov >= NAJVEC_POSKUSOV:

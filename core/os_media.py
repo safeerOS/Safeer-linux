@@ -3333,6 +3333,8 @@ class MediaCenter:
             except Exception as e:  # noqa: BLE001 - nepricakovana napaka sonde: naslednji tok (Grok N9)
                 print("[SafeerMedia] webtor sonda:", type(e).__name__, flush=True)
                 continue
+            if not webtor.steje_kot_poskus(s.izid, int(time.monotonic() * 1000) - zdaj):
+                stanje["poskusov"] -= 1         # hitro zavrnjena vsebina (.srt namesto filma) ni poskus (skupno v4)
             print("[SafeerMedia] webtor sonda:", webtor.opis_za_dnevnik(s), flush=True)
             if s.izid != webtor.PREDVAJAJ or not s.koncni or skrivni_dodatki.nosi_skrivnost(s.koncni, pravi):
                 continue                        # ni video posode ali zeton v naslovu: nikoli v predvajalnik

@@ -124,6 +124,8 @@ def izracunaj(f, v):
         return W.odlocitev(v["koda"], v["prvi_bajt_ms"], v["potekel"], v.get("vsebina"))
     if f == "webtor_rok_sonde":
         return W.rok_sonde(v["zacetek_prve"], v["zdaj"], v["poskusov"])
+    if f == "webtor_steje_kot_poskus":
+        return W.steje_kot_poskus(v["izid"], v["trajanje_ms"])
     if f == "webtor_vrstni_red":
         return W.vrstni_red([_wt_kljuc(x) for x in v["nasi"]], [(_wt_kljuc(w[:2]), w[2]) for w in v["webtor"]],
                             v["imamo_torbox"], v.get("samo_takoj", False), v.get("datoteke"))
