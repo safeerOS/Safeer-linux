@@ -1688,6 +1688,10 @@ body.en-razdelek .nabiralnik { height:calc(100vh - 60px); max-height:calc(100vh 
 }
 .prostor:hover { background: var(--kartica-poudarek); }
 .prostor-ovoj.izbran .prostor { border-color: var(--zelena); background: var(--kartica-poudarek); }
+/* Povleci in spusti (vrstni red naprav, 25. 10. 2026): vlecena je prosojna, cilj ima crtkan rob. */
+.prostor-ovoj[draggable="true"] .prostor { cursor: grab; }
+.prostor-ovoj.vlecem { opacity: .45; }
+.prostor-ovoj.spusti .prostor { outline: 2px dashed var(--zelena); outline-offset: 3px; }
 .prostor:focus-visible { outline: 3px solid var(--fokus); outline-offset: 3px; }
 .prostor-slicica {
   display: grid; place-items: center; aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden;

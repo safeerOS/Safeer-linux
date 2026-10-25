@@ -90,6 +90,7 @@ from core import (os_datoteke, sistem_podatki, os_govor, os_katalog, os_knjiznic
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import link_prostori  # noqa: E402
+from core import zaslon_monitorji  # noqa: E402
 from core import os_delovni_prostori  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
 from core import nova_razlicica  # noqa: E402
@@ -1015,6 +1016,21 @@ def datoteke_naprave(id_naprave: str, mapa: str = "", odmik=0) -> dict:
     if isinstance(streznik, dict):
         _STREZNIKI_NAPRAV[id_naprave] = dict(streznik)
     return izid
+
+
+def prosi_dostop_naprave(id_naprave: str) -> dict:
+    """»Prosi za dostop« v Datotekah naprave, ki deli samo izbrane fotografije ali nic (Android link-datoteke:
+    files.request_access brez parametrov). Naprava pokaze prosnjo svojemu uporabniku - nikoli sama sistemskega okna.
+    Odgovor: shown (prosnja je na napravi), reason (notifications = obvestila za Safeer so izklopljena, off = deljenje
+    datotek je izklopljeno). Samo naprave v ozjem krogu."""
+    id_naprave = str(id_naprave or "")
+    if not _v_ozjem_krogu(id_naprave):
+        return {"ok": False, "koda": "ni_ozji_krog"}
+    r = _control_naprave("Ukaz", id_naprave, "files.request_access", "{}")
+    d = r.get("data") if isinstance(r, dict) and isinstance(r.get("data"), dict) else {}
+    razlog = str(d.get("reason") or "")
+    return {"ok": bool(isinstance(r, dict) and r.get("ok")), "shown": d.get("shown") is True,
+            "reason": razlog if razlog in ("notifications", "off") else ""}
 
 
 def slicice_naprave(id_naprave: str, vnosi) -> dict:
@@ -4926,7 +4942,11 @@ class SafeerOS(Gtk.Application):
             # odgovor naprave do 15 s - nikoli na glavni niti).
             "prostori": lambda: self._prostori(bool(a[0]) if a else True),
             "prostorOdpri": lambda: self._prostor_odpri(str(a[0]) if a else "",
-                                                        str(a[1]) if len(a) > 1 else link_prostori.PRIKAZ_ZRCALJENJE),
+                                                        str(a[1]) if len(a) > 1 else link_prostori.PRIKAZ_ZRCALJENJE,
+                                                        a[2] if len(a) > 2 and isinstance(a[2], dict) else None),
+            # Zasloni (lastnik 25. 10. 2026 12:07): vrstni red naprav s povleci in spusti, monitorji za »Prikazi na
+            # monitorju N« (samo, ce jih je vec).
+            "prostoriVrstniRed": lambda: self._prostori_vrstni_red(a[0] if a and isinstance(a[0], list) else []),
             # Krog 2: slicica racunalnika (screen.thumb, samo ko je preklopnik odprt), lokalna namizja Cinnamona,
             # nastavitev »zgornji rob odpre Prostore« (privzeto izklopljena).
             "prostorSlicica": lambda: self._prostor_slicica(str(a[0]) if a else ""),
@@ -5007,6 +5027,7 @@ class SafeerOS(Gtk.Application):
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
                                                         a[2] if len(a) > 2 and isinstance(a[2], (int, float)) else 0),
             "sliciceNaprave": lambda: slicice_naprave(str(a[0]) if a else "", a[1] if len(a) > 1 else []),
+            "prosiDostopNaprave": lambda: prosi_dostop_naprave(str(a[0]) if a else ""),
             # Lupina QML (assets/os/qml/Datoteke.qml): datoteka z naprave sem (Teamwork) ali odprta na napravi.
             "prenesiDatotekoNaprave": lambda: prenesi_datoteko_naprave(
                 str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",
@@ -5089,6 +5110,8 @@ class SafeerOS(Gtk.Application):
         # Na glavni niti, odgovor pride kasneje (GTK4: sistemska okna in odlozisce so samo asinhrona - Dialog.run in
         # Clipboard.wait_for_text sta odstranjena). Funkcija dobi konec(izid) in ga poklice, ko uporabnik odloci.
         asinhrono = {
+            # Monitorji (Zasloni, desni klik »Prikazi na monitorju N«): Gdk samo na glavni niti.
+            "monitorji": lambda konec: konec({"ok": True, "monitorji": self._monitorji()}),
             "lokalniMediji": lambda konec: self._medijski_dodaj_datoteke(self._okno_klica(pogled), konec),
             "medijskaMapa": lambda konec: self._medijski_dodaj_mapo(self._okno_klica(pogled), konec),
             "medijskiTok": lambda konec: self._medijski_dodaj_tok(self._okno_klica(pogled), konec),
@@ -7970,6 +7993,21 @@ class SafeerOS(Gtk.Application):
                 "prostori": link_prostori.prostori(nove, zive), "namizja": _lokalna_namizja().seznam(),
                 "najvec_namizij": os_delovni_prostori.NAJVEC_NAMIZIJ, "rob": bool(self.shramba.get("prostori_rob", False))}
 
+    def _monitorji(self) -> list:
+        """Monitorji tega racunalnika (glavna nit, Gdk); zadnji seznam ostane za _prostor_odpri v ozadju."""
+        self._zadnji_monitorji = zaslon_monitorji.monitorji()
+        return self._zadnji_monitorji
+
+    def _prostori_vrstni_red(self, idji: list) -> dict:
+        """Uporabnik je v Zaslonih napravo povlekel na drugo mesto: nov vrstni red zapisa (link_prostori.preuredi) -
+        velja tudi za Super+Alt+puscico. Stran poda samo oznake; neznane se prezrejo."""
+        with _prostori_zaklep:
+            znane = link_prostori.ocisti_znane(self.shramba.get("prostori", []))
+            nove = link_prostori.preuredi(znane, [str(i) for i in idji if isinstance(i, str)])
+            if nove != znane:
+                self.shramba.set("prostori", nove)
+        return {"ok": True, "vrstni_red": [z["id"] for z in nove]}
+
     def _prostori_rob(self, vklop) -> dict:
         """Kazalec na zgornjem robu odpre Prostore (lastnik: neobvezno, privzeto izklopljeno). None = samo preberi."""
         if isinstance(vklop, bool) and vklop != bool(self.shramba.get("prostori_rob", False)):
@@ -8004,7 +8042,8 @@ class SafeerOS(Gtk.Application):
             self.okno.present()
         self._dogodek("prostori", p, self.pogled)
 
-    def _prostor_odpri(self, id_naprave: str, prikaz: str = link_prostori.PRIKAZ_ZRCALJENJE) -> dict:
+    def _prostor_odpri(self, id_naprave: str, prikaz: str = link_prostori.PRIKAZ_ZRCALJENJE,
+                       kako: Optional[dict] = None) -> dict:
         """Odpre zaslon prostora tukaj, CELOZASLONSKO (krog 2), po ze obstojeci poti: racunalnik -> oddaljeni zaslon
         z misko in tipkovnico, naprava Android -> deljenje zaslona (CEL_ZASLON, potrditev na napravi) ali namizni nacin
         (PROGRAM_NAMIZNI, samo ce ga naprava sporoca). Stran ne izbira programa ne poljubnega id-ja: velja samo prostor,
@@ -8023,7 +8062,16 @@ class SafeerOS(Gtk.Application):
         c = en_proces.control_app()
         if c is not None and getattr(c, "ob_prostorih", None) is None:
             c.ob_prostorih = self._iz_gledalca
-        r = _control_naprave("ProstorOdpri", p["id"], program, "1")
+        # Kje in kako (desni klik »Prikazi na monitorju N«): monitor samo, ce ga sistem pozna; telefon in tablica v
+        # okvirju svoje oblike, kadar se odpreta »celozaslonsko« (lastnik 25. 10. 2026 12:07).
+        kako = kako if isinstance(kako, dict) else {}
+        # Seznam monitorjev je zadnji, ki ga je stran prebrala (_monitorji na glavni niti) - ta metoda tece v ozadju.
+        monitor = zaslon_monitorji.najdi(getattr(self, "_zadnji_monitorji", None) or [], str(kako.get("monitor") or ""))
+        celo = kako.get("celo") is not False
+        # Okvir samo za zrcaljenje zaslona naprave; namizni nacin je namizje - ostane celozaslonsko.
+        okvir = celo and p["vrsta"] in zaslon_monitorji.Z_OKVIRJEM and program == link_prostori.CEL_ZASLON
+        r = _control_naprave("ProstorOdpri", p["id"], program, zaslon_monitorji.niz_odpiranja(
+            celo and not okvir, monitor["oznaka"] if monitor else "", okvir))
         if isinstance(r, dict) and r.get("koda") == "stari_control":
             # Locen, starejsi Safeer Control (brez ProstorOdpri): odpre v oknu kot v MVP.
             r = _control_naprave("Upravljaj", p["id"]) if program == "" else _control_naprave("OdpriTukaj", p["id"], program)

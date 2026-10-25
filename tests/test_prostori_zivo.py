@@ -37,7 +37,12 @@ import safeer_os as so  # noqa: E402
 from tests.test_stranska_vrstica_zivo import RAZPOLOZLJIVO, _cakaj, _Nic  # noqa: E402
 
 PRAVE = ("_nov_pogled", "_na_sporocilo", "_obdelaj_klic", "_odgovori", "_js", "_dogodek", "_na_tipko",
-         "_prostori", "_prostor_odpri", "_prostor_slicica", "_prostori_rob", "_iz_gledalca")
+         "_prostori", "_prostor_odpri", "_prostor_slicica", "_prostori_rob", "_iz_gledalca", "_prostori_vrstni_red", "_monitorji")
+#: Tablica in telefon se iz Zaslonov odpreta v okvirju svoje oblike (core/zaslon_monitorji, lastnik 25. 10. 12:07).
+OKVIR = '{"celo": false, "monitor": "", "okvir": true}'
+#: Dva lazna monitorja (desni klik »Prikazi na monitorju N«).
+MONITORJA = [{"st": 1, "oznaka": "eDP-1", "ime": "Vgrajen", "x": 0, "y": 0, "w": 1920, "h": 1080, "merilo": 1},
+             {"st": 2, "oznaka": "HDMI-1", "ime": "Philips", "x": 1920, "y": 0, "w": 2560, "h": 1440, "merilo": 1}]
 
 ZLO_OKNO = '"><img src=x onerror="window.__xss=2">'
 NAPRAVE = [
@@ -256,7 +261,7 @@ class Prostori(unittest.TestCase):
         self.pocakaj_naprave()
         self._js("document.querySelector('[data-prostor=\"3\"]').focus(), 1")
         self._js("document.activeElement.click(), 1")
-        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "t-1-os", "safeer.cel.zaslon", "1") in self.klici, 10), self.klici)
+        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "t-1-os", "safeer.cel.zaslon", OKVIR) in self.klici, 10), self.klici)
         self.assertTrue(_cakaj(lambda: self.odprto() is False, 5))
         self.assertEqual(self._js("document.getElementById('obvestilo').textContent"),
                          "Na napravi Tablica potrdi deljenje zaslona – nato se odpre tukaj.")
@@ -318,7 +323,7 @@ class Prostori(unittest.TestCase):
         for id_ in ("lz-control", "lz"):
             self.assertTrue(self.os._prostor_odpri(id_)["ok"])
         self.assertEqual([k for k in self.klici if k[0] in ("Upravljaj", "OdpriTukaj", "ProstorOdpri")],
-                         [("ProstorOdpri", "lz", "safeer.cel.zaslon", "1")] * 2)
+                         [("ProstorOdpri", "lz", "safeer.cel.zaslon", OKVIR)] * 2)
 
     def test_ime_z_oznakami_je_besedilo(self):
         self.naprave[1] = dict(self.naprave[1], ime=ZLO)
@@ -539,7 +544,7 @@ class ProstoriKrog2(Prostori):
         self.assertFalse(self.odprto())
         # Iz gledalca Pisarne (Super+Alt+desno): naslednji je Tablica; levo: Kuhinja nima povezave -> Namizje 3.
         self.os._iz_gledalca({"sosednji": 1, "od": "pc-1-control"})
-        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "t-1-os", "safeer.cel.zaslon", "1") in self.klici, 10), self.klici)
+        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "t-1-os", "safeer.cel.zaslon", OKVIR) in self.klici, 10), self.klici)
         self.os._iz_gledalca({"sosednji": -1, "od": "pc-1"})
         self.assertTrue(_cakaj(lambda: ("preklopi", 2) in self.namizja.klici, 10), self.namizja.klici)
         # Iz gledalca Super+Tab: odpre preklopnik.
@@ -548,6 +553,75 @@ class ProstoriKrog2(Prostori):
         # Shift+Super+Alt in Super brez Alt/Ctrl nista bliznjici (Super+puscica je zlaganje oken Cinnamona).
         self.assertFalse(self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_Right, Gdk.ModifierType.SUPER_MASK, 0)))
         self.assertFalse(self.os._na_tipko(self.okno, so._Tipka(Gdk.KEY_Left, alt | Gdk.ModifierType.SHIFT_MASK, 0)))
+
+    def _vrstni_red(self):
+        return [z["id"] for z in self.os.shramba.get("prostori") or []]
+
+    def test_vrstni_red_tipke_povleci_in_super_alt(self):
+        """Lastnik 25. 10. 12:07: vrstni red naprav (povleci in spusti ali Alt+Shift+puscica) se zapomni in velja za
+        Super+Alt+puscico."""
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self.assertTrue(_cakaj(lambda: self._vrstni_red() == ["tv-9-os", "pc-1-control", "t-1-os"], 5), self._vrstni_red())
+        # Tipkovnica: Tablica (6. ploscica, za tremi namizji) eno mesto levo.
+        self._js("document.querySelector('[data-prostor=\"5\"]').focus(), 1")
+        self.tipka("ArrowLeft", altKey=True, shiftKey=True)
+        self.assertTrue(_cakaj(lambda: self._vrstni_red() == ["tv-9-os", "t-1-os", "pc-1-control"], 5), self._vrstni_red())
+        self.assertEqual(self.ploscice()[4].split(",")[0], "Tablica")
+        self.assertEqual(self.fokus(), "4", "fokus gre s ploscico")
+        # Povleci in spusti: Pisarno na mesto Kuhinje (prva naprava).
+        self._js("(function () { var dt = new DataTransfer();"
+                 " var od = document.querySelector('[data-prostor=\"5\"]').parentNode,"
+                 " na = document.querySelector('[data-prostor=\"3\"]').parentNode;"
+                 " od.dispatchEvent(new DragEvent('dragstart', {bubbles: true, dataTransfer: dt}));"
+                 " na.dispatchEvent(new DragEvent('dragover', {bubbles: true, cancelable: true, dataTransfer: dt}));"
+                 " na.dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer: dt}));"
+                 " od.dispatchEvent(new DragEvent('dragend', {bubbles: true, dataTransfer: dt})); return 1; })()")
+        self.assertTrue(_cakaj(lambda: self._vrstni_red() == ["pc-1-control", "tv-9-os", "t-1-os"], 5), self._vrstni_red())
+        self.assertEqual([p.split(",")[0] for p in self.ploscice()[3:6]], ["Pisarna", "Kuhinja", "Tablica"])
+        # Osvezitev (zapomni) vrstnega reda ne vrne na staro.
+        self.os._prostori(True)
+        self.assertEqual(self._vrstni_red(), ["pc-1-control", "tv-9-os", "t-1-os"])
+        # Super+Alt+desno z zadnjega namizja: prva naprava je zdaj Pisarna.
+        self.os._iz_gledalca({"sosednji": 1, "od": "t-1-os"})
+        _cakaj(lambda: False, 0.5)
+        self.os._iz_gledalca({"sosednji": -1, "od": "tv-9-os"})
+        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "pc-1-control", "", "1") in self.klici, 10), self.klici)
+        # Namizja in »+« niso premakljivi; neznana naprava iz strani se prezre.
+        self.assertEqual(self._js("document.querySelectorAll('#prostoriTrak .prostor-ovoj[draggable=\"true\"]').length"), 3)
+        self.os._prostori_vrstni_red(["tuj", "t-1-os"])
+        self.assertEqual(self._vrstni_red(), ["t-1-os", "pc-1-control", "tv-9-os"])
+
+    def test_desni_klik_monitorji(self):
+        """Lastnik 25. 10. 12:07: desni klik na napravo -> »Prikazi na monitorju N« (samo z vec monitorji)."""
+        with mock.patch.object(so.zaslon_monitorji, "monitorji", return_value=[dict(m) for m in MONITORJA]):
+            self._js("document.getElementById('gumbProstori').click(), 1")
+            self.pocakaj_naprave()
+            self.assertTrue(_cakaj(lambda: self._js("document.querySelector('[data-prostor=\"4\"]').title.indexOf('Desni klik') > 0"), 5))
+            self._js("document.querySelector('[data-prostor=\"4\"]').dispatchEvent(new MouseEvent('contextmenu', "
+                     "{bubbles: true, cancelable: true, button: 2})), 1")
+            self.assertTrue(_cakaj(lambda: self._js("document.getElementById('prostoriMeni').hidden") is False, 5))
+            gumbi = self._js("Array.prototype.map.call(document.querySelectorAll('#prostoriMeniVsebina button'), "
+                             "function (b) { return b.getAttribute('data-meni') + '|' + b.textContent; })")
+            self.assertEqual(gumbi, ["monitor:eDP-1:celo|Celozaslonsko", "monitor:eDP-1:okno|V oknu",
+                                     "monitor:HDMI-1:celo|Celozaslonsko", "monitor:HDMI-1:okno|V oknu"])
+            self.assertIn("Prikaži na monitorju 2 · Philips (HDMI-1)", self._js("document.getElementById('prostoriMeniVsebina').textContent"))
+            self._js("document.querySelector('[data-meni=\"monitor:HDMI-1:okno\"]').click(), 1")
+            self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "pc-1-control", "",
+                                            '{"celo": false, "monitor": "HDMI-1", "okvir": false}') in self.klici, 10), self.klici)
+            # Neznan monitor iz strani: odpre se kot doslej (celozaslonsko na trenutnem).
+            self.os._prostor_odpri("pc-1-control", "zrcaljenje", {"monitor": "DP-9", "celo": True})
+            self.assertIn(("ProstorOdpri", "pc-1-control", "", "1"), self.klici)
+        # En monitor: desni klik ne odpre nicesar, namiga za monitor ni.
+        with mock.patch.object(so.zaslon_monitorji, "monitorji", return_value=[dict(MONITORJA[0])]):
+            self._js("document.getElementById('prostoriZapri').click(), 1")
+            self._js("document.getElementById('gumbProstori').click(), 1")
+            self.pocakaj_naprave()
+            _cakaj(lambda: False, 0.5)
+            self._js("document.querySelector('[data-prostor=\"4\"]').dispatchEvent(new MouseEvent('contextmenu', "
+                     "{bubbles: true, cancelable: true, button: 2})), 1")
+            self.assertTrue(self._js("document.getElementById('prostoriMeni').hidden"))
+            self.assertEqual(self._js("document.querySelector('[data-prostor=\"4\"]').title.indexOf('Desni klik')"), -1)
 
     def test_zgornji_rob(self):
         self.assertFalse(self.os._prostori_rob(None)["rob"])

@@ -185,10 +185,15 @@ def ocisti_znane(surovo) -> List[dict]:
         if not k or k in videni:
             continue
         videni.add(k)
-        izhod.append({"kljuc": k, "id": idn, "ime": _niz(z.get("ime"), _NAJDALJSE_IME) or idn,
-                      "vrsta": z.get("vrsta") if z.get("vrsta") in VRSTE else "naprava",
-                      "nacin": z.get("nacin") if z.get("nacin") in NACINI else NACIN_ZASLON,
-                      "dodana": _cas(z.get("dodana")), "videna": _cas(z.get("videna"))})
+        zapis = {"kljuc": k, "id": idn, "ime": _niz(z.get("ime"), _NAJDALJSE_IME) or idn,
+                 "vrsta": z.get("vrsta") if z.get("vrsta") in VRSTE else "naprava",
+                 "nacin": z.get("nacin") if z.get("nacin") in NACINI else NACIN_ZASLON,
+                 "dodana": _cas(z.get("dodana")), "videna": _cas(z.get("videna"))}
+        # Mesto, ki ga je uporabnik izbral s povleci in spusti (preuredi); brez njega velja vrstni red dodajanja.
+        mesto = z.get("mesto")
+        if isinstance(mesto, int) and not isinstance(mesto, bool) and 0 <= mesto < NAJVEC_ZNANIH:
+            zapis["mesto"] = mesto
+        izhod.append(zapis)
         if len(izhod) >= NAJVEC_ZNANIH:
             break
     return izhod
@@ -220,12 +225,33 @@ def zapomni(znane: List[dict], zive: Iterable[dict], zdaj: int) -> List[dict]:
         if k not in ze:
             nove.append({"kljuc": k, "id": p["id"], "ime": p["ime"], "vrsta": p["vrsta"], "nacin": p["nacin"],
                          "dodana": zdaj, "videna": zdaj})
-    nove.sort(key=lambda z: (z["dodana"], z["ime"].lower()))
+    nove.sort(key=_vrstni_red)
     while len(nove) > NAJVEC_ZNANIH:
         brez = [z for z in nove if z["kljuc"] not in s_prostorom]
         # Najprej najdlje nevidena brez povezave; ce so vse povezane, nazadnje dodana (stara mesta ostanejo).
         nove.remove(min(brez, key=lambda z: z["videna"]) if brez else nove[-1])
     return nove
+
+
+def _vrstni_red(z: dict) -> tuple:
+    """Najprej mesta, ki jih je izbral uporabnik (preuredi), nato nove naprave po casu dodajanja - na konec."""
+    return (z.get("mesto", NAJVEC_ZNANIH), z["dodana"], z["ime"].lower())
+
+
+def preuredi(znane: List[dict], idji) -> List[dict]:
+    """Vrstni red, ki ga je uporabnik izbral s povleci in spusti v Zaslonih (lastnik 25. 10. 2026 12:07): `idji` so
+    oznake naprav v novem vrstnem redu (id ali sorodnik iste naprave). Znane, ki jih ni v seznamu, ostanejo za njimi v
+    dosedanjem vrstnem redu; neznane oznake se prezrejo (stran ne doda nobene naprave). Vsaka dobi `mesto`, zato
+    vrstni red velja tudi za Super+Alt+puscico in prezivi osvezitve (zapomni)."""
+    znane = ocisti_znane(znane)
+    po_kljucu = {z["kljuc"]: z for z in znane}
+    vrstni: List[str] = []
+    for i in list(idji or [])[:NAJVEC_ZNANIH * 2]:
+        k = kljuc(_niz(i, _NAJDALJSI_ID)) if isinstance(i, str) else ""
+        if k in po_kljucu and k not in vrstni:
+            vrstni.append(k)
+    vrstni += [z["kljuc"] for z in znane if z["kljuc"] not in vrstni]
+    return [dict(po_kljucu[k], mesto=i) for i, k in enumerate(vrstni)]
 
 
 def prostori(znane: List[dict], zive: Iterable[dict]) -> List[dict]:

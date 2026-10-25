@@ -86,6 +86,103 @@ from core import link_internet, link_internet_posrednik, sistemski_posrednik  # 
 from core import link_dostop, link_posiljanje  # noqa: E402
 
 
+def _gdk_monitor(oznaka: str):
+    """Gdk.Monitor po prikljucku (core/zaslon_monitorji.monitorji -> oznaka); None, ce ga ni."""
+    if not oznaka:
+        return None
+    try:
+        model = Gdk.Display.get_default().get_monitors()
+        for i in range(model.get_n_items()):
+            m = model.get_item(i)
+            if str(m.get_connector() or "") == oznaka:
+                return m
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _monitor_okna(okno) -> Optional[dict]:
+    """Monitor, na katerem je okno (ali prvi), kot slovar core/zaslon_monitorji."""
+    from core import zaslon_monitorji
+    vsi = zaslon_monitorji.monitorji()
+    try:
+        m = Gdk.Display.get_default().get_monitor_at_surface(okno.get_surface()) if okno.get_surface() else None
+        if m is not None:
+            return zaslon_monitorji.najdi(vsi, str(m.get_connector() or "")) or (vsi[0] if vsi else None)
+    except Exception:  # noqa: BLE001
+        pass
+    return vsi[0] if vsi else None
+
+
+def _postavi_okno(okno, geom: dict) -> None:
+    """X11: okno na tocen polozaj in velikost (GTK4 tega ne zna; wmctrl kot core/os_delovni_prostori). Po prikazu."""
+    import shutil
+    wmctrl = shutil.which("wmctrl")
+    if not wmctrl:
+        return
+    try:
+        gi.require_version("GdkX11", "4.0")
+        from gi.repository import GdkX11
+        povrsina = okno.get_surface()
+        if povrsina is None or not isinstance(povrsina, GdkX11.X11Surface):
+            return
+        xid = GdkX11.X11Surface.get_xid(povrsina)
+    except Exception:  # noqa: BLE001 - brez X11 ostane, kjer ga postavi upravljalnik oken
+        return
+    subprocess.run([wmctrl, "-i", "-r", "0x%x" % int(xid), "-e", "0,%d,%d,%d,%d" % (
+        int(geom["x"]), int(geom["y"]), int(geom["w"]), int(geom["h"]))], check=False, timeout=3,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _kje_odpreti(okno, kako: dict, velikost=None, vrsta: str = "") -> None:
+    """Zasloni (lastnik 25. 10. 2026 12:07): gledalec na izbranem monitorju celozaslonsko ali v oknu, telefon/tablica
+    v okvirju svoje oblike na sredini monitorja (core/zaslon_monitorji). Klice se po present()."""
+    from core import zaslon_monitorji
+    kako = kako or {}
+    if not kako.get("okvir") and okno.has_css_class("okvir-naprave"):
+        okno.remove_css_class("okvir-naprave")        # okno gledalca je eno: prej je kazalo telefon v okvirju
+        okno.set_decorated(True)
+    gdk_m = _gdk_monitor(kako.get("monitor") or "")
+    monitor = zaslon_monitorji.najdi(zaslon_monitorji.monitorji(), kako.get("monitor") or "") or _monitor_okna(okno)
+    if kako.get("okvir") and monitor:
+        sirina, visina = zaslon_monitorji.velikost_naprave(vrsta, *(velikost or (0, 0)))
+        o = zaslon_monitorji.okvir_naprave(sirina, visina, monitor)
+        okno.set_decorated(False)
+        okno.add_css_class("okvir-naprave")
+        _okvir_slog(o["polmer"])
+        okno.set_default_size(o["w"], o["h"])
+        GLib.timeout_add(150, lambda: (_postavi_okno(okno, o), False)[1])
+    elif kako.get("celo"):
+        if gdk_m is not None:
+            okno.fullscreen_on_monitor(gdk_m)
+        else:
+            okno.fullscreen()
+    elif monitor and kako.get("monitor"):
+        sirina, visina = okno.get_default_size()
+        g = zaslon_monitorji.na_sredino(monitor, sirina if sirina > 0 else 1280, visina if visina > 0 else 800)
+        GLib.timeout_add(150, lambda: (_postavi_okno(okno, g), False)[1])
+
+
+_OKVIR_SLOGI: dict = {}
+
+
+def _okvir_slog(polmer: int) -> None:
+    """Zaobljeni robovi in temen rob okvirja naprave (en slog na polmer za ves program)."""
+    polmer = int(polmer)
+    if polmer in _OKVIR_SLOGI:
+        return
+    ponudnik = Gtk.CssProvider()
+    css = ("window.okvir-naprave { border-radius: %dpx; background: #0b0d10; }"
+           " window.okvir-naprave > * { border-radius: %dpx; margin: 6px; }" % (polmer, max(0, polmer - 6)))
+    try:
+        ponudnik.load_from_string(css)
+    except AttributeError:      # GTK < 4.12
+        ponudnik.load_from_data(css, -1)
+    Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), ponudnik,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _OKVIR_SLOGI[polmer] = ponudnik
+
+
 def _celo_stevilo(v, najvec: int = 10 ** 9) -> int:
     """Stevilo iz odgovora druge naprave (total, next_offset): celo, 0..najvec; vse drugo je 0."""
     try:
@@ -1614,18 +1711,20 @@ class SafeerControl(_OSNOVA):
         if metoda == "ProstorOdpri":
             # Prostori (Safeer OS, krog 2): zaslon naprave odpri takoj celozaslonsko. Program je "" (oddaljeni zaslon
             # racunalnika) ali eden od dveh programov zaslona naprave Android - nic drugega (preveri tudi Safeer OS).
-            from core import link_prostori
+            from core import link_prostori, zaslon_monitorji
             id_cilja = str(a[0]) if a else ""
             program = str(a[1]) if len(a) > 1 else ""
-            celo = len(a) > 2 and str(a[2]) == "1"
+            # "1" (celozaslonsko) ali JSON: monitor (desni klik »Prikazi na monitorju N«) in okvir naprave.
+            kako = zaslon_monitorji.parametri_odpiranja(a[2] if len(a) > 2 else "")
             if not id_cilja:
                 return {"ok": False, "koda": "napacna_zahteva"}
             if program == "":
-                return self.upravljaj_racunalnik(id_cilja, celo=celo)
+                return self.upravljaj_racunalnik(id_cilja, celo=kako["celo"], kako=kako)
             if program not in (link_prostori.CEL_ZASLON, link_prostori.PROGRAM_NAMIZNI):
                 return {"ok": False, "koda": "napacna_zahteva"}
             # Gledalec Androida se odpre sele, ko naprava zacne deliti (share.screen): takrat ga razpnemo.
-            self._celo_za = (link_prostori.kljuc(id_cilja), time.monotonic()) if celo else None
+            self._celo_za = ((link_prostori.kljuc(id_cilja), time.monotonic(), kako)
+                             if (kako["celo"] or kako["okvir"] or kako["monitor"]) else None)
             return self._naprave_metoda("OdpriTukaj", [id_cilja, program])
         if metoda == "Teamwork":
             # Safeer OS po »Nadaljuj tukaj«: delovno kopijo spremljamo; odgovor pove program lastnika (JSON).
@@ -2068,7 +2167,7 @@ class SafeerControl(_OSNOVA):
         return {"ok": True, "ime": str(naprava.get("ime") or id_naprave),
                 "naslov": str(naprava.get("naslov") or ""), "seja": seja}
 
-    def upravljaj_racunalnik(self, id_naprave: str, celo: bool = False) -> dict:
+    def upravljaj_racunalnik(self, id_naprave: str, celo: bool = False, kako: Optional[dict] = None) -> dict:
         """Pripravi sejo in odpre gledalec v glavnem procesu Controla (`celo`: takoj celozaslonsko - Prostori)."""
         id_naprave = str(id_naprave or "")
         if not id_naprave:
@@ -2089,15 +2188,20 @@ class SafeerControl(_OSNOVA):
         zacetna = self._nova_oddaljena_seja(id_naprave)
         if not zacetna.get("ok"):
             return zacetna
-        GLib.idle_add(self._odpri_oddaljeni_gledalec, id_naprave, zacetna, celo)
+        GLib.idle_add(self._odpri_oddaljeni_gledalec, id_naprave, zacetna, celo, kako)
         return {"ok": True}
 
-    def _odpri_oddaljeni_gledalec(self, id_naprave: str, podatki: dict, celo: bool = False) -> bool:
+    def _odpri_oddaljeni_gledalec(self, id_naprave: str, podatki: dict, celo: bool = False,
+                                  kako: Optional[dict] = None) -> bool:
         try:
-            okno = OddaljeniGledalec(self, id_naprave, podatki, celo=celo)
+            # Na izbranem monitorju (Zasloni, desni klik): celozaslonsko na njem ali okno na njegovi sredini.
+            na_monitorju = bool(kako and kako.get("monitor"))
+            okno = OddaljeniGledalec(self, id_naprave, podatki, celo=celo and not na_monitorju)
             self._oddaljeni_gledalec = okno
             self._dodaj_okno(okno)
             okno.present()
+            if na_monitorju:
+                _kje_odpreti(okno, kako)
         except Exception as e:  # noqa: BLE001
             print("[SafeerControl] Gledalca ni bilo mogoce odpreti:", e)
             threading.Thread(target=self._ustavi_oddaljeno_sejo, args=(id_naprave,), daemon=True).start()
@@ -3015,11 +3119,16 @@ class SafeerControl(_OSNOVA):
             self._povej_konec_gledanja([prej])
         # Odprto iz Prostorov (ProstorOdpri s »celo«): gledalec te naprave takoj celozaslonsko, najvec 90 s po ukazu.
         celo_za = getattr(self, "_celo_za", None)
+        if not celo_za and self.gledalec.has_css_class("okvir-naprave"):
+            _kje_odpreti(self.gledalec, {})
         if celo_za and nova:
             from core import link_prostori
             if link_prostori.kljuc(nova) == celo_za[0] and time.monotonic() - celo_za[1] < 90:
                 self._celo_za = None
-                self.gledalec.fullscreen()
+                kako = celo_za[2] if len(celo_za) > 2 else {"celo": True}
+                vrsta = next((str(n.get("vrsta") or "") for n in (getattr(link, "naprave", None) or [])
+                              if n.get("id") == nova), "") if link is not None else ""
+                _kje_odpreti(self.gledalec, kako, vrsta=vrsta)
         vrstica = getattr(self.gledalec, "vrstica", None)
         if vrstica is not None and link is not None:
             vrstica.ime = next((str(n.get("ime") or "") for n in (getattr(link, "naprave", None) or [])

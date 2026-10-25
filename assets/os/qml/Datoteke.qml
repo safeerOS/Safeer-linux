@@ -243,6 +243,15 @@ Steklo {
         }, function () { if (st === zahteva) naslednjiDel = odmik })
     }
     function kljucSlicice(e) { return naprava + "\n" + e.id }
+    function prosiZaDostop() {
+        var ime = imeNaprave
+        koren.klic("prosiDostopNaprave", [naprava], function (r) {
+            if (r && r.shown) koren.obvesti(koren.t("prosnjaPrikazana", { naprava: ime }))
+            else if (r && r.reason === "notifications") koren.obvesti(koren.t("prosnjaObvestila", { naprava: ime }))
+            else if (r && r.reason === "off") koren.obvesti(koren.t("prosnjaIzklopljeno", { naprava: ime }))
+            else koren.obvesti(koren.t("niOdgovorila"))
+        }, function () { koren.obvesti(koren.t("niOdgovorila")) })
+    }
     // Slicice slik in videov naprave: Safeer OS jih prenese z njenega streznika (zeton, pripeto potrdilo) v predpomnilnik.
     function naloziSliciceNaprave() {
         if (!linux || vir.vrsta !== "naprava") return
@@ -760,11 +769,16 @@ Steklo {
                 // Naprava v Linku: velika mapa po delih in delni dostop (Android 14 »Izberi fotografije«).
                 footer: Column {
                     width: seznam.width; spacing: 6; topPadding: visible ? 6 : 0
-                    visible: panel.vir.vrsta === "naprava" && (panel.naslednjiDel > 0 || panel.dostopNaprave === "partial")
+                    visible: panel.vir.vrsta === "naprava" && (panel.naslednjiDel > 0 || panel.dostopNaprave === "partial"
+                                                                || panel.dostopNaprave === "none" || panel.stanje === "neDeli")
                     height: visible ? implicitHeight : 0
                     Text { visible: panel.dostopNaprave === "partial"; width: parent.width; wrapMode: Text.Wrap
                            text: koren.t("napravaDeliIzbrane", { naprava: panel.imeNaprave })
                            color: koren.paleta.medlo; font.pixelSize: koren.px(12) }
+                    // Naprava deli samo izbrane fotografije ali nic: prosnja na napravi (files.request_access).
+                    Gumb { visible: panel.dostopNaprave === "partial" || panel.dostopNaprave === "none" || panel.stanje === "neDeli"
+                           objectName: "prosiZaDostop"; besedilo: koren.t("prosiZaDostop")
+                           onKlik: panel.prosiZaDostop() }
                     Gumb { visible: panel.naslednjiDel > 0; objectName: "naloziVec"
                            besedilo: panel.skupajNaprave > 0 ? koren.t("naloziVecOd", { n: panel.elementi.length, skupaj: panel.skupajNaprave })
                                                               : koren.t("naloziVec")

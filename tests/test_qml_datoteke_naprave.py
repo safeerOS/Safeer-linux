@@ -107,6 +107,33 @@ class SliciceInDeli(unittest.TestCase):
             self.assertEqual(len(re.findall(r"\b" + kljuc + ":", besedila)), 6, kljuc)
 
 
+class ProsnjaZaDostop(unittest.TestCase):
+    """Android link-datoteke: files.request_access brez parametrov; razlog notifications / off."""
+
+    def test_prosnja_samo_ozjemu_krogu_in_razlog(self):
+        klici = []
+
+        def control(metoda, *a):
+            klici.append((metoda,) + a)
+            return {"ok": True, "data": {"shown": False, "reason": "notifications", "x": "<b>"}}
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(safeer_os, "_control_naprave", control):
+            r = safeer_os.prosi_dostop_naprave("n-tel")
+        self.assertEqual(r, {"ok": True, "shown": False, "reason": "notifications"})
+        self.assertEqual(klici, [("Ukaz", "n-tel", "files.request_access", "{}")])
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(safeer_os, "_control_naprave", lambda *a: {"ok": True, "data": {"reason": "tuje"}}):
+            self.assertEqual(safeer_os.prosi_dostop_naprave("n-tel")["reason"], "", "neznan razlog se ne prenese")
+        with mock.patch.object(safeer_os, "_v_ozjem_krogu", return_value=False), \
+                mock.patch.object(safeer_os, "_control_naprave") as c:
+            self.assertEqual(safeer_os.prosi_dostop_naprave("n-tel")["koda"], "ni_ozji_krog")
+        c.assert_not_called()
+        with open(os.path.join(KOREN, "assets", "os", "besedila-namizja.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        for kljuc in ("prosiZaDostop", "prosnjaPrikazana", "prosnjaObvestila", "prosnjaIzklopljeno"):
+            self.assertEqual(len(re.findall(r"\b" + kljuc + ":", besedila)), 6, kljuc)
+
+
 class ControlDelSeznama(unittest.TestCase):
     def test_parametri_samo_znani_in_omejeni(self):
         import safeer_control

@@ -9297,7 +9297,7 @@
   // sosednjega prostora, neobvezen zgornji rob (rob).
   var PR = { seznam: [], izbran: 0, odpira: "", stanje: "", prej: null, zanka: 0, kolo: 0, poteg: null, nalozeno: false, cakaSmer: 0,
              zap: 0, nalaga: false, namizja: [], najvec: 12, slike: {}, slikaZanka: 0, slikaTece: false, meni: false,
-             rob: false, robCas: 0 };
+             rob: false, robCas: 0, monitorji: [], vlece: "" };
   var PROSTOR_IKONA = { racunalnik: "namizje", tablica: "tablica", telefon: "telefon", tv: "zaslon", naprava: "naprave" };
   function prostoriOdprto() { var s = $("slojProstori"); return !!(s && s.classList.contains("viden")); }
   function prostorKdaj(sekunde) {
@@ -9363,6 +9363,14 @@
       if (!p.ta && !p.dodaj && !p.namizje) {
         b.setAttribute("data-id", String(p.id));
         if (p.povezana && PR.slike[p.id]) slicica.appendChild(prostorSlika(PR.slike[p.id]));
+        prostorVlecenje(ovoj, b, p);
+        // Desni klik (ali tipka Meni / Shift+F10): »Prikazi na monitorju N« - samo, ce ima racunalnik vec monitorjev.
+        b.addEventListener("contextmenu", function (e) {
+          if (!p.povezana || PR.monitorji.length < 2) return;
+          e.preventDefault();
+          PR.izbran = i; oznaciProstor(false);
+          odpriMeniMonitorjev(p);
+        });
       }
       b.appendChild(slicica);
       var napis = el("span", "prostor-napis");
@@ -9389,6 +9397,93 @@
     $("prostoriStanje").textContent = PR.stanje;
     if ($("prostoriRob")) $("prostoriRob").checked = !!PR.rob;
     oznaciProstor(fokus);
+  }
+  // Vrstni red naprav (lastnik 25. 10. 2026 12:07): povleci in spusti kot pri dodajanju v dok (delovna.js) - samo
+  // naprave, namizja in »+« ostanejo na svojem mestu. Vrstni red shrani Safeer OS (os.json, link_prostori.preuredi)
+  // in velja tudi za Super+Alt+puscico. Tipkovnica: Alt+Shift+levo/desno premakne izbrano napravo.
+  function prostorVlecenje(ovoj, b, p) {
+    ovoj.draggable = true;
+    ovoj.setAttribute("aria-roledescription", t("prostorPremakljiv"));
+    b.title = t("prostorPremakniNamig") + (PR.monitorji.length > 1 ? " " + t("prostorMonitorNamig") : "");
+    ovoj.addEventListener("dragstart", function (e) {
+      PR.vlece = String(p.id);
+      ovoj.classList.add("vlecem");
+      try { e.dataTransfer.setData("text/plain", PR.vlece); e.dataTransfer.effectAllowed = "move"; } catch (x) {}
+    });
+    ovoj.addEventListener("dragend", function () {
+      PR.vlece = "";
+      Array.prototype.forEach.call(document.querySelectorAll("#prostoriTrak .prostor-ovoj"), function (o) {
+        o.classList.remove("vlecem"); o.classList.remove("spusti");
+      });
+    });
+    ovoj.addEventListener("dragover", function (e) {
+      if (!PR.vlece || PR.vlece === String(p.id)) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = "move"; } catch (x) {}
+      ovoj.classList.add("spusti");
+    });
+    ovoj.addEventListener("dragleave", function () { ovoj.classList.remove("spusti"); });
+    ovoj.addEventListener("drop", function (e) {
+      e.preventDefault();
+      ovoj.classList.remove("spusti");
+      var od = PR.vlece;
+      PR.vlece = "";
+      if (od && od !== String(p.id)) prostorPrestavi(od, String(p.id));
+    });
+  }
+  // Napravo `od` postavi na mesto naprave `na` (pred njo, ce gre nazaj; za njo, ce gre naprej) in shrani.
+  function prostorPrestavi(od, na) {
+    var ids = PR.seznam.map(function (x) { return String(x.id); });
+    var i = ids.indexOf(od), j = ids.indexOf(na);
+    if (i < 0 || j < 0 || i === j) return;
+    var naprava = PR.seznam.splice(i, 1)[0];
+    PR.seznam.splice(j, 0, naprava);
+    var lokalne = prostoriLokalne().length;
+    PR.izbran = lokalne + j;
+    narisiProstore(true);
+    obvesti(t("prostorPremaknjeno", { ime: prostorIme(naprava), n: j + 1 }));
+    klic("prostoriVrstniRed", [PR.seznam.map(function (x) { return String(x.id); })]).then(function (r) {
+      if (!r || !r.ok) obvesti(t("niUspelo"));
+    }, function () { obvesti(t("niUspelo")); });
+  }
+  function prostorPremakniIzbranega(smer) {
+    var p = prostoriPloscice()[PR.izbran];
+    if (!p || p.ta || p.dodaj || p.namizje) return false;
+    var i = PR.seznam.indexOf(p), j = i + smer;
+    if (i < 0 || j < 0 || j >= PR.seznam.length) return true;
+    prostorPrestavi(String(p.id), String(PR.seznam[j].id));
+    return true;
+  }
+  // Desni klik na napravo: na katerem monitorju se odpre njen zaslon (celozaslonsko ali v oknu). Isti meni kot »+«.
+  function odpriMeniMonitorjev(p) {
+    PR.meni = true;
+    $("prostoriMeni").hidden = false;
+    var v = $("prostoriMeniVsebina");
+    v.innerHTML = "";
+    var naslov = el("div", "prostori-meni-vrsta");
+    naslov.appendChild(el("b", "", ubezi(prostorIme(p))));
+    v.appendChild(naslov);
+    PR.monitorji.forEach(function (m) {
+      var vr = el("div", "prostori-meni-vrsta");
+      vr.appendChild(el("b", "", ubezi(t("prostorMonitor", { n: m.st }) + (m.ime ? " · " + m.ime : "") + " (" + m.oznaka + ")")));
+      [["celo", true], ["okno", false]].forEach(function (k) {
+        var g = el("button", "gumb majhen", ubezi(t(k[1] ? "prostorMonitorCelo" : "prostorMonitorOkno")));
+        g.type = "button";
+        g.setAttribute("data-meni", "monitor:" + m.oznaka + ":" + k[0]);
+        g.addEventListener("click", function () { zapriMeni(false); prostorIzberi(p, "zrcaljenje", { monitor: m.oznaka, celo: k[1] }); });
+        vr.appendChild(g);
+      });
+      v.appendChild(vr);
+    });
+    var prvi = v.querySelector("button");
+    if (prvi) prvi.focus();
+  }
+  function nalozMonitorje() {
+    return klic("monitorji").then(function (r) {
+      var prej = PR.monitorji.length;
+      PR.monitorji = r && Array.isArray(r.monitorji) ? r.monitorji.filter(function (m) { return m && m.oznaka; }) : [];
+      if ((prej > 1) !== (PR.monitorji.length > 1) && prostoriOdprto()) narisiProstore(false);
+    }, function () { PR.monitorji = []; });
   }
   // Slicica racunalnika v zivo (screen.thumb prek mosta, Python preveri sliko in napravo); src nastavimo kot lastnost.
   function prostorSlika(src) {
@@ -9498,6 +9593,7 @@
     $("gumbProstori").setAttribute("aria-expanded", "true");
     narisiProstore(true);
     nalozProstore("vedno");
+    nalozMonitorje();
     clearInterval(PR.zanka);
     // Stanje povezave se med odprtim preklopnikom osvezuje (naprava pride ali odide); zaprt sloj zanko ustavi.
     PR.zanka = setInterval(function () {
@@ -9629,7 +9725,7 @@
       obvesti(t(smer > 0 ? "prostorZadnji" : "prostorPrvi"));
     });
   }
-  function prostorIzberi(p, prikaz) {
+  function prostorIzberi(p, prikaz, kako) {
     if (p.namizje) { prostorNamizje(p); return; }
     if (p.ta) { zapriProstore(); return; }
     if (p.dodaj) { if (PR.meni) zapriMeni(true); else odpriMeni(); return; }
@@ -9638,7 +9734,7 @@
     PR.odpira = p.id;
     PR.stanje = t("prostorOdpiram", { ime: prostorIme(p) });
     narisiProstore(true);
-    klic("prostorOdpri", [p.id, prikaz || "zrcaljenje"]).then(function (r) {
+    klic("prostorOdpri", kako ? [p.id, prikaz || "zrcaljenje", kako] : [p.id, prikaz || "zrcaljenje"]).then(function (r) {
       PR.odpira = "";
       if (!r || !r.ok) {
         PR.stanje = prostorNapaka(r, p);
@@ -9704,6 +9800,18 @@
         e.preventDefault(); e.stopImmediatePropagation();
         if (mg.length) mg[(mi + (k === "ArrowRight" || k === "ArrowDown" ? 1 : mg.length - 1)) % mg.length].focus();
         return;
+      }
+      // Alt+Shift+levo/desno: izbrano napravo premakni (enako kot povleci in spusti); tipka Meni / Shift+F10: monitorji.
+      if (e.altKey && e.shiftKey && (k === "ArrowLeft" || k === "ArrowRight")) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        prostorPremakniIzbranega(k === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) {
+        var pm = prostoriPloscice()[PR.izbran];
+        if (pm && pm.povezana && !pm.ta && !pm.namizje && PR.monitorji.length > 1) {
+          e.preventDefault(); e.stopImmediatePropagation(); odpriMeniMonitorjev(pm); return;
+        }
       }
       if (k === "ArrowRight" || k === "ArrowDown") { e.preventDefault(); premakniProstor(1); }
       else if (k === "ArrowLeft" || k === "ArrowUp") { e.preventDefault(); premakniProstor(-1); }
