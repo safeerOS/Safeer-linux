@@ -196,7 +196,7 @@ class Prostori(unittest.TestCase):
 
     def test_gumb_odpre_ploscice_v_stalnem_redu(self):
         g = "document.getElementById('gumbProstori')"
-        self.assertEqual(self._js(g + ".getAttribute('aria-label')"), "Prostori – zasloni tvojih naprav (Super+Tab)")
+        self.assertEqual(self._js(g + ".getAttribute('aria-label')"), "Zasloni – namizja tega računalnika in zasloni tvojih naprav (Super+Tab)")
         self.assertEqual(self._js(g + ".getAttribute('aria-expanded')"), "false")
         self._js(g + ".focus(), " + g + ".click(), 1")
         self.assertTrue(self.odprto())
@@ -571,7 +571,7 @@ class ProstoriAngleski(Prostori):
     def test_gumb_odpre_ploscice_v_stalnem_redu(self):
         self._js("document.getElementById('gumbProstori').click(), 1")
         self.pocakaj_naprave()
-        self.assertEqual(self._js("document.getElementById('prostoriNaslov').textContent"), "Spaces")
+        self.assertEqual(self._js("document.getElementById('prostoriNaslov').textContent"), "Screens")
         self.assertEqual(self.ploscice()[2], "Pisarna, computer, Connected")
 
     def test_android_cel_zaslon_s_potrditvijo(self):
