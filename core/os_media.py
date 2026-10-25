@@ -5423,6 +5423,8 @@ class MediaCenter:
             # Webtor rezerva (core/webtor.py): tokovi dodatka Webtor niso neposredne povezave - gredo v svoj korak.
             webtor_tokovi = [t for t in tokovi if t.get("webtor")]
             tokovi = [t for t in tokovi if not t.get("webtor")]
+            if p2p:
+                webtor_tokovi = []      # uporabnik je izrecno izbral roj (Webtor ni dal toka): ne caka znova 15 s
             # tok=True: neposreden tok dodatka (tudi brez koncnice) - predvajalnik ga sme tiho poskusiti kot razlicico.
             neposredni = [dict(t, tok=True) for t in tokovi if t.get("url") and not t.get("zunanje")
                           and (t["url"].startswith("https://") or media_servers.dovoljen_naslov(t["url"]))]

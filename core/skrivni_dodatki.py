@@ -431,17 +431,17 @@ def skrij_tok(naslov: str, skrivnosti: tuple = ()) -> str:
     if je_nadomestek(n):
         return n
     p = skrivna_predpona_toka(n)
-    nosi = [o for o in skrivnosti if o and (o in n or odkodiraj(o) in odkodiraj(n))]
-    if nosi:
-        p = n.split("#", 1)[0] if not p or len(p) < len(n.split("#", 1)[0]) else p
+    ostanek = n[len(p):] if p else n            # kar bi ostalo vidno za nadomestkom
+    if any(o and (o in ostanek or odkodiraj(o) in odkodiraj(ostanek)) for o in skrivnosti):
+        p = n.split("#", 1)[0]
     z = nadomestek(p) if p else None
     if not p or not z:
         return n
     with _ZAKLEP:
         _PRAVI_TOKOV[z] = p
         _PRAVI_TOKOV.move_to_end(z)
-        if nosi:
-            _VREDNOSTI_TOKOV[z] = tuple(nosi)
+        if skrivnosti:
+            _VREDNOSTI_TOKOV[z] = tuple(o for o in skrivnosti if o)
         while len(_PRAVI_TOKOV) > NAJVEC_TOKOV:
             _VREDNOSTI_TOKOV.pop(_PRAVI_TOKOV.popitem(last=False)[0], None)
     return z + n[len(p):]

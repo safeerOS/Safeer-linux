@@ -384,6 +384,27 @@ class Izbira(unittest.TestCase):
         self.assertEqual([u[-1] for u, _r in self.sonde], ["b", "c"])     # P2P (oglas) skrit, najvec 2 sondi
         self.assertTrue(all(r <= W.PRVI_BAJT_MS for _u, r in self.sonde))
 
+    def test_izrecen_p2p_ne_caka_znova_na_webtor(self):
+        """Naloga 21, tocka 3: »Predvajaj neposredno« po neuspehu Webtorja - brez druge sonde Webtor (15 s), naravnost v roj;
+        brez izbire pa nikoli v roj."""
+        self.drugi = [{"url": "", "torrent": True, "hash": "ab" * 20, "indeks": 0, "vir": "Torrentio", "opis": "1080p"}]
+        self.izidi = [W.Sonda(koda=404), W.Sonda(koda=404)]
+        roj: list = []
+        with mock.patch.object(os_media.os_torrent_tok, "podprto", return_value=True), \
+                mock.patch.object(self.mc, "_razresi_torrent", side_effect=lambda item, t: roj.append(t) or dict(item, url="http://127.0.0.1:1/t")), \
+                mock.patch.object(self.mc, "_p2p_dovoljeni", return_value=[]):
+            izid, _rd = self.resolve()
+            self.assertEqual((izid.get("napaka_koda"), len(self.sonde), roj), ("p2p_potrditev", 1, []))
+            self.assertTrue(izid["p2p"]["webtor"])
+            self.sonde.clear()
+            self.mc._dynamic_items["f1"] = self.item
+            with mock.patch.object(media_servers, "stremio_tokovi", side_effect=self.tokovi), \
+                    mock.patch.object(media_servers, "stremio_manifest", side_effect=self.manifest), \
+                    mock.patch.object(self.mc, "_usenet_mogoc", return_value=False), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                izid = self.mc.resolve("f1", p2p=True)
+        self.assertEqual((izid.get("url"), self.sonde, len(roj)), ("http://127.0.0.1:1/t", [], 1))
+
     def test_hitro_zavrnjena_vsebina_ni_poskus(self):
         """Naloga 21 B1 (skupni primeri v4): pri torrentih YTS CDN TorBox za idx filma vrne .srt; sonda ga zavrne hitro
         (NAPACNA_VSEBINA v < 3 s) in to ne porabi enega od 2 poskusov - naslednji tokovi pridejo na vrsto."""
