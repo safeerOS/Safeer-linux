@@ -406,6 +406,62 @@ class Izbira(unittest.TestCase):
             self.assertFalse(self.mc._je_webtor_koren("http://webtor.io/x"))
 
 
+class PravaOblikaTokov(unittest.TestCase):
+    """Zivi tek 25. 10. 2026 (lastnikov dodatek Webtor na prenosniku): dodatek je kratka povezava `/s/<koda>`, tokovi
+    pa `/token/<uuid>/stremio/resolve/<JWT>`. skrij_tok skrije cel naslov toka (JWT je neprozoren odsek), zato tok ni bil
+    prepoznan kot Webtor: sel je med neposredne povezave (sonda brez preverbe vsebine in brez izbire glavne datoteke).
+    Tu stremio_tokovi NI ponarejen - tokove skrije prava pot (media_servers._request -> stremio_tokovi -> skrij_tok)."""
+    KODA = "AbC123"
+    UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    KRATKA = "https://webtor.io/s/%s/manifest.json" % KODA
+    TOK = "https://webtor.io/token/%s/stremio/resolve/%s" % (UUID, JWT)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        S.pozabi_vse()
+        self.mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=lambda s: "enc:" + s[::-1],
+                                       secret_decryptor=lambda s: s[4:][::-1])
+        self.sonde: list = []
+
+    def tearDown(self):
+        S.pozabi_vse()
+        S.nastavi_odklepalnik(None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def resolve(self, dodatek: str, tok: str, *zetoni: str) -> dict:
+        with mock.patch.object(media_servers, "stremio_preveri", return_value=""), \
+                mock.patch.object(media_servers, "stremio_manifest", return_value={"id": W.ID_MANIFESTA, "name": "Webtor"}):
+            self.assertTrue(self.mc.add_server("stremio", "Webtor", dodatek, "", "")["ok"])
+        koren = media_servers._stremio_koren(self.mc.sources()[0]["url"])
+        self.mc._dynamic_items["f1"] = {"id": "f1", "naslov": "Film", "vrsta": "film", "url": "stremio:%s|movie|tt1" % koren}
+        self.mc._webtor_sonda = lambda url, rok, *_a: self.sonde.append(url) or W.Sonda(
+            koda=206, prvi_bajt_ms=300, koncni=CDN, vsebina="VIDEO", posoda="MKV")
+        self.mc._skrivni_sonda = lambda *_a: self.fail("tok Webtor je sel med neposredne povezave")
+        odgovor = json.dumps({"streams": [{"name": "[⚡WT] Torrentio\n1080p", "title": "Film 1080p", "url": tok,
+                                           "behaviorHints": {"filename": "Film.2024.1080p.mkv"}}]}).encode()
+        izhod = io.StringIO()
+        with mock.patch.object(media_servers, "_request", return_value=odgovor), \
+                mock.patch.object(media_servers, "stremio_manifest", return_value={"id": W.ID_MANIFESTA}), \
+                mock.patch.object(media_servers, "tok_stanje", side_effect=AssertionError("brez sonde zivosti s kljucem")), \
+                mock.patch.object(self.mc, "_usenet_mogoc", return_value=False), \
+                contextlib.redirect_stdout(izhod), contextlib.redirect_stderr(izhod):
+            izid = self.mc.resolve("f1")
+        for z in zetoni:
+            self.assertNotIn(z, izhod.getvalue())
+            self.assertNotIn(z, json.dumps(izid))
+        return izid
+
+    def test_kratka_povezava_s_kodo(self):
+        izid = self.resolve(self.KRATKA, self.TOK, self.KODA, self.UUID)
+        self.assertEqual((izid.get("url"), izid.get("webtor")), (CDN, True))
+        self.assertEqual(self.sonde, [self.TOK])            # sonda Webtor (s preverbo vsebine) dobi pravi naslov
+
+    def test_povezava_z_zetonom(self):
+        izid = self.resolve(DODATEK, RESOLVE, ZETON)
+        self.assertEqual((izid.get("url"), izid.get("webtor")), (CDN, True))
+        self.assertEqual(self.sonde, [RESOLVE])
+
+
 if __name__ == "__main__":
     unittest.main()
 

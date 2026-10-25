@@ -3225,10 +3225,17 @@ class MediaCenter:
             return tokovi
         izid = []
         for t in tokovi:
-            if t.get("url") and webtor.je_resolve_naslov(str(t["url"])):
+            # Prepoznava po PRAVEM naslovu (samo v pomnilniku): zivi tek 25. 10. 2026 - dodatek je kratka povezava
+            # `/s/<koda>`, tokovi `/token/<uuid>/stremio/resolve/<JWT>`; skrij_tok skrije cel naslov (JWT je neprozoren
+            # odsek), zato nadomestek nima »/resolve/« in tok je sel med neposredne povezave (brez preverbe vsebine).
+            try:
+                pravi = skrivni_dodatki.dejanski(str(t.get("url") or ""))
+            except ValueError:
+                pravi = ""
+            if pravi and webtor.je_resolve_naslov(pravi):
                 # Izdaja in datoteka iz JWT (idx; brez JWT IDX_NEZNAN) - Android webtor-popravek, skupni primeri v3.
                 t = dict(t, webtor=webtor.razcleni(str(t.get("vir") or ""))[0],
-                         webtor_kljuc=webtor.kljuc_webtor(t.get("hash"), str(t["url"])))
+                         webtor_kljuc=webtor.kljuc_webtor(t.get("hash"), pravi))
             izid.append(t)
         return izid
 
