@@ -18,6 +18,12 @@ NI_NA_NAMIZJU = {
     "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
     "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
 }
+#: Preverba kljucev debrid in indeksatorja (25. 10. 2026, Android d1fdecc) - ista datoteka kot na Androidu, nespremenjena.
+PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-preverba.json"
+#: Izidi preverbe: v primerih Androidova imena, namizje ima svoje vrednosti (most in os.js ostaneta) - en slovar.
+IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
+                P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika"}
+IZID_NAMIZJE = {v: k for k, v in IZID_ANDROID.items()}
 #: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
 KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
                   U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
@@ -153,6 +159,33 @@ def izracunaj(f, v):
         return U.izberi_usenet(v["izidi"], v["rok_potekel"])
     if f == "scit_dovoljena":
         return W.scit_dovoljena(v["ime"], v["naucene"], v["zdaj"])
+    # Preverba kljucev (PRIMERI_KLJUCI): izide preslika IZID_ANDROID, stanja so ista imena (velja/ne_velja/nepreverjen).
+    if f == "kljuc_iz_vnosa":
+        return P.kljuc_iz_vnosa(v["vnos"], v["ponudnik"])
+    if f == "je_vzorec_kljuca":
+        return P.je_vzorec_kljuca(v["kljuc"])
+    if f == "preverba_torbox":
+        izid, paket = P.torbox_preverba(v["http"], v["telo"])
+        return [IZID_ANDROID[izid], paket]
+    if f == "preverba_rd":
+        return IZID_ANDROID[P.rd_preverba(v["http"], v["telo"])]
+    if f == "preverba_ad":
+        return IZID_ANDROID[P.ad_preverba(v["http"], v["telo"])]
+    if f == "preverba_indeksatorja":
+        return IZID_ANDROID[U.preverba_indeksatorja(v["http"], v["telo"])]
+    if f == "naslov_preverbe_indeksatorja":
+        return U.naslov_preverbe(v["osnova"], v["kljuc"])
+    if f == "preverba_iz_napake":
+        return IZID_ANDROID[P.preverba_iz_napake(v["vrsta"])]
+    if f == "stanje_po_preverbi":
+        return P.stanje_po_preverbi(IZID_NAMIZJE[v["preverba"]])
+    if f == "za_uskladitev":
+        return P.za_uskladitev(v["stanje"])
+    if f == "sprejmi_prejetega":
+        return P.sprejmi_prejetega(IZID_NAMIZJE[v["preverba"]])
+    if f == "preveri_zdaj":
+        # Primeri so v ms (Android), namizje steje v sekundah (time.time).
+        return P.preveri_zdaj(v["stanje"], v["zadnjic_ms"] / 1000.0, v["zdaj_ms"] / 1000.0)
     raise KeyError("neznano pravilo: " + f)
 
 
@@ -162,6 +195,10 @@ class SkupniPrimeri(unittest.TestCase):
 
     def test_webtor_rezerva(self):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
+
+    def test_kljuci_preverba(self):
+        self._preveri(PRIMERI_KLJUCI, set(), 120)
+        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 1)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))
