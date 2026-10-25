@@ -1380,6 +1380,11 @@ class Zaslon:
                 elif izid:
                     # Rod zagona je koncal brez okna: uporabnik ne gleda pol minute praznega zaslona.
                     razlog = "ni_okna"
+                    if izid == "na_namizju":
+                        # Program je odprt na namizju, naprava pa preklopa ne zna (gledalec brez caps "handoff",
+                        # npr. Safeer OS na Windows do popravka »ni okna«, 25. 10. 2026): vzrok naj bo viden v dnevniku.
+                        print("[zaslon] program je odprt na namizju racunalnika, naprava preklopa (handoff) ne zna",
+                              flush=True)
                 else:
                     if not povedal_caka:
                         povedal_caka = True
