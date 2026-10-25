@@ -386,6 +386,7 @@ class Seja(unittest.TestCase):
             with mock.patch.object(link_zaslon, "hevc_mozen", return_value=False), \
                     mock.patch.object(link_zaslon, "ukaz_ffmpeg", ukaz), \
                     mock.patch.object(link_zaslon, "_zaslon_geometrija", return_value=(2560, 1440)), \
+                    mock.patch.object(link_zaslon, "_deljeni_monitor", return_value=None), \
                     mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=mozna), \
                     mock.patch.object(link_zaslon, "vaapi_naprava", return_value="/dev/dri/renderD128"):
                 self.z.zacni("fon", "najvisja", "desktop", zmoznosti=["gop"])
