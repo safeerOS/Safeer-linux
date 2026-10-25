@@ -5991,7 +5991,8 @@
     if (!debridStanje) {
       if (debridNalagam) return;
       debridNalagam = true;
-      klic("mediaDebrid", []).then(function (s) { debridStanje = s; debridNalagam = false; narisiDebrid(true); })
+      // Brez stanja (null) ne klicemo znova v neskoncnost - to je zamrznilo stran; pokazemo prazen izbor (»Dodaj«).
+      klic("mediaDebrid", []).then(function (s) { debridStanje = s && typeof s === "object" ? s : { storitve: [] }; debridNalagam = false; narisiDebrid(true); })
         .catch(function () { debridNalagam = false; });
       return;
     }
