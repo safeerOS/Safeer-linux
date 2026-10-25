@@ -1289,7 +1289,7 @@ class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
 
     def __init__(self, config_dir: str, roots: Optional[Iterable[str | Path]] = None,
-                 secret_encryptor=None, secret_decryptor=None):
+                 secret_encryptor=None, secret_decryptor=None, secret_forget=None):
         self.config_dir = Path(config_dir)
         self.store_path = self.config_dir / "media.json"
         self.roots = [Path(path) for path in roots] if roots is not None else self._default_roots()
@@ -1312,6 +1312,8 @@ class MediaCenter:
         self._izvirni_jeziki = izvirni_jezik.IzvirniJeziki(str(self.config_dir / "izvirni-jeziki.tsv"))
         self._secret_encryptor = secret_encryptor or _dpapi_protect
         self._secret_decryptor = secret_decryptor or _dpapi_unprotect
+        #: Izbrise sifriran zapis iz zbirke skrivnosti (Linux: os_katalog.pozabi); DPAPI nima zbirke - nic.
+        self._secret_forget = secret_forget or (lambda _vrednost: None)
         # Naloga 131: debrid storitve (TorBox, Real-Debrid, AllDebrid). Kljuci samo sifrirani (isti sifrirnik kot gesla
         # streznikov), v svoji datoteki - meritev po predvajanju ne sme ozastariti predpomnilnika kataloga.
         self.debrid = debrid.Debrid(self._beri_debrid, self._pisi_debrid, self._secret_encryptor, self._secret_decryptor)
@@ -1339,18 +1341,27 @@ class MediaCenter:
             return None
         return self._secret_decryptor(str(zapis["url_enc"])) or None
 
-    #: Datoteke v mapi Medijskega centra, ki jih prehod preisce (katalog, police, seznami, usklajevanje ...).
-    PREHOD_NAJVEC_BAJTOV = 64 * 1024 * 1024
+    #: Najvecja datoteka, ki jo prehod prebere v celoti (vecja ostane v cakanju in se ponovi; meritev 25. 10.: mapa
+    #: Medijskega centra na prenosniku ima 11 datotek, najvecja nekaj MB).
+    PREHOD_NAJVEC_BAJTOV = 256 * 1024 * 1024
+    #: Koreni dodatkov v drugih datotekah (katalog: »stremio:<koren>|«, izbrisi: »stremio|<naslov>«, »koren«): tudi
+    #: odstranjen dodatek z zetonom tam dobi nadomestek (pregled Grok N3).
+    _RX_KORENI = re.compile(rb'stremio:(https?:(?:/|\\/)[^|"\s]+)\||"stremio\|(https?:(?:/|\\/)[^"\s]+)"|"koren": ?"(https?:[^"\s]+)"')
 
     def _preseli_skrivne_dodatke(self) -> None:
         """Prehod (25. 10. 2026): dodatek, ki je bil v media.json shranjen s pravim naslovom (zeton v cistopisu), dobi
-        sifriran naslov (url_enc) in nadomestek; nadomestek zamenja pravo predpono tudi v drugih datotekah te mape.
-        Ce sifriranje ne uspe (ni zbirke skrivnosti), zapis ostane, kot je (na novo mesto ne gre), dobi oznako
-        »nezavarovan« (Moji viri to povedo) - prehod se ponovi ob naslednjem zagonu (pregled Grok U6)."""
+        sifriran naslov (url_enc) in nadomestek; nadomestek zamenja pravo predpono tudi v vseh drugih datotekah mape
+        Medijskega centra (tudi podmape in koreni odstranjenih dodatkov). Ponovljivo (pregled Grok N1): nadomestne
+        osnove, katerih druge datoteke se niso ociscene, ostanejo v media.json pod »skrivni_prehod«; ob naslovnem zagonu
+        se prava predpona vzame iz zbirke skrivnosti in prehod se ponovi, dokler ne uspe povsod. Najprej druge datoteke,
+        nato media.json. Ce sifriranje ne uspe (ni zbirke skrivnosti), zapis ostane, kot je (na novo mesto ne gre), dobi
+        oznako »nezavarovan« (Moji viri to povedo), pravi naslov pa le v pomnilniku dobi nadomestek (tokovi, Grok N13)."""
         with self._lock:
             data = self._load()
             zamenjave: dict = {}
+            sifrirani: list = []
             spremenjeno = skrivni = False
+            cakajo = [str(o) for o in (data.get("skrivni_prehod") or []) if isinstance(o, str)]
             for s in data.get("osebni_strezniki", []):
                 if not isinstance(s, dict) or s.get("ponudnik") != "stremio":
                     continue
@@ -1368,43 +1379,152 @@ class MediaCenter:
                     if not s.get("nezavarovan"):
                         s["nezavarovan"] = True
                         spremenjeno = True
+                    skrivni_dodatki.odkleni(url)        # samo v pomnilniku: tokovi tega dodatka dobijo nadomestek
                     continue
+                sifrirani.append(enc)
                 nadomestni = skrivni_dodatki.odkleni(url)
-                zamenjave[predpona] = skrivni_dodatki.nadomestna_osnova(nadomestni) or ""
+                osnova = skrivni_dodatki.nadomestna_osnova(nadomestni) or ""
+                zamenjave[predpona] = osnova
+                if s.get("zaseben") is False:
+                    # Grok N8: pred popravkom je sel ta naslov z lists.get napravam v Linku - Moji viri to povedo.
+                    s["razkrit"] = True
                 s.update(url=nadomestni, url_enc=enc, skriven=True)
                 s.pop("nezavarovan", None)
+                if osnova not in cakajo:
+                    cakajo.append(osnova)
                 spremenjeno = True
-            if zamenjave:
-                data = json.loads(skrivni_dodatki.zamenjaj(json.dumps(data, ensure_ascii=False), zamenjave))
+            # Nedokoncan prehod iz prejsnjega zagona: prava predpona iz zbirke skrivnosti (samo dokler ni koncan).
+            for osnova in list(cakajo):
+                if osnova in zamenjave.values():
+                    continue
+                pravi = None
+                try:
+                    pravi = self._odkleni_dodatek(osnova)
+                except Exception:  # noqa: BLE001 - zaklenjena zbirka: prehod pocaka na naslednji zagon
+                    pravi = None
+                predpona = skrivni_dodatki.skrivna_predpona_dodatka(pravi or "")
+                if predpona and skrivni_dodatki.nadomestek(predpona) == osnova:
+                    zamenjave[predpona] = osnova
+                    skrivni_dodatki.odkleni(pravi)
+                elif not any(isinstance(x, dict) and skrivni_dodatki.nadomestna_osnova(str(x.get("url") or "")) == osnova
+                             for x in data.get("osebni_strezniki", [])):
+                    cakajo.remove(osnova)               # dodatka ni vec (odstranitev je ze pocistila) - ni kaj iskati
+            besedilo = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            koreni = self._skrivni_koreni(besedilo)
+            if zamenjave or koreni or cakajo:
+                koreni.update(zamenjave)
+                ok = self._preseli_datoteke(koreni)
+                if koreni:
+                    data = json.loads(skrivni_dodatki.zamenjaj(besedilo.decode("utf-8"), koreni))
+                    spremenjeno = True
+                novi = [] if ok else cakajo
+                if novi != (data.get("skrivni_prehod") or []):
+                    data["skrivni_prehod"] = novi
+                    spremenjeno = True
+                if not novi:
+                    data.pop("skrivni_prehod", None)
             if spremenjeno:
-                self._save(data)
-        if zamenjave:
-            self._preseli_datoteke(zamenjave)
+                try:
+                    self._save(data)
+                except OSError:
+                    # Grok N11: sifriran naslov, ki ni zapisan nikamor, ne ostane v zbirki skrivnosti (sirota).
+                    for enc in sifrirani:
+                        self._pozabi_skrivnost(enc)
+                    raise
         if skrivni:
-            print("[SafeerMedia] dodatki z osebnim zetonom: prehod %d, nezavarovanih %d" % (
-                len(zamenjave), sum(1 for s in data.get("osebni_strezniki", []) if isinstance(s, dict) and s.get("nezavarovan"))),
-                flush=True)
+            print("[SafeerMedia] dodatki z osebnim zetonom: prehod %d, nezavarovanih %d, cakajo %d" % (
+                len(zamenjave), sum(1 for s in data.get("osebni_strezniki", []) if isinstance(s, dict) and s.get("nezavarovan")),
+                len(data.get("skrivni_prehod") or [])), flush=True)
             # Izvoz za naprave (Safeer Control) je pred popravkom lahko vseboval pravi naslov: zapisemo ga znova.
             self._viri_zapisi_izvoz()
 
-    def _preseli_datoteke(self, zamenjave: dict) -> None:
-        """Prave predpone -> nadomestki v drugih datotekah JSON te mape (atomski zapis, kot Android preseliVnose)."""
-        try:
-            datoteke = sorted(p for p in self.config_dir.glob("*.json") if p.is_file() and p != self.store_path)
-        except OSError:
-            return
-        for pot in datoteke:
+    def _odstranjen_skrivni(self, odstranjen: dict, data: dict) -> None:
+        """Odstranjen dodatek z zetonom: ce prehod njegovih drugih datotek se ni bil koncan, ga koncamo zdaj (pozneje
+        prave predpone ne bomo vec poznali), nato ga pozabimo v pomnilniku."""
+        url = str(odstranjen.get("url") or "")
+        osnova = skrivni_dodatki.nadomestna_osnova(url)
+        cakajo = [o for o in (data.get("skrivni_prehod") or []) if isinstance(o, str)]
+        if osnova and osnova in cakajo and odstranjen.get("url_enc"):
             try:
-                if pot.stat().st_size > self.PREHOD_NAJVEC_BAJTOV:
+                pravi = self._secret_decryptor(str(odstranjen["url_enc"]))
+                predpona = skrivni_dodatki.skrivna_predpona_dodatka(pravi or "")
+                if predpona and self._preseli_datoteke({predpona: osnova}):
+                    data["skrivni_prehod"] = [o for o in cakajo if o != osnova]
+                    self._save(data)
+            except Exception:  # noqa: BLE001 - zaklenjena zbirka: koren ostane v datotekah, prehod ga najde po vzorcu
+                print("[SafeerMedia] prehod ob odstranitvi ni uspel", flush=True)
+        skrivni_dodatki.pozabi(url)
+
+    def _pozabi_skrivnost(self, enc: str) -> None:
+        try:
+            self._secret_forget(enc)
+        except Exception:  # noqa: BLE001 - zbirka skrivnosti nedosegljiva: vnos ostane (sifriran)
+            print("[SafeerMedia] zbirka skrivnosti: pozabi ni uspel", flush=True)
+
+    @classmethod
+    def _skrivni_koreni(cls, besedilo: bytes) -> dict:
+        """{prava predpona: nadomestna osnova} za korene dodatkov z zetonom v besedilu (tudi odstranjenih)."""
+        izid: dict = {}
+        for m in cls._RX_KORENI.finditer(besedilo):
+            koren = next(g for g in m.groups() if g).decode("utf-8", "replace").replace("\\/", "/")
+            predpona = skrivni_dodatki.skrivna_predpona_dodatka(koren)
+            z = skrivni_dodatki.nadomestek(predpona) if predpona else None
+            if predpona and z:
+                izid[predpona] = z
+        return izid
+
+    def _datoteke_prehoda(self) -> list:
+        """Vse navadne datoteke v mapi Medijskega centra in podmapah (brez media.json, ki ga pise prehod sam)."""
+        izid = []
+        for koren, mape, datoteke in os.walk(self.config_dir, followlinks=False):
+            mape[:] = sorted(m for m in mape if not os.path.islink(os.path.join(koren, m)))
+            for ime in sorted(datoteke):
+                pot = Path(koren) / ime
+                if pot != self.store_path and pot.is_file() and not pot.is_symlink() and not ime.endswith(".prehod"):
+                    izid.append(pot)
+        return izid
+
+    def _preseli_datoteke(self, zamenjave: dict) -> bool:
+        """Prave predpone -> nadomestki v vseh datotekah mape (bajti: tudi datoteke, ki niso UTF-8; tudi zapis »\\/«).
+        Atomski zapis z istimi dovoljenji in fsync (Grok N12). Odkrije se tudi nova prava predpona (koren odstranjenega
+        dodatka) in se doda v `zamenjave`. True = povsod uspelo; False = katera datoteka ostaja (ponovi se ob zagonu)."""
+        ok = True
+        for pot in self._datoteke_prehoda():
+            try:
+                velikost = pot.stat().st_size
+                if velikost > self.PREHOD_NAJVEC_BAJTOV:
+                    print("[SafeerMedia] prehod: datoteka prevelika, ostane za naslednji zagon", flush=True)
+                    ok = False
                     continue
-                besedilo = pot.read_text(encoding="utf-8")
-                if not skrivni_dodatki.vsebuje_katero(besedilo, zamenjave):
+                bajti = pot.read_bytes()
+                for p, z in self._skrivni_koreni(bajti).items():
+                    zamenjave.setdefault(p, z)
+                pari = [(p.encode("utf-8"), z.encode("utf-8")) for p, z in zamenjave.items() if p]
+                pari += [(p.replace(b"/", b"\\/"), z.replace(b"/", b"\\/")) for p, z in pari]
+                if not any(p in bajti for p, _z in pari):
                     continue
+                if bajti[:16] == b"SQLite format 3\x00":
+                    # Baze ne smemo popravljati po bajtih (dolzina se spremeni); izmerjeno 25. 10.: v mapi je ni.
+                    print("[SafeerMedia] prehod: baza SQLite z zetonom ostane za naslednji zagon", flush=True)
+                    ok = False
+                    continue
+                for p, z in sorted(pari, key=lambda pz: len(pz[0]), reverse=True):
+                    bajti = bajti.replace(p, z)
                 zacasna = pot.with_name(pot.name + ".%d.prehod" % threading.get_ident())
-                zacasna.write_text(skrivni_dodatki.zamenjaj(besedilo, zamenjave), encoding="utf-8")
-                os.replace(zacasna, pot)
-            except (OSError, UnicodeDecodeError):
-                continue
+                try:
+                    fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, pot.stat().st_mode & 0o777)
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(bajti)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(zacasna, pot)
+                finally:
+                    if zacasna.exists():
+                        zacasna.unlink()
+            except OSError:
+                print("[SafeerMedia] prehod: datoteke ni bilo mogoce popraviti, ponovi se ob zagonu", flush=True)
+                ok = False
+        return ok
 
     # --- prijava osebnih streznikov ob predvajanju ------------------------------
     #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
@@ -2885,6 +3005,22 @@ class MediaCenter:
         # sifriran, v media.json in povsod drugje nadomestek; drugim napravam ne gre (core/skrivni_dodatki.py).
         skriven = provider == "stremio" and skrivni_dodatki.skrivna_predpona_dodatka(base) is not None
         shranjen, url_enc = base, ""
+        if skriven and not base.startswith("https://"):
+            # Pregled Grok U5/N6: zeton samo po HTTPS - »domace omrezje« po http je drugje (kavarna) tuj racunalnik.
+            napaka = "Dodatek z osebnim žetonom ali ključem deluje samo prek HTTPS (žeton bi sicer šel po omrežju nešifriran)."
+            return {"ok": False, "napaka": napaka, "sporocilo": napaka}
+        koreni = {media_servers._stremio_koren(base), media_servers._stremio_koren(skrivni_dodatki.v_nadomestek(base))}
+
+        def podvojen(viri: list) -> bool:
+            return any(isinstance(item, dict) and (item.get("id") == source_id or (
+                provider == "stremio" and item.get("ponudnik") == "stremio"
+                and media_servers._stremio_koren(str(item.get("url") or "")) in koreni)) for item in viri)
+        source_id = "streznik-" + hashlib.sha256((provider + skrivni_dodatki.v_nadomestek(base) + username).encode()).hexdigest()[:16]
+        with self._lock:
+            if podvojen(self._load().get("osebni_strezniki", [])):
+                # Pred sifriranjem (Grok N11): ponovno dodajanje ne pusti sirote v zbirki skrivnosti.
+                napaka = "Ta dodatek je že dodan." if provider == "stremio" else "Ta strežnik je že dodan."
+                return {"ok": False, "napaka": napaka, "sporocilo": napaka, "podvojen": True}
         if skriven:
             try:
                 url_enc = self._secret_encryptor(base)
@@ -2895,7 +3031,6 @@ class MediaCenter:
                           "Odkleni jo ali jo nastavi in poskusi znova.")
                 return {"ok": False, "napaka": napaka, "sporocilo": napaka}
             shranjen = skrivni_dodatki.odkleni(base)
-        source_id = "streznik-" + hashlib.sha256((provider + shranjen + username).encode()).hexdigest()[:16]
         source = {"id": source_id, "vrsta": "streznik", "ponudnik": provider,
                   "ime": _text(name, 80) or urllib.parse.urlsplit(base).hostname,
                   "url": shranjen, "uporabnik": username, "user_id": auth.get("user_id", ""),
@@ -2907,20 +3042,23 @@ class MediaCenter:
             zaseben = self._koren_zaseben(shranjen)
             if zaseben is not None:
                 source["zaseben"] = bool(zaseben)
-        koreni = {media_servers._stremio_koren(base), media_servers._stremio_koren(shranjen)}
         with self._lock:
             data = self._load()
             sources = data.setdefault("osebni_strezniki", [])
-            if any(item.get("id") == source_id or (
-                    provider == "stremio" and item.get("ponudnik") == "stremio"
-                    and media_servers._stremio_koren(str(item.get("url") or "")) in koreni)
-                   for item in sources):
+            if podvojen(sources):
+                if url_enc:
+                    self._pozabi_skrivnost(url_enc)
                 napaka = "Ta dodatek je že dodan." if provider == "stremio" else "Ta strežnik je že dodan."
                 return {"ok": False, "napaka": napaka, "sporocilo": napaka, "podvojen": True}
             if provider == "stremio" and not skriven:
                 self._vir_dodan(source, viri_sink.STREMIO, base, prevzet)
             sources.append(source)
-            self._save(data)
+            try:
+                self._save(data)
+            except OSError:
+                if url_enc:
+                    self._pozabi_skrivnost(url_enc)
+                raise
         if provider == "stremio" and not skriven:
             self._vir_potrjen(viri_sink.STREMIO, base)
         return {"ok": True, "vir": self._vir_za_prikaz(source)}
@@ -2933,6 +3071,10 @@ class MediaCenter:
             prikaz = skrivni_dodatki.za_prikaz(str(source.get("url") or ""))
             if prikaz != str(source.get("url") or ""):
                 vir["prikaz"] = prikaz
+                # Na stran tudi pri nezavarovanem zapisu samo nadomestek (Grok N13; prehod ga odklene v pomnilniku).
+                vir["url"] = skrivni_dodatki.v_nadomestek(str(source.get("url") or ""))
+                if vir["url"].startswith("http://"):
+                    vir["samo_https"] = True        # Grok N6: zeton po http ne gre - dodatek ne deluje, stran pove zakaj
         return vir
 
     def jellyfin_dostop(self, server_id: str) -> tuple:
@@ -3084,14 +3226,52 @@ class MediaCenter:
         izid = []
         for t in tokovi:
             if t.get("url") and webtor.je_resolve_naslov(str(t["url"])):
-                if webtor.je_glavni_video(str(t.get("datoteka") or ""), t.get("velikost")) is False:
-                    continue                    # vzorec, slika, glasba (Android 25. 10.: naslovnica namesto filma)
-                t = dict(t, webtor=webtor.razcleni(str(t.get("vir") or ""))[0], webtor_kljuc=webtor.iz_jwt(str(t["url"])))
+                # Izdaja in datoteka iz JWT (idx; brez JWT IDX_NEZNAN) - Android webtor-popravek, skupni primeri v3.
+                t = dict(t, webtor=webtor.razcleni(str(t.get("vir") or ""))[0],
+                         webtor_kljuc=webtor.kljuc_webtor(t.get("hash"), str(t["url"])))
             izid.append(t)
         return izid
 
-    def _webtor_sonda(self, url: str, rok_ms: int) -> webtor.Sonda:
-        return webtor.sonda(url, rok_ms)
+    def _webtor_sonda(self, url: str, rok_ms: int, pricakovano_gb: float = 0.0) -> webtor.Sonda:
+        return webtor.sonda(url, rok_ms, pricakovano_gb=pricakovano_gb)
+
+    def _skrivni_sonda(self, url: str, rok_ms: int) -> webtor.Sonda:
+        return webtor.sonda(url, rok_ms, preveri_vsebino=False)
+
+    def _razresi_skrivne_tokove(self, tokovi: list, stanje: dict) -> list:
+        """Tokovi dodatka z osebnim kljucem imajo nadomestek (core/skrivni_dodatki.skrij_tok; Torrentio z debrid kljucem:
+        `/resolve/realdebrid/<kljuc>/...`). V predvajalnik (in v Link: »kaj se predvaja«) ne sme ne nadomestek ne pravi
+        naslov s kljucem (pregled Grok N2, N5): prvi tak tok na vrhu razresimo s sondo (https, javni naslovi, najvec 5
+        preusmeritev) in predvajalnik dobi KONCNI naslov brez kljuca; ce ga nosi tudi koncni (brez preusmeritve), toka ne
+        predvajamo. Drugi tokovi z nadomestkom izpadejo iz razlicic. Najvec 2 sondi in 15 s (kot Webtor)."""
+        izid: list = []
+        for t in tokovi:
+            u = str(t.get("url") or "")
+            if not skrivni_dodatki.je_nadomestek(u):
+                izid.append(t)
+                continue
+            if izid:
+                continue                        # razlicica: sonde zanjo ne delamo, nadomestek ne gre v predvajalnik
+            zdaj = int(time.monotonic() * 1000)
+            rok = webtor.rok_sonde(stanje["zacetek"], zdaj, stanje["poskusov"])
+            if rok <= 0:
+                continue
+            try:
+                pravi = skrivni_dodatki.dejanski(u)
+            except ValueError:
+                continue
+            if stanje["zacetek"] is None:
+                stanje["zacetek"] = zdaj
+            stanje["poskusov"] += 1
+            try:
+                s = self._skrivni_sonda(pravi, rok)
+            except Exception as e:  # noqa: BLE001 - nepricakovana napaka sonde: naslednji tok
+                print("[SafeerMedia] sonda toka s kljucem:", type(e).__name__, flush=True)
+                continue
+            print("[SafeerMedia] sonda toka s kljucem:", webtor.opis_za_dnevnik(s), flush=True)
+            if s.izid == webtor.PREDVAJAJ and s.koncni and not skrivni_dodatki.nosi_skrivnost(s.koncni, pravi):
+                izid.append(dict(t, url=s.koncni, preverjen=True))
+        return izid
 
     def _razresi_webtor(self, item_id: str, item: dict, tokovi: list, indeksi: list, stanje: dict) -> Optional[dict]:
         """Prvi tok Webtor (po `indeksi`), ki v roku da prvi bajt: predvajalnik dobi KONCNI naslov, ki ga je sonda
@@ -3115,14 +3295,18 @@ class MediaCenter:
             if stanje["zacetek"] is None:
                 stanje["zacetek"] = zdaj
             stanje["poskusov"] += 1
-            s = self._webtor_sonda(pravi, rok)
+            try:
+                s = self._webtor_sonda(pravi, rok, webtor.pricakovana_velikost_gb(str(t.get("opis") or "")))
+            except Exception as e:  # noqa: BLE001 - nepricakovana napaka sonde: naslednji tok (Grok N9)
+                print("[SafeerMedia] webtor sonda:", type(e).__name__, flush=True)
+                continue
             print("[SafeerMedia] webtor sonda:", webtor.opis_za_dnevnik(s), flush=True)
             if s.izid != webtor.PREDVAJAJ or not s.koncni or skrivni_dodatki.nosi_skrivnost(s.koncni, pravi):
                 continue                        # ni video posode ali zeton v naslovu: nikoli v predvajalnik
             ime = webtor.razcleni(str(t.get("vir") or ""))[1]
             tok = {"url": s.koncni, "vir": ("%s %s" % (webtor.IME, ime)).strip()[:60],
                    "kakovost": str(t.get("kakovost") or ""), "opis": str(t.get("opis") or "")}
-            resolved = dict(item, url=s.koncni, razlicice=[tok], stevilo_razlicic=1, webtor=True)
+            resolved = dict(item, url=s.koncni, razlicice=[tok], stevilo_razlicic=1, webtor=True, preverjen=True)
             self._dynamic_items[item_id] = resolved
             return resolved
         return None
@@ -3488,7 +3672,7 @@ class MediaCenter:
                 self.ozastari_predpomnilnik(izbrisi=True)  # odstranjen vir ne sme vec kazati svojih vnosov
                 if isinstance(odstranjen, dict) and odstranjen.get("ponudnik") == "stremio":
                     if odstranjen.get("url_enc") or not viri_sink.javen_naslov(viri_sink.STREMIO, str(odstranjen.get("url") or "")):
-                        skrivni_dodatki.pozabi(str(odstranjen.get("url") or ""))   # ni v Linku: izbrisa ne posljemo
+                        self._odstranjen_skrivni(odstranjen, data)       # ni v Linku: izbrisa ne posljemo
                     else:
                         self._vir_izbrisan(odstranjen, cas, kljuc)
                 return True
@@ -4895,6 +5079,8 @@ class MediaCenter:
 
     def _sonda(self, tok: dict) -> bool:
         url = str(tok.get("url") or "")
+        if skrivni_dodatki.je_nadomestek(url):
+            return True         # tok s kljucem preveri sonda pred predvajanjem (_razresi_skrivne_tokove), ne tu
         if not hasattr(self, "_sonde"):
             self._sonde: dict[str, tuple[float, bool]] = {}
         zdaj = time.time()
@@ -5191,8 +5377,17 @@ class MediaCenter:
             # na debrid). Ista izdaja kot nasi torrenti najprej; `[⚡TB]` skrijemo, ce je nas debrid TorBox (podvaja ga).
             wt = [(tuple(t["webtor_kljuc"]) if t.get("webtor_kljuc") else None, t["webtor"]) for t in webtor_tokovi]
             nasi = [webtor.kljuc(t.get("hash"), t.get("indeks")) for t in torrenti]
+            # Kaj bo /resolve predvajal (glavni video, najvecji, negotovo, ni video): ime toka ali nas tok z istim hashem.
+            nasi_po_hashu = {str(t.get("hash") or "").lower(): t for t in tokovi if t.get("torrent") and t.get("hash")}
+            datoteke = []
+            for t, (k, _v) in zip(webtor_tokovi, wt):
+                nas = nasi_po_hashu.get(k[0]) if k else None
+                datoteke.append(webtor.datoteka(k[1] if k else webtor.IDX_NEZNAN, str(t.get("datoteka") or ""),
+                                                (nas.get("indeks") if isinstance(nas.get("indeks"), int) else -1) if nas else None,
+                                                str((nas or {}).get("ime") or "")))
             imamo_torbox = aktivna == debrid_pravila.TORBOX
             wt_stanje: dict = {"zacetek": None, "poskusov": 0, "poskuseni": set()}
+            sk_stanje: dict = {"zacetek": None, "poskusov": 0}
             for korak in usenet_pravila.vrstni_red_virov(usenet, webtor=bool(webtor_tokovi)):
                 if korak == usenet_pravila.KORAK_USENET_TAKOJ:
                     resolved = self._razresi_usenet_takoj(item_id, item, ident, neposredni)
@@ -5209,6 +5404,8 @@ class MediaCenter:
                         if resolved.get("url") and not resolved.get("napaka_koda"):
                             return resolved
                 elif korak == usenet_pravila.KORAK_NEPOSREDNI:
+                    if neposredni and pripravi_torrent:
+                        neposredni = self._razresi_skrivne_tokove(neposredni, sk_stanje)
                     if neposredni:
                         if drugi_http and str(item.get("url") or "").startswith(("http://", "https://")):
                             # Kartica ima tudi druge (vdelane) vire: tokove dodatka dodamo kot dodatne razlicice.
@@ -5220,12 +5417,14 @@ class MediaCenter:
                             resolved["podnapisi"] = list(neposredni[0]["podnapisi"])
                         if neposredni[0].get("glave") and not resolved.get("glave"):
                             resolved["glave"] = dict(neposredni[0]["glave"])
+                        if neposredni[0].get("preverjen") and resolved.get("url") == neposredni[0]["url"]:
+                            resolved["preverjen"] = True        # koncni naslov sonde: predvajalnik brez preusmeritev
                         self._dynamic_items[item_id] = resolved
                         return resolved
                     if webtor_tokovi and pripravi_torrent:
                         # Takoj predvajljivo pri Webtorju (`[⚡WT]`, `[⚡TB]` brez nasega TorBoxa) - kot ziva povezava.
-                        resolved = self._razresi_webtor(item_id, item, webtor_tokovi,
-                                                        webtor.vrstni_red(nasi, wt, imamo_torbox, samo_takoj=True), wt_stanje)
+                        red = webtor.vrstni_red(nasi, wt, imamo_torbox, samo_takoj=True, datoteke=datoteke)
+                        resolved = self._razresi_webtor(item_id, item, webtor_tokovi, red, wt_stanje)
                         if resolved:
                             return resolved
                     if drugi_http:
@@ -5239,8 +5438,8 @@ class MediaCenter:
                 elif korak == usenet_pravila.KORAK_WEBTOR and webtor_tokovi:
                     if not pripravi_torrent:
                         return dict(item, torrent=True)
-                    resolved = self._razresi_webtor(item_id, item, webtor_tokovi, webtor.vrstni_red(nasi, wt, imamo_torbox),
-                                                    wt_stanje)
+                    red = webtor.vrstni_red(nasi, wt, imamo_torbox, datoteke=datoteke)
+                    resolved = self._razresi_webtor(item_id, item, webtor_tokovi, red, wt_stanje)
                     if resolved:
                         return resolved
                 elif korak == usenet_pravila.KORAK_DEBRID_CAKAJ and torrenti and aktivna:

@@ -122,12 +122,29 @@ def izracunaj(f, v):
     if f == "je_webtor_dodatek":
         return W.je_webtor_dodatek(v["id"], v["osnova"])
     if f == "webtor_odlocitev":
-        return W.odlocitev(v["koda"], v["prvi_bajt_ms"], v["potekel"])
+        return W.odlocitev(v["koda"], v["prvi_bajt_ms"], v["potekel"], v.get("vsebina"))
     if f == "webtor_rok_sonde":
         return W.rok_sonde(v["zacetek_prve"], v["zdaj"], v["poskusov"])
     if f == "webtor_vrstni_red":
         return W.vrstni_red([_wt_kljuc(x) for x in v["nasi"]], [(_wt_kljuc(w[:2]), w[2]) for w in v["webtor"]],
-                            v["imamo_torbox"], v.get("samo_takoj", False))
+                            v["imamo_torbox"], v.get("samo_takoj", False), v.get("datoteke"))
+    # Verzija 3 (Android webtor-popravek, 25. 10. 2026 popoldne): datoteka iz JWT, pregled vsebine sonde.
+    if f == "webtor_kljuc_toka":
+        k = W.kljuc_webtor(v["hash"], v["url"])
+        return list(k) if k else None
+    if f == "webtor_je_video_ime":
+        return W.je_video_ime(v["ime"])
+    if f == "webtor_datoteka":
+        return W.datoteka(v["idx"], v["ime_toka"], v["nas_idx"], v["nas_ime"])
+    if f == "webtor_posoda":
+        return W.posoda(bytes.fromhex(v["glava_hex"]))
+    if f == "webtor_avi_kodek":
+        return W.avi_kodek(bytes.fromhex(v["glava_hex"]))
+    if f == "webtor_pregled":
+        return list(W.pregled(v["vrsta"], bytes.fromhex(v["glava_hex"]), v["skupaj"], float(v["pricakovano_gb"]),
+                              lambda m: m in v["podprti"]))
+    if f == "webtor_skupna_velikost":
+        return W.skupna_velikost(v["koda"], v["content_range"], v["content_length"])
     if f == "vrstni_red_korakov":
         return _koraki_kot_android(v["ima_usenet"])
     if f == "scit_dovoljena":
@@ -140,7 +157,7 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI, set(), 60)
 
     def test_webtor_rezerva(self):
-        self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 80)
+        self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

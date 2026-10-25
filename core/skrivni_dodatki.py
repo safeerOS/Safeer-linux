@@ -21,6 +21,8 @@ import binascii
 import hashlib
 import re
 import threading
+import time
+from collections import OrderedDict
 from typing import Callable, Optional
 
 OZNAKA = "safeer-skrito-"
@@ -327,8 +329,15 @@ class NeodklenjenDodatek(ValueError):
 _ZAKLEP = threading.Lock()
 #: nadomestna osnova -> prava skrivna predpona (samo v pomnilniku; nikoli v datoteko ali dnevnik).
 _PRAVI: dict = {}
+#: Isto za tokove dodatka s kljucem, ki se ne zacnejo s predpono dodatka (Torrentio z debrid kljucem:
+#: `/resolve/realdebrid/<kljuc>/...`, pregled Grok N2) - samo zadnjih NAJVEC_TOKOV, v pomnilniku.
+_PRAVI_TOKOV: "OrderedDict[str, str]" = OrderedDict()
+NAJVEC_TOKOV = 500
 #: Klic, ki za nadomestno osnovo vrne pravi naslov dodatka (MediaCenter ga odklene iz zbirke skrivnosti) ali None.
 _odklepalnik: Optional[Callable[[str], Optional[str]]] = None
+#: nadomestna osnova -> cas neuspelega odklepa: zaklenjena zbirka ne odpre okna za geslo ob vsaki zahtevi (Grok N16).
+_NEUSPEH: dict = {}
+NEUSPEH_VELJA_S = 60.0
 
 
 def nastavi_odklepalnik(fn: Optional[Callable[[str], Optional[str]]]) -> None:
@@ -347,11 +356,20 @@ def odkleni(pravi_naslov: str) -> str:
     return v_nadomestek(pravi_naslov)
 
 
+def pozabi_vse() -> None:
+    """Vse odklenjene naslove pozabi (preizkusi, odjava)."""
+    with _ZAKLEP:
+        _PRAVI.clear()
+        _PRAVI_TOKOV.clear()
+        _NEUSPEH.clear()
+
+
 def pozabi(nadomestni_naslov: str) -> None:
     o = nadomestna_osnova(nadomestni_naslov)
     if o:
         with _ZAKLEP:
             _PRAVI.pop(o, None)
+            _NEUSPEH.pop(o, None)
 
 
 def dejanski(naslov: str) -> str:
@@ -362,30 +380,56 @@ def dejanski(naslov: str) -> str:
     if not o:
         return n
     with _ZAKLEP:
-        p = _PRAVI.get(o)
-    if p is None and _odklepalnik is not None:
+        p = _PRAVI.get(o) or _PRAVI_TOKOV.get(o)
+        nedavno = time.monotonic() - _NEUSPEH.get(o, -1e9) < NEUSPEH_VELJA_S
+    if p is None and _odklepalnik is not None and not nedavno:
         try:
             pravi = _odklepalnik(o)
         except Exception:  # noqa: BLE001 - zaklenjena zbirka: kot da dodatka ni
             pravi = None
         if pravi and nadomestek(skrivna_predpona_dodatka(pravi) or "") == o:
             odkleni(pravi)
-            with _ZAKLEP:
-                p = _PRAVI.get(o)
+        with _ZAKLEP:
+            p = _PRAVI.get(o)
+            if p is None:
+                _NEUSPEH[o] = time.monotonic()
     if p is None:
         raise NeodklenjenDodatek("Dodatek z osebnim žetonom ni odklenjen.")
     return p + n.strip()[len(o):]
 
 
+def _pari() -> list:
+    with _ZAKLEP:
+        pari = list(_PRAVI.items()) + list(_PRAVI_TOKOV.items())
+    return sorted(pari, key=lambda kv: len(kv[1]), reverse=True)
+
+
 def skrij(naslov: str) -> str:
     """Pravi naslov (npr. tok, ki ga je vrnil dodatek) -> z nadomestkom, ce se zacne s pravo predpono znanega dodatka."""
     n = str(naslov or "")
-    with _ZAKLEP:
-        pari = sorted(_PRAVI.items(), key=lambda kv: len(kv[1]), reverse=True)
-    for z, p in pari:
+    for z, p in _pari():
         if n.startswith(p) and (len(n) == len(p) or n[len(p)] in "/?#"):
             return z + n[len(p):]
     return n
+
+
+def skrij_tok(naslov: str) -> str:
+    """Tok dodatka z osebnim kljucem: predpona dodatka -> nadomestek (skrij); ce tok nosi kljuc v drugi obliki
+    (Torrentio: `/resolve/realdebrid/<kljuc>/...`, kljuc v poizvedbi), dobi nadomestek tudi ta predpona toka
+    (pregled Grok N2). Pravi naslov ostane samo v pomnilniku (dejanski)."""
+    n = skrij(naslov)
+    if je_nadomestek(n):
+        return n
+    p = skrivna_predpona_toka(n)
+    z = nadomestek(p) if p else None
+    if not p or not z:
+        return n
+    with _ZAKLEP:
+        _PRAVI_TOKOV[z] = p
+        _PRAVI_TOKOV.move_to_end(z)
+        while len(_PRAVI_TOKOV) > NAJVEC_TOKOV:
+            _PRAVI_TOKOV.popitem(last=False)
+    return z + n[len(p):]
 
 
 def _skrivni_odseki(naslov: str) -> list:
@@ -409,8 +453,7 @@ def nosi_skrivnost(naslov: str, izvor: str) -> bool:
     """Ali `naslov` (npr. koncni po preusmeritvi toka) nosi zeton dodatka, iz katerega je `izvor` (tok dodatka):
     zacne se s pravo predpono dodatka ali vsebuje njen skrivni odsek. Webtor: predpona je vse pred »/resolve/«."""
     n, izvor = str(naslov or ""), str(izvor or "")
-    with _ZAKLEP:
-        pravi = [p for p in _PRAVI.values() if izvor.startswith(p)]
+    pravi = [p for _z, p in _pari() if izvor.startswith(p)]
     predpona = max(pravi, key=len) if pravi else izvor.split("/resolve/", 1)[0] if "/resolve/" in izvor \
         else (skrivna_predpona_toka(izvor) or "")
     if not predpona:
@@ -424,7 +467,5 @@ def zakrij(besedilo: object) -> str:
     """Besedilo za dnevnik ali sporocilo: prave predpone znanih dodatkov -> nadomestki, druge skrivnosti v naslovih
     (`/token/...`, kljuc v poizvedbi) zakrite z »…«."""
     s = str(besedilo or "")
-    with _ZAKLEP:
-        zamenjave = {p: z for z, p in _PRAVI.items()}
-    s = zamenjaj(s, zamenjave)
+    s = zamenjaj(s, {p: z for z, p in _pari()})
     return re.sub(r"https?://[^\s\"'<>]+", lambda m: za_prikaz(m.group(0)), s)

@@ -27,10 +27,11 @@ CDN = "https://abra--x1.api.cosmic-crab.buzz/abababab/film.mkv"
 JAVNI_IP = "93.184.216.34"
 
 
-MKV = bytes.fromhex("1a45dfa3") + b"\x00" * 372
-MP4 = b"\x00\x00\x00\x20ftypisom" + b"\x00" * 364
-JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 366
-MP3 = b"ID3\x04\x00" + b"\x00" * 371
+MKV = bytes.fromhex("1a45dfa3") + b"\x00" * 4092
+MP4 = b"\x00\x00\x00\x20ftypisom" + b"\x00" * 4084
+JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 4086
+MP3 = b"ID3\x04\x00" + b"\x00" * 4091
+FILM = "bytes 0-4095/7043825664"           # Content-Range: 6,5 GB
 
 
 class Streznik:
@@ -44,8 +45,9 @@ class Streznik:
         self.klici.append((naslov, gostitelj, ip, vrata))
         odgovor = self.odgovori.get(naslov, (404, None))
         koda, kam = odgovor[:2]
-        bajti, vsebina = odgovor[2:] if len(odgovor) > 2 else ((MKV, "video/x-matroska") if 200 <= koda <= 299 else (b"", ""))
-        return koda, kam, bajti, vsebina
+        bajti, vsebina = odgovor[2:4] if len(odgovor) > 2 else ((MKV, "video/x-matroska") if 200 <= koda <= 299 else (b"", ""))
+        obseg = odgovor[4] if len(odgovor) > 4 else FILM
+        return koda, kam, bajti, {"content-type": vsebina, "content-range": obseg, "content-length": str(len(bajti))}
 
 
 def javni(gostitelj, vrata):
@@ -121,28 +123,43 @@ class Sonda(unittest.TestCase):
             self.assertEqual(izid.izid, pricakovano)
 
     def test_206_ni_dovolj_vsebina_mora_biti_video(self):
-        """Android 25. 10. 15:25: sonda je videla 206, predvajalnik pa je dobil naslovnico JPEG ali MP3."""
-        for bajti, vsebina, razlog in ((JPEG, "image/jpeg", "vsebina"), (MP3, "audio/mpeg", "vsebina"),
-                                       (JPEG, "application/octet-stream", "posoda"), (MP3, "application/octet-stream", "posoda"),
-                                       (b"<html>" + b" " * 370, "text/html", "vsebina"), (MKV, "", "vsebina")):
+        """Android 25. 10. popoldne: sonda je videla 206, predvajalnik pa je dobil naslovnico JPEG, MP3 ali vzorec."""
+        for bajti, vsebina, obseg, pricakovano in (
+                (JPEG, "image/jpeg", FILM, W.NI_VIDEO), (MP3, "audio/mpeg", FILM, W.NI_VIDEO),
+                (JPEG, "application/octet-stream", FILM, W.NI_VIDEO), (MP3, "application/octet-stream", FILM, W.NI_VIDEO),
+                (b"<html>" + b" " * 4090, "text/html", FILM, W.NI_VIDEO), (MKV, "audio/x-matroska", FILM, W.NI_VIDEO),
+                (MKV, "video/x-matroska", "bytes 0-4095/60000000", W.PREMAJHNA)):
             with self.subTest(vsebina=vsebina, bajti=bajti[:4]):
-                izid, _s = self.sonda({RESOLVE: (302, CDN), CDN: (206, None, bajti, vsebina)})
-                self.assertEqual((izid.izid, izid.koncni, izid.razlog), (W.NI_VIDEO, None, razlog))
-        for bajti, vsebina, vrsta in ((MKV, "video/x-matroska", "mkv"), (MP4, "video/mp4", "mp4"),
-                                      (MKV, "application/octet-stream", "mkv"), (MP4, "application/octet-stream; x=1", "mp4")):
+                izid, _s = self.sonda({RESOLVE: (302, CDN), CDN: (206, None, bajti, vsebina, obseg)}, pricakovano_gb=6.56)
+                self.assertEqual((izid.izid, izid.koncni, izid.vsebina), (W.NAPACNA_VSEBINA, None, pricakovano))
+        for bajti, vsebina, vrsta in ((MKV, "video/x-matroska", "MKV"), (MP4, "video/mp4", "MP4"),
+                                      (MKV, "application/octet-stream", "MKV"), (MP4, "", "MP4")):
             with self.subTest(vsebina=vsebina):
                 izid, _s = self.sonda({RESOLVE: (302, CDN), CDN: (206, None, bajti, vsebina)})
                 self.assertEqual((izid.izid, izid.posoda, izid.koncni), (W.PREDVAJAJ, vrsta, CDN))
         slika = "https://abra--x1.api.cosmic-crab.buzz/abab/cover.jpg"
         izid, _s = self.sonda({RESOLVE: (302, slika), slika: (206, None, MKV, "application/octet-stream")})
-        self.assertEqual((izid.izid, izid.razlog), (W.NI_VIDEO, "datoteka"))
+        self.assertEqual((izid.izid, izid.vsebina), (W.NAPACNA_VSEBINA, W.NI_VIDEO))
 
-    def test_glavni_video_po_imenu(self):
-        self.assertTrue(W.je_glavni_video("Film.2024.1080p.WEB-DL.mkv", 4_000_000_000))
-        self.assertIsNone(W.je_glavni_video(""))
-        for ime, velikost in (("Sample/film-sample.mkv", None), ("cover.jpg", None), ("01 - Song.mp3", None),
-                              ("Film.2024.Trailer.mp4", None), ("film.mkv", 5_000_000), ("film.nfo", None)):
-            self.assertFalse(W.je_glavni_video(ime, velikost), ime)
+    def test_datoteka_toka(self):
+        """Webtor ob izpuscenem fileIdx predvaja PRVO datoteko torrenta (idx 0) - brez imena je to negotovo."""
+        self.assertEqual(W.datoteka(0, "", None, ""), W.NEGOTOVA)
+        self.assertEqual(W.datoteka(0, "Film.1948.1080p.mkv", None, ""), W.VIDEO)
+        self.assertEqual(W.datoteka(3, "poster.jpg", 3, "Film.mkv"), W.NI_VIDEO)
+        self.assertEqual(W.datoteka(-1, "", None, ""), W.NAJVECJI)
+        self.assertEqual(W.datoteka(W.IDX_NEZNAN, "Film.mkv", 0, "Film.mkv"), W.NEGOTOVA)
+        self.assertFalse(W.je_video_ime("Movie/Sample/movie-sample.mkv"))
+        self.assertIsNone(W.je_video_ime("Film [1948] 1080p"))
+
+    def test_neveljavno_ime_in_napaka_razresevanja(self):
+        """Grok N9: UnicodeError iz IDNA (prazna oznaka) ne uide iz sonde."""
+        izid, s = self.sonda({RESOLVE: (302, "https://a..b/x")}, razresi_fn=W.razresi)
+        self.assertEqual((izid.izid, izid.razlog), (W.NAPAKA, "dns"))
+
+        def ime_predolgo(_g, _v):
+            raise UnicodeError("label too long")
+        izid, _s = self.sonda({}, razresi_fn=ime_predolgo)
+        self.assertEqual(izid.razlog, "dns")
 
     def test_povezava_na_preverjeni_ip(self):
         """_PovezavaNaIp ne razresi imena znova (DNS rebinding): povezuje na dani naslov IP."""
@@ -174,10 +191,32 @@ class Scit(unittest.TestCase):
                 return "malware"
             return "oglasi" if "crab" in ime or "webtor" in ime or ime.endswith("ads.example") else None
 
+    class SezamiZGroznjami(Seznami):
+        def groznja(self, ime):
+            return False
+
+    def test_groznja_nadrejene_domene_in_podpisanega_seznama_zmaga(self):
+        """Grok N15: ime na oglasnem seznamu, nadrejena domena pa na seznamu grozenj -> blokirano (groznja)."""
+        with tempfile.TemporaryDirectory() as m:
+            seznami = os_scit.Seznami(m)
+            seznami.nabor = os_scit.Nabor.iz_domen([("abra--x1.api.cosmic-crab.buzz", "oglasi"),
+                                                    ("cosmic-crab.buzz", "malware"), ("api.webtor.io", "oglasi")])
+            sc = os_scit.Scit(self.Shramba(), mapa=m)
+            sc.seznami = seznami
+            self.assertEqual(sc._kategorija("abra--x1.api.cosmic-crab.buzz"), "oglasi")   # ostane blokirano
+            self.assertIsNone(sc._kategorija("api.webtor.io"))
+            seznami.storitev = SimpleNamespace(loaded=SimpleNamespace(is_set=lambda: True),
+                                               store=SimpleNamespace(match_host=lambda ime: "phishing"))
+            self.assertEqual(sc._kategorija("api.webtor.io"), "oglasi")                   # podpisani seznam grozenj
+            # Seznami brez preverbe grozenj (stara razlicica): izjema ne velja (fail-closed).
+            sc.seznami = self.Seznami()
+            self.assertEqual(sc._kategorija("api.webtor.io"), "oglasi")
+        self.assertFalse(W.je_stalna_izjema_scita("abra--" + "a" * 58 + ".api.cosmic-crab.buzz"))   # oznaka > 63
+
     def test_ozka_izjema_samo_pred_oglasi(self):
         with tempfile.TemporaryDirectory() as m:
             sc = os_scit.Scit(self.Shramba(), mapa=m)
-            sc.seznami = self.Seznami()
+            sc.seznami = self.SezamiZGroznjami()
             self.assertIsNone(sc._kategorija("abra--x1.api.cosmic-crab.buzz"))
             self.assertIsNone(sc._kategorija("api.webtor.io"))
             self.assertIsNone(sc._kategorija("webtor.io"))
@@ -217,13 +256,24 @@ class Predvajalnik_(unittest.TestCase):
             element.signali["source-setup"](element, vir)
             self.assertEqual(vir.lastnosti, pricakovano)
 
+        # Grok N7: vir brez te lastnosti tega toka ne predvaja (fail-closed), drug tok pa normalno.
+        class VirBrez(Vir):
+            def find_property(self, ime):
+                return None
+        for preusmeritve, ustavljeno in ((False, True), (True, False)):
+            p.zamenjaj_vrsto([Skladba(CDN, "Film", "video", preusmeritve=preusmeritve)])
+            klici = []
+            with mock.patch.object(p, "ustavi", side_effect=lambda: klici.append(1)):
+                element.signali["source-setup"](element, VirBrez())
+            self.assertEqual(bool(klici), ustavljeno)
+
 
 class Izbira(unittest.TestCase):
     """Vrstni red virov v Medijskem centru: ⚡ debrid in neposredne povezave pred Webtorjem, Webtor pred cakanjem."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        S._PRAVI.clear()
+        S.pozabi_vse()
         self.mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=lambda s: "enc:" + s[::-1],
                                        secret_decryptor=lambda s: s[4:][::-1])
         with mock.patch.object(media_servers, "stremio_preveri", return_value=""), \
@@ -240,12 +290,12 @@ class Izbira(unittest.TestCase):
         self.mc._dynamic_items["f1"] = self.item
         self.sonde: list = []
         self.izidi: list = []
-        self.mc._webtor_sonda = lambda url, rok: self.sonde.append((url, rok)) or self.izidi.pop(0)
+        self.mc._webtor_sonda = lambda url, rok, *_a: self.sonde.append((url, rok)) or self.izidi.pop(0)
         self.drugi: list = []
         self.wt: list = [{"url": self.wt_url, "vir": "[WT] Torrentio", "kakovost": "1080p", "opis": "1080p"}]
 
     def tearDown(self):
-        S._PRAVI.clear()
+        S.pozabi_vse()
         S.nastavi_odklepalnik(None)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -272,7 +322,7 @@ class Izbira(unittest.TestCase):
         return izid, rd
 
     def test_webtor_predvaja_koncni_naslov_v_nasem_predvajalniku(self):
-        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=300, koncni="https://abra--x1.api.cosmic-crab.buzz/abab/tok", posoda="mkv")]
+        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=300, koncni="https://abra--x1.api.cosmic-crab.buzz/abab/tok", vsebina="VIDEO", posoda="MKV")]
         izid, _rd = self.resolve()
         self.assertEqual(izid["url"], "https://abra--x1.api.cosmic-crab.buzz/abab/tok")
         self.assertTrue(izid["webtor"])
@@ -290,7 +340,7 @@ class Izbira(unittest.TestCase):
                                 cakaj=lambda *a: dict(self.item, url="https://cdn.torbox.test/f.mkv"))
         self.assertEqual((izid["url"], self.sonde), ("https://cdn.torbox.test/f.mkv", []))
         # Ni pripravljen: Webtor pred cakanjem na debrid (cakanja ni).
-        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=900, koncni=CDN, posoda="mkv")]
+        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=900, koncni=CDN, vsebina="VIDEO", posoda="MKV")]
         izid, rd = self.resolve(aktivna=debrid_pravila.TORBOX, pred=set(), cakaj=lambda *a: self.fail("cakanje na debrid"))
         self.assertEqual(izid["url"], CDN)
         rd.assert_not_called()
@@ -313,26 +363,41 @@ class Izbira(unittest.TestCase):
         self.wt = [{"url": self.wt_url + "a", "vir": "[P2P] Torrentio"},
                    {"url": self.wt_url + "b", "vir": "[WT] A"}, {"url": self.wt_url + "c", "vir": "[WT] B"},
                    {"url": self.wt_url + "d", "vir": "[WT] C"}]
-        self.izidi = [W.Sonda(koda=404), W.Sonda(koda=429), W.Sonda(koda=206, prvi_bajt_ms=5, koncni=CDN, posoda="mkv")]
+        self.izidi = [W.Sonda(koda=404), W.Sonda(koda=429), W.Sonda(koda=206, prvi_bajt_ms=5, koncni=CDN, vsebina="VIDEO", posoda="MKV")]
         izid, _rd = self.resolve()
         self.assertEqual(izid.get("napaka_koda"), "ni_toka")
         self.assertEqual([u[-1] for u, _r in self.sonde], ["b", "c"])     # P2P (oglas) skrit, najvec 2 sondi
         self.assertTrue(all(r <= W.PRVI_BAJT_MS for _u, r in self.sonde))
 
     def test_koncni_naslov_z_zetonom_ne_gre_v_predvajalnik(self):
-        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=5, koncni=RESOLVE, posoda="mkv")]         # brez preusmeritve (zeton v naslovu)
+        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=5, koncni=RESOLVE, vsebina="VIDEO", posoda="MKV")]         # brez preusmeritve (zeton v naslovu)
         izid, _rd = self.resolve()
         self.assertNotEqual(izid.get("url"), RESOLVE)
         self.assertNotIn(ZETON, json.dumps(izid))
 
     def test_vzorec_in_slika_nista_kandidata(self):
         self.wt = [{"url": self.wt_url + "a", "vir": "[WT] A", "datoteka": "cover.jpg"},
-                   {"url": self.wt_url + "b", "vir": "[WT] B", "datoteka": "Film-sample.mkv", "velikost": 40_000_000},
-                   {"url": self.wt_url + "c", "vir": "[WT] C", "datoteka": "Film.2024.1080p.mkv", "velikost": 4_000_000_000}]
-        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=5, koncni=CDN, posoda="mkv")]
+                   {"url": self.wt_url + "b", "vir": "[WT] B", "datoteka": "Film-sample.mkv"},
+                   {"url": self.wt_url + "c", "vir": "[WT] C", "datoteka": "Film.2024.1080p.mkv"}]
+        self.izidi = [W.Sonda(koda=206, prvi_bajt_ms=5, koncni=CDN, vsebina="VIDEO", posoda="MKV")]
         izid, _rd = self.resolve()
         self.assertEqual(izid["url"], CDN)
         self.assertEqual([u[-1] for u, _r in self.sonde], ["c"])
+
+    def test_sonda_s_tezavo_ne_ustavi_izbire(self):
+        """Grok N9: nepricakovana napaka sonde -> naslednji tok."""
+        self.wt = [{"url": self.wt_url + "a", "vir": "[WT] A"}, {"url": self.wt_url + "b", "vir": "[WT] B"}]
+        izidi = [UnicodeError("x"), W.Sonda(koda=206, prvi_bajt_ms=5, koncni=CDN, vsebina="VIDEO", posoda="MKV")]
+
+        def sonda(url, rok, *_a):
+            self.sonde.append((url, rok))
+            i = izidi.pop(0)
+            if isinstance(i, Exception):
+                raise i
+            return i
+        self.mc._webtor_sonda = sonda
+        izid, _rd = self.resolve()
+        self.assertEqual(izid["url"], CDN)
 
     def test_tuj_dodatek_z_idjem_webtor_ni_webtor(self):
         self.assertFalse(self.mc._je_webtor_koren("https://evilwebtor.io/x"))
@@ -343,3 +408,59 @@ class Izbira(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TokSKljucem(unittest.TestCase):
+    """Grok N2, N5: tok dodatka z debrid kljucem (Torrentio `/resolve/realdebrid/<kljuc>/...`) - v predvajalnik ne gre ne
+    nadomestek ne naslov s kljucem, ampak koncni naslov sonde."""
+    KLJUC = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD"
+    DODATEK = "https://torrentio.strem.fun/sort=qualitysize|realdebrid=%s/manifest.json" % KLJUC
+    TOK = "https://torrentio.strem.fun/resolve/realdebrid/%s/0123456789abcdef0123456789abcdef01234567/null/0/Film.mkv" % KLJUC
+    RD = "https://abc.download.real-debrid.com/d/XYZ123/Film.mkv"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        S.pozabi_vse()
+        self.mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=lambda s: "enc:" + s[::-1],
+                                       secret_decryptor=lambda s: s[4:][::-1])
+        with mock.patch.object(media_servers, "stremio_preveri", return_value=""), \
+                mock.patch.object(media_servers, "stremio_manifest", return_value={"id": "com.stremio.torrentio.addon"}):
+            self.assertTrue(self.mc.add_server("stremio", "Torrentio", self.DODATEK, "", "")["ok"])
+        self.koren = media_servers._stremio_koren(self.mc.sources()[0]["url"])
+        self.item = {"id": "f1", "naslov": "Film", "vrsta": "film", "url": "stremio:%s|movie|tt1" % self.koren}
+        self.sonde: list = []
+
+    def tearDown(self):
+        S.pozabi_vse()
+        S.nastavi_odklepalnik(None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def resolve(self, izid_sonde):
+        self.mc._dynamic_items["f1"] = self.item
+        self.mc._skrivni_sonda = lambda url, rok, *_a: self.sonde.append(url) or izid_sonde
+        odgovor = json.dumps({"streams": [{"name": "Torrentio\n1080p", "title": "Film 1080p", "url": self.TOK},
+                                          {"name": "Torrentio\n720p", "title": "Film 720p", "url": self.TOK + "2"}]}).encode()
+        izhod = io.StringIO()
+        with mock.patch.object(media_servers, "_request", return_value=odgovor), \
+                mock.patch.object(media_servers, "stremio_manifest", return_value={"id": "com.stremio.torrentio.addon"}), \
+                mock.patch.object(media_servers, "tok_stanje", side_effect=AssertionError("brez sonde zivosti s kljucem")), \
+                mock.patch.object(self.mc, "_usenet_mogoc", return_value=False), \
+                contextlib.redirect_stdout(izhod), contextlib.redirect_stderr(izhod):
+            izid = self.mc.resolve("f1")
+        self.assertNotIn(self.KLJUC, izhod.getvalue())
+        return izid
+
+    def test_predvajalnik_dobi_koncni_naslov_brez_kljuca(self):
+        izid = self.resolve(W.Sonda(koda=206, prvi_bajt_ms=200, koncni=self.RD))
+        self.assertEqual(self.sonde, [self.TOK])                 # sonda dobi pravi naslov (samo v pomnilniku)
+        self.assertEqual((izid["url"], izid.get("preverjen")), (self.RD, True))
+        self.assertNotIn(self.KLJUC, json.dumps(izid))
+        self.assertFalse(any(S.je_nadomestek(r.get("url", "")) for r in izid.get("razlicice") or []))
+        self.assertEqual(tok_za_predvajalnik(izid, izid["url"]), {"brez_preusmeritev": True})
+        self.assertEqual(nacin_predvajanja(dict(izid, url="https://abc.download.real-debrid.com/d/XYZ")), "neposredno")
+
+    def test_koncni_s_kljucem_se_ne_predvaja(self):
+        izid = self.resolve(W.Sonda(koda=206, prvi_bajt_ms=200, koncni=self.TOK))
+        self.assertNotIn(self.KLJUC, json.dumps(izid))
+        self.assertFalse(S.je_nadomestek(str(izid.get("url") or "")))
+        self.assertEqual(izid.get("napaka_koda"), "ni_toka")

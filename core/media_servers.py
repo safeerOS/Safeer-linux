@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 import concurrent.futures
+import email.message
+import http.client
 import threading
 import time
 import hashlib
@@ -105,6 +107,9 @@ def _request(url: str, headers: dict | None = None, body: dict | None = None, ra
     pravi = skrivni_dodatki.dejanski(url)
     if not dovoljen_naslov(pravi):
         raise ValueError("Osebni medijski strežniki zunaj domačega omrežja zahtevajo HTTPS.")
+    if pravi != url and not pravi.startswith("https://"):
+        # Pregled Grok U5/N6: zeton nikoli po http, tudi ne v »domace omrezje« (drugje je to tuj racunalnik).
+        raise ValueError("Dodatek z osebnim žetonom deluje samo prek HTTPS.")
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
     request = urllib.request.Request(pravi, data=data,
                                     headers={"Accept": "application/json, application/xml",
@@ -119,8 +124,21 @@ def _request(url: str, headers: dict | None = None, body: dict | None = None, ra
     except urllib.error.HTTPError as napaka:
         if pravi == url:
             raise
-        # HTTPError nosi naslov zahteve (filename, url): navzven gre samo nadomestek, nikoli zeton (pregled Grok U7).
-        raise urllib.error.HTTPError(url, napaka.code, napaka.msg, napaka.hdrs, None) from None
+        # HTTPError nosi naslov zahteve (filename, url) in glave (Location): navzven gre samo nadomestek in Retry-After,
+        # nikoli zeton (pregled Grok U7, N14).
+        glave = email.message.Message()
+        if napaka.headers is not None and napaka.headers.get("Retry-After"):
+            glave["Retry-After"] = str(napaka.headers.get("Retry-After"))[:16]
+        raise urllib.error.HTTPError(url, napaka.code, skrivni_dodatki.zakrij(napaka.msg), glave, None) from None
+    except urllib.error.URLError as napaka:
+        if pravi == url:
+            raise
+        raise urllib.error.URLError(skrivni_dodatki.zakrij(napaka.reason)) from None
+    except (OSError, ValueError, http.client.HTTPException) as napaka:
+        if pravi == url:
+            raise
+        # Druge izjeme (InvalidURL, preusmeritev, TLS) lahko nosijo pot z zetonom: ista vrsta brez zetona.
+        raise (OSError if isinstance(napaka, OSError) else ValueError)(skrivni_dodatki.zakrij(napaka)) from None
 
 
 _IZVIRNI_REQUEST = _request
@@ -140,11 +158,12 @@ def tok_stanje(url: str, glave: dict | None = None, rok: float = 4.0) -> tuple[b
     Meritev 15. 10. 2026: streznik toka je na isti podpisani naslov z glavami dodatka petkrat v 70 s odgovoril 206 -
     ena sonda pred predvajanjem naslova ne porabi; brez glave Referer pa vedno 429 (zato predvajalnik dobi glave)."""
     try:
-        url = skrivni_dodatki.dejanski(url)
+        pravi = skrivni_dodatki.dejanski(url)
     except ValueError:
         return False, 0, 0
-    if not dovoljen_naslov(url):
+    if not dovoljen_naslov(pravi) or (pravi != url and not pravi.startswith("https://")):
         return False, 0, 0
+    url = pravi
     zahteva = urllib.request.Request(url, headers={"User-Agent": "SafeerOS/1.0", "Accept": "*/*", "Range": "bytes=0-1",
                                                    **{str(k): str(v) for k, v in (glave or {}).items()}})
     try:
@@ -1188,9 +1207,13 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
             if not surovi:
                 surovi = json.loads(_request(koren + "/stream/%s/%s.json" % (tip, urllib.parse.quote(str(prvi["id"]), safe=":")))).get("streams") or []
     tokovi = []
+    # Dodatek z osebnim zetonom ali kljucem (koren je nadomestek): tok, ki nosi skrivnost, dobi nadomestek - tudi ce se
+    # ne zacne s predpono dodatka (Torrentio z debrid kljucem, pregled Grok N2). Predvajalnik dobi koncni naslov sonde.
+    skriven = skrivni_dodatki.je_nadomestek(koren)
+    skrij = skrivni_dodatki.skrij_tok if skriven else skrivni_dodatki.skrij
     for t in surovi:
         # Tok dodatka z osebnim zetonom (Webtor: .../token/<t>/stremio/resolve/...) dobi nadomestek kot dodatek.
-        url = skrivni_dodatki.skrij(str(t.get("url") or ""))
+        url = skrij(str(t.get("url") or ""))
         if url.startswith(("https://", "http://")):
             if stremio_je_obvestilo(t):
                 continue
@@ -1204,12 +1227,13 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
             glave = ((namigi.get("proxyHeaders") or {}).get("request") if isinstance(namigi.get("proxyHeaders"), dict) else None) or {}
             if isinstance(glave, dict) and glave:
                 tok["glave"] = {str(k)[:80]: str(v)[:500] for k, v in glave.items() if "\n" not in str(v) and "\r" not in str(v)}
-            # Ime in velikost datoteke (behaviorHints): Webtor rezerva izbere glavni video, ne vzorca ali slike.
+            # Ime datoteke (behaviorHints) in izdaja (infoHash): Webtor rezerva izbere glavni video, ne vzorca ali slike.
             if namigi.get("filename"):
                 tok["datoteka"] = str(namigi["filename"])[:300]
-            if isinstance(namigi.get("videoSize"), int) and not isinstance(namigi.get("videoSize"), bool):
-                tok["velikost"] = int(namigi["videoSize"])
-            podnapisi = [{"uri": skrivni_dodatki.skrij(str(p.get("url"))), "jezik": str(p.get("lang") or "")[:12]}
+            hash_toka = str(t.get("infoHash") or "").strip().lower()
+            if re.fullmatch(r"[0-9a-f]{40}", hash_toka):
+                tok["hash"] = hash_toka
+            podnapisi = [{"uri": skrij(str(p.get("url"))), "jezik": str(p.get("lang") or "")[:12]}
                          for p in (t.get("subtitles") or []) if isinstance(p, dict) and str(p.get("url") or "").startswith(("https://", "http://"))]
             if podnapisi:
                 tok["podnapisi"] = podnapisi[:24]

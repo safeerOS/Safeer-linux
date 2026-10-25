@@ -8599,10 +8599,11 @@
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
       // Dodatek z osebnim zetonom (core/skrivni_dodatki.py): naslov brez zetona (prikaz) in kje je zeton shranjen.
       var status = source.napaka ? source.napaka : source.nezavarovan ? t("katSkrivniNezavarovan")
-        : source.skriven ? t("katSkrivniDodatek") : (source.vrsta === "streznik"
+        : source.samo_https ? t("katSkrivniHttp")
+        : source.skriven ? t("katSkrivniDodatek") + (source.razkrit ? " · " + t("katSkrivniRazkrit") : "") : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
-      info.appendChild(el("small", source.napaka || source.nezavarovan ? "kat-vir-napaka" : "",
+      info.appendChild(el("small", source.napaka || source.nezavarovan || source.samo_https ? "kat-vir-napaka" : "",
         ubezi(status + " · " + (source.prikaz || source.url))));
       row.appendChild(info);
       var refresh = el("button", "gumb-ikona", svg("ponovno")); refresh.type = "button"; refresh.title = t("katOsvezi");
