@@ -713,8 +713,8 @@ def usenet_nzb(povezava: str, rok: float = 30.0) -> tuple:
         zacetek = telo[:4096].decode("utf-8", "replace")
         if 200 <= koda < 300 and U.je_nzb(zacetek):
             return telo, ""
-        # 403 brez napake Newznab je lahko Cloudflare (U.preverba_indeksatorja) - ni zavrnjen kljuc.
-        n = U.napaka(zacetek) or (P.NAPAKA_KLJUC if koda == 401 else P.NAPAKA_MEJA if koda == 429 else U.NAPAKA_INDEKSATOR)
+        # 401/403 brez napake Newznab je lahko Cloudflare ali posrednik (U.preverba_indeksatorja) - ni zavrnjen kljuc.
+        n = U.napaka(zacetek) or (P.NAPAKA_MEJA if koda == 429 else U.NAPAKA_INDEKSATOR)
         if n in (P.NAPAKA_KLJUC, P.NAPAKA_ZAKLENJEN) and not _isti_gostitelj(povezava, koncni or povezava):
             # Grokov pregled 36, D2: 401 drugega gostitelja po preusmeritvi (CDN, potekel podpisan naslov) ni odgovor
             # indeksatorja o kljucu - kljuca indeksatorja ne oznacimo »ne velja«.

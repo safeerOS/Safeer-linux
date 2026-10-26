@@ -25,8 +25,8 @@ PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-pr
 IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
                 P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika", P.PREVERBA_ZAKLENJEN: "zaklenjen"}
 IZID_NAMIZJE = {v: k for k, v in IZID_ANDROID.items()}
-#: Stevilo primerov v PRIMERI_KLJUCI (verzija 2, 26. 10. 2026).
-STEVILO_KLJUCI = 213
+#: Stevilo primerov v PRIMERI_KLJUCI (verzija 3, 26. 10. 2026: pregled Grok 28 L2).
+STEVILO_KLJUCI = 218
 #: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
 KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
                   U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
@@ -211,7 +211,7 @@ class SkupniPrimeri(unittest.TestCase):
         # Natancno stevilo (Grokov pregled 36, D9): prag »najmanj« je dovolil tiho izgubo primerov.
         self._preveri(PRIMERI_KLJUCI, set(), STEVILO_KLJUCI)
         self.assertEqual(len(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["primeri"]), STEVILO_KLJUCI)
-        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 2)
+        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 3)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

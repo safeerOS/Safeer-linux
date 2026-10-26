@@ -77,7 +77,9 @@ class Pravila(unittest.TestCase):
         self.assertEqual(P.torbox_preverba(200, {"success": True, "data": {"plan": True}}), (P.PREVERBA_VELJAVEN, None))
         self.assertEqual(P.torbox_preverba(403, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
         self.assertEqual(P.torbox_preverba(200, {"success": False, "error": "AUTH_ERROR"}), (P.PREVERBA_NEVELJAVEN, None))
-        self.assertEqual(P.torbox_preverba(401, None), (P.PREVERBA_NEVELJAVEN, None))
+        # Pregled Grok 28 L2: 401 brez kode TorBox (posrednik, prijavna stran) ni izrecen odgovor o kljucu.
+        self.assertEqual(P.torbox_preverba(401, None), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(401, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
         self.assertEqual(P.torbox_preverba(429, {}), (P.PREVERBA_MEJA, None))
         self.assertEqual(P.torbox_preverba(502, None), (P.PREVERBA_NI_ODGOVORA, None))
         self.assertEqual(P.torbox_preverba(0, None), (P.PREVERBA_NI_ODGOVORA, None))
@@ -121,7 +123,8 @@ class Pravila(unittest.TestCase):
         self.assertEqual(P.torbox_preverba(403, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
         self.assertEqual(P.torbox_vrsta_napake(403, None), P.NAPAKA_STREZNIK)
         self.assertEqual(P.torbox_vrsta_napake(403, "PLAN_RESTRICTED_FEATURE"), P.NAPAKA_PAKET)
-        self.assertEqual(P.torbox_vrsta_napake(401, None), P.NAPAKA_KLJUC)
+        self.assertEqual(P.torbox_vrsta_napake(401, None), P.NAPAKA_STREZNIK)    # pregled Grok 28 L2
+        self.assertEqual(P.torbox_vrsta_napake(401, "BAD_TOKEN"), P.NAPAKA_KLJUC)
         # AllDebrid in indeksator: 403 brez napake storitve je ze bil »ni odgovora«.
         self.assertEqual(P.ad_preverba(403, None), P.PREVERBA_NI_ODGOVORA)
         self.assertEqual(U.preverba_indeksatorja(403, "<html><title>Just a moment...</title></html>"), P.PREVERBA_NI_ODGOVORA)
@@ -590,18 +593,21 @@ class StanjeKljuca(unittest.TestCase):
         self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
 
     def test_401_nzb_drugega_gostitelja_ni_kljuc_indeksatorja(self):
-        """Grokov pregled 36, D2: po dovoljeni preusmeritvi na CDN je 401 CDN-ja oznacil kljuc indeksatorja »ne velja«."""
+        """Grokov pregled 36, D2: po dovoljeni preusmeritvi na CDN je 401 CDN-ja oznacil kljuc indeksatorja »ne velja«.
+        Pregled Grok 28 L2: tudi 401 istega gostitelja brez napake Newznab ni zavrnjen kljuc; z napako 100 je."""
         import urllib.error
 
-        def odpiralnik(url):
+        def odpiralnik(url, telo=b""):
             class O:
                 def open(self, *_a, **_k):
-                    raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, io.BytesIO(b""))
+                    raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, io.BytesIO(telo))
             return lambda *_a: O()
         povezava = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
         with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik("https://cdn.primer.test/nzb/1?sig=x")):
             self.assertEqual(debrid.usenet_nzb(povezava), (None, U.NAPAKA_INDEKSATOR))
         with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik(povezava)):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, U.NAPAKA_INDEKSATOR))
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik(povezava, NZBFINDER_401.encode())):
             self.assertEqual(debrid.usenet_nzb(povezava), (None, P.NAPAKA_KLJUC))
 
     def test_zamenjan_med_preverbo_ne_dobi_stanja_starega(self):

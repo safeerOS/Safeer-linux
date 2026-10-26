@@ -498,8 +498,10 @@ def torbox_vrsta_napake(http: int, koda: Optional[str]) -> str:
     """Zavrnjen kljuc je samo koda TorBox v telesu ali HTTP 401 (Grokov pregled 36, D1/D4, 26. 10. 2026): 403 BREZ kode
     TorBox ni odgovor TorBoxa o kljucu - api.torbox.app je za Cloudflare, ki zahtevo z IP VPN ali podatkovnega centra
     zavrne s 403 in stranjo HTML. Prej je tak 403 kljuc zavrnil ob vpisu in ga med uporabo trajno oznacil »ne velja«;
-    403 s PLAN_RESTRICTED_FEATURE (npr. Usenet brez paketa Pro) je bil zavrnjen kljuc namesto paketa."""
-    if koda in ("NO_AUTH", "BAD_TOKEN", "AUTH_ERROR") or http == 401:
+    403 s PLAN_RESTRICTED_FEATURE (npr. Usenet brez paketa Pro) je bil zavrnjen kljuc namesto paketa. Pregled Grok 28 L2
+    (skupni primeri v3): tudi 401 BREZ kode TorBox ni izrecen odgovor TorBoxa o kljucu (posrednik, prijavna stran) -
+    zavrnjen kljuc je samo koda v telesu."""
+    if koda in ("NO_AUTH", "BAD_TOKEN", "AUTH_ERROR"):
         return NAPAKA_KLJUC
     if koda in ("ACTIVE_LIMIT", "COOLDOWN_LIMIT", "MONTHLY_LIMIT") or http == 429:
         return NAPAKA_MEJA

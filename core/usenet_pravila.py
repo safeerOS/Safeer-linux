@@ -171,14 +171,16 @@ def naslov_preverbe(osn: str, kljuc: str) -> str:
 
 
 def preverba_indeksatorja(http: int, zacetek: str) -> str:
-    """Odgovor naslov_preverbe -> P.PREVERBA_*: RSS brez napake je veljaven, napaka 100-102 (in 401) neveljaven,
+    """Odgovor naslov_preverbe -> P.PREVERBA_*: RSS brez napake je veljaven, napaka Newznab 100/102 neveljaven,
     500/501 (in 429) meja; vse drugo (5xx, stran HTML, ni odgovora) ni_odgovora - kljuca zaradi izpada ne zavrnemo.
     403 brez napake Newznab ni zavrnjen kljuc: izmerjeno 25. 10. 2026 na nzbfinder.ws s streznikov - Cloudflare vrne 403
-    s stranjo »Just a moment« (skupni primeri kljuci-preverba.json)."""
+    s stranjo »Just a moment« (skupni primeri kljuci-preverba.json). Enako 401 brez napake Newznab (pregled Grok 28 L2,
+    skupni primeri v3): vrne ga lahko posrednik ali prijavna stran omrezja; nzbfinder.ws napacen kljuc vrne 401 Z napako
+    100 (izmerjeno 25. 10. 2026), zato pravi zavrnjen kljuc ostane »neveljaven«."""
     n = napaka(zacetek)
     if n == P.NAPAKA_ZAKLENJEN:
         return P.PREVERBA_ZAKLENJEN
-    if n == P.NAPAKA_KLJUC or http == 401:
+    if n == P.NAPAKA_KLJUC:
         return P.PREVERBA_NEVELJAVEN
     if n == P.NAPAKA_MEJA or http == 429:
         return P.PREVERBA_MEJA
