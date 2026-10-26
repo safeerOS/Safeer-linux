@@ -37,10 +37,12 @@ from typing import Callable, Iterable, Optional
 #: Razlicica razclenitve seznamov M3U v media.json; vir s starejso se v ozadju prebere znova (os_media).
 RAZCLENITEV = 2
 
-_ATRIBUT = re.compile(r'([A-Za-z0-9_-]+)="([^"]*)"')
+# Vsak vzorec zacne samo na zacetku niza crk oziroma presledkov (lookbehind): brez tega je bil cas kvadraten v dolzini
+# vrstice - izmerjeno 26. 10. 2026 (pregled 30, J4): vrstica z 20 KB crk 5,7 s, s 1 MB bi bile ure ob vsakem zagonu.
+_ATRIBUT = re.compile(r'(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+)="([^"]*)"')
 _NE_24_7 = re.compile(r"\[\s*not\s*24\s*/\s*7\s*\]", re.IGNORECASE)
-_OPOMBE = re.compile(r"\s*\[\s*(?:geo-?blocked|offline|not\s*24\s*/\s*7)\s*\]", re.IGNORECASE)
-_LOCLJIVOST_V_IMENU = re.compile(r"\s*\((?:\d{3,4}[pi]|4k|uhd|hd|sd)\)", re.IGNORECASE)
+_OPOMBE = re.compile(r"(?<!\s)\s*\[\s*(?:geo-?blocked|offline|not\s*24\s*/\s*7)\s*\]", re.IGNORECASE)
+_LOCLJIVOST_V_IMENU = re.compile(r"(?<!\s)\s*\((?:\d{3,4}[pi]|4k|uhd|hd|sd)\)", re.IGNORECASE)
 _SEZONA_EPIZODA = re.compile(r"(?<![A-Za-z0-9])[Ss](\d{1,2})\s*[Ee](\d{1,3})(?!\d)")
 # »1x02«: epizoda vedno z vsaj dvema stevkama, da ime kanala »4x4 TV« ni serija.
 _SEZONA_X = re.compile(r"(?<![\d])(\d{1,2})x(\d{2,3})(?![\d])")

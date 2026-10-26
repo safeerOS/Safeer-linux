@@ -83,6 +83,31 @@ class Razclenitev(unittest.TestCase):
         self.assertEqual(os_media._kind("", "https://primer.test/tv/123", "Naslov"), "serija")
         self.assertEqual(os_media._kind("series", "https://primer.test/1.mp4", "Naslov"), "serija")
 
+    def test_dolga_vrstica_extinf_v_linearnem_casu(self):
+        """Pregled 30, J4: regularni izrazi atributov in opomb so bili kvadratni v dolzini vrstice (izmerjeno 26. 10.
+        2026: 20 KB crk 5,7 s; 1 MB bi bile ure ob vsakem zagonu). Vrstica 1 MB se mora razcleniti hitro - v locenem
+        procesu z rokom, da kvadraten izraz ne ustavi preizkusov za ure."""
+        import subprocess
+        import sys
+        koren = str(Path(__file__).resolve().parents[1])
+        koda = (
+            "import json, sys, time\n"
+            "sys.path.insert(0, %r)\n"
+            "from core import os_media\n"
+            "casi = {}\n"
+            "for ime, znak in (('crke', 'a'), ('presledki', ' '), ('narekovaji', 'a=\"')):\n"
+            "    telo = znak * (1000000 // len(znak))\n"
+            "    s = '#EXTM3U\\n#EXTINF:-1 tvg-id=\"x.si\" ' + telo + ',Kanal ' + telo + ' (720p)\\nhttp://p.test/k.m3u8\\n'\n"
+            "    z = time.perf_counter()\n"
+            "    os_media.parse_payload(s.encode(), 'audio/x-mpegurl', 'http://p.test/s.m3u', 'v', 'S')\n"
+            "    casi[ime] = time.perf_counter() - z\n"
+            "print(json.dumps(casi))\n" % koren)
+        izid = subprocess.run([sys.executable, "-c", koda], capture_output=True, text=True, timeout=120, cwd=koren)
+        self.assertEqual(izid.returncode, 0, izid.stderr[-2000:])
+        casi = json.loads(izid.stdout.strip().splitlines()[-1])
+        for ime, cas in casi.items():
+            self.assertLess(cas, 3.0, "%s: %.1f s" % (ime, cas))
+
     def test_lastnikov_seznam_brez_serij(self):
         """Lastnikov si.m3u (posnetek 25. 10. 2026) v obliki iptv-org: noben kanal ni serija, film ali glasba."""
         ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
