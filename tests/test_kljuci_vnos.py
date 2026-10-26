@@ -94,6 +94,28 @@ class Pravila(unittest.TestCase):
         self.assertIn("apikey=", U.naslov_preverbe("https://nzbfinder.ws", KLJUC_IX))
         self.assertTrue(U.naslov_preverbe("https://nzbfinder.ws", KLJUC_IX).startswith("https://nzbfinder.ws/api?t=search"))
 
+    def test_velja_samo_s_pozitivnim_dokazom(self):
+        """Grokov pregled 36, D1: Real-Debrid 403 brez telesa (pozarni zid, CDN, VPN, IP podatkovnega centra) in 2xx z {}
+        sta dala »velja« - napacen kljuc je dobil »kljuc velja ✓« in bi sel med naprave (P.za_uskladitev)."""
+        for http, telo in ((403, None), (403, {}), (403, {"error": "ip_not_allowed", "error_code": 22}), (200, {}),
+                           (200, None), (200, {"type": "premium"}), (200, {"id": "7"}), (200, {"id": True}),
+                           (200, {"username": ""}), (204, None)):
+            self.assertEqual(P.rd_preverba(http, telo), P.PREVERBA_NI_ODGOVORA, (http, telo))
+        self.assertEqual(P.rd_preverba(200, {"id": 7}), P.PREVERBA_VELJAVEN)
+        self.assertEqual(P.rd_preverba(200, {"username": UPORABNIK}), P.PREVERBA_VELJAVEN)
+        self.assertEqual(P.rd_preverba(403, {"error": "permission_denied", "error_code": 9}), P.PREVERBA_VELJAVEN)
+        self.assertEqual(P.rd_preverba(401, None), P.PREVERBA_NEVELJAVEN)
+        # TorBox (api.torbox.app za Cloudflare): 403 brez kode TorBox ni zavrnjen kljuc - ne ob vpisu ne med uporabo.
+        self.assertEqual(P.torbox_preverba(403, None), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(403, {}), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(403, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
+        self.assertEqual(P.torbox_vrsta_napake(403, None), P.NAPAKA_STREZNIK)
+        self.assertEqual(P.torbox_vrsta_napake(403, "PLAN_RESTRICTED_FEATURE"), P.NAPAKA_PAKET)
+        self.assertEqual(P.torbox_vrsta_napake(401, None), P.NAPAKA_KLJUC)
+        # AllDebrid in indeksator: 403 brez napake storitve je ze bil »ni odgovora«.
+        self.assertEqual(P.ad_preverba(403, None), P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual(U.preverba_indeksatorja(403, "<html><title>Just a moment...</title></html>"), P.PREVERBA_NI_ODGOVORA)
+
     def test_izberi_usenet(self):
         self.assertEqual(U.izberi_usenet([None, False, None], True), U.NOBENA)
         self.assertEqual(U.izberi_usenet([], False), U.NOBENA)
@@ -125,6 +147,25 @@ class TorBox(unittest.TestCase):
             s = debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])
         self.assertEqual((s["ok"], s["preverba"]), (False, P.PREVERBA_NEVELJAVEN))
         self.assertEqual((z.zbirka, nast["d"].get("kljuci")), ({}, None))
+
+    def test_403_brez_json_ni_potrditev_ne_zavrnitev(self):
+        """Grokov pregled 36, D1: RD 403 brez JSON (VPN, podatkovni center) je bil »kljuc velja ✓«; TorBox 403 s stranjo
+        Cloudflare je veljaven kljuc zavrnil (ni shranjen) in med uporabo trajno oznacil »ne velja«."""
+        stran = "<!DOCTYPE html><html><title>Attention Required! | Cloudflare</title></html>"
+        for p, kljuc in ((P.REAL_DEBRID, KLJUC_RD), (P.TORBOX, KLJUC_TB), (P.ALLDEBRID, KLJUC_AD)):
+            d, _nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, stran)):
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual((s["ok"], s["preverba"], _vrstica(s, p)["stanje"]),
+                             (True, P.PREVERBA_NI_ODGOVORA, P.STANJE_NEPREVERJEN), p)
+            self.assertFalse(d.kljuc_velja(p), p)                  # ne gre med naprave
+            self.assertEqual(list(z.zbirka.values()), [kljuc], p)
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, stran)):
+            self.assertEqual(d.predpomnjeni([H1]), set())
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)    # Cloudflare med uporabo kljuca ne zavrne
 
     def test_brez_povezave_shranjen_brez_paketa(self):
         d, _nast, z = _debrid()

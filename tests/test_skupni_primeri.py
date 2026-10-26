@@ -18,7 +18,8 @@ NI_NA_NAMIZJU = {
     "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
     "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
 }
-#: Preverba kljucev debrid in indeksatorja (25. 10. 2026, Android d1fdecc) - ista datoteka kot na Androidu, nespremenjena.
+#: Preverba kljucev debrid in indeksatorja (25. 10. 2026, Android d1fdecc) - ista datoteka kot na Androidu; verzija 2
+#: (26. 10. 2026, Grokov pregled 36) jo je prinesla namizju - Android jo prevzame (skupni-primeri-osnutek).
 PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-preverba.json"
 #: Izidi preverbe: v primerih Androidova imena, namizje ima svoje vrednosti (most in os.js ostaneta) - en slovar.
 IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
@@ -198,7 +199,7 @@ class SkupniPrimeri(unittest.TestCase):
 
     def test_kljuci_preverba(self):
         self._preveri(PRIMERI_KLJUCI, set(), 120)
-        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 1)
+        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 2)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

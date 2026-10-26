@@ -299,14 +299,20 @@ def torbox_preverba(http: int, odgovor: object) -> tuple:
 
 
 def rd_preverba(http: int, odgovor: object) -> str:
-    """Odgovor RD_UPORABNIK -> PREVERBA_*. 2xx s podatki racuna brez error_code velja; 2xx, ki ni JSON (npr. prijavna
-    stran javnega omrezja), ni potrditev - »ni odgovora«. error_code samo kot stevilo."""
+    """Odgovor RD_UPORABNIK -> PREVERBA_*. VELJA samo s pozitivnim dokazom (Grokov pregled 36, D1, 26. 10. 2026): 2xx s
+    podatkom racuna (id kot stevilo ali username kot niz) brez error_code. 2xx brez njiju ({} posrednika, prijavna stran
+    javnega omrezja, ki ni JSON) ni potrditev - »ni odgovora«. 403 brez error_code ni odgovor Real-Debrida o kljucu, ampak
+    pozarnega zidu, CDN ali blokade IP (VPN, podatkovni center) - »ni odgovora«; prej »velja« (rd_vrsta_napake: 403 =
+    paket), zato je napacen kljuc dobil »kljuc velja ✓« in bi sel med naprave. error_code samo kot stevilo."""
     if not http:
         return PREVERBA_NI_ODGOVORA
     j = odgovor if isinstance(odgovor, dict) else None
     koda = _stevilo(j.get("error_code")) if j is not None else None
-    if 200 <= http < 300 and koda is None:
-        return PREVERBA_VELJAVEN if j is not None else PREVERBA_NI_ODGOVORA
+    if koda is None and 200 <= http < 300:
+        racun = j is not None and (_stevilo(j.get("id")) is not None or _niz(j.get("username")) is not None)
+        return PREVERBA_VELJAVEN if racun else PREVERBA_NI_ODGOVORA
+    if koda is None and http == 403:
+        return PREVERBA_NI_ODGOVORA
     return preverba_iz_napake(rd_vrsta_napake(http, koda))
 
 
@@ -331,7 +337,11 @@ def ime_paketa(paket: object) -> str:
 # ---------------------------------------------------------------------- napake storitev
 
 def torbox_vrsta_napake(http: int, koda: Optional[str]) -> str:
-    if koda in ("NO_AUTH", "BAD_TOKEN", "AUTH_ERROR") or http in (401, 403):
+    """Zavrnjen kljuc je samo koda TorBox v telesu ali HTTP 401 (Grokov pregled 36, D1/D4, 26. 10. 2026): 403 BREZ kode
+    TorBox ni odgovor TorBoxa o kljucu - api.torbox.app je za Cloudflare, ki zahtevo z IP VPN ali podatkovnega centra
+    zavrne s 403 in stranjo HTML. Prej je tak 403 kljuc zavrnil ob vpisu in ga med uporabo trajno oznacil »ne velja«;
+    403 s PLAN_RESTRICTED_FEATURE (npr. Usenet brez paketa Pro) je bil zavrnjen kljuc namesto paketa."""
+    if koda in ("NO_AUTH", "BAD_TOKEN", "AUTH_ERROR") or http == 401:
         return NAPAKA_KLJUC
     if koda in ("ACTIVE_LIMIT", "COOLDOWN_LIMIT", "MONTHLY_LIMIT") or http == 429:
         return NAPAKA_MEJA
