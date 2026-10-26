@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.133" date="2026-10-26"><description><p>Inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, our WebKit 2.54.2.</p></description></release>
     <release version="1.0.132" date="2026-10-22"><description><p>Security release with Safeer OS 0.4.90 and Safeer Control 2.1.87: hardened web engine (stack protector, FORTIFY 3, CET, full RELRO) checked in every build, always our own WebKit and libsoup, more stable process handling; no AppImage for now.</p></description></release>
     <release version="1.0.131" date="2026-10-21"><description><p>Packaged with Safeer OS 0.4.89 and Safeer Control 2.1.86. The .deb package now installs on Ubuntu 26.04 LTS and Debian 13 (and the coming Linux Mint 23): the libraries that differ between systems come inside the package. Smarter address bar: a full address with a space after the site name opens as an address, invalid ports and non-web schemes are searched, an address with a user name and password is never sent to the search engine.</p></description></release>
     <release version="1.0.130" date="2026-10-21"><description><p>Packaged with Safeer OS 0.4.88 and Safeer Control 2.1.85. The address bar is also a search box: typing words such as »test« or »weather ljubljana« searches with your search engine instead of trying to open them as a web address.</p></description></release>
