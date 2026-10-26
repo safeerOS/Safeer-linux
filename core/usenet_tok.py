@@ -28,6 +28,8 @@ OK = "ok"
 IZVEN = "izven"  # odmik zunaj datoteke
 LUKNJA = "luknja"  # segment manjka (v NZB ali pri ponudniku)
 NESKLADNO = "neskladno"  # razponi segmentov si nasprotujejo (pokvarjen ali zlonameren NZB/clanek)
+POKVARJEN = "pokvarjen"  # clanek ni veljaven yEnc ali CRC se ne ujema (bralnik)
+ZAPRTO = "zaprto"  # bralnik je zaprt
 
 #: Najvec branj, s katerimi bralnik isce segment za odmik (enakomerna objava: 1; dve zdruzeni objavi: nekaj).
 NAJVEC_ISKANJ = 24

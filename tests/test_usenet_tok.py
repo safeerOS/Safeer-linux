@@ -289,5 +289,181 @@ class RarStore(unittest.TestCase):
         self.assertIsNone(R.vrstni_red_zvezkov(["a.mkv"]))
 
 
+# ---------------------------------------------------------------------- bralnik (korak 2, del 3)
+
+import threading  # noqa: E402
+import time  # noqa: E402
+
+from core import usenet_bralnik as B, usenet_nzb as NZ  # noqa: E402
+
+MiB = 1024 * 1024
+
+
+def objavi(*datoteke, del_bajtov=700 * 1024):
+    o = G.Objava(del_bajtov)
+    for ime, v in datoteke:
+        o.dodaj(ime, v)
+    return o
+
+
+def preberi_vse(br, od=0, n=None):
+    n = br.vir.velikost - od if n is None else n
+    return B._beri_vse(br, od, n)
+
+
+class Bralnik(unittest.TestCase):
+    def setUp(self):
+        self.bralniki = []
+
+    def tearDown(self):
+        for b in self.bralniki:
+            b.zapri()
+
+    def bralnik(self, o, profil=B.PROFILI["namizje"], izpusti=()):
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb(izpusti)), o.telo)
+        b = B.Bralnik(o.telo, vir, profil)
+        self.bralniki.append(b)
+        return b
+
+    def test_okno_vnaprej(self):
+        self.assertEqual(B.okno_vnaprej(0, MiB, 16 * MiB), MiB)
+        self.assertEqual(B.okno_vnaprej(3 * MiB, MiB, 16 * MiB), 6 * MiB)
+        self.assertEqual(B.okno_vnaprej(100 * MiB, MiB, 16 * MiB), 16 * MiB)
+        self.assertEqual(B.okno_vnaprej(-5, MiB, 16 * MiB), MiB)
+
+    def test_zaporedno_in_skoki_gola_datoteka(self):
+        film = G.Leno(9 * MiB + 12345, 3)
+        b = self.bralnik(objavi(("Film.2026.mkv", film), ("Film.2026.nfo", G.Bajti(b"nfo")),
+                                ("Film.2026.sample.mkv", G.Leno(MiB, 9))))
+        self.assertEqual(b.vir.velikost, film.velikost)
+        self.assertEqual(preberi_vse(b), film.beri(0, film.velikost))
+        rng = random.Random(5)
+        for _ in range(30):
+            od = rng.randrange(film.velikost)
+            n = rng.randrange(1, 3 * MiB)
+            self.assertEqual(preberi_vse(b, od, n), film.beri(od, n), od)
+        self.assertEqual(b.beri(film.velikost, 10), b"")
+
+    def test_rar_store_cez_zvezke(self):
+        film = G.Leno(7 * MiB + 77, 4)
+        for razlicica in (4, 5):
+            vols = G.zvezki_leno(razlicica, "Film.mkv", film, 2 * MiB + 1)
+            o = objavi(*[("Film.part%d.rar" % (i + 1), z) for i, z in enumerate(vols)])
+            b = self.bralnik(o)
+            self.assertEqual((b.vir.velikost, b.vir.ime, len(b.vir.kosi)), (film.velikost, "Film.mkv", 4))
+            for od in (0, 2 * MiB - 100, 2 * MiB + 1, 4 * MiB + 1 - 3, film.velikost - 10):
+                self.assertEqual(preberi_vse(b, od, 300_000), film.beri(od, 300_000), (razlicica, od))
+
+    def test_stisnjen_rar_zavrnjen_iz_enega_clanka(self):
+        o = objavi(("Film.part1.rar", G.Bajti(G.rar5([("Film.mkv", 10 ** 9, os.urandom(900_000),
+                                                         {"metoda": 3, "po": True})], vec=True, zadnji=False))),
+                   ("Film.part2.rar", G.Bajti(os.urandom(900_000))))
+        nzb = NZ.razcleni(o.nzb())
+        self.assertEqual(B.preveri_izdajo(nzb, o.telo), R.STISNJEN)
+        self.assertEqual(o.poslanih, 1, "odlocitev iz enega clanka")
+        with self.assertRaises(R.NapakaRar) as e:
+            B.pripravi(nzb, o.telo)
+        self.assertEqual(e.exception.izid, R.STISNJEN)
+        sif = objavi(("Film.rar", G.Bajti(G.rar4([("Film.mkv", 500, os.urandom(500), {"sifriran": True})]))))
+        self.assertEqual(B.preveri_izdajo(NZ.razcleni(sif.nzb()), sif.telo), R.SIFRIRAN)
+        gola = objavi(("Film.mkv", G.Leno(2 * MiB, 1)))
+        self.assertEqual(B.preveri_izdajo(NZ.razcleni(gola.nzb()), gola.telo), R.OK)
+
+    def test_okno_omejeno_po_skoku(self):
+        film = G.Leno(64 * MiB, 8)
+        o = objavi(("Film.mkv", film))
+        b = self.bralnik(o)
+        zacetek = o.poslano
+        b.beri(40 * MiB, 64 * 1024)  # skok (npr. indeks na koncu): samo zacetno okno vnaprej
+        G.pocakaj_mir(b)
+        self.assertLessEqual(o.poslano - zacetek, 4 * 760 * 1024, "skok: segment + zacetno okno (1 MiB)")
+        zacetek = o.poslano
+        preberi_vse(b, 0, 8 * MiB)  # zaporedno 8 MiB: okno zraste na 16 MiB, ne vec
+        G.pocakaj_mir(b)
+        self.assertLessEqual(o.poslano - zacetek, (8 + 16 + 2) * MiB * 1.03)
+
+    def test_skok_zavrze_cakajoca_branja(self):
+        film = G.Leno(64 * MiB, 2)
+        o = objavi(("Film.mkv", film))
+        pocasi = threading.Event()
+
+        def telo(mid):
+            pocasi.wait(0.05)
+            return o.telo(mid)
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        b = B.Bralnik(telo, vir, B.Profil(16 * MiB, MiB, 64 * MiB, 2))
+        self.bralniki.append(b)
+        preberi_vse(b, 0, 8 * MiB)  # okno 16 MiB: ~23 segmentov caka
+        prej = o.poslanih
+        b.beri(50 * MiB, 1000)
+        G.pocakaj_mir(b)
+        self.assertLess(o.poslanih - prej, 10, "cakajoca branja pred skokom so zavrzena")
+
+    def test_luknje(self):
+        film = G.Leno(5 * 700 * 1024, 6)
+        o = objavi(("Film.mkv", film))
+        manjka = o.datoteke[0][2][2]  # 3. segment
+        b = self.bralnik(o, izpusti=(manjka,))
+        self.assertEqual(preberi_vse(b, 0, 1000), film.beri(0, 1000))
+        with self.assertRaises(T.NapakaToka) as e:
+            b.beri(2 * 700 * 1024 + 5, 10)
+        self.assertEqual(e.exception.izid, T.LUKNJA)
+        o.manjka.add(o.datoteke[0][2][3])  # ponudnik clanek ima v NZB, a ga je odstranil (430)
+        with self.assertRaises(T.NapakaToka) as e:
+            b.beri(3 * 700 * 1024 + 5, 10)
+        self.assertEqual(e.exception.izid, T.LUKNJA)
+        self.assertEqual(preberi_vse(b, 4 * 700 * 1024, 100), film.beri(4 * 700 * 1024, 100))
+
+    def test_zapri_ne_caka_na_branje_v_teku(self):
+        o = objavi(("Film.mkv", G.Leno(4 * MiB, 1)))
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        sprosti = threading.Event()
+        b = B.Bralnik(lambda mid: (sprosti.wait(10), o.telo(mid))[1], vir)
+        izid = []
+        t = threading.Thread(target=lambda: izid.append(self._napaka(lambda: b.beri(2 * MiB, 10))))
+        t.start()
+        time.sleep(0.1)
+        zacetek = time.monotonic()
+        b.zapri()
+        self.assertLess(time.monotonic() - zacetek, 0.5, "zapri ne caka na zahtevo v teku")
+        with self.assertRaises(T.NapakaToka) as e:
+            b.beri(0, 10)
+        self.assertEqual(e.exception.izid, T.ZAPRTO)
+        sprosti.set()
+        t.join(5)
+        self.assertFalse(t.is_alive())
+
+    def _napaka(self, fn):
+        try:
+            fn()
+        except T.NapakaToka as e:
+            return e.izid
+        return None
+
+    def test_lru_meja(self):
+        o = objavi(("Film.mkv", G.Leno(40 * MiB, 5)))
+        profil = B.Profil(2 * MiB, MiB, 6 * MiB, 2)
+        b = self.bralnik(o, profil)
+        preberi_vse(b)
+        G.pocakaj_mir(b)
+        self.assertLessEqual(b._lru_bajtov, b._lru_meja)
+        self.assertLess(b._lru_meja, 40 * MiB)
+
+    def test_promet_ogleda_najvec_1_5x(self):
+        # 60 s ogleda pri 5,2 Mbit/s (kot Sintel v prototipu) iz 200 MiB filma; meritev s 700 MiB in NNTP je v
+        # tools/meri_usenet_tok.py.
+        for profil in ("namizje", "tv"):
+            o = objavi(("Film.mkv", G.Leno(200 * MiB, 12)))
+            b = self.bralnik(o, B.PROFILI[profil])
+            pogledano = G.ogled(b.beri, b.vir.velikost, 5.2e6)
+            G.pocakaj_mir(b)
+            self.assertLessEqual(o.poslano / pogledano, 1.5, profil)
+
+    def test_repr_brez_id(self):
+        o = objavi(("Film.mkv", G.Leno(MiB, 1)))
+        b = self.bralnik(o)
+        self.assertNotIn("primer.invalid", repr(b) + repr(b.vir))
+
+
 if __name__ == "__main__":
     unittest.main()
