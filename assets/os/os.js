@@ -8627,7 +8627,8 @@
       var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || prikaz)));
       // Ponudnik je seznam zavrnil (401/403 ...): prevedeno sporocilo, samodejno vse redkeje (core/os_media, pregled 39, I5).
-      var status = source.napaka ? (source.zavrnjen ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda || "") }) : source.napaka)
+      // Brez kode (odgovor brez seznama, pregled 46, Ö5) pove napaka sama.
+      var status = source.napaka ? (source.zavrnjen && source.zavrnjen.koda ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda) }) : source.napaka)
         : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));

@@ -705,6 +705,43 @@ class ZavrnjenSeznam(unittest.TestCase):
         self.assertTrue(self.mc.refresh_source("xt")["ok"])
         self.assertNotIn("zavrnjen", self._vir())
 
+    def test_racun_vsak_odgovor_ponudnika_vse_redkeje_brez_druge_zahteve(self):
+        """Pregled 46, Ö5: premor je rasel samo pri 401/402/403/429; 404, 5xx, lastne kode in prazen odgovor 200 so
+        pomenili ponovitev vsakih 10 min in po dve zahtevi na naslov z geslom."""
+        odgovori = [urllib.error.HTTPError(self.XTREAM, 404, "Not Found", None, None),
+                    urllib.error.HTTPError(self.XTREAM, 884, "Panel", None, None), None]
+
+        def prenesi(url):
+            self.prenosi.append(url)
+            o = odgovori.pop(0)
+            if o is None:
+                return b"", "text/plain", url                    # prazen odgovor 200
+            raise o
+        self.mc._download = prenesi
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                               side_effect=AssertionError("druga zahteva na naslov z geslom")), \
+                mock.patch.object(os_media.MediaCenter, "ZASTARELI_ZNOVA_S", 0.0):
+            for prenosov, koda, n in ((1, 404, 1), (2, 884, 2), (3, 0, 3)):
+                self._odpri_katalog()
+                self._odpri_katalog()                            # takoj znova: premor velja
+                self.assertEqual(len(self.prenosi), prenosov)
+                self.assertEqual((self._vir()["zavrnjen"]["koda"], self._vir()["zavrnjen"]["n"]), (koda, n))
+                self._postaraj(7 * 3600)
+        self.assertEqual(self._vir()["napaka"], "Ponudnik ni vrnil seznama.")
+
+    def test_brez_racuna_ostane_rezervna_pot(self):
+        javni = "https://seznam.primer.test/tv.m3u"
+        with self.mc._lock:
+            data = self.mc._load()
+            data["viri"][0]["url"] = javni
+            self.mc._save(data)
+        self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 404, "Not Found", None, None))
+        klici = []
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source", lambda *a, **k: klici.append(a[0]) or []):
+            self.assertFalse(self.mc.refresh_source("xt")["ok"])
+        self.assertEqual(klici, [javni])
+        self.assertNotIn("zavrnjen", self._vir())
+
     def test_neuspeh_brez_izjeme_se_ponovi(self):
         def prenesi(url):
             self.prenosi.append(url)

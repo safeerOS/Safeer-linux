@@ -1337,6 +1337,11 @@ def _ujemanje_naslova(naslov: str, iskano: str) -> int:
     return 1 if n.startswith(q + " ") else 2
 
 
+class _PrazenOdgovor(ValueError):
+    """Ponudnik je na naslov vira z racunom odgovoril brez seznama (prazno telo, stran HTML - racun potekel ali
+    zaklenjen; pregled 46, Ö5)."""
+
+
 class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
 
@@ -4259,6 +4264,10 @@ class MediaCenter:
                 items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
                 source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
+                    if viri_sink.zaznan_racun(source["url"]):
+                        # Odgovor brez seznama na naslov z geslom: brez se ene zahteve z geslom (vdelani predvajalnik)
+                        # in samodejno vse redkeje (pregled 46, Ö5).
+                        raise _PrazenOdgovor("Ponudnik ni vrnil seznama.")
                     items = _resolve_embed_or_direct_source(final_url, source["id"], source["ime"])
             source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
                            "razclenitev": kanali_iptv.RAZCLENITEV})
@@ -4267,7 +4276,11 @@ class MediaCenter:
             host = (urllib.parse.urlsplit(source["url"]).hostname or "").casefold()
             restricted = host == "bandcamp.com" or host.endswith(".bandcamp.com")
             koda = exc.code if isinstance(exc, urllib.error.HTTPError) else 0
-            if koda in self.ZAVRNJENE_KODE:
+            # Vir z racunom (pregled 46, Ö5): vsak odgovor ponudnika brez seznama (404, 5xx, lastne kode, prazen 200) je
+            # zavrnitev z vse daljsim premorom; brez povezave (koda 0) ostane ponovitev po 10 min. Nikoli druge zahteve
+            # na naslov z geslom.
+            racun = viri_sink.zaznan_racun(source["url"])
+            if koda in self.ZAVRNJENE_KODE or (racun and (koda > 0 or isinstance(exc, _PrazenOdgovor))):
                 # Ponudnik je seznam zavrnil: brez se ene zahteve na isti naslov (vdelani predvajalnik) in samodejno
                 # znova sele po vse daljsem premoru (ZAVRNJEN_PREMORI_S; pregled 39, I5).
                 prej = source.get("zavrnjen") if isinstance(source.get("zavrnjen"), dict) else {}
@@ -4276,7 +4289,7 @@ class MediaCenter:
                 except (TypeError, ValueError):
                     n = 0
                 source["zavrnjen"] = {"koda": koda, "ob": int(time.time()), "n": min(n + 1, len(self.ZAVRNJEN_PREMORI_S))}
-            items = [] if restricted or koda in self.ZAVRNJENE_KODE else \
+            items = [] if restricted or racun or koda in self.ZAVRNJENE_KODE else \
                 _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
             if items:
                 source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
