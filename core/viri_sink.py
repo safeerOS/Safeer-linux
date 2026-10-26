@@ -341,10 +341,20 @@ def zapis_androida_javen(zapis: object) -> bool:
     return all(znan_javen(n) or javna_slika(n) for n in naslovi)
 
 
-def zakrij_naslove(besedilo: object) -> str:
+#: Cilj zahteve v navednicah brez sheme in gostitelja: '/get.php?username=…&password=…', '/playlist/<u>/<g>/m3u_plus'
+#: (http.client.InvalidURL, pregled 51, Ê5). V navednicah, ker izjeme naslov izpisejo z %r.
+_CILJ_V_NAVEDNICAH = re.compile(r"""(['"])[^'"]*[/?=&][^'"]*\1""")
+
+
+def zakrij_naslove(besedilo: object, napaka: bool = False) -> str:
     """Besedilo (napaka, naslov skladbe) z vsakim naslovom samo kot gostitelj (prikaz_naslova) - za zaslon in druge
-    naprave (pregled 46, Ö2, Ö8: napaka »unknown url type: 'http://...'« je nosila cel naslov z geslom)."""
-    return _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), str(besedilo or ""))
+    naprave (pregled 46, Ö2, Ö8: napaka »unknown url type: 'http://...'« je nosila cel naslov z geslom). Pregled 51, Ê5:
+    pri besedilu napake (`napaka`) tudi cilj zahteve brez sheme v navednicah (pot in poizvedba) - nadomesti ga »…«; pri
+    naslovu skladbe ne (v njem so navednice in »&« lahko navadno besedilo)."""
+    besedilo = _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), str(besedilo or ""))
+    if napaka:
+        besedilo = _CILJ_V_NAVEDNICAH.sub(lambda m: m.group(1) + "…" + m.group(1), besedilo)
+    return besedilo
 
 
 def vir_seznama_za(vir: object, ozji: bool = False) -> str:

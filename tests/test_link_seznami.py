@@ -537,6 +537,32 @@ class GesloNiVPodatkihStrani(unittest.TestCase):
         self.assertIn("ponudnik.test:8080", napaka)
         self.assertNotIn("skrito-geslo", napaka)
 
+    def test_napaka_brez_sheme_je_zakrita(self):
+        """Pregled 51, Ê5: http.client.InvalidURL (naslov s presledkom ali nadzornim znakom) nosi samo pot in poizvedbo
+        zahteve, brez sheme in gostitelja: '/get.php?username=…&password=…' je bil na zaslonu in v media.json."""
+        import http.client
+        sporocila = ["URL can't contain control characters. '/get.php?username=uporabnik&password=skrito-geslo&type=m3u_plus' "
+                     "(found at least ' ')", "URL can't contain control characters. %r (found at least '\\n')" % "/playlist/uporabnik/skrito-geslo/m3u_plus",
+                     'Napaka: "/live/uporabnik/skrito-geslo/1.ts?token=skrito-geslo" ni dosegljiv']
+        for sporocilo in sporocila:
+            with self.subTest(sporocilo=sporocilo[:50]):
+                self.mc._download = lambda url, s=sporocilo: (_ for _ in ()).throw(http.client.InvalidURL(s))
+                self.assertFalse(self.mc.refresh_source("xt")["ok"])
+                napaka = next(v for v in self.mc._load()["viri"] if v["id"] == "xt")["napaka"]
+                self.assertNotIn("skrito-geslo", napaka)
+                self.assertIn("URL can't contain control characters" if "control" in sporocilo else "ni dosegljiv", napaka)
+                # Starejsi zapis v media.json: napaka na strani je zakrita tudi, ce ni v njem »://«.
+                from core import os_media as om
+                stran = om.vir_za_stran({"id": "xt", "url": XTREAM, "napaka": sporocilo})
+                self.assertNotIn("skrito-geslo", json.dumps(stran))
+        # Navadna sporocila ostanejo berljiva.
+        self.assertEqual(viri_sink.zakrij_naslove("HTTP Error 404: Not Found", napaka=True), "HTTP Error 404: Not Found")
+        # Naslov skladbe z navednicami in »&« ostane nespremenjen (zakrije se samo naslov s shemo).
+        naslov = "Simon & Garfunkel - 'Mrs. Robinson' & \"Sound of Silence\" https://x.primer.test/pot?a=b"
+        self.assertEqual(viri_sink.zakrij_naslove(naslov), naslov.replace("https://x.primer.test/pot?a=b", "x.primer.test"))
+        self.assertEqual(viri_sink.zakrij_naslove("<urlopen error [Errno -2] Name or service not known>"),
+                         "<urlopen error [Errno -2] Name or service not known>")
+
     def test_zapis_za_naprave_samo_lastniku(self):
         self.mc._viri_zapisi_izvoz()
         self.assertEqual(os.stat(os.path.join(self.mapa.name, "viri_za_naprave.json")).st_mode & 0o777, 0o600)

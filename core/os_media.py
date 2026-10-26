@@ -1349,8 +1349,8 @@ def vir_za_stran(vir: dict) -> dict:
         izid.pop("url", None)
     if izid.get("link_naslov") and not viri_sink.znan_javen(izid["link_naslov"], vir.get("javni") is True):
         izid.pop("link_naslov", None)
-    if isinstance(izid.get("napaka"), str) and "://" in izid["napaka"]:
-        izid["napaka"] = viri_sink.zakrij_naslove(izid["napaka"])
+    if isinstance(izid.get("napaka"), str):
+        izid["napaka"] = viri_sink.zakrij_naslove(izid["napaka"], napaka=True)      # tudi cilj brez sheme (pregled 51, Ê5)
     return izid
 
 
@@ -4352,7 +4352,7 @@ class MediaCenter:
                                "razclenitev": kanali_iptv.RAZCLENITEV})
                 ok, error = True, ""
             else:
-                error = viri_sink.zakrij_naslove(_text(exc, 180)) or "Vira ni bilo mogoče prebrati."
+                error = viri_sink.zakrij_naslove(_text(exc, 180), napaka=True) or "Vira ni bilo mogoče prebrati."
                 source["napaka"] = error
                 ok = False
         with self._lock:
