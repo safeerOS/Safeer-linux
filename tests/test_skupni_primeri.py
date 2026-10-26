@@ -25,6 +25,8 @@ PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-pr
 IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
                 P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika"}
 IZID_NAMIZJE = {v: k for k, v in IZID_ANDROID.items()}
+#: Stevilo primerov v PRIMERI_KLJUCI (verzija 2, 26. 10. 2026).
+STEVILO_KLJUCI = 196
 #: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
 KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
                   U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
@@ -182,6 +184,8 @@ def izracunaj(f, v):
         return U.naslov_preverbe(v["osnova"], v["kljuc"])
     if f == "preverba_iz_napake":
         return IZID_ANDROID[P.preverba_iz_napake(v["vrsta"])]
+    if f == "odtis_stanja":
+        return P.odtis_stanja(v["kljuc"])
     if f == "stanje_po_preverbi":
         return P.stanje_po_preverbi(IZID_NAMIZJE[v["preverba"]])
     if f == "za_uskladitev":
@@ -204,7 +208,9 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def test_kljuci_preverba(self):
-        self._preveri(PRIMERI_KLJUCI, set(), 120)
+        # Natancno stevilo (Grokov pregled 36, D9): prag »najmanj« je dovolil tiho izgubo primerov.
+        self._preveri(PRIMERI_KLJUCI, set(), STEVILO_KLJUCI)
+        self.assertEqual(len(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["primeri"]), STEVILO_KLJUCI)
         self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 2)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
