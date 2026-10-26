@@ -643,6 +643,45 @@ class StanjeKljuca(unittest.TestCase):
                 izid = d.usenet_tok(idt, "Film")
             self.assertEqual(izid.napaka, P.NAPAKA_ZAKLENJEN if konec == "zaklenjen" else U.NAPAKA_INDEKSATOR, konec)
 
+    def test_preveri_brez_odgovora_zaprtega_ne_odklene(self):
+        """Grokov pregled 40, S2: »Preveri« (ali ponoven vpis istega kljuca) brez odgovora storitve (izpad, 429, 5xx, 403
+        brez kode) je znizal »ne velja« ali »zaklenjen« v »nepreverjen« - ⚡, predvajanje in preverba na 10 min so spet
+        klicali zaklenjen racun brez dokaza, da velja."""
+        for napaka, zaprto in ((P.NAPAKA_KLJUC, P.STANJE_NE_VELJA), (P.NAPAKA_ZAKLENJEN, P.STANJE_ZAKLENJEN)):
+            for izid in (P.PREVERBA_NI_ODGOVORA, P.PREVERBA_MEJA):
+                for pot in ("preveri", "vpis"):
+                    opis = (napaka, izid, pot)
+                    d, _nast, _z = _debrid()
+                    with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                        d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                    d.ob_izidu(P.TORBOX, napaka, False)
+                    with mock.patch.object(debrid, "torbox_preveri", return_value=(izid, None)) as pv:
+                        s = debrid.most(d, ["preveri", P.TORBOX] if pot == "preveri" else ["kljuc", P.TORBOX, KLJUC_TB])
+                    self.assertEqual((pv.call_count, s["preverba"], _vrstica(s, P.TORBOX)["stanje"]), (1, izid, zaprto), opis)
+                    self.assertFalse(d.sme_klicati(P.TORBOX), opis)
+                    with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")), \
+                            mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+                        self.assertEqual(d.predpomnjeni([H1]), set(), opis)
+                        self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN if zaprto == P.STANJE_ZAKLENJEN else P.NAPAKA_KLJUC)
+                        d._zadnja_preverba[P.TORBOX] -= 10 * P.PREVERI_ZNOVA_S
+                        debrid.most(d, ["preveri"])                  # samodejna preverba ga ne poskusi
+        # Nov (drug) kljuc brez odgovora je nepreverjen - stanje prejsnjega kljuca ne velja zanj.
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            self.assertEqual(d.vpisi_kljuc(P.TORBOX, KLJUC_TB2)["stanje"], P.STANJE_NEPREVERJEN)
+        # Indeksator enako: zaklenjen (Newznab 101) ostane zaklenjen, ce indeksator ob »Preveri« ali vpisu ne odgovori.
+        for pot in ("preveri", "vpis"):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+            d.ob_izidu(P.INDEKSATOR, P.NAPAKA_ZAKLENJEN, False)
+            with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_NI_ODGOVORA) as ix:
+                s = debrid.most(d, ["preveri", "usenet"] if pot == "preveri" else ["usenet", "https://nzbfinder.ws", KLJUC_IX])
+            self.assertEqual((ix.call_count, s["usenet"]["stanje"]), (1, P.STANJE_ZAKLENJEN), pot)
+            self.assertFalse(d.sme_klicati(P.INDEKSATOR), pot)
+        self.assertEqual([P.stanje_po_rocni_preverbi(i) for i in (P.PREVERBA_VELJAVEN, P.PREVERBA_ZAKLENJEN,
+                          P.PREVERBA_NEVELJAVEN, P.PREVERBA_OBLIKA, P.PREVERBA_NI_ODGOVORA, P.PREVERBA_MEJA)],
+                         [P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA, None, None])
+
     def test_pravila_za_uskladitev_in_prejem(self):
         """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""
         self.assertEqual([P.za_uskladitev(s) for s in (P.STANJE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA, None)],

@@ -260,6 +260,22 @@ def stanje_po_preverbi(izid: str) -> Optional[str]:
             PREVERBA_NI_ODGOVORA: STANJE_NEPREVERJEN, PREVERBA_ZAKLENJEN: STANJE_ZAKLENJEN}.get(izid)
 
 
+def stanje_po_rocni_preverbi(izid: str) -> Optional[str]:
+    """Stanje po uporabnikovem »Preveri« (kot Android DebridPravila.stanjePoRocniPreverbi): odgovor storitve velja, ne velja
+    ali zaklenjen; brez odgovora ali meja (izpad, 429, 5xx, 3xx, 403 brez kode) stanja NE spremeni (None).
+    Grokov pregled 40, S2 (26. 10. 2026): »Preveri« brez odgovora je znizal »ne velja« ali »zaklenjen« v »nepreverjen«,
+    ki ga sme_klicati dovoli - ⚡, predvajanje in preverba na 10 min so spet klicali zaklenjen racun brez dokaza, da velja."""
+    return {PREVERBA_VELJAVEN: STANJE_VELJA, PREVERBA_ZAKLENJEN: STANJE_ZAKLENJEN, PREVERBA_NEVELJAVEN: STANJE_NE_VELJA,
+            PREVERBA_OBLIKA: STANJE_NE_VELJA}.get(izid)
+
+
+def stanje_po_vpisu(prej: Optional[str], izid: str) -> Optional[str]:
+    """Stanje ob vpisu kljuca: [prej] je stanje ISTEGA kljuca, ce je ze shranjen (nov kljuc: None). Ponoven vpis
+    zaprtega kljuca brez odgovora storitve ga ne odklene (Grokov pregled 40, S2) - sicer stanje_po_preverbi."""
+    s = stanje_po_preverbi(izid)
+    return prej if s == STANJE_NEPREVERJEN and prej in (STANJE_NE_VELJA, STANJE_ZAKLENJEN) else s
+
+
 def shrani_po_preverbi(izid: str) -> bool:
     """Kljuc shranimo, razen ce ni kljuc ali ga je storitev zavrnila (izpad storitve ne sme zavrniti dobrega kljuca)."""
     return stanje_po_preverbi(izid) is not None

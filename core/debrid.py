@@ -896,8 +896,9 @@ class Debrid:
         k = P.kljuc_iz_vnosa(vnos, p)
         if p not in P.VSI or k is None:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "paket": None, "stanje": None}
+        prej = self.stanje_kljuca(p) if self._odtis(p) == P.odtis_stanja(k) else None     # isti kljuc znova
         izid, paket = preveri(k) if preveri is not None else preveri_kljuc(p, k)
-        s = P.stanje_po_preverbi(izid)
+        s = P.stanje_po_vpisu(prej, izid)
         if s is None:
             return {"ok": False, "preverba": izid, "paket": None, "stanje": None}
         self._zadnja_preverba[p], self._preverjen_odtis[p] = time.time(), P.odtis_stanja(k)
@@ -1029,8 +1030,12 @@ class Debrid:
                 return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}
             self._zadnja_preverba[p], self._preverjen_odtis[p] = time.time(), odtis
             izid, paket = self._preveri_eno(p)
-            s = P.stanje_po_preverbi(izid) or P.STANJE_NE_VELJA
-            self._zapisi_stanje(p, oznaka, odtis, s, paket)
+            s = P.stanje_po_rocni_preverbi(izid)
+            if s is None:
+                # Grokov pregled 40, S2: storitev ni odgovorila - zaprt kljuc ostane zaprt (vmesnik to pove).
+                _log.info("%s: »Preveri« brez odgovora storitve - stanje ostane", P.ime(p))
+            else:
+                self._zapisi_stanje(p, oznaka, odtis, s, paket)
             return {"ok": True, "preverba": izid, "stanje": self.stanje_kljuca(p)}
 
     def paket(self, p: str) -> Optional[int]:
@@ -1104,8 +1109,10 @@ class Debrid:
         osn, k = U.osnova(naslov), P.kljuc_iz_vnosa(kljuc, P.INDEKSATOR)
         if not osn or not k:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}
+        isti = self._odtis(P.INDEKSATOR) == P.odtis_stanja(osn + "|" + k)
+        prej = self.stanje_kljuca(P.INDEKSATOR) if isti else None
         izid = (preveri or indeksator_preveri)(osn, k)
-        s = P.stanje_po_preverbi(izid)
+        s = P.stanje_po_vpisu(prej, izid)
         if s is None:
             return {"ok": False, "preverba": izid, "stanje": None}
         ok = self.nastavi_indeksator(osn, k, s)

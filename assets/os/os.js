@@ -6105,8 +6105,15 @@
   // polje in gumb zaklenjena, izid je v vrstici stanja okna (role=status) in v obvestilu.
   function sporociloPreverbe(o, x, usenet) {
     var p = (o && o.preverba) || "";
+    // Grokov pregled 40, S2: ponoven vpis zaprtega kljuca brez odgovora storitve - kljuc ostane zaprt (prej »shranjen,
+    // preverjen bo ob uporabi«, ceprav ga Safeer ne uporablja).
+    var brez = o && o.ok && (p === "ni_odgovora" || p === "meja");
     if (usenet) {
-      if (o && o.ok && p === "zaklenjen") return opisZaklenjen("usenet", (o.usenet || {}).gostitelj || "");
+      var u = (o && o.usenet) || {};
+      if (o && o.ok && p === "zaklenjen") return opisZaklenjen("usenet", u.gostitelj || "");
+      if (brez && (u.stanje === "ne_velja" || u.stanje === "zaklenjen"))
+        return t("debridBrezOdgovora", { ime: u.gostitelj || t("usenetIme") }) + " "
+          + (u.stanje === "zaklenjen" ? opisZaklenjen("usenet", u.gostitelj || "") : opisStanjaKljuca(u.stanje));
       if (o && o.ok) return t(p === "veljaven" ? "usenetPotrjen" : p ? "usenetNiPreverjen" : "usenetShranjen");
       // Grokov pregled 31, H1: kljuc v polju za naslov - jedro ga ni shranilo in ni poslalo nikamor.
       return t(p === "neveljaven" ? "usenetZavrnjen" : p === "naslov_kljuc" ? "usenetNaslovKljuc" : "usenetNiVeljaven");
@@ -6117,6 +6124,9 @@
         var m = o.paket ? t("debridVeljavenPaket", { ime: x.ime, paket: o.paket }) : t("debridVeljaven", { ime: x.ime });
         return m + (x.id === "torbox" && o.paket && o.paket !== "Pro" ? " " + t("usenetBrezPro") + "." : "");
       }
+      var vr = ((o && o.storitve) || []).filter(function (s) { return s.id === x.id; })[0] || {};
+      if (brez && (vr.stanje === "ne_velja" || vr.stanje === "zaklenjen"))
+        return t("debridBrezOdgovora", { ime: x.ime }) + " " + opisDebrida(vr);
       // Vsi trije (TorBox, Real-Debrid, AllDebrid) se ob vnosu preverijo: shranjen brez potrditve je nepreverjen.
       return t("debridNiPreverjen", { ime: x.ime });
     }
@@ -6160,8 +6170,12 @@
       klic("mediaDebrid", ["preveri", id]).then(function (o) {
         var v = usenet ? (o && o.usenet) || {}
           : ((o && o.storitve) || []).filter(function (s) { return s.id === id; })[0] || {};
-        var sporocilo = v.stanje === "zaklenjen" ? opisZaklenjen(id, usenet ? v.gostitelj : x.ime)
-          : (usenet ? t("usenetIme") : x.ime) + ": " + opisStanjaKljuca(v.stanje);
+        var opis = v.stanje === "zaklenjen" ? opisZaklenjen(id, usenet ? v.gostitelj : x.ime) : opisStanjaKljuca(v.stanje);
+        var p = (o && o.preverba) || "";
+        // Grokov pregled 40, S2: storitev ni odgovorila (izpad, 429, 5xx) - stanje ostane in vrstica to pove.
+        var sporocilo = o && o.ok && (p === "ni_odgovora" || p === "meja")
+          ? t("debridBrezOdgovora", { ime: usenet ? (v.gostitelj || t("usenetIme")) : x.ime }) + " " + opis
+          : v.stanje === "zaklenjen" ? opis : (usenet ? t("usenetIme") : x.ime) + ": " + opis;
         stanje.textContent = sporocilo; obvesti(sporocilo);
         narisiDebridOkno(o);
         var cilj = document.querySelector('#debridSeznam [data-id="' + id + '"] input');
