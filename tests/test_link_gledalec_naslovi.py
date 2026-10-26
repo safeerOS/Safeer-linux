@@ -274,9 +274,13 @@ class VecNaslovov(unittest.TestCase):
         naprava = self._naprava("127.0.0.1")
         klici = []
         pravi = socket.create_connection
+        # Samo klici te niti: patch zamenja socket.create_connection za ves proces, na CI (hitra-vrata 1, 26. 10. 2026)
+        # pa je nit drugega preizkusa medtem odprla mail.google.com in www.google.com - to ni klic gledalca.
+        glavna = threading.get_ident()
 
         def belezi(cilj, cas=None, *a, **k):
-            klici.append((cilj[0], cas))
+            if threading.get_ident() == glavna:
+                klici.append((cilj[0], cas))
             return pravi(cilj, cas, *a, **k)
 
         with mock.patch.object(link_gledalec.socket, "create_connection", belezi):
