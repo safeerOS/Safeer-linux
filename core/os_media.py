@@ -4015,15 +4015,39 @@ class MediaCenter:
            kroga: zapisa za naprave (viri_za_naprave.json, edini vir za Control, core/link_seznami.py) sploh ni bilo ali
            vira nikoli nismo uspesno prebrali. Ne zavisi od javnega dela starega zapisa (razlicica 0f3f368 je vir pisala
            v »ozji«, zapis se prepisuje ob spremembah), ne od trenutnih naprav v Linku (gost je lahko ze odstranjen) in ne
-           od tega, da vir se obstaja: za izbrisane vire z geslom (viri_sink.json) je eno splosno opozorilo."""
+           od tega, da vir se obstaja: za izbrisane vire z geslom (viri_sink.json) je eno splosno opozorilo.
+
+        Robustnost (pregled 51, Ê7): pokvarjen zapis ali nepricakovana vrsta polja selitve ne sme ustaviti Medijskega
+        centra; oznaka "racuni_preseljeni" se zapise sele, ko je selitev stekla (ali ko je ni cesa seliti)."""
         if self._racuni_preseljeni:
             return
-        self._racuni_preseljeni = True
+        try:
+            self._preseli_racune_delo()
+        except Exception as exc:  # noqa: BLE001 - selitev ne sme ustaviti Medijskega centra
+            print("[SafeerMedia] selitev racunov ni uspela (%s), poskusimo ob naslednjem zagonu" % type(exc).__name__,
+                  flush=True)
+
+    @staticmethod
+    def _celo(vrednost: object) -> int:
+        """Vrednost zapisa kot celo stevilo; kar to ni, je 0."""
+        try:
+            return int(vrednost or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _preseli_racune_delo(self) -> None:
         try:
             data = json.loads(self.store_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return                      # ni zapisa (nova namestitev) ali ga ni mogoce prebrati: ni cesa preseliti
-        if not isinstance(data, dict) or int(data.get("racuni_preseljeni") or 0) >= self.PRESELITEV_RACUNOV:
+        except FileNotFoundError:
+            self._racuni_preseljeni = True      # nova namestitev: nic za preseliti, prvi _save zapise oznako
+            return
+        except ValueError:
+            self._racuni_preseljeni = True      # pokvarjen zapis nima kopij, ki bi jih odstranili; _save ga zamenja
+            return
+        except OSError:
+            return                              # zapis je, a ga zdaj ne moremo prebrati: poskusimo ob naslednjem zagonu
+        if not isinstance(data, dict) or self._celo(data.get("racuni_preseljeni")) >= self.PRESELITEV_RACUNOV:
+            self._racuni_preseljeni = True
             return
         try:
             (self.config_dir / "viri_za_naprave.json").read_text(encoding="utf-8")
@@ -4038,7 +4062,8 @@ class MediaCenter:
             return isinstance(s, dict) and bool(s.get("link_naslov")) and viri_sink.za_ozji_krog(str(s["link_naslov"]))
         with self._lock:
             data = self._load()
-            if int(data.get("racuni_preseljeni") or 0) >= self.PRESELITEV_RACUNOV:
+            if self._celo(data.get("racuni_preseljeni")) >= self.PRESELITEV_RACUNOV:
+                self._racuni_preseljeni = True
                 return
             strezniki = data.get("osebni_strezniki") if isinstance(data.get("osebni_strezniki"), list) else []
             odstranjeni = [str(s.get("id") or "") for s in strezniki if prejet(s)]
@@ -4049,12 +4074,14 @@ class MediaCenter:
                 if (zapis_je and isinstance(v, dict) and not v.get("link_naslov") and not v.get("deljeno_potrjeno")
                         and not self._nikoli_prebran(v)
                         and viri_sink.verjetno_geslo(v.get("url"), any(isinstance(x, dict) and x.get("iptv")
-                                                                      for x in v.get("vnosi") or []), v.get("javni") is True)):
+                                                                      for x in (v["vnosi"] if isinstance(v.get("vnosi"), list) else [])),
+                                                     v.get("javni") is True)):
                     v["deljeno_zunaj"] = zdaj
             if (zapis_je and not data.get("deljeno_izbrisani_potrjeno")
                     and any(viri_sink.verjetno_racun_seznama(k.partition("|")[2], siroko=True)
                             for k in self._viri_stanje()["izbrisani"])):
                 data["deljeno_izbrisani"] = zdaj
+            self._racuni_preseljeni = True              # oznako zapise _save: selitev je stekla
             self._save(data)
             self._server_cache = {k: c for k, c in self._server_cache.items()
                                   if not any(k.startswith(i + ":") for i in odstranjeni if i)}
@@ -4068,7 +4095,8 @@ class MediaCenter:
     def _nikoli_prebran(vir: dict) -> bool:
         """Vira nikoli nismo uspesno prebrali (posodobljeno in stevilo 0, brez vnosov): ponujen ni bil nikoli
         (`_vir_za_naprave` zahteva stevilo > 0)."""
-        return not vir.get("vnosi") and not int(vir.get("posodobljeno") or 0) and not int(vir.get("stevilo") or 0)
+        return (not vir.get("vnosi") and not MediaCenter._celo(vir.get("posodobljeno"))
+                and not MediaCenter._celo(vir.get("stevilo")))
 
     def opozorila_virov(self) -> dict:
         """Splosna opozorila Virov, ki niso vezana na en vir: `izbrisani` - geslo vira, ki ga je lastnik ze izbrisal, je

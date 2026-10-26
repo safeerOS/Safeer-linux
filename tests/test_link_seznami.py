@@ -419,6 +419,31 @@ class ZeRazposlaneKopije(unittest.TestCase):
             json.dump(data, f)          # znova prevzet od naprave, ki nas ima v ozjem krogu
         self.assertIn("spet", [v["id"] for v in self._mc()._load()["viri"]])
 
+    def test_pokvarjen_zapis_ne_sesuje_medijskega_centra(self):
+        """Pregled 51, Ê7: ne-stevilska oznaka selitve ali vnosi, ki niso seznam, so sesuli konstruktor; nedosegljiv
+        media.json je selitev trajno preskocil (oznaka se je zapisala ob prvem shranjevanju)."""
+        pot = os.path.join(self.mapa.name, "media.json")
+        with open(pot, encoding="utf-8") as f:
+            data = json.load(f)
+        data["racuni_preseljeni"] = "abc"
+        data["viri"][0]["vnosi"] = 5
+        data["viri"][1]["stevilo"] = "x"
+        with open(pot, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        mc = os_media.MediaCenter(self.mapa.name, roots=[])         # prej: ValueError iz konstruktorja
+        self.assertNotIn("prejet-xt", [v["id"] for v in mc._load()["viri"]])
+        self.assertEqual(mc._load()["racuni_preseljeni"], os_media.MediaCenter.PRESELITEV_RACUNOV)
+
+    def test_nedosegljiv_zapis_selitev_odlozi_na_naslednji_zagon(self):
+        pot = os.path.join(self.mapa.name, "media.json")
+        os.replace(pot, pot + ".shranjen")
+        os.mkdir(pot)                                               # OSError (IsADirectoryError), ne ValueError
+        mc = os_media.MediaCenter(self.mapa.name, roots=[])
+        self.assertFalse(mc._racuni_preseljeni)                     # oznaka se ne zapise: selitev ni stekla
+        os.rmdir(pot)
+        os.replace(pot + ".shranjen", pot)
+        self.assertNotIn("prejet-xt", [v["id"] for v in self._mc()._load()["viri"]])      # ob naslednjem zagonu steče
+
     def test_nova_namestitev_ne_seli(self):
         with tempfile.TemporaryDirectory() as prazna:
             mc = os_media.MediaCenter(prazna, roots=[])
