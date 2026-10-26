@@ -2,7 +2,9 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
+import urllib.error
 from unittest import mock
 
 from core import link_daljinec, link_seznami, os_media, seznami_sink, viri_sink
@@ -519,6 +521,112 @@ class PrejetiViriNeGredoNaprej(unittest.TestCase):
             for tuje in ("username=gost", "realdebrid"):
                 self.assertNotIn(tuje, zapis)
                 self.assertNotIn(tuje, json.dumps(mc.viri_izvoz(ozji=True)))
+
+
+class PrejetSeznamZRacunom(unittest.TestCase):
+    """Pregled 51, Ñ2 (z Androida): vir z racunom, ki ga naprava prejme z druge naprave (lists.get, »ozji«), se ob prejemu
+    NE prenese - sicer bi vsaka naprava v krogu ob prvem usklajevanju poslala ponudniku zahtevo z geslom (zaklep racuna
+    ali IP). Prenese ga naprava, kjer je bil dodan; druge, ko uporabnik osvezi vir (gumb »Osvezi«); samodejno
+    osvezevanje cakajocega vira ne vidi, premor zavrnitve (I5) velja naprej."""
+
+    LIST = b'#EXTM3U\n#EXTINF:-1 tvg-id="K1.si",Kanal 1\nhttp://ponudnik.test:8080/live/u/g/1.ts\n'
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[])
+        self.mc._kanali_spremenjeni = lambda viri=False: None
+        self.povezave = []
+
+        def prenesi(url):
+            self.povezave.append(("prenos", url))
+            return self.LIST, "audio/x-mpegurl", url
+        self.mc._download = prenesi
+        self.mc._izmeri_ping = lambda url: self.povezave.append(("ping", url))
+
+        def omrezje(*a, **k):
+            self.povezave.append(("omrezje", str(a)[:60]))
+            raise OSError("preizkus: brez omrezja")
+        for ime, cilj in (("socket.create_connection", omrezje), ("urllib.request.urlopen", omrezje)):
+            zaplata = mock.patch(ime, cilj)
+            zaplata.start()
+            self.addCleanup(zaplata.stop)
+        zaplata = mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                                    lambda *a, **k: self.povezave.append(("rezerva", a[0])) or [])
+        zaplata.start()
+        self.addCleanup(zaplata.stop)
+
+    def _prejmi(self, *viri, ozji=True):
+        kazalo = {"sources": [{"tip": t, "ime": "TV", "naslov": n, "cas": 9} for t, n in viri], "sources_deleted": {},
+                  "ozji": ozji}
+        self.assertTrue(self.mc.viri_uskladi(kazalo))
+
+    def _viri(self):
+        return {v["link_naslov"]: v for v in self.mc._load()["viri"]}
+
+    def test_prejem_vira_z_racunom_ne_odpre_nobene_povezave(self):
+        self._prejmi(("seznam", XTREAM_B), ("url", POT), ("seznam", "http://kratka.primer.test/abc"))
+        self.assertEqual(self.povezave, [])
+        viri = self._viri()
+        self.assertEqual(sorted(viri), sorted([XTREAM_B, POT, "http://kratka.primer.test/abc"]))      # shranjeni, ne preskoceni
+        self.assertTrue(all(v.get("caka_uporabnika") for v in viri.values()))
+        self.assertTrue(all(v["stevilo"] == 0 and not v["vnosi"] and not v["napaka"] for v in viri.values()))
+        # Vir brez prenosa ni ponudba naprej (Ê4) in cakajocega ne preverjajo samodejni poti.
+        self.assertEqual(self.mc.viri_izvoz(ozji=True)["sources"], [])
+        self.mc.refresh_stale(max_age=60)
+        self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+        for nit in threading.enumerate():
+            if nit.name == "media-razclenitev":
+                nit.join(5)
+        self.assertEqual(self.povezave, [])
+
+    def test_znan_javni_seznam_se_prenese_takoj(self):
+        self._prejmi(("seznam", JAVNI))
+        self.assertEqual([p for p in self.povezave if p[0] == "prenos"], [("prenos", JAVNI)])
+        vir = self._viri()[JAVNI]
+        self.assertEqual((vir["stevilo"], "caka_uporabnika" in vir), (1, False))
+
+    def test_podkast_se_prenese_takoj(self):
+        self._prejmi(("podkast", PODKAST))
+        self.assertEqual([p[0] for p in self.povezave].count("prenos"), 1)
+
+    def test_lastni_vir_z_racunom_se_prenese_takoj(self):
+        self.assertTrue(self.mc.add_source(XTREAM, "Moj")["ok"])
+        self.assertEqual([p[0] for p in self.povezave if p[0] == "prenos"], ["prenos"])
+        self.assertNotIn("caka_uporabnika", self.mc._load()["viri"][0])
+
+    def test_uporabnikova_osvezitev_prenese_enkrat(self):
+        self._prejmi(("seznam", XTREAM_B))
+        ident = self._viri()[XTREAM_B]["id"]
+        self.assertEqual(self.povezave, [])
+        self.assertTrue(self.mc.refresh_source(ident)["ok"])
+        self.assertEqual(self.povezave, [("prenos", self.mc._load()["viri"][0]["url"])])         # ena zahteva, uporabnikova
+        vir = self._viri()[XTREAM_B]
+        self.assertEqual((vir["stevilo"], "caka_uporabnika" in vir), (1, False))
+        # Naslednja usklajevanja ne podvojijo in ne prenesejo znova.
+        self.povezave.clear()
+        self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "seznam", "ime": "", "naslov": XTREAM_B, "cas": 9}],
+                                               "sources_deleted": {}, "ozji": True}))
+        self.assertEqual(self.povezave, [])
+
+    def test_osvezitev_ki_ponudnik_zavrne_ima_premor(self):
+        self._prejmi(("seznam", XTREAM_B))
+        ident = self._viri()[XTREAM_B]["id"]
+        self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 403, "Forbidden", None, None))
+        self.assertFalse(self.mc.refresh_source(ident)["ok"])
+        vir = self._viri()[XTREAM_B]
+        self.assertEqual((vir["zavrnjen"]["koda"], "caka_uporabnika" in vir), (403, False))
+        self.assertGreater(self.mc._zavrnjen_do(vir), __import__("time").time())
+
+    def test_stran_pove_da_seznam_caka(self):
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
+            js = f.read()
+        with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        self.assertIn("source.caka_uporabnika", js)
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{[^\n]*\"katVirCaka\": \"[^\"]{40,}\"" % jezik)
 
 
 class GesloNiVPodatkihStrani(unittest.TestCase):

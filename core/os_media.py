@@ -3295,8 +3295,8 @@ class MediaCenter:
         zastareli: list[str] = []
         izbira: Optional[dict] = None
         for source in data.get("viri", []):
-            if not isinstance(source, dict):
-                continue
+            if not isinstance(source, dict) or source.get("caka_uporabnika"):
+                continue                    # prejet vir z racunom ima prazen seznam do uporabnikove osvezitve (Ñ2)
             if self._zastarela_razclenitev(source):
                 if time.time() >= self._zavrnjen_do(source):
                     zastareli.append(str(source.get("id") or ""))
@@ -3704,8 +3704,20 @@ class MediaCenter:
             if _je_predvajalni_vir(canonical):
                 source["tip"] = "predvajalni_vir"
             self._vir_dodan(source, viri_sink.URL, canonical, prevzet)
+            caka = bool(prevzet) and self._caka_uporabnika(canonical, prevzet)
+            if caka:
+                # Pregled 51, Ñ2: seznam z racunom, prejet z druge naprave, se ne prenese ob prejemu (vsaka naprava v krogu
+                # bi ob prvem usklajevanju poslala ponudniku zahtevo z geslom). Prenese ga naprava, kjer je bil dodan; ta
+                # ga prenese, ko uporabnik osvezi vir (refresh_source); samodejna pota ga preskocijo.
+                source["caka_uporabnika"] = int(time.time())
+                source["razclenitev"] = kanali_iptv.RAZCLENITEV       # ni »zastarel«: katalog ga ne bere v ozadju
             data.setdefault("viri", []).append(source)
             self._save(data)
+        if caka:
+            self._vir_potrjen(viri_sink.URL, canonical)
+            if prevzet.get("naslov"):
+                self._vir_potrjen(str(prevzet.get("tip") or viri_sink.URL), str(prevzet["naslov"]))
+            return {"ok": True, "napaka": "", "caka": True, "vir": {k: v for k, v in source.items() if k != "vnosi"}}
         # Odziv vira začnemo meriti takoj ob dodajanju, da je meritev navadno
         # že na voljo, ko uporabnik prvič izbere film ali epizodo.
         threading.Thread(target=self._izmeri_ping, args=(canonical,), daemon=True).start()
@@ -3727,6 +3739,13 @@ class MediaCenter:
         sporocilo = ("Safeer v tem viru ni našel ničesar, kar bi lahko predvajal, zato ga nismo dodali."
                      + (" (" + razlog + ")" if razlog and razlog != "ni_vira" else ""))
         return {"ok": False, "napaka": razlog or "nepredvajljiv", "nepredvajljiv": True, "sporocilo": sporocilo}
+
+    @staticmethod
+    def _caka_uporabnika(naslov: str, prevzet: dict) -> bool:
+        """Vir, prejet z druge naprave, ki ga ob prejemu ne prenesemo (pregled 51, Ñ2): ni pozitivno znan javen IN ima
+        prepoznan racun ali obliko seznama z racunom, ali ga je naprava poslala kot seznam (Android: tip »seznam«)."""
+        return viri_sink.za_ozji_krog(naslov) and (viri_sink.verjetno_racun_seznama(naslov)
+                                                  or str(prevzet.get("tip") or "") == "seznam")
 
     def remove_source(self, source_id: str, cas: int = 0, kljuc: str = "") -> bool:
         """`cas`, `kljuc`: izbris je prisel z druge naprave v Linku (njen cas in njen kljuc vira, core/viri_sink.py)."""
@@ -4392,6 +4411,8 @@ class MediaCenter:
                 for oznaka in ("zavrnjen", "ni_povezave"):
                     source.pop(oznaka, None)
                     saved.pop(oznaka, None)        # ponudnik seznam spet da
+            source.pop("caka_uporabnika", None)    # uporabnik je vir osvezil (ali dodal): ne caka vec (Ñ2)
+            saved.pop("caka_uporabnika", None)
             saved.update(source)
             self._save(data)
         if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):
@@ -4411,9 +4432,10 @@ class MediaCenter:
         """V ozadju osveži le vire, katerih uspešni podatki so že zastareli."""
         cutoff = int(time.time()) - max(60, int(max_age))
         ids = [source.get("id", "") for source in self.sources()
-               if int(source.get("posodobljeno") or 0) < cutoff
-               or (_je_predvajalni_vir(str(source.get("url") or ""))
-                   and source.get("tip") != "predvajalni_vir")]
+               if not source.get("caka_uporabnika")             # prejet vir z racunom: sele ob uporabnikovi osvezitvi (Ñ2)
+               and (int(source.get("posodobljeno") or 0) < cutoff
+                    or (_je_predvajalni_vir(str(source.get("url") or ""))
+                        and source.get("tip") != "predvajalni_vir"))]
         results = [self.refresh_source(source_id) for source_id in ids]
         return {"ok": all(item.get("ok") for item in results), "osvezenih": len(results),
                 "rezultati": results}
