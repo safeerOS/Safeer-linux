@@ -89,6 +89,7 @@ def _zivi_clan(skupina: int) -> Optional[bool]:
         imena = os.listdir("/proc")
     except OSError:
         return None
+    zombi = False
     for ime in imena:
         if not ime.isdigit():
             continue
@@ -98,9 +99,13 @@ def _zivi_clan(skupina: int) -> Optional[bool]:
         except (OSError, IndexError):
             continue                     # proces se je medtem koncal
         # polja: stanje, ppid, pgrp, ...
-        if len(polja) > 2 and polja[2] == str(skupina).encode() and polja[0] not in (b"Z", b"X"):
-            return True
-    return False
+        if len(polja) > 2 and polja[2] == str(skupina).encode():
+            if polja[0] not in (b"Z", b"X"):
+                return True
+            zombi = True
+    # False SAMO, ce so vsi najdeni clani zombiji; ce /proc ne pokaze nobenega clana (npr. drug imenski prostor PID,
+    # unshare), ne vemo - None, da ustavi() se vedno poslje SIGKILL (Nov bot 88, R1: sicer ostanejo sirote).
+    return False if zombi else None
 
 
 def _skupina_zivi(skupina: int) -> bool:
