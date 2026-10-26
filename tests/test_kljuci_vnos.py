@@ -832,6 +832,90 @@ class StanjeKljuca(unittest.TestCase):
                           {"s": "velja", "odtis": "cd"}, {"s": "x", "odtis": "ab"}, "x")],
                          [None, P.STANJE_VELJA, None, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA])
 
+    def test_zapora_po_kljucu_prezivi_zamenjavo_odstranitev_in_zagon(self):
+        """Grokov pregled 47, U1 (kot Android a15fb57): ponoven vpis prej zaprtega kljuca po zamenjavi z drugim kljucem,
+        po »Odstrani« ali po ponovnem zagonu ga je brez odgovora storitve zapisal kot »nepreverjen« in zaporo izbrisal -
+        ⚡, predvajanje in samodejna preverba so ga nato spet posiljali zaklenjenemu racunu."""
+        zaklenjen = debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        izpad = debrid.Odgovor(503, "")
+        drugi = KLJUC_RD[::-1]
+        z, nast = Shramba(), {"d": {}}
+
+        def nov():                                   # kot ponovni zagon: nov Debrid na istih nastavitvah, pomnilnik prazen
+            return debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),
+                                 lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        for pot in ("zamenjava", "odstrani", "zagon", "pozen izid po zamenjavi"):
+            nast["d"] = {}
+            d = nov()
+            if pot == "pozen izid po zamenjavi":     # zahteva s KLJUC_RD tece, uporabnik vpise drugi kljuc, RD odgovori 14
+                with mock.patch.object(debrid, "klic", return_value=racun):
+                    d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+                vezava = d._vezava(P.REAL_DEBRID)
+                with mock.patch.object(debrid, "klic", return_value=racun):
+                    d.vpisi_kljuc(P.REAL_DEBRID, drugi)
+                d.ob_izidu(P.REAL_DEBRID, P.NAPAKA_ZAKLENJEN, False, vezava)
+                self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_VELJA)     # drugi kljuc ostane veljaven
+                d = nov()
+            else:
+                with mock.patch.object(debrid, "klic", return_value=zaklenjen):
+                    self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_ZAKLENJEN, pot)
+                if pot == "odstrani":
+                    enc = nast["d"]["kljuci"][P.REAL_DEBRID]
+                    d.pozabi_kljuc(P.REAL_DEBRID)
+                    self.assertNotIn(enc, z.zbirka)             # kljuc je iz zbirke izbrisan, zapora (odtis) ostane
+                else:
+                    with mock.patch.object(debrid, "klic", return_value=racun):
+                        self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, drugi)["stanje"], P.STANJE_VELJA, pot)
+                    if pot == "zagon":
+                        d = nov()
+            _minuta_kasneje(d)
+            with mock.patch.object(debrid, "klic", return_value=izpad):
+                v = d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+            self.assertEqual((v["preverba"], v["stanje"], d.stanje_kljuca(P.REAL_DEBRID)),
+                             (P.PREVERBA_NI_ODGOVORA, P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN), pot)
+            self.assertFalse(d.sme_klicati(P.REAL_DEBRID), pot)
+            with mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                    mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN, pot)
+                d._zadnja_preverba.clear()
+                debrid.most(d, ["preveri"])                     # samodejna preverba ga ne poskusi
+            self.assertNotIn(KLJUC_RD, json.dumps(nast["d"]))   # v nastavitvah samo odtis, nikoli kljuc
+        # Samo »velja« (»Preveri« ali vpis, ki ga storitev potrdi) zaporo odpravi; potem je izpad spet »nepreverjen«.
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            self.assertEqual(d.preveri_izrecno(P.REAL_DEBRID)["stanje"], P.STANJE_VELJA)
+        self.assertNotIn(P.odtis_stanja(KLJUC_RD), nast["d"]["zapore"][P.REAL_DEBRID])
+        # Indeksator enako (naslov in kljuc): »Odstrani« in zamenjava ne odpravita zapore.
+        d = nov()
+        osn = "https://nzbfinder.ws"
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_ZAKLENJEN)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        d.pozabi_indeksator()
+        _minuta_kasneje(d)
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX[::-1], preveri=lambda o, k: P.PREVERBA_VELJAVEN)["stanje"],
+                         P.STANJE_VELJA)
+        _minuta_kasneje(d)
+        self.assertEqual(nov().vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_MEJA)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        # Zadnjih P.NAJVEC_ZAPOR zapor na storitev; »nepreverjen« zapore ne odpravi, »velja« jo.
+        zapore: dict = {}
+        for i in range(12):
+            zapore = P.z_zaporo(zapore, "odtis%d" % i, P.STANJE_NE_VELJA)
+        self.assertEqual((len(zapore), "odtis0" in zapore, zapore.get("odtis11")), (8, False, P.STANJE_NE_VELJA))
+        self.assertEqual(P.z_zaporo({"a": P.STANJE_ZAKLENJEN}, "a", P.STANJE_NEPREVERJEN), {"a": P.STANJE_ZAKLENJEN})
+        self.assertEqual(P.z_zaporo({"a": P.STANJE_ZAKLENJEN}, "a", P.STANJE_VELJA), {})
+        self.assertEqual(P.zapore_iz_zapisa({"a": P.STANJE_ZAKLENJEN, "b": "velja", "": P.STANJE_NE_VELJA, "c": 3}),
+                         {"a": P.STANJE_ZAKLENJEN})
+        self.assertEqual([P.stanje_z_zaporo(*x) for x in ((None, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA),
+                                                          (None, None, P.STANJE_ZAKLENJEN),
+                                                          (None, P.STANJE_VELJA, P.STANJE_NE_VELJA),
+                                                          (P.STANJE_ZAKLENJEN, P.STANJE_VELJA, None),
+                                                          (None, P.STANJE_NEPREVERJEN, None))],
+                         [P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NEPREVERJEN])
+
     def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
         """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
         »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""

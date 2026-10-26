@@ -278,7 +278,8 @@ def stanje_po_rocni_preverbi(izid: str) -> Optional[str]:
 
 
 def stanje_po_vpisu(prej: Optional[str], izid: str) -> Optional[str]:
-    """Stanje ob vpisu kljuca: [prej] je stanje ISTEGA kljuca, ce je ze shranjen (nov kljuc: None). Ponoven vpis
+    """Stanje ob vpisu kljuca: [prej] je stanje TEGA kljuca - shranjenega ali prej zaprtega (zapora po kljucu, Grokov
+    pregled 47, U1); kljuc, ki ga Safeer se ni videl: None. Ponoven vpis
     zaprtega kljuca brez odgovora storitve ga ne odklene (Grokov pregled 40, S2) - sicer stanje_po_preverbi."""
     s = stanje_po_preverbi(izid)
     return prej if s == STANJE_NEPREVERJEN and prej in (STANJE_NE_VELJA, STANJE_ZAKLENJEN) else s
@@ -345,6 +346,51 @@ def stanje_iz_zapisa(zapis: object, odtis: Optional[str]) -> Optional[str]:
         return None
     s = zapis.get("s")
     return s if s in (STANJE_VELJA, STANJE_NE_VELJA, STANJE_NEPREVERJEN, STANJE_ZAKLENJEN) else STANJE_NE_VELJA
+
+
+#: Grokov pregled 47, U1 (kot Android DebridPravila.NAJVEC_ZAPOR, a15fb57): najvec toliko zadnjih zapor po kljucu na storitev.
+NAJVEC_ZAPOR = 8
+
+
+def _je_zapora(s: object) -> bool:
+    return s in (STANJE_NE_VELJA, STANJE_ZAKLENJEN)
+
+
+def zapore_iz_zapisa(zapis: object) -> Optional[dict]:
+    """Zapore po kljucu ene storitve iz nastavitev: {odtis: »ne_velja« | »zaklenjen«}, najstarejsa prva (kot Android
+    zaporeIzZapisa). Vnos z neznanim stanjem se preskoci. None = zapis ni slovar (pokvarjen)."""
+    if zapis is None:
+        return {}
+    if not isinstance(zapis, dict):
+        return None
+    return {o: s for o, s in zapis.items() if isinstance(o, str) and o and _je_zapora(s)}
+
+
+def z_zaporo(zapore: dict, odtis: str, s: Optional[str]) -> dict:
+    """Zapore po novem stanju [s] kljuca [odtis] (kot Android zZaporo): »ne velja« in »zaklenjen« se zapomnita po kljucu
+    (najnovejsa zadnja, najvec NAJVEC_ZAPOR); samo »velja« (»Preveri« ali vpis, ki ga storitev potrdi) zaporo odpravi -
+    »nepreverjen«, zamenjava in odstranitev kljuca je ne spremenijo."""
+    z = dict(zapore)
+    if _je_zapora(s):
+        z.pop(odtis, None)
+        z[odtis] = s
+    elif s == STANJE_VELJA:
+        z.pop(odtis, None)
+    while len(z) > NAJVEC_ZAPOR:
+        z.pop(next(iter(z)))
+    return z
+
+
+def stanje_z_zaporo(v_pomnilniku: Optional[str], na_mestu: Optional[str], zapora: Optional[str]) -> Optional[str]:
+    """Stanje kljuca (kot Android stanjeZZaporo): zapora v pomnilniku (postavljena PRED zapisom, S3) > dokoncno stanje na
+    mestu storitve (»velja« po »Preveri« zaporo odpravi) > zapora po kljucu > »nepreverjen« ali brez zapisa.
+    Grokov pregled 47, U1 (26. 10. 2026): stanje je bilo samo na mestu storitve - zamenjava kljuca, »Odstrani« ali
+    ponovni zagon je zaporo prejsnjega kljuca pozabil in ponoven vpis brez odgovora storitve ga je odklenil (»nepreverjen«)."""
+    if _je_zapora(v_pomnilniku):
+        return v_pomnilniku
+    if na_mestu == STANJE_VELJA or _je_zapora(na_mestu):
+        return na_mestu
+    return zapora if _je_zapora(zapora) else na_mestu
 
 
 def sme_klicati(stanje: Optional[str]) -> bool:

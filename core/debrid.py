@@ -878,7 +878,20 @@ class Debrid:
         return {"s": stanje, "odtis": odtis, "ob": time.time()} if stanje else None
 
     @staticmethod
+    def _postavi_zaporo(d: dict, p: str, odtis: Optional[str], s: Optional[str]) -> None:
+        """Grokov pregled 47, U1 (kot Android a15fb57): zapora po KLJUCU v nastavitvah (d["zapore"][p] = {odtis: stanje},
+        zadnjih P.NAJVEC_ZAPOR) - prezivi zamenjavo kljuca, »Odstrani« in ponovni zagon; odpravi jo samo »velja«."""
+        if not odtis:
+            return
+        zs = d.get("zapore")
+        if not isinstance(zs, dict):
+            zs = d["zapore"] = {}
+        zs[p] = P.z_zaporo(P.zapore_iz_zapisa(zs.get(p)) or {}, odtis, s)
+
+    @staticmethod
     def _postavi_stanje(d: dict, p: str, zapis: Optional[dict]) -> None:
+        """Stanje kljuca na mestu storitve [p] in zapora po kljucu (U1). [zapis] None (»Odstrani«) pobrise samo mesto
+        storitve - zapora kljuca ostane."""
         st = d.get("stanja")
         if not isinstance(st, dict):
             st = d["stanja"] = {}                  # pokvarjen razdelek (ni slovar) - do zapisa so vsi kljuci zaprti (S3)
@@ -886,6 +899,7 @@ class Debrid:
             st.pop(p, None)
         else:
             st[p] = zapis
+            Debrid._postavi_zaporo(d, p, zapis.get("odtis"), zapis.get("s"))
 
     def nastavi_kljuc(self, p: str, vnos: str, paket: Optional[int] = None, stanje: Optional[str] = None) -> bool:
         """Shrani kljuc (sifriran) s paketom in stanjem preverbe (None = nepreverjen). Brez preverbe in zavrnitve
@@ -923,10 +937,14 @@ class Debrid:
         k = P.kljuc_iz_vnosa(vnos, p)
         if p not in P.VSI or k is None:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "paket": None, "stanje": None}
-        cez = self._rocna_cez(p, P.odtis_stanja(k))
+        odtis = P.odtis_stanja(k)
+        cez = self._rocna_cez(p, odtis)
         if cez:
             return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "paket": None, "stanje": None, "cez_s": cez}
-        prej = self.stanje_kljuca(p) if self._odtis(p) == P.odtis_stanja(k) else None     # isti kljuc znova
+        # Grokov pregled 47, U1 (kot Android a15fb57): stanje TEGA kljuca, tudi ce ni vec shranjen (zapora po kljucu).
+        # Prej samo shranjenega: prej zaprt kljuc je po zamenjavi, »Odstrani« ali ponovnem zagonu ob izpadu storitve
+        # postal »nepreverjen« in ⚡, predvajanje in samodejna preverba so ga spet posiljali zaklenjenemu racunu.
+        prej = self._stanje_v(self._nastavitve(), p, odtis)
         izid, paket = preveri(k) if preveri is not None else preveri_kljuc(p, k)
         s = P.stanje_po_vpisu(prej, izid)
         if s is None:
@@ -951,17 +969,17 @@ class Debrid:
         return P.odtis_stanja(k) if k else None
 
     def _stanje_v(self, d: dict, p: str, odtis: Optional[str]) -> Optional[str]:
-        """Stanje kljuca z [odtis] (P.STANJE_*): zapora iz pomnilnika (S3), sicer zapis v nastavitvah [d]
-        (P.stanje_iz_zapisa: neberljiv zapis je »ne velja«); None = ni zapisa ali je zapis drugega kljuca."""
+        """Stanje kljuca z [odtis] (P.STANJE_*), tudi kljuca, ki ni (vec) shranjen: P.stanje_z_zaporo iz zapore v
+        pomnilniku (S3), zapisa na mestu storitve v nastavitvah [d] (P.stanje_iz_zapisa: neberljiv zapis je »ne velja«) in
+        zapore po kljucu (Grokov pregled 47, U1). None = ni zapisa ali je zapis drugega kljuca."""
         if not odtis:
             return None
-        zaprto = self._zaprti.get((p, odtis))
-        if zaprto:
-            return zaprto
         st = d.get("stanja")
-        if st is not None and not isinstance(st, dict):
-            return P.STANJE_NE_VELJA                # pokvarjen razdelek stanj: odpove zaprto (S3)
-        return P.stanje_iz_zapisa((st or {}).get(p), odtis)
+        na_mestu = (P.STANJE_NE_VELJA if st is not None and not isinstance(st, dict)    # pokvarjen razdelek stanj (S3)
+                    else P.stanje_iz_zapisa((st or {}).get(p), odtis))
+        zs = d.get("zapore")
+        zapore = (P.zapore_iz_zapisa(zs.get(p)) if isinstance(zs, dict) else None) or {}
+        return P.stanje_z_zaporo(self._zaprti.get((p, odtis)), na_mestu, zapore.get(odtis))
 
     def _spomni_zaporo(self, p: str, odtis: Optional[str], s: Optional[str]) -> None:
         """Grokov pregled 40, S3: »ne velja« in »zaklenjen« v pomnilnik pred zapisom; potrjeno stanje zaporo odpravi."""
@@ -969,7 +987,7 @@ class Debrid:
             return
         if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
             self._zaprti[(p, odtis)] = s
-        else:
+        elif s == P.STANJE_VELJA:                   # U1: »nepreverjen« zapore ne odpravi (kot Android)
             self._zaprti.pop((p, odtis), None)
 
     def stanje_kljuca(self, p: str) -> Optional[str]:
@@ -992,7 +1010,11 @@ class Debrid:
 
         def f(d: dict) -> None:
             if self._oznaka(d, p) != oznaka:
-                return                              # kljuc je bil medtem zamenjan ali odstranjen
+                # Kljuc je bil medtem zamenjan ali odstranjen: mesto storitve je novega kljuca, zapora pa velja za kljuc
+                # zahteve (Grokov pregled 47, U1) - ponoven vpis ga brez odgovora storitve ne odklene.
+                if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+                    self._postavi_zaporo(d, p, odtis, s)
+                return
             if samo_iz is not None and self._stanje_v(d, p, odtis) not in samo_iz:
                 return                              # druga nit je medtem zapisala novejse stanje (Grok 40, S6)
             self._postavi_stanje(d, p, self._zapis_stanja(s, odtis))
@@ -1026,7 +1048,7 @@ class Debrid:
             return
         if p == P.INDEKSATOR and napaka in (P.NAPAKA_KLJUC, P.NAPAKA_ZAKLENJEN):
             self._pozabi_povezave(lambda o: o != odtis)     # Grok 40, S1: zavrnjen kljuc ne ostane v povezavah NZB
-        prej = self.stanje_kljuca(p)
+        prej = self._stanje_v(self._nastavitve(), p, odtis)     # stanje kljuca zahteve, tudi ce je zamenjan (U1)
         novo = P.stanje_po_uporabi(prej, napaka, uspeh)
         if novo == P.STANJE_VELJA:
             # Grokov pregled 40, S6: »velja« samo iz »nepreverjen« ali brez stanja - preverjeno pod zaklepom nastavitev,
@@ -1194,8 +1216,8 @@ class Debrid:
         cez = self._rocna_cez(P.INDEKSATOR, P.odtis_stanja(osn + "|" + k))
         if cez:
             return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "stanje": None, "cez_s": cez}
-        isti = self._odtis(P.INDEKSATOR) == P.odtis_stanja(osn + "|" + k)
-        prej = self.stanje_kljuca(P.INDEKSATOR) if isti else None
+        # Grokov pregled 47, U1: stanje tega naslova in kljuca, tudi ce ni vec shranjen (zapora po kljucu, kot Android).
+        prej = self._stanje_v(self._nastavitve(), P.INDEKSATOR, P.odtis_stanja(osn + "|" + k))
         izid = (preveri or indeksator_preveri)(osn, k)
         s = P.stanje_po_vpisu(prej, izid)
         if s is None:
