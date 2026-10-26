@@ -2811,8 +2811,8 @@ class MediaCenter:
                 if not isinstance(source, dict):
                     continue
                 vir = {k: value for k, value in source.items() if k != "vnosi"}
-                # Na zaslonu naslov vira z racunom samo kot gostitelj - geslo Xtream ni nikjer na zaslonu.
-                vir["url_prikaz"] = viri_sink.prikaz_naslova(source.get("url"))
+                # Na zaslonu cel naslov samo pozitivno znanega javnega vira, drugo samo gostitelj (pregled 46, Ö1).
+                vir["url_prikaz"] = viri_sink.prikaz_naslova(source.get("url"), source.get("javni") is True)
                 kanali = self._statistika_kanalov(source)
                 if kanali is not None:
                     # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov. Steje, kar je vidno: delujoci in
@@ -3960,7 +3960,9 @@ class MediaCenter:
             if not isinstance(v, dict) or not v.get("url") or not (v.get("link_tip") or self._vir_za_naprave(v)):
                 continue
             tip, naslov = self._vir_kljuc(v)
-            viri.append({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)})
+            viri.append(dict({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)},
+                             # oznaka uporabnika »javni« (viri_sink.znan_javen); napravam ne gre (cist_vir)
+                             **({"javni": True} if v.get("javni") is True else {})))
         if neznani:
             self._spoznaj_dodatke(neznani)
         return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]))

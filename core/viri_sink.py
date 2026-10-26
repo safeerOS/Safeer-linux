@@ -174,55 +174,83 @@ def ima_prijavo(url: object) -> bool:
     return brez_prijave(url) != str(url or "")
 
 
-def za_ozji_krog(naslov: object) -> bool:
-    """Naslov z racunom pri ponudniku (Xtream get.php?username=, uporabnik:geslo@, zeton, kanal /live/<u>/<g>/): drugim
-    napravam gre samo v ozji krog (core/link_dostop.v_ozjem_krogu), kot dodatki s poverilnico. Z Androida, VISOKO, 26. 10.
-    2026: seznam Xtream z geslom je sel z usklajevanjem virov na vse naprave v Linku z dovoljenjem »Predvajalnik«."""
-    besedilo = str(naslov or "")
+def znan_javen(naslov: object, oznacen: bool = False) -> bool:
+    """Ali je vir POZITIVNO znan kot javen, brez racuna (pregled 46, Ö1 - ob dvomu ne, kot preverba v ozadju v
+    pregledu 39, I1): naslov http(s) brez presledkov in nevidnih znakov, brez prijave ali racuna v naslovu (ima_prijavo,
+    kanali_iptv.s_poverilnicami) IN znan javni seznam (kanali_iptv.ZNANI_JAVNI_VIRI, Android IptvPravila.JAVNI_SEZNAMI)
+    ali ga je uporabnik izrecno oznacil kot javnega (`oznacen`: vir["javni"] is True). Samo tak gre napravam zunaj
+    ozjega kroga in na zaslon s celim naslovom. Vse drugo velja za vir z racunom: tudi oblike, ki jih nobena hevristika
+    ne pozna (.../playlist/<u>/<g>/m3u_plus, zeton v poti, kratka povezava, rtsp://, zasebni podkast, dodatek s kljucem
+    debrid v poti)."""
+    besedilo = naslov if isinstance(naslov, str) else ""
+    if not besedilo or len(besedilo) > 2048 or not besedilo.isprintable() or " " in besedilo:
+        return False
     if not besedilo.lower().startswith(("http://", "https://")):
         return False
     from . import kanali_iptv
-    return ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True)
+    if ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True):
+        return False
+    return kanali_iptv.znan_javni_vir(besedilo) or oznacen is True
 
 
-def prikaz_naslova(naslov: object) -> str:
-    """Naslov za zaslon: vir z racunom samo kot gostitelj (geslo ni nikjer na zaslonu - enako Android)."""
+def za_ozji_krog(naslov: object, oznacen: bool = False) -> bool:
+    """Vir gre drugim napravam samo v ozji krog (core/link_dostop.v_ozjem_krogu), razen ce je pozitivno znan javen
+    (znan_javen). Z Androida, VISOKO, 26. 10. 2026: seznam Xtream z geslom je sel z usklajevanjem virov na vse naprave
+    v Linku z dovoljenjem »Predvajalnik«; pregled 46, Ö1: hevristika je ob neznani obliki odprla."""
+    return not znan_javen(naslov, oznacen)
+
+
+def prikaz_naslova(naslov: object, oznacen: bool = False) -> str:
+    """Naslov za zaslon: cel samo pozitivno znan javen vir (znan_javen), vse drugo samo gostitelj[:vrata] - geslo ali
+    zeton ni nikjer na zaslonu (enako Android). Brez gostitelja: prazno."""
     besedilo = str(naslov or "")
-    if not za_ozji_krog(besedilo):
+    if znan_javen(besedilo, oznacen):
         return besedilo
     try:
-        d = urllib.parse.urlsplit(besedilo)
+        d = urllib.parse.urlsplit(besedilo.strip())
         gostitelj, vrata = d.hostname or "", d.port
     except ValueError:
         return ""
+    if not gostitelj or not gostitelj.isprintable() or " " in gostitelj:
+        return ""
+    if ":" in gostitelj:
+        gostitelj = "[%s]" % gostitelj
     return gostitelj + (":%d" % vrata if vrata else "")
 
 
+def _oznacen(v: object) -> bool:
+    """Uporabnik je vir izrecno oznacil kot javnega (samo seznam IPTV brez racuna, MediaCenter.nastavi_javni_seznam)."""
+    return isinstance(v, dict) and v.get("javni") is True
+
+
 def razdeli_izvoz(viri: list, izbrisani: dict) -> dict:
-    """Zapis virov za naprave (viri_za_naprave.json): viri in izbrisi brez racuna zgoraj, z racunom pod »ozji«."""
-    javni = [v for v in viri if not za_ozji_krog(v.get("naslov"))]
-    javni_izbrisi = {k: c for k, c in izbrisani.items() if not za_ozji_krog(str(k).partition("|")[2])}
+    """Zapis virov za naprave (viri_za_naprave.json): zgoraj samo pozitivno znani javni viri in njihovi izbrisi (oznaka
+    »javni« ostane v zapisu za viri_za), vse drugo pod »ozji«."""
+    javni = [v for v in viri if znan_javen(v.get("naslov"), _oznacen(v))]
+    javni_izbrisi = {k: c for k, c in izbrisani.items() if znan_javen(str(k).partition("|")[2])}
     return {"sources": javni[:NAJVEC_VIROV], "sources_deleted": javni_izbrisi,
-            "ozji": {"sources": [v for v in viri if za_ozji_krog(v.get("naslov"))][:NAJVEC_VIROV],
+            "ozji": {"sources": [v for v in viri if not znan_javen(v.get("naslov"), _oznacen(v))][:NAJVEC_VIROV],
                      "sources_deleted": {k: c for k, c in izbrisani.items() if k not in javni_izbrisi}}}
 
 
 def viri_za(izvoz: object, ozji: bool = False) -> dict:
-    """Viri za odgovor `lists.get` iz razdeli_izvoz: napravi v ozjem krogu tudi viri z racunom, drugim nikoli - tudi ce
-    so v javnem delu (zapis starejse razlicice, brez delitve)."""
+    """Viri za odgovor `lists.get` iz razdeli_izvoz: napravi v ozjem krogu vsi, drugim samo pozitivno znani javni -
+    tudi ce je kaj drugega v javnem delu (zapis starejse razlicice ali hevristike pred pregledom 46)."""
     izvoz = izvoz if isinstance(izvoz, dict) else {}
-    viri = [c for c in (cist_vir(v) for v in (izvoz.get("sources") if isinstance(izvoz.get("sources"), list) else [])
-                        [:NAJVEC_VIROV]) if c]
+
+    def cisti(surovi: object) -> list:
+        surovi = surovi if isinstance(surovi, list) else []
+        return [(c, _oznacen(o)) for c, o in ((cist_vir(o), o) for o in surovi[:NAJVEC_VIROV]) if c]
+    viri = cisti(izvoz.get("sources"))
     izbrisi = cisti_izbrisi(izvoz.get("sources_deleted"))
     if ozji:
         o = izvoz.get("ozji") if isinstance(izvoz.get("ozji"), dict) else {}
-        viri += [c for c in (cist_vir(v) for v in (o.get("sources") if isinstance(o.get("sources"), list) else [])
-                             [:NAJVEC_VIROV]) if c]
+        viri += cisti(o.get("sources"))
         izbrisi.update(cisti_izbrisi(o.get("sources_deleted")))
     else:
-        viri = [v for v in viri if not za_ozji_krog(v["naslov"])]
-        izbrisi = {k: c for k, c in izbrisi.items() if not za_ozji_krog(k.partition("|")[2])}
-    return {"sources": viri[:NAJVEC_VIROV], "sources_deleted": izbrisi}
+        viri = [(c, z) for c, z in viri if znan_javen(c["naslov"], z)]
+        izbrisi = {k: c for k, c in izbrisi.items() if znan_javen(k.partition("|")[2])}
+    return {"sources": [c for c, _z in viri][:NAJVEC_VIROV], "sources_deleted": izbrisi}
 
 
 def skladba_za(s: object, ozji: bool = False) -> object:

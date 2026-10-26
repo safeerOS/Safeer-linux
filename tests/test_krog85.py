@@ -284,7 +284,8 @@ class Viri(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def _viri(self):
-        return {(v["tip"], v["naslov"]): v["cas"] for v in self.mc.viri_izvoz()["sources"]}
+        # Kaj ta racunalnik pove napravam v ozjem krogu (svojim napravam; pregled 46: drugim samo znani javni viri).
+        return {(v["tip"], v["naslov"]): v["cas"] for v in self.mc.viri_izvoz(ozji=True)["sources"]}
 
     def test_cista_pravila(self):
         self.assertEqual(viri_sink.stremio_osnova("stremio://d.primer.si/x/manifest.json"), "https://d.primer.si/x")
@@ -321,7 +322,7 @@ class Viri(unittest.TestCase):
             self.mc._save(data)
         with mock.patch.object(self.mc, "_spoznaj_dodatke", lambda idji: None):
             self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): self.ura[0]})
-            kazalo = self.mc.seznami_izvoz({})
+            kazalo = self.mc.seznami_izvoz({}, ozji=True)
         self.assertEqual([v["naslov"] for v in kazalo["sources"]], ["https://javen.primer.si/manifest.json"])
         self.assertEqual(kazalo["sources_deleted"], {})
         self.assertNotIn("zaseben", json.dumps(kazalo))
@@ -333,7 +334,11 @@ class Viri(unittest.TestCase):
         self.assertEqual(self._viri(), {("url", "https://podkast.primer.si/feed.xml"): self.ura[0]})
         # Izvoz za Safeer Control (Linux) je zapisan in enak.
         with open(os.path.join(self.tmp, "viri_za_naprave.json"), encoding="utf-8") as f:
-            self.assertEqual(viri_sink.viri_za(json.load(f)), self.mc.viri_izvoz())   # razdeljen zapis (ozji krog)
+            zapis = json.load(f)
+        self.assertEqual(viri_sink.viri_za(zapis, True), self.mc.viri_izvoz(ozji=True))     # razdeljen zapis (ozji krog)
+        # Pregled 46, Ö1: podkast ni pozitivno znan javen - napravi zunaj ozjega kroga ne gre.
+        self.assertEqual(viri_sink.viri_za(zapis), self.mc.viri_izvoz())
+        self.assertEqual(self.mc.viri_izvoz()["sources"], [])
 
     def test_prevzame_dodatek_z_naprave_zasebnega_in_nepredvajljivega_ne(self):
         kazalo = {"sources": [
@@ -383,22 +388,22 @@ class Viri(unittest.TestCase):
                                                                    "podkast|https://podkast.primer.si/feed.xml": dodan + 6,
                                                                    "tok|https://neznan.primer.si/a.mp3": 9}}))
         self.assertEqual(self._viri(), {})
-        izbrisani = self.mc.viri_izvoz()["sources_deleted"]
+        izbrisani = self.mc.viri_izvoz(ozji=True)["sources_deleted"]
         self.assertEqual(izbrisani, {"stremio|https://javen.primer.si/manifest.json": dodan + 5,
                                      "podkast|https://podkast.primer.si/feed.xml": dodan + 6, "tok|https://neznan.primer.si/a.mp3": 9})
         # Izbrisan vir se z naprave, ki ga se ima (dodan prej), ne vrne; dodan pozneje se.
         self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan}]}))
         self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}]}))
         self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 9})
-        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz()["sources_deleted"])
+        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
         # Izbris tukaj: druge naprave ga dobijo s casom, ki ni starejsi od dodajanja (ure naprav niso enake).
         self.ura[0] = 5
         vir = self.mc._load()["osebni_strezniki"][0]
         self.assertTrue(self.mc.remove_source(vir["id"]))
-        self.assertEqual(self.mc.viri_izvoz()["sources_deleted"]["stremio|https://javen.primer.si/manifest.json"], dodan + 10)
+        self.assertEqual(self.mc.viri_izvoz(ozji=True)["sources_deleted"]["stremio|https://javen.primer.si/manifest.json"], dodan + 10)
         # Uporabnik ga doda znova: izbris je pozabljen, cas dodajanja je po izbrisu.
         self.mc.add_server("stremio", "", "https://javen.primer.si", "", "")
-        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz()["sources_deleted"])
+        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
         self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 11})
 
     def test_usklajevanje_seznamov_prevzame_tudi_vire_iz_istega_kazala(self):

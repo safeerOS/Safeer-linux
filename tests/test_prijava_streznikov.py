@@ -129,7 +129,8 @@ class SezamiMedijskegaCentra(unittest.TestCase):
         (self.koren / "seznami.json").write_text(json.dumps(star), encoding="utf-8")
         # Safeer Control odgovarja tudi, ce Safeer OS datoteke se ni ocistil.
         _brez_skrivnosti(self, json.dumps(link_seznami.izvoz({"ime": "Star"}, str(self.koren))))
-        self.assertEqual(link_seznami.izvoz({"ime": "Star"}, str(self.koren))["skladbe"][0]["url"],
+        _brez_skrivnosti(self, json.dumps(link_seznami.izvoz({"ime": "Star"}, str(self.koren), ozji=True)))
+        self.assertEqual(link_seznami.izvoz({"ime": "Star"}, str(self.koren), ozji=True)["skladbe"][0]["url"],
                          "https://jf.test:8920/Audio/abc/stream?static=true")
         mc = self._mc()
         self.assertEqual(mc.seznami()[0]["stevilo"], 2)

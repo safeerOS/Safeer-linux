@@ -15,7 +15,7 @@ import urllib.error
 from pathlib import Path
 from unittest import mock
 
-from core import kanali_iptv, os_media, zakoniti_viri
+from core import kanali_iptv, os_media, viri_sink, zakoniti_viri
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "iptv-m3u.json"
 #: Zascita racuna (pregled 39, I1): ista datoteka kot Android tests/skupni-primeri (IptvPravila).
@@ -45,6 +45,21 @@ class SkupniPrimeri(unittest.TestCase):
         for p in d["kanali"]:
             with self.subTest(p["url"]):
                 self.assertIs(kanali_iptv.s_poverilnicami(p["url"]), p["racun"])
+
+    def test_primeri_virov_ob_dvomu_ozji_krog(self):
+        """Pregled 46, Ö1: vir gre napravam zunaj ozjega kroga in na zaslon s celim naslovom samo, ce je pozitivno znan
+        javen (verzija 2 skupnih primerov - enako Android)."""
+        d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(d["verzija"], 2)
+        self.assertGreaterEqual(len(d["viri"]), 15)
+        for p in d["viri"]:
+            with self.subTest(repr(p["naslov"]), oznacen=p.get("oznacen", False)):
+                oznacen = p.get("oznacen", False)
+                self.assertIs(viri_sink.za_ozji_krog(p["naslov"], oznacen), p["ozji"])
+                self.assertIs(viri_sink.znan_javen(p["naslov"], oznacen), not p["ozji"])
+                if "prikaz" in p:
+                    self.assertEqual(viri_sink.prikaz_naslova(p["naslov"], oznacen), p["prikaz"])
+                self.assertNotIn("skrito-geslo", viri_sink.prikaz_naslova(p["naslov"], oznacen) if p["ozji"] else "")
 
     def test_vsi_primeri(self):
         d = json.loads(PRIMERI.read_text(encoding="utf-8"))
