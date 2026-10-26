@@ -325,6 +325,21 @@ def rocna_preverba_dovoljena(zadnjic: float, zdaj: float) -> bool:
     return not 0 <= zdaj - zadnjic < ROCNA_PREVERBA_S
 
 
+def stanje_iz_zapisa(zapis: object, odtis: Optional[str]) -> Optional[str]:
+    """Stanje kljuca z [odtis] iz zapisa v nastavitvah ({"s", "odtis", "ob"}). None = zapisa ni ali je zapis DRUGEGA
+    kljuca (nov kljuc je nepreverjen). Grokov pregled 40, S3 (26. 10. 2026): zapis, ki ga ni mogoce prebrati (ni slovar,
+    brez odtisa, neznano ali manjkajoce stanje - npr. novejsa razlicica ali pokvarjena datoteka), odpove ZAPRTO: »ne
+    velja«, nazaj ga vrne samo »Preveri«. Prej je pomenil »ni stanja« in sme_klicati je klic dovolil."""
+    if not odtis or zapis is None:
+        return None
+    if not isinstance(zapis, dict) or not isinstance(zapis.get("odtis"), str) or not zapis.get("odtis"):
+        return STANJE_NE_VELJA
+    if zapis["odtis"] != odtis:
+        return None
+    s = zapis.get("s")
+    return s if s in (STANJE_VELJA, STANJE_NE_VELJA, STANJE_NEPREVERJEN, STANJE_ZAKLENJEN) else STANJE_NE_VELJA
+
+
 def sme_klicati(stanje: Optional[str]) -> bool:
     """Ali storitev s tem kljucem sploh klicemo: ⚡ (checkcached ob seznamu virov), predvajanje, iskanje in prenos NZB,
     Usenet »pripravljen«, samodejna preverba. Kljuca, ki ga je storitev zavrnila (ne_velja), in zaklenjenega racuna

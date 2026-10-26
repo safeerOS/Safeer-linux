@@ -575,7 +575,8 @@ class StanjeKljuca(unittest.TestCase):
         self.assertEqual((d.kljuc(P.TORBOX), d.stanje_kljuca(P.TORBOX)), (KLJUC_TB2, P.STANJE_VELJA))
 
         def tok_uspeh(*_a, **_k):
-            d.nastavi_kljuc(P.TORBOX, KLJUC_TB)                           # nov, se nepreverjen kljuc
+            # Nov, se nepreverjen kljuc (ne KLJUC_TB: tega je storitev zgoraj zavrnila - zapora v pomnilniku, S3).
+            d.nastavi_kljuc(P.TORBOX, "5e2f8a1c-9b3d-4c7e-a6f0-1d8b2c4e7a95")
             return debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)
         with mock.patch.object(debrid, "torbox_tok", side_effect=tok_uspeh):
             d.tok(H1)
@@ -774,6 +775,62 @@ class StanjeKljuca(unittest.TestCase):
         self.assertEqual((izid["v"]["ok"], izid["v"]["preverba"]), (False, P.PREVERBA_TECE))
         self.assertEqual([P.rocna_preverba_dovoljena(z, 1000.0) for z in (0.0, 940.0, 940.001, 1000.0, 1000.5)],
                          [True, True, False, False, True])
+
+    def test_zapora_odpove_zaprto(self):
+        """Grokov pregled 40, S3: zapora je bila samo toliko trdna kot zapis nastavitev - neuspel zapis, neznano ali
+        pokvarjeno stanje in nastavi_kljuc brez stanja so pomenili »sme klicati« (odpove odprto)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        # 1. Zapis stanja ne uspe (poln disk, nastavitve samo za branje): RD 14 med predvajanjem zapre kljuc v pomnilniku.
+        z, nast = Shramba(), {"d": {}}
+        d = debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),           # kot datoteka: vsako branje svoja kopija
+                          lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+
+        def pisi_ne(_x):
+            raise OSError("disk poln")
+        d._pisi = pisi_ne
+        with mock.patch.object(debrid, "rd_tok", return_value=debrid.Izid(napaka=P.NAPAKA_ZAKLENJEN, ponudnik=P.REAL_DEBRID)):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+        self.assertEqual(nast["d"]["stanja"][P.REAL_DEBRID]["s"], P.STANJE_VELJA)     # na disku ostane staro
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
+        with mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+            d._zadnja_preverba[P.REAL_DEBRID] = 0.0
+            debrid.most(d, ["preveri"])                          # samodejna preverba ga ne poskusi
+        self.assertEqual(_vrstica(debrid.most(d, []), P.REAL_DEBRID)["stanje"], P.STANJE_ZAKLENJEN)
+        # 2. Zapis stanja ISTEGA kljuca, ki ga ni mogoce prebrati: »ne velja« (»Preveri«), ne »brez stanja«.
+        odtis = P.odtis_stanja(KLJUC_TB)
+        for zapis in ({"s": "nekaj-novega", "odtis": odtis}, {"s": None, "odtis": odtis}, {"s": P.STANJE_VELJA},
+                      {"s": P.STANJE_VELJA, "odtis": 7}, "pokvarjeno", ["x"]):
+            d, nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+            nast["d"]["stanja"][P.TORBOX] = zapis
+            self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NE_VELJA, zapis)
+            with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.predpomnjeni([H1]), set(), zapis)
+        nast["d"]["stanja"] = ["pokvarjeno"]                     # ves razdelek stanj ni slovar
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NE_VELJA)
+        nast["d"]["stanja"] = {P.TORBOX: {"s": P.STANJE_ZAKLENJEN, "odtis": P.odtis_stanja(KLJUC_TB2)}}
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))             # zapis DRUGEGA kljuca: nov kljuc je nepreverjen
+        # 3. nastavi_kljuc ali nastavi_indeksator brez stanja (uvoz, selitev) za ISTI kljuc ohrani »zaklenjen«.
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_ZAKLENJEN):
+            d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+        d._zaprti.clear()                                        # npr. po ponovnem zagonu: samo zapis v nastavitvah
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD))
+        self.assertTrue(d.nastavi_indeksator("https://nzbfinder.ws", KLJUC_IX))
+        self.assertEqual((d.stanje_kljuca(P.REAL_DEBRID), d.stanje_kljuca(P.INDEKSATOR)),
+                         (P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN))
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD[::-1]))   # drug kljuc nima stanja prejsnjega
+        self.assertIsNone(d.stanje_kljuca(P.REAL_DEBRID))
+        self.assertEqual([P.stanje_iz_zapisa(z, "ab") for z in (None, {"s": "velja", "odtis": "ab"},
+                          {"s": "velja", "odtis": "cd"}, {"s": "x", "odtis": "ab"}, "x")],
+                         [None, P.STANJE_VELJA, None, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA])
 
     def test_pravila_za_uskladitev_in_prejem(self):
         """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""

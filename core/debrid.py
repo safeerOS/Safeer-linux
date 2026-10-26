@@ -819,6 +819,9 @@ class Debrid:
         # (storitev, odtis) -> zadnji »Preveri« ali vpis tega kljuca (time.monotonic): najvec 1 na minuto (S8).
         self._rocna: "OrderedDict[tuple, float]" = OrderedDict()
         self._zaklep_rocne = threading.Lock()
+        # Grokov pregled 40, S3: (storitev, odtis) -> »ne velja« ali »zaklenjen« v pomnilniku, ZE PRED zapisom v
+        # nastavitve - zapora velja tudi, ce zapis ne uspe (poln disk, nastavitve samo za branje, zbirka zaklenjena).
+        self._zaprti: dict = {}
 
     def _rocna_cez(self, p: str, odtis: str) -> int:
         """Grokov pregled 40, S8: 0 = »Preveri« ali vpis kljuca z [odtis] sme k storitvi (cas se zabelezi), sicer sekunde
@@ -876,7 +879,9 @@ class Debrid:
 
     @staticmethod
     def _postavi_stanje(d: dict, p: str, zapis: Optional[dict]) -> None:
-        st = d.setdefault("stanja", {})
+        st = d.get("stanja")
+        if not isinstance(st, dict):
+            st = d["stanja"] = {}                  # pokvarjen razdelek (ni slovar) - do zapisa so vsi kljuci zaprti (S3)
         if zapis is None:
             st.pop(p, None)
         else:
@@ -892,6 +897,7 @@ class Debrid:
         if not enc:
             return False
         staro: list = []
+        odtis = P.odtis_stanja(k)
 
         def f(d: dict) -> None:
             staro.append(str((d.get("kljuci") or {}).get(p) or ""))
@@ -901,7 +907,11 @@ class Debrid:
                 pak.pop(p, None)
             else:
                 pak[p] = int(paket)
-            self._postavi_stanje(d, p, self._zapis_stanja(stanje, P.odtis_stanja(k)))
+            # Grokov pregled 40, S3: ISTI kljuc brez stanja (uvoz, selitev, uskladitev) ohrani svoje stanje - prej je tiho
+            # pobrisal »zaklenjen« in kljuc je spet sel storitvi.
+            if stanje is not None or self._stanje_v(d, p, odtis) is None:
+                self._postavi_stanje(d, p, self._zapis_stanja(stanje, odtis))
+        self._spomni_zaporo(p, odtis, stanje)
         self._spremeni(f)
         self._pozabi(*[x for x in staro if x != enc])
         return True
@@ -940,14 +950,27 @@ class Debrid:
         k = self.kljuc(p)
         return P.odtis_stanja(k) if k else None
 
-    @staticmethod
-    def _stanje_v(d: dict, p: str, odtis: Optional[str]) -> Optional[str]:
-        """Stanje kljuca z [odtis] v nastavitvah [d] (P.STANJE_*); None = ni zapisa ali je zapis drugega kljuca."""
-        z = (d.get("stanja") or {}).get(p) if odtis else None
-        if not isinstance(z, dict) or z.get("odtis") != odtis:
+    def _stanje_v(self, d: dict, p: str, odtis: Optional[str]) -> Optional[str]:
+        """Stanje kljuca z [odtis] (P.STANJE_*): zapora iz pomnilnika (S3), sicer zapis v nastavitvah [d]
+        (P.stanje_iz_zapisa: neberljiv zapis je »ne velja«); None = ni zapisa ali je zapis drugega kljuca."""
+        if not odtis:
             return None
-        s = z.get("s")
-        return s if s in (P.STANJE_VELJA, P.STANJE_NE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_ZAKLENJEN) else None
+        zaprto = self._zaprti.get((p, odtis))
+        if zaprto:
+            return zaprto
+        st = d.get("stanja")
+        if st is not None and not isinstance(st, dict):
+            return P.STANJE_NE_VELJA                # pokvarjen razdelek stanj: odpove zaprto (S3)
+        return P.stanje_iz_zapisa((st or {}).get(p), odtis)
+
+    def _spomni_zaporo(self, p: str, odtis: Optional[str], s: Optional[str]) -> None:
+        """Grokov pregled 40, S3: »ne velja« in »zaklenjen« v pomnilnik pred zapisom; potrjeno stanje zaporo odpravi."""
+        if not odtis or s is None:
+            return
+        if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+            self._zaprti[(p, odtis)] = s
+        else:
+            self._zaprti.pop((p, odtis), None)
 
     def stanje_kljuca(self, p: str) -> Optional[str]:
         """P.STANJE_* shranjenega kljuca [p]; None = ni kljuca ali ga se nihce ni preveril (stanje drugega kljuca ne velja)."""
@@ -976,7 +999,15 @@ class Debrid:
             if paket is not None and p == P.TORBOX:
                 d.setdefault("paketi", {})[p] = int(paket)
             zapisano.append(True)
-        self._spremeni(f)
+        if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+            self._spomni_zaporo(p, odtis, s)        # S3: zapora velja, tudi ce zapis spodaj ne uspe
+        try:
+            self._spremeni(f)
+        except Exception as e:  # noqa: BLE001 - zapora ostane v pomnilniku, klic se ne podre
+            _log.warning("%s: stanja ni bilo mogoce zapisati (%s)", P.ime(p), type(e).__name__)
+            return False
+        if zapisano and s not in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+            self._spomni_zaporo(p, odtis, s)
         return bool(zapisano)
 
     def _vezava(self, p: str) -> tuple:
@@ -1094,6 +1125,8 @@ class Debrid:
             d.setdefault("paketi", {}).pop(p, None)
             self._postavi_stanje(d, p, None)
         self._spremeni(f)
+        for z in [z for z in self._zaprti if z[0] == p]:
+            self._zaprti.pop(z, None)
         self._zadnja_preverba.pop(p, None)
         self._preverjen_odtis.pop(p, None)
         self._pozabi(*staro)
@@ -1111,7 +1144,7 @@ class Debrid:
             return None
         return (osn, k) if osn and k else None
 
-    def _zamenjaj_indeksator(self, nov: Optional[dict], stanje: Optional[dict] = None) -> None:
+    def _zamenjaj_indeksator(self, nov: Optional[dict], stanje: Optional[dict] = None, odtis: Optional[str] = None) -> None:
         staro: list = []
 
         def f(d: dict) -> None:
@@ -1122,7 +1155,14 @@ class Debrid:
                 d.pop("usenet", None)
             else:
                 d["usenet"] = nov
-            self._postavi_stanje(d, P.INDEKSATOR, stanje if nov is not None else None)
+            # Grokov pregled 40, S3: isti naslov in kljuc brez stanja ohrani svoje stanje (kot nastavi_kljuc).
+            if nov is None or stanje is not None or self._stanje_v(d, P.INDEKSATOR, odtis) is None:
+                self._postavi_stanje(d, P.INDEKSATOR, stanje if nov is not None else None)
+        if nov is None:
+            for z in [z for z in self._zaprti if z[0] == P.INDEKSATOR]:
+                self._zaprti.pop(z, None)
+        else:
+            self._spomni_zaporo(P.INDEKSATOR, odtis, (stanje or {}).get("s"))
         self._spremeni(f)
         self._zadnja_preverba.pop(P.INDEKSATOR, None)
         self._preverjen_odtis.pop(P.INDEKSATOR, None)
@@ -1138,7 +1178,8 @@ class Debrid:
         enc_u, enc_k = self._sifriraj(osn), self._sifriraj(k)
         if not enc_u or not enc_k:
             return False
-        self._zamenjaj_indeksator({"url": enc_u, "kljuc": enc_k}, self._zapis_stanja(stanje, P.odtis_stanja(osn + "|" + k)))
+        odtis = P.odtis_stanja(osn + "|" + k)
+        self._zamenjaj_indeksator({"url": enc_u, "kljuc": enc_k}, self._zapis_stanja(stanje, odtis), odtis)
         return True
 
     def vpisi_indeksator(self, naslov: str, kljuc: str, preveri: Optional[Callable[[str, str], str]] = None) -> dict:
