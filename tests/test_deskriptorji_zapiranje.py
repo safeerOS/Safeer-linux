@@ -24,6 +24,35 @@ def _fd() -> int:
     return len(os.listdir("/proc/self/fd"))
 
 
+def _odprte_vticnice() -> set:
+    """Pari (fd, socket:[inode]) - samo za diagnosticni izpis, ker zgolj stevilo ne pove, kdo je deskriptor odprl."""
+    izid = set()
+    for x in os.listdir("/proc/self/fd"):
+        try:
+            cilj = os.readlink("/proc/self/fd/" + x)
+        except OSError:
+            continue                    # deskriptor se je medtem zaprl (druga nit ali sam listdir)
+        if cilj.startswith("socket:"):
+            izid.add((int(x), cilj))
+    return izid
+
+
+def _vticnice_na_vratih(vrata: int) -> set:
+    """Odprti deskriptorji procesa, katerih vticnica je vezana na dana vrata (TCP ali UDP, IPv4 ali IPv6)."""
+    inode = set()
+    for ime in ("tcp", "tcp6", "udp", "udp6"):
+        try:
+            with open("/proc/net/" + ime, encoding="ascii") as f:
+                next(f)
+                for vrstica in f:
+                    deli = vrstica.split()
+                    if int(deli[1].rsplit(":", 1)[1], 16) == vrata:
+                        inode.add(f"socket:[{deli[9]}]")
+        except OSError:
+            continue
+    return {fd for fd, cilj in _odprte_vticnice() if cilj in inode}
+
+
 def _pocakaj(pogoj, rok: float = 5.0) -> bool:
     konec = time.monotonic() + rok
     while time.monotonic() < konec:
@@ -238,9 +267,6 @@ class Straza(unittest.TestCase):
         self.assertIn("os_deskriptorji.Straza(", telo[:telo.index("\ndef ")])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class _ImapStreznik:
     """Najmanjsi streznik IMAP na 127.0.0.1 (brez TLS): NOOP vrne NO - povezava je za odjemalca mrtva."""
@@ -358,12 +384,35 @@ class DrugiViri(unittest.TestCase):
         zasedena.listen(1)
         self.addCleanup(zasedena.close)
         vrata = zasedena.getsockname()[1]
-        with mock.patch.object(os_scit, "VRATA", [vrata] * 10), mock.patch.object(os_scit, "NASLOV", "127.0.0.1"):
+        # Zakaj ne stejemo vec vseh /proc/self/fd: stevec je skupen celemu procesu preizkusov. Na CI (hitra-vrata,
+        # del 6/6) v istem procesu tecejo WebKit/GLib, D-Bus (zbirka gesel iz SporocilaImap) in daemon niti
+        # streznikov iz prejsnjih preizkusov; vsaka od njih lahko med pred in po odpre ali zapre deskriptor, zato je
+        # bil "26 != 25" sum tujih niti, ne puscanje Scita. Namesto tega belezimo prav vsako vticnico, ki jo ustvari
+        # glavna nit med zazeni(), in zahtevamo, da je vsaka zaprta - to ostane strogo: ce Scit res pusti odprto
+        # UDP ali TCP vticnico, preizkus pade ne glede na to, kaj medtem pocnejo druge niti.
+        glavna = threading.get_ident()
+        ustvarjene = []
+        izvirni_init = socket.socket.__init__
+
+        def init_z_belezenjem(vticnica, *a, **k):
+            izvirni_init(vticnica, *a, **k)
+            # Samo glavna nit: vticnice tujih niti (D-Bus, strezniki drugih preizkusov) niso odgovornost Scita.
+            if threading.get_ident() == glavna:
+                ustvarjene.append(vticnica)
+
+        pred = _odprte_vticnice()
+        with mock.patch.object(os_scit, "VRATA", [vrata] * 10), mock.patch.object(os_scit, "NASLOV", "127.0.0.1"), \
+                mock.patch.object(socket.socket, "__init__", init_z_belezenjem):
             scit = os_scit.Razresevalnik.__new__(os_scit.Razresevalnik)
             scit._tece = False
-            pred = _fd()
             self.assertEqual(os_scit.Razresevalnik.zazeni(scit), 0)     # UDP se veze, TCP ne: obe se zapreta
-            self.assertEqual(_fd(), pred)
+        # Ce Scit vticnic ne bi ustvaril prek socket.socket, bi bil spodnji preizkus prazen in bi tiho prestal.
+        self.assertTrue(ustvarjene, "Scit ni ustvaril nobene vticnice - preizkus ne bi nicesar preveril")
+        odprte = [v for v in ustvarjene if v.fileno() != -1]
+        # Nove vticnice v /proc/self/fd izpisemo samo kot dokaz ob padcu; odlocitev ostane pri zgornjem seznamu.
+        self.assertEqual(odprte, [], ("Scit pusca vticnice", sorted(_odprte_vticnice() - pred)))
+        # Tudi mimo Pythonovega objekta (detach() ali dup()) Scitov deskriptor ne sme ostati odprt na nasih vratih.
+        self.assertEqual(_vticnice_na_vratih(vrata) - {zasedena.fileno()}, set())
 
     def test_krajevni_naslov_brez_puscanja(self):
         from unittest import mock
@@ -460,3 +509,9 @@ class UstavitevTokov(unittest.TestCase):
         self.assertNotIn(pot, odprte)
         c.close()
         self.assertTrue(_pocakaj(lambda: _fd() <= pred), (_fd(), pred))
+
+
+# Na koncu datoteke: prej je bil ta blok pred SporocilaImap/DrugiViri/UstavitevTokov, zato jih zagon
+# "python3 tests/test_deskriptorji_zapiranje.py" sploh ni pognal.
+if __name__ == "__main__":
+    unittest.main()
