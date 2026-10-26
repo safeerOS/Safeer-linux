@@ -354,6 +354,24 @@ class PreverbaToka(unittest.TestCase):
             self.assertTrue(p.pocakaj(6), "stirje pocasni gostitelji so ustavili preverbo")
         self.assertTrue(p.deluje("http://dober.test:%d/ts" % self.vrata))
 
+    def test_dnevna_meja_steje_vsako_zahtevo(self):
+        """Pregled 39, I8: ena preverba HLS je vec zahtev (glavni seznam, razlicica, kos) - meja jih steje vse, stevec
+        je na disku (velja po ponovnem zagonu). Prej je stela samo izbiro kanala (1)."""
+        with tempfile.TemporaryDirectory() as mapa:
+            pot = Path(mapa) / "kanali-preverba.json"
+            p = kanali_iptv.PreverbaKanalov(pot, preveri=lambda url, glave, rok, domace:
+                                            kanali_iptv.preveri_tok(url, glave, rok, True))
+            url = "http://127.0.0.1:%d/glavni.m3u8" % self.vrata
+            _Streznik.zahteve[:] = []
+            p.preveri_v_ozadju([(url, {}, False)])
+            self.assertTrue(p.pocakaj(10))
+            self.assertEqual(p.izid(url), kanali_iptv.DELUJE)
+            zahtev = len(_Streznik.zahteve)
+            self.assertGreaterEqual(zahtev, 3)
+            odtis = kanali_iptv.kljuc("127.0.0.1")[:12]
+            self.assertEqual(p.meta()["odprtja"]["g"][odtis], zahtev)
+            self.assertEqual(json.loads(pot.read_text(encoding="utf-8"))["meta"]["odprtja"]["g"][odtis], zahtev)
+
     def test_neskoncen_tok_prebere_samo_zacetek(self):
         zacetek = time.monotonic()
         self.assertEqual(self.preveri("/neskoncno"), (kanali_iptv.DELUJE, "ts"))

@@ -532,6 +532,11 @@ def _tls() -> ssl.SSLContext:
     return _TLS
 
 
+#: Stevec zahtev preverbe v tej niti (PreverbaKanalov._delaj): dnevna meja steje vsako zahtevo na gostitelja - seznam,
+#: razlicice, kos, kljuc in vsak skok preusmeritve, ne samo izbire kanala (pregled 39, I8).
+_NIT = threading.local()
+
+
 def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obseg: str = "",
              razresi=socket.getaddrinfo) -> tuple:
     """GET z rokom `konec` (time.monotonic) in rocnimi preusmeritvami: VSAK skok preverimo (shema, dovoljen IP).
@@ -570,6 +575,9 @@ def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obs
                 zaglavje[ime] = vrednost
         if obseg:
             zaglavje["Range"] = obseg
+        stej = getattr(_NIT, "stej", None)
+        if stej is not None:
+            stej(gostitelj)
         try:
             povezava.request("GET", pot, headers=zaglavje)
             odgovor = povezava.getresponse()
@@ -978,6 +986,17 @@ class PreverbaKanalov:
             self._lock.wait(max(0.05, cakaj))
         return None
 
+    def _stej_zahteve(self, zahteve: dict, izbrani: str) -> None:
+        """Klicati z zaklepom: dnevna meja steje vsako zahtevo preverbe na gostitelja (pregled 39, I8 - prej samo izbiro
+        kanala, ena preverba HLS pa so 3-5 zahtev). Izbira (_naslednji) je ze stela eno na izbranega gostitelja.
+        Stevec je v zapisu kanali-preverba.json (meta) in velja po ponovnem zagonu."""
+        odprtja = self._odprtja_danes()
+        for g, n in zahteve.items():
+            dodaj = n - 1 if g == izbrani else n
+            if dodaj > 0:
+                odtis = kljuc(g)[:12]
+                odprtja[odtis] = int(odprtja.get(odtis) or 0) + dodaj
+
     def _delaj(self) -> None:
         try:
             while True:
@@ -986,12 +1005,17 @@ class PreverbaKanalov:
                     if naslednji is None:
                         break
                 k, url, glave, domace, ponovitev, gostitelj = naslednji
+                zahteve: dict = {}
+                _NIT.stej = lambda g: zahteve.__setitem__(g, zahteve.get(g, 0) + 1)
                 try:
                     izid, koda = self._preveri(url, glave, ROK_PONOVNO_S if ponovitev else ROK_S, domace)
                 except Exception:  # noqa: BLE001
                     izid, koda = MRTEV, "napaka"
+                finally:
+                    _NIT.stej = None
                 self.zapisi(url, izid, koda, ponovljeno=ponovitev)
                 with self._lock:
+                    self._stej_zahteve(zahteve, gostitelj)
                     self._gostitelji.discard(gostitelj)
                     self._prost_ob[gostitelj] = time.monotonic() + PREMOR_GOSTITELJA_S
                     self._cakajo.discard(k)
