@@ -214,7 +214,11 @@
 .kat-nalaganje[hidden] { display: none; }
 .kat-vrtavka { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--rob); border-top-color: var(--zelena); }
 .kat-nalaganje.napaka .kat-vrtavka { display: none; }
-@media (prefers-reduced-motion: no-preference) { .kat-vrtavka { animation: kat-vrti .8s linear infinite; } }
+/* Oznaka konca mreze (opazovalec neskoncnega drsenja) je vedno v postavitvi; vrtavka in »Nalagam vec« se pokazeta in
+   vrtita samo med nalaganjem (.nalaga). Neskoncna animacija pod robom zaslona je sicer 26. 10. 2026 drzala okno
+   Safeer Player na ~60 slikah/s tudi v mirovanju. */
+.kat-nalaganje:not(.nalaga):not(.napaka) > * { visibility: hidden; }
+@media (prefers-reduced-motion: no-preference) { .kat-nalaganje.nalaga .kat-vrtavka { animation: kat-vrti .8s linear infinite; } }
 @keyframes kat-vrti { to { transform: rotate(360deg); } }
 .kat-prazno { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px 0; padding: 40px 24px; text-align: center;
   border: 1px solid var(--rob); border-radius: 16px; background: var(--media-povrsina); }

@@ -6210,6 +6210,11 @@
     var vidno = katImaVec() && kat.katalog.length > 0;
     c.hidden = !vidno;
     c.classList.toggle("napaka", kat.napakaVec);
+    // Vrtavka se vrti samo, ko se naslednja stran res nalaga. Prej se je vrtela ves cas, ko je imel katalog se kaj strani
+    // (element je pod robom zaslona in caka na drsenje): vidno okno Safeer Player je risalo ~60 slik/s tudi v mirovanju
+    // (izmerjeno 26. 10. 2026: Glasba odprta, nic ne predvaja - sestavljalnik WebKita in GTK ~60 slik/s; Domov brez
+    // kataloga 0,3 % jedra). Zaprto okno je risanje ustavilo, zato je lastnik videl, da obremenitev ob zaprtju pade.
+    c.classList.toggle("nalaga", !!kat.nalagaVec && !kat.napakaVec);
     $("katNalaganjeBesedilo").textContent = kat.napakaVec ? t("katNiNalozeno") : t("katNalagamVec");
     $("katNalaganjeZnova").hidden = !kat.napakaVec;
     // Opazovalec javi le spremembo; ce je konec mreze se vedno blizu (nizka stran), ga s ponovnim opazovanjem vprasamo znova.
