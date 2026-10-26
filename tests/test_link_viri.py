@@ -6,6 +6,7 @@ dobi jasno sporocilo v svojem jeziku.
 import collections
 import os
 import resource
+import threading
 
 import pytest
 
@@ -129,9 +130,13 @@ def test_stetje_deskriptorjev_dalec_od_meje_redko_blizu_meje_vedno(monkeypatch):
     ob vsakem vprasanju."""
     klici = []
     pravi = os.listdir
+    # Samo klici te niti na /proc/self/fd: link_viri.os je modul os za ves proces; na CI (26. 10. 2026, 7 != 5) so
+    # niti drugih preizkusov medtem brale /proc/<pid>/task in /proc/self/fd.
+    glavna = threading.get_ident()
 
     def stej(pot):
-        klici.append(pot)
+        if threading.get_ident() == glavna and pot == "/proc/self/fd":
+            klici.append(pot)
         return pravi(pot)
     monkeypatch.setattr(link_viri.os, "listdir", stej)
     monkeypatch.setattr(link_viri, "meja_deskriptorjev", lambda: 65536)
