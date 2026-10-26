@@ -860,7 +860,7 @@ class Vmesnik(unittest.TestCase):
             raise unittest.SkipTest("node ni namescen")
         kljuci = ["katKanalSkrit", "katKanaliDeluje", "katKanaliPreverjam", "katKanaliZaklenjeni", "katKanaliIzbira",
                   "katKanaliIzbiraNamig", "katKanaliDrzave", "katKanaliJeziki", "katKanaliBrezPreverbe", "katKanaliJavni",
-                  "katKanaliJavniNamig", "katVirZavrnjen"]
+                  "katKanaliJavniNamig", "katVirZavrnjen", "katVirGesloDeljeno", "katVirGesloRazumem"]
         koda = self.besedila + "\nconsole.log(JSON.stringify(%s.map(function (k) { return ['sl','en','de','es','fr','it'].filter(function (j) { return !BESEDILA_OS[j][k]; }); })));" % json.dumps(kljuci)
         with tempfile.TemporaryDirectory() as td:
             datoteka = Path(td) / "besedila.js"

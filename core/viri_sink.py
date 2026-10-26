@@ -325,6 +325,12 @@ def zapis_androida_javen(zapis: object) -> bool:
     return all(znan_javen(n) or javna_slika(n) for n in naslovi)
 
 
+def zakrij_naslove(besedilo: object) -> str:
+    """Besedilo (napaka, naslov skladbe) z vsakim naslovom samo kot gostitelj (prikaz_naslova) - za zaslon in druge
+    naprave (pregled 46, Ö2, Ö8: napaka »unknown url type: 'http://...'« je nosila cel naslov z geslom)."""
+    return _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), str(besedilo or ""))
+
+
 def vir_seznama_za(vir: object, ozji: bool = False) -> str:
     """Polje »vir« seznama predvajanja za drugo napravo (pregled 46, Ö2): ozjemu krogu nespremenjeno, drugim samo kratka
     oznaka (YouTube, Spotify ...) - ce je v njem naslov, samo gostitelj (prikaz_naslova; seznam z druge naprave ima
@@ -353,7 +359,7 @@ def skladba_za(s: object, ozji: bool = False) -> object:
         del izid["android"]
     for polje in ("naslov", "izvajalec"):
         if isinstance(izid.get(polje), str) and "://" in izid[polje]:
-            izid[polje] = _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), izid[polje])
+            izid[polje] = zakrij_naslove(izid[polje])
     return izid
 
 

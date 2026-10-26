@@ -396,6 +396,52 @@ class ZeRazposlaneKopije(unittest.TestCase):
             self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{\"katVirGesloDeljeno\": \"[^\"]{40,}\", \"katVirGesloRazumem\"" % jezik)
 
 
+class GesloNiVPodatkihStrani(unittest.TestCase):
+    """Pregled 46, Ö8: popravek VISOKE je naslov zakril samo v vrstici Virov - cel naslov z geslom je bil se vedno v
+    podatkih strani (sources(): url, link_naslov; napaka z naslovom). Pregled 46, Ö4: viri_za_naprave.json (del
+    »ozji« ima geslo) je 0600 kot media.json."""
+
+    DODATEK = "https://dodatek.primer.test/realdebrid=skrito-geslo/manifest.json"
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        viri = [{"id": "xt", "url": XTREAM, "ime": "Ponudnik", "stevilo": 3, "napaka": "", "vnosi": [], "dodan": 5},
+                {"id": "pot", "url": POT, "ime": "Pot", "stevilo": 3, "napaka": "", "vnosi": [], "dodan": 5},
+                {"id": "prejet", "url": XTREAM_B, "link_naslov": XTREAM_B, "ime": "Prejet", "stevilo": 3, "dodan": 5,
+                 "napaka": "", "vnosi": []},
+                {"id": "pub", "url": JAVNI, "ime": "Javni", "stevilo": 3, "napaka": "", "vnosi": [], "dodan": 5}]
+        strezniki = [{"id": "dod", "vrsta": "streznik", "ponudnik": "stremio", "ime": "Dodatek", "url": self.DODATEK,
+                      "zaseben": False, "dodan": 5}]
+        with open(os.path.join(self.mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump({"viri": viri, "osebni_strezniki": strezniki, "racuni_preseljeni": 1}, f)
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[])
+
+    def test_podatki_strani_brez_gesla(self):
+        from core import os_katalog
+        k = os_katalog.Katalog(self.mapa.name, lambda *a: None, lambda f: f(), lambda *a, **kw: True, lambda u: True,
+                               lambda *a: True, lambda u: True)
+        k._mc = self.mc
+        for viri in (k._viri([]), self.mc.vidni_viri()):
+            self.assertNotIn("skrito-geslo", json.dumps(viri))
+            po_id = {v["id"]: v for v in viri}
+            self.assertEqual((po_id["xt"]["url_prikaz"], po_id["dod"]["url_prikaz"]), ("ponudnik.test:8080", "dodatek.primer.test"))
+            self.assertEqual((po_id["pub"]["url"], po_id["pub"]["url_prikaz"]), (JAVNI, JAVNI))
+        # Predvajanje in osvezitev imata naslov v Medijskem centru.
+        self.assertIn(XTREAM, [v.get("url") for v in self.mc.sources()])
+
+    def test_napaka_brez_naslova(self):
+        self.mc._download = lambda url: (_ for _ in ()).throw(ValueError("unknown url type: %r" % url))
+        self.assertFalse(self.mc.refresh_source("xt")["ok"])
+        napaka = next(v for v in self.mc._load()["viri"] if v["id"] == "xt")["napaka"]
+        self.assertIn("ponudnik.test:8080", napaka)
+        self.assertNotIn("skrito-geslo", napaka)
+
+    def test_zapis_za_naprave_samo_lastniku(self):
+        self.mc._viri_zapisi_izvoz()
+        self.assertEqual(os.stat(os.path.join(self.mapa.name, "viri_za_naprave.json")).st_mode & 0o777, 0o600)
+
+
 class ControlTests(unittest.TestCase):
     def test_control_odgovori_na_lists_get(self):
         izidi = []

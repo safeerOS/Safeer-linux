@@ -1337,6 +1337,23 @@ def _ujemanje_naslova(naslov: str, iskano: str) -> int:
     return 1 if n.startswith(q + " ") else 2
 
 
+def vir_za_stran(vir: dict) -> dict:
+    """Vir za podatke strani (pregled 46, Ö8): naslov in link_naslov samo, ce je naslov pozitivno znan javen, sicer samo
+    prikaz (gostitelj[:vrata]); napaka brez naslovov. Geslo ali kljuc v naslovu (Xtream, dodatek s kljucem debrid v
+    poti) tako ni v pomnilniku strani (razsiritve, orodja za razvijalce, posnetek stanja). Predvajanje in osvezitev
+    naslov dobita v Medijskem centru (sources())."""
+    url = str(vir.get("url") or "")
+    prikaz = vir["url_prikaz"] if isinstance(vir.get("url_prikaz"), str) else viri_sink.prikaz_naslova(url)
+    izid = dict(vir, url_prikaz=prikaz)
+    if url != prikaz:
+        izid.pop("url", None)
+    if izid.get("link_naslov") and not viri_sink.znan_javen(izid["link_naslov"], vir.get("javni") is True):
+        izid.pop("link_naslov", None)
+    if isinstance(izid.get("napaka"), str) and "://" in izid["napaka"]:
+        izid["napaka"] = viri_sink.zakrij_naslove(izid["napaka"])
+    return izid
+
+
 class _PrazenOdgovor(ValueError):
     """Ponudnik je na naslov vira z racunom odgovoril brez seznama (prazno telo, stran HTML - racun potekel ali
     zaklenjen; pregled 46, Ö5)."""
@@ -2839,7 +2856,7 @@ class MediaCenter:
     def vidni_viri(self) -> list[dict]:
         """Viri za prikaz v medijskem centru: brez tistih, iz katerih ni nic predvajljivega (in brez zasebnih dodatkov,
         dokler kategorija »Zasebno« ni vklopljena)."""
-        return [vir for vir in self.sources()
+        return [vir_za_stran(vir) for vir in self.sources()
                 if (vir.get("vrsta") == "streznik" or int(vir.get("stevilo") or 0) > 0
                     or (vir.get("tip") == "predvajalni_vir" and not vir.get("napaka")))
                 and (self.zasebno or not self.zaseben_streznik(vir))]
@@ -4296,7 +4313,7 @@ class MediaCenter:
                                "razclenitev": kanali_iptv.RAZCLENITEV})
                 ok, error = True, ""
             else:
-                error = _text(exc, 180) or "Vira ni bilo mogoče prebrati."
+                error = viri_sink.zakrij_naslove(_text(exc, 180)) or "Vira ni bilo mogoče prebrati."
                 source["napaka"] = error
                 ok = False
         with self._lock:

@@ -637,9 +637,10 @@ class Katalog:
     def _viri(self, _a: list) -> Any:
         # »vticniki«: ta most zna upravljati vticnike strežnika Jellyfin (stran sicer gumba ne pokaze).
         # Zasebnih dodatkov ni nikjer, dokler kategorija »Zasebno« ni vklopljena (stran pokaze le njihovo stevilo).
+        # Naslov z geslom ali kljucem ne gre v podatke strani - samo prikaz (os_media.vir_za_stran, pregled 46, Ö8).
         mc = self.mc
-        return [dict(v, vticniki=True) if v.get("ponudnik") == "jellyfin" else v for v in mc.sources()
-                if mc.zasebno or not mc.zaseben_streznik(v)]
+        return [os_media.vir_za_stran(dict(v, vticniki=True) if v.get("ponudnik") == "jellyfin" else v)
+                for v in mc.sources() if mc.zasebno or not mc.zaseben_streznik(v)]
 
     def _zasebno(self, a: list) -> dict:
         """Kategorija »Zasebno« (lastnik, 17. 10. 2026): [] -> stanje, [da] -> vklopi ali izklopi. Vrne
