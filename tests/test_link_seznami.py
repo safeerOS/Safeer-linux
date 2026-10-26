@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from core import link_daljinec, link_seznami, os_media, seznami_sink
+from core import link_daljinec, link_seznami, os_media, seznami_sink, viri_sink
 
 SKLADBE = [{"naslov": "Pesem %d" % i, "izvajalec": "Pevka", "youtube": "59o4m222aV%s" % "wxyz"[i % 4], "sekund": 200 + i,
             "slika": "https://i.ytimg.com/vi/x/hq.jpg", "interno": "ne gre naprej"} for i in range(230)]
@@ -73,6 +73,78 @@ class IzvozTests(unittest.TestCase):
             self.assertEqual(len(moji["Uspešnice"]["skladbe"]), 230)
             self.assertEqual(moji["Uspešnice"]["cas"], 1790000000000)
             self.assertFalse(mc_b.seznami_uskladi(lambda parametri: link_seznami.izvoz(parametri, self.mapa.name)))
+
+
+XTREAM = "http://ponudnik.test:8080/get.php?username=uporabnik&password=skrito-geslo&type=m3u_plus"
+KANAL_XTREAM = "http://ponudnik.test:8080/live/uporabnik/skrito-geslo/123.ts"
+PODKAST = "https://podkast.primer.si/feed.xml"
+
+
+class RacunSamoOzjiKrog(unittest.TestCase):
+    """Z Androida (VISOKO, 26. 10. 2026): seznam Xtream z geslom je sel z usklajevanjem virov (lists.get) vsem napravam
+    z dovoljenjem »Predvajalnik«, geslo pa je bilo v vrstici Virov na zaslonu. Vir in tok z racunom gresta samo v ozji
+    krog (core/viri_sink.za_ozji_krog), na zaslonu je samo gostitelj."""
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        viri = [{"id": "pod", "url": PODKAST, "ime": "Podkast", "stevilo": 3, "napaka": "", "vnosi": [], "dodan": 5},
+                {"id": "xt", "url": XTREAM, "ime": "Ponudnik", "stevilo": 3, "napaka": "", "vnosi": [], "dodan": 6}]
+        with open(os.path.join(self.mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump({"viri": viri, "osebni_strezniki": []}, f)
+        with open(os.path.join(self.mapa.name, "seznami.json"), "w", encoding="utf-8") as f:
+            json.dump([{"ime": "TV", "cas": 7, "skladbe": [{"naslov": "Kanal", "url": KANAL_XTREAM},
+                                                            {"naslov": "Javni", "url": "https://tok.primer.si/a.m3u8"}]}], f)
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[])
+        self.javni = {"tip": "url", "ime": "Podkast", "naslov": PODKAST, "cas": 5}
+        self.racun = {"tip": "url", "ime": "Ponudnik", "naslov": XTREAM, "cas": 6}
+
+    def test_vir_z_racunom_samo_ozjemu_krogu(self):
+        self.assertEqual(self.mc.viri_izvoz()["sources"], [self.javni])
+        self.assertEqual(self.mc.viri_izvoz(ozji=True)["sources"], [self.javni, self.racun])
+        self.mc._viri_zapisi_izvoz()                                # zapis za Safeer Control (viri_za_naprave.json)
+        self.assertEqual(link_seznami.izvoz({}, self.mapa.name)["sources"], [self.javni])
+        self.assertEqual(link_seznami.izvoz({}, self.mapa.name, ozji=True)["sources"], [self.javni, self.racun])
+        for ozji in (False, True):
+            self.assertEqual(link_seznami.izvoz({}, self.mapa.name, ozji=ozji), self.mc.seznami_izvoz({}, ozji=ozji))
+        self.assertNotIn("skrito-geslo", json.dumps(link_seznami.izvoz({}, self.mapa.name)))
+
+    def test_izbris_vira_z_racunom_samo_ozjemu_krogu(self):
+        izvoz = viri_sink.razdeli_izvoz([self.javni, self.racun], {"url|" + XTREAM: 9, "url|https://star.primer.si/f.xml": 8})
+        self.assertEqual(viri_sink.viri_za(izvoz), {"sources": [self.javni],
+                                                    "sources_deleted": {"url|https://star.primer.si/f.xml": 8}})
+        self.assertEqual(viri_sink.viri_za(izvoz, True)["sources_deleted"],
+                         {"url|https://star.primer.si/f.xml": 8, "url|" + XTREAM: 9})
+        # Zapis starejse razlicice (brez delitve): vir in izbris z racunom ne gresta nikomur zunaj ozjega kroga.
+        star = {"sources": [self.racun, self.javni], "sources_deleted": {"url|" + XTREAM: 3}}
+        self.assertEqual(viri_sink.viri_za(star), {"sources": [self.javni], "sources_deleted": {}})
+
+    def test_tok_z_racunom_v_seznamu_samo_ozjemu_krogu(self):
+        for ozji, naslovi in ((False, [None, "https://tok.primer.si/a.m3u8"]),
+                              (True, [KANAL_XTREAM, "https://tok.primer.si/a.m3u8"])):
+            stran = link_seznami.izvoz({"ime": "TV"}, self.mapa.name, ozji=ozji)
+            self.assertEqual([x.get("url") for x in stran["skladbe"]], naslovi)
+            self.assertEqual(stran, self.mc.seznami_izvoz({"ime": "TV"}, ozji=ozji))
+
+    def test_control_da_vir_z_racunom_samo_napravi_v_ozjem_krogu(self):
+        from core import link_dostop
+        self.mc._viri_zapisi_izvoz()
+        izidi = []
+        with mock.patch.object(link_seznami, "mapa", return_value=self.mapa.name), \
+                mock.patch.object(link_dostop, "v_ozjem_krogu", lambda d: d == "n-ozji"):
+            for kdo in ("n-predvajalnik", "n-ozji", ""):
+                link_daljinec.izvedi_control("lists.get", {}, lambda _u: None, izidi.append, posiljatelj=kdo)
+        self.assertEqual([[v["naslov"] for v in i["data"]["sources"]] for i in izidi],
+                         [[PODKAST], [PODKAST, XTREAM], [PODKAST]])
+
+    def test_na_zaslonu_samo_gostitelj(self):
+        viri = {v["id"]: v for v in self.mc.sources() if v.get("id") in ("pod", "xt")}
+        self.assertEqual((viri["xt"]["url_prikaz"], viri["pod"]["url_prikaz"]), ("ponudnik.test:8080", PODKAST))
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn("var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;", js)
+        self.assertNotIn('ubezi(status + " · " + source.url)', js)
 
 
 class ControlTests(unittest.TestCase):

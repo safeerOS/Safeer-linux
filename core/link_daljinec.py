@@ -255,6 +255,15 @@ def _lastni_naslovi(hub_url: str) -> list:
         return []
 
 
+def _v_ozjem_krogu(posiljatelj: str) -> bool:
+    """Ali je posiljatelj v ozjem krogu tega racunalnika (core/link_dostop); »ne vem« ni »da«."""
+    try:
+        from core import link_dostop
+        return bool(posiljatelj) and link_dostop.v_ozjem_krogu(posiljatelj)
+    except Exception:  # noqa: BLE001 - brez zapisa dovoljenj ni ozjega kroga
+        return False
+
+
 def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], None],
                    koncaj: Callable[[dict], None], datoteke=None, posiljatelj: str = "",
                    hub_url: str = "", programi=None, zaslon=None, predvajanje=None, zascita: str = "") -> None:
@@ -349,9 +358,10 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             else:
                 koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
         elif d in DEJANJA_SEZNAMI:
-            # Samo branje seznamov iz mape Medijskega centra Safeer OS; napravo je v krog sprejel uporabnik.
+            # Samo branje seznamov iz mape Medijskega centra Safeer OS; napravo je v krog sprejel uporabnik. Vire in tokove
+            # z racunom ponudnika (Xtream z geslom) dobi samo naprava v ozjem krogu (core/viri_sink.za_ozji_krog).
             from core import link_seznami
-            koncaj(izid(True, "Seznami predvajanja", link_seznami.izvoz(parametri)))
+            koncaj(izid(True, "Seznami predvajanja", link_seznami.izvoz(parametri, ozji=_v_ozjem_krogu(posiljatelj))))
         elif d in DEJANJA_MAGNET:
             koncaj(odpri_magnet(str(parametri.get("uri", "") or "")))
         elif d in DEJANJA_MEDIJ:

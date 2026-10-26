@@ -174,6 +174,66 @@ def ima_prijavo(url: object) -> bool:
     return brez_prijave(url) != str(url or "")
 
 
+def za_ozji_krog(naslov: object) -> bool:
+    """Naslov z racunom pri ponudniku (Xtream get.php?username=, uporabnik:geslo@, zeton, kanal /live/<u>/<g>/): drugim
+    napravam gre samo v ozji krog (core/link_dostop.v_ozjem_krogu), kot dodatki s poverilnico. Z Androida, VISOKO, 26. 10.
+    2026: seznam Xtream z geslom je sel z usklajevanjem virov na vse naprave v Linku z dovoljenjem »Predvajalnik«."""
+    besedilo = str(naslov or "")
+    if not besedilo.lower().startswith(("http://", "https://")):
+        return False
+    from . import kanali_iptv
+    return ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True)
+
+
+def prikaz_naslova(naslov: object) -> str:
+    """Naslov za zaslon: vir z racunom samo kot gostitelj (geslo ni nikjer na zaslonu - enako Android)."""
+    besedilo = str(naslov or "")
+    if not za_ozji_krog(besedilo):
+        return besedilo
+    try:
+        d = urllib.parse.urlsplit(besedilo)
+        gostitelj, vrata = d.hostname or "", d.port
+    except ValueError:
+        return ""
+    return gostitelj + (":%d" % vrata if vrata else "")
+
+
+def razdeli_izvoz(viri: list, izbrisani: dict) -> dict:
+    """Zapis virov za naprave (viri_za_naprave.json): viri in izbrisi brez racuna zgoraj, z racunom pod »ozji«."""
+    javni = [v for v in viri if not za_ozji_krog(v.get("naslov"))]
+    javni_izbrisi = {k: c for k, c in izbrisani.items() if not za_ozji_krog(str(k).partition("|")[2])}
+    return {"sources": javni[:NAJVEC_VIROV], "sources_deleted": javni_izbrisi,
+            "ozji": {"sources": [v for v in viri if za_ozji_krog(v.get("naslov"))][:NAJVEC_VIROV],
+                     "sources_deleted": {k: c for k, c in izbrisani.items() if k not in javni_izbrisi}}}
+
+
+def viri_za(izvoz: object, ozji: bool = False) -> dict:
+    """Viri za odgovor `lists.get` iz razdeli_izvoz: napravi v ozjem krogu tudi viri z racunom, drugim nikoli - tudi ce
+    so v javnem delu (zapis starejse razlicice, brez delitve)."""
+    izvoz = izvoz if isinstance(izvoz, dict) else {}
+    viri = [c for c in (cist_vir(v) for v in (izvoz.get("sources") if isinstance(izvoz.get("sources"), list) else [])
+                        [:NAJVEC_VIROV]) if c]
+    izbrisi = cisti_izbrisi(izvoz.get("sources_deleted"))
+    if ozji:
+        o = izvoz.get("ozji") if isinstance(izvoz.get("ozji"), dict) else {}
+        viri += [c for c in (cist_vir(v) for v in (o.get("sources") if isinstance(o.get("sources"), list) else [])
+                             [:NAJVEC_VIROV]) if c]
+        izbrisi.update(cisti_izbrisi(o.get("sources_deleted")))
+    else:
+        viri = [v for v in viri if not za_ozji_krog(v["naslov"])]
+        izbrisi = {k: c for k, c in izbrisi.items() if not za_ozji_krog(k.partition("|")[2])}
+    return {"sources": viri[:NAJVEC_VIROV], "sources_deleted": izbrisi}
+
+
+def skladba_za(s: object, ozji: bool = False) -> object:
+    """Skladba seznama za drugo napravo: brez prijave streznika (cista_skladba); tok z racunom ponudnika (Xtream:
+    uporabnik in geslo v naslovu) samo napravi v ozjem krogu - druga dobi skladbo brez naslova toka."""
+    cista = cista_skladba(s)
+    if not ozji and isinstance(cista, dict) and za_ozji_krog(cista.get("url")):
+        cista = {k: v for k, v in cista.items() if k != "url"}
+    return cista
+
+
 def cista_skladba(s: object) -> object:
     """Skladba seznama (ali opis police) brez prijave v `url`, `slika` in `ozadje`. Ce je bila prijava odstranjena,
     dobi oznako `prijava`: Medijski center jo ob predvajanju doda s streznika (MediaCenter.s_prijavo)."""

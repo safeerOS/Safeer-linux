@@ -19,11 +19,12 @@ STRAN = 100                      # isto kot seznami_sink.STRAN (sporocila Linka 
 POLJA = ("naslov", "izvajalec", "youtube", "sekund", "slika", "url", "video", "android")
 
 
-def skladba_za_napravo(s: dict) -> dict:
+def skladba_za_napravo(s: dict, ozji: bool = False) -> dict:
     """Skladba za drugo napravo: samo POLJA in nikoli prijava osebnega streznika (zeton, geslo) v naslovu - tudi ce je
-    v seznami.json ostala iz starejse razlicice ali z druge naprave (core/viri_sink.py, cista_skladba)."""
+    v seznami.json ostala iz starejse razlicice ali z druge naprave (core/viri_sink.py, cista_skladba). Tok z racunom
+    ponudnika samo napravi v ozjem krogu (`ozji`, viri_sink.skladba_za)."""
     from core import viri_sink
-    cista = viri_sink.cista_skladba(s)
+    cista = viri_sink.skladba_za(s, ozji)
     return {k: cista[k] for k in POLJA if k in cista}
 
 
@@ -56,20 +57,17 @@ def _izbrisani(koren: str) -> dict:
     return {str(k): int(v) for k, v in data.items() if isinstance(v, (int, float)) and v > 0}
 
 
-def _viri(koren: str) -> dict:
+def _viri(koren: str, ozji: bool = False) -> dict:
     """Moji viri za druge naprave (core/viri_sink.py): zapis, ki ga Medijski center pripravi sam - zasebnih dodatkov
-    in cesar se ne pozna, v njem ni. Control ga samo prebere in preveri obliko."""
+    in cesar se ne pozna, v njem ni. Control ga samo prebere in preveri obliko; vire z racunom (Xtream z geslom) samo
+    napravi v ozjem krogu (`ozji`, viri_sink.viri_za)."""
     from core import viri_sink
-    data = _beri(os.path.join(koren, "viri_za_naprave.json"))
-    data = data if isinstance(data, dict) else {}
-    viri = [v for v in (data.get("sources") if isinstance(data.get("sources"), list) else [])[:viri_sink.NAJVEC_VIROV]
-            if viri_sink.cist_vir(v)]
-    return {"sources": [{k: v[k] for k in ("tip", "ime", "naslov", "cas") if k in v} for v in viri],
-            "sources_deleted": viri_sink.cisti_izbrisi(data.get("sources_deleted"))}
+    return viri_sink.viri_za(_beri(os.path.join(koren, "viri_za_naprave.json")), ozji)
 
 
-def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict:
-    """Odgovor na `lists.get`: kazalo seznamov ({}) ali ena stran skladb seznama ({"ime", "od"})."""
+def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None, ozji: bool = False) -> dict:
+    """Odgovor na `lists.get`: kazalo seznamov ({}) ali ena stran skladb seznama ({"ime", "od"}). `ozji`: sprasuje
+    naprava v ozjem krogu tega racunalnika (core/link_dostop.v_ozjem_krogu) - samo ta dobi vire in tokove z racunom."""
     parametri = parametri if isinstance(parametri, dict) else {}
     koren = koren or mapa()
     ime = str(parametri.get("ime") or "")
@@ -77,7 +75,7 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict
     if not ime:
         return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
                                 "stevilo": len(x["skladbe"])} for x in vsi],
-                     "deleted": _izbrisani(koren)}, **_viri(koren))
+                     "deleted": _izbrisani(koren)}, **_viri(koren, ozji))
     sz = next((x for x in vsi if x["ime"] == ime), None)
     if not sz:
         return {"ime": ime, "stevilo": 0, "skladbe": []}
@@ -85,6 +83,6 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict
         od = max(0, int(parametri.get("od") or 0))
     except (TypeError, ValueError):
         od = 0
-    skladbe = [skladba_za_napravo(s) for s in sz["skladbe"][od:od + STRAN] if isinstance(s, dict)]
+    skladbe = [skladba_za_napravo(s, ozji) for s in sz["skladbe"][od:od + STRAN] if isinstance(s, dict)]
     return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
             "od": od, "skladbe": skladbe}

@@ -2232,8 +2232,9 @@ class MediaCenter:
             izbrisani[ime] = cas
         self._izbrisani_pisi(izbrisani)
 
-    def seznami_izvoz(self, parametri: Optional[dict] = None) -> dict:
-        """Odgovor na `lists.get` druge naprave v Safeer Linku: kazalo seznamov ali ena stran skladb seznama."""
+    def seznami_izvoz(self, parametri: Optional[dict] = None, ozji: bool = False) -> dict:
+        """Odgovor na `lists.get` druge naprave v Safeer Linku: kazalo seznamov ali ena stran skladb seznama. `ozji`:
+        naprava v ozjem krogu - samo ta dobi vire in tokove z racunom ponudnika (viri_sink.za_ozji_krog)."""
         parametri = parametri if isinstance(parametri, dict) else {}
         ime = str(parametri.get("ime") or "")
         with self._lock:
@@ -2241,7 +2242,7 @@ class MediaCenter:
             if not ime:
                 return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
                                         "stevilo": len(x["skladbe"])} for x in vsi],
-                             "deleted": self._izbrisani_beri()}, **self.viri_izvoz())
+                             "deleted": self._izbrisani_beri()}, **self.viri_izvoz(ozji))
             sz = next((x for x in vsi if x["ime"] == ime), None)
         if not sz:
             return {"ime": ime, "stevilo": 0, "skladbe": []}
@@ -2252,7 +2253,7 @@ class MediaCenter:
         polja = ("naslov", "izvajalec", "youtube", "sekund", "slika", "url", "video", "android")
         # Prijava streznika ne gre na druge naprave (enako core/link_seznami.py, skladba_za_napravo).
         skladbe = [{k: c[k] for k in polja if k in c} for c in
-                   (viri_sink.cista_skladba(s) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
+                   (viri_sink.skladba_za(s, ozji) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
         return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
                 "od": od, "skladbe": skladbe}
 
@@ -2810,6 +2811,8 @@ class MediaCenter:
                 if not isinstance(source, dict):
                     continue
                 vir = {k: value for k, value in source.items() if k != "vnosi"}
+                # Na zaslonu naslov vira z racunom samo kot gostitelj - geslo Xtream ni nikjer na zaslonu.
+                vir["url_prikaz"] = viri_sink.prikaz_naslova(source.get("url"))
                 kanali = self._statistika_kanalov(source)
                 if kanali is not None:
                     # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov. Steje, kar je vidno: delujoci in
@@ -3931,9 +3934,14 @@ class MediaCenter:
             return False
         return int(source.get("stevilo") or 0) > 0
 
-    def viri_izvoz(self) -> dict:
-        """Moji viri za druge naprave v Linku (del odgovora `lists.get {}`): brez omrezja. Zasebnega dodatka in
-        dodatka, za katerega se ne vemo, ali je zaseben, ne povemo (tega spoznamo v ozadju)."""
+    def viri_izvoz(self, ozji: bool = False) -> dict:
+        """Moji viri za druge naprave v Linku (del odgovora `lists.get {}`): brez omrezja. Vir z racunom ponudnika in
+        njegov izbris samo napravi v ozjem krogu (`ozji`; viri_sink.za_ozji_krog - z Androida, VISOKO, 26. 10. 2026)."""
+        return viri_sink.viri_za(self._viri_izvoz_razdeljen(), ozji)
+
+    def _viri_izvoz_razdeljen(self) -> dict:
+        """Viri za naprave, razdeljeni na vire brez racuna in z racunom (viri_sink.razdeli_izvoz). Zasebnega dodatka in
+        dodatka, za katerega se ne vemo, ali je zaseben, ni (tega spoznamo v ozadju)."""
         with self._lock:
             data = self._load()
             stanje = self._viri_stanje()
@@ -3955,14 +3963,13 @@ class MediaCenter:
             viri.append({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)})
         if neznani:
             self._spoznaj_dodatke(neznani)
-        return {"sources": [v for v in viri if viri_sink.cist_vir(v)][:viri_sink.NAJVEC_VIROV],
-                "sources_deleted": stanje["izbrisani"]}
+        return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]))
 
     def _viri_zapisi_izvoz(self) -> None:
         """Na Linuxu drugim napravam odgovarja Safeer Control (tudi ko Safeer OS ni odprt, core/link_seznami.py): vire
         zanj zapisemo v datoteko ob seznamih. Zapis je ze prefiltriran - zasebnih dodatkov v njem ni."""
         try:
-            izvoz = self.viri_izvoz()
+            izvoz = self._viri_izvoz_razdeljen()        # Control vire z racunom da samo ozjemu krogu (link_seznami)
             self.config_dir.mkdir(parents=True, exist_ok=True)
             shramba_json.zapisi_atomsko(self.config_dir / "viri_za_naprave.json", izvoz, indent=None)
         except Exception:  # noqa: BLE001 - izvoz za naprave ne sme ustaviti Medijskega centra

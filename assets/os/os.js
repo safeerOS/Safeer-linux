@@ -8623,7 +8623,9 @@
     if (!kat.viri.length) { cilj.appendChild(skriti || el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
-      var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
+      // Naslov vira z racunom (Xtream z geslom) samo kot gostitelj (core/viri_sink.prikaz_naslova).
+      var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;
+      var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || prikaz)));
       // Ponudnik je seznam zavrnil (401/403 ...): prevedeno sporocilo, samodejno vse redkeje (core/os_media, pregled 39, I5).
       var status = source.napaka ? (source.zavrnjen ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda || "") }) : source.napaka)
         : (source.vrsta === "streznik"
@@ -8634,7 +8636,7 @@
       // Seznam z racunom (Xtream ...) v ozadju ne preverjamo - zascita pred zaklepom racuna (core/kanali_iptv, J3).
       if (!source.napaka && kanali) status = kanali.preverba === false ? t("katKanaliBrezPreverbe", { n: kanali.izbranih || 0 }) :
         t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
-      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
+      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       var oznacljiv = !source.napaka && kanali && kanali.oznacljiv;
       if (oznacljiv && !kanali.oznacen_javni) info.appendChild(el("small", "", ubezi(t("katKanaliJavniNamig"))));

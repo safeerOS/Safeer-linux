@@ -333,7 +333,7 @@ class Viri(unittest.TestCase):
         self.assertEqual(self._viri(), {("url", "https://podkast.primer.si/feed.xml"): self.ura[0]})
         # Izvoz za Safeer Control (Linux) je zapisan in enak.
         with open(os.path.join(self.tmp, "viri_za_naprave.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f), self.mc.viri_izvoz())
+            self.assertEqual(viri_sink.viri_za(json.load(f)), self.mc.viri_izvoz())   # razdeljen zapis (ozji krog)
 
     def test_prevzame_dodatek_z_naprave_zasebnega_in_nepredvajljivega_ne(self):
         kazalo = {"sources": [
