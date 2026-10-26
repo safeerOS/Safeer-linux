@@ -1029,6 +1029,32 @@ class StanjeKljuca(unittest.TestCase):
             n.join(10)
         self.assertEqual(napake, [])
 
+    def test_indeksator_z_drugace_zapisanim_naslovom_je_isti_kljuc(self):
+        """Grokov pregled 47, U5: odtis indeksatorja je vkljuceval naslov, kot ga je vpisal uporabnik - isti kljuc z
+        »www.«, velikimi crkami, koncno piko ali privzetimi vrati je bil nov kljuc: brez meje 1x na minuto in brez zapore."""
+        osn = "https://nzbfinder.ws"
+        self.assertEqual(P.odtis_indeksatorja(osn, KLJUC_IX), P.odtis_stanja(osn + "|" + KLJUC_IX))   # skupni primeri v2
+        for drug in ("https://WWW.NZBFinder.ws/", "https://www.nzbfinder.ws:443", "nzbfinder.ws.", "https://nzbfinder.ws/api/"):
+            self.assertEqual(P.odtis_indeksatorja(U.osnova(drug), KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX), drug)
+        for drug in ("https://api.nzbfinder.ws", "https://nzbfinder.ws:8443", "https://nzbfinder.ws/drugo"):
+            self.assertNotEqual(P.odtis_indeksatorja(U.osnova(drug), KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX), drug)
+        for lokalni in ("http://127.0.0.1:5076", "http://[fd00::1]:5076"):          # domace omrezje: kot prej
+            self.assertEqual(P.odtis_indeksatorja(U.osnova(lokalni), KLJUC_IX), P.odtis_stanja(lokalni + "|" + KLJUC_IX))
+        d, _nast, _z = _debrid()
+        klici: list = []
+
+        def zaklenjen(o, k):
+            klici.append(o)
+            return P.PREVERBA_ZAKLENJEN
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=zaklenjen)["stanje"], P.STANJE_ZAKLENJEN)
+        v = d.vpisi_indeksator("https://WWW.NZBFinder.ws/", KLJUC_IX, preveri=zaklenjen)
+        self.assertEqual((v["preverba"], len(klici)), (P.PREVERBA_POCAKAJ, 1))     # meja 1x na minuto velja
+        _minuta_kasneje(d)
+        v = d.vpisi_indeksator("https://WWW.NZBFinder.ws/", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual((v["stanje"], d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)),
+                         (P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN, False))
+        self.assertEqual(d.indeksator()[0], "https://WWW.NZBFinder.ws")       # za zahteve ostane vpisani naslov
+
     def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
         """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
         »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""

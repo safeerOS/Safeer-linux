@@ -996,7 +996,7 @@ class Debrid:
         """Odtis kljuca [p] (indeksator: naslov in kljuc) ali None, ce kljuca ni."""
         if p == P.INDEKSATOR:
             ix = self.indeksator()
-            return P.odtis_stanja(ix[0] + "|" + ix[1]) if ix else None
+            return P.odtis_indeksatorja(ix[0], ix[1]) if ix else None
         k = self.kljuc(p)
         return P.odtis_stanja(k) if k else None
 
@@ -1238,7 +1238,7 @@ class Debrid:
         enc_u, enc_k = self._sifriraj(osn), self._sifriraj(k)
         if not enc_u or not enc_k:
             return False
-        odtis = P.odtis_stanja(osn + "|" + k)
+        odtis = P.odtis_indeksatorja(osn, k)
         self._zamenjaj_indeksator({"url": enc_u, "kljuc": enc_k}, self._zapis_stanja(stanje, odtis), odtis)
         return True
 
@@ -1251,18 +1251,20 @@ class Debrid:
         osn, k = U.osnova(naslov), P.kljuc_iz_vnosa(kljuc, P.INDEKSATOR)
         if not osn or not k:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}
-        cez = self._rocna_cez(P.INDEKSATOR, P.odtis_stanja(osn + "|" + k))
+        # Grokov pregled 47, U5: meja, zapora in stanje po poenotenem naslovu (P.odtis_indeksatorja).
+        odtis = P.odtis_indeksatorja(osn, k)
+        cez = self._rocna_cez(P.INDEKSATOR, odtis)
         if cez:
             return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "stanje": None, "cez_s": cez}
         # Grokov pregled 47, U1: stanje tega naslova in kljuca, tudi ce ni vec shranjen (zapora po kljucu, kot Android).
-        prej = self._stanje_v(self._nastavitve(), P.INDEKSATOR, P.odtis_stanja(osn + "|" + k))
+        prej = self._stanje_v(self._nastavitve(), P.INDEKSATOR, odtis)
         izid = (preveri or indeksator_preveri)(osn, k)
         s = P.stanje_po_vpisu(prej, izid)
         if s is None:
             return {"ok": False, "preverba": izid, "stanje": None}
         ok = self.nastavi_indeksator(osn, k, s)
         self._zadnja_preverba[P.INDEKSATOR] = time.time()
-        self._preverjen_odtis[P.INDEKSATOR] = P.odtis_stanja(osn + "|" + k)
+        self._preverjen_odtis[P.INDEKSATOR] = odtis
         return {"ok": ok, "preverba": izid, "stanje": s}
 
     def pozabi_indeksator(self) -> None:

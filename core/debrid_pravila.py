@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
@@ -405,6 +406,26 @@ def odtis_stanja(kljuc: str) -> str:
     """Stanje velja za natanko ta kljuc (zamenjan kljuc nima stanja prejsnjega); kljuc iz odtisa ni berljiv.
     Isti odtis kot Android (SHA-256 s predpono, prvih 16 heks)."""
     return hashlib.sha256(("safeer-debrid-stanje|" + kljuc).encode("utf-8")).hexdigest()[:16]
+
+
+def odtis_indeksatorja(osnova: str, kljuc: str) -> str:
+    """Odtis stanja indeksatorja Usenet: odtis_stanja(»osnova|kljuc«) POENOTENEGA naslova. Grokov pregled 47, U5
+    (26. 10. 2026): isti indeksator z drugace zapisanim naslovom (velike crke v imenu, »www.«, koncna pika, privzeta
+    vrata) je bil za Safeer nov kljuc - brez meje 1x na minuto in brez zapore. Za zahteve ostane naslov, kot ga je vpisal
+    uporabnik; ze poenoten naslov (»https://nzbfinder.ws«) da enak odtis kot prej (skupni primeri v2)."""
+    try:
+        u = urllib.parse.urlsplit(osnova)
+        gost, vrata = (u.hostname or "").rstrip("."), u.port
+    except ValueError:
+        return odtis_stanja(osnova + "|" + kljuc)
+    if gost.startswith("www."):
+        gost = gost[4:]
+    if ":" in gost:
+        gost = "[" + gost + "]"                     # IPv6 (urlsplit odstrani oklepaje)
+    shema = u.scheme.lower()
+    if vrata is not None and vrata != {"https": 443, "http": 80}.get(shema):
+        gost += ":%d" % vrata
+    return odtis_stanja(shema + "://" + gost + u.path.rstrip("/") + "|" + kljuc)
 
 
 def _niz(v: object) -> Optional[str]:
