@@ -247,12 +247,17 @@ class Sestava(unittest.TestCase):
         rnd = random.Random(42)
         ploscice = [rnd.randbytes(rnd.randint(300, 10_000)) for _ in range(120)]
 
+        # Stalen cas v glavah ZIP: writestr(ime, ...) zapise trenutni cas (DOS, 2 s) v lokalno in centralno glavo vsakega
+        # vnosa. Ce je med pisanjem v1 in v2 minila meja dveh sekund (pocasen CI), so se glave nespremenjenih ploscic
+        # razlikovale in kosi s 4 KiB okoli njih so bili novi (hitra-vrata (5): 53,5 %). Nespremenjena ploscica = enaki bajti.
+        cas = (2026, 10, 14, 12, 0, 0)
+
         def zip_(pot, predogled, ploscice_, opis):
             with zipfile.ZipFile(pot, "w", zipfile.ZIP_STORED) as z:
-                z.writestr("preview.png", predogled)
+                z.writestr(zipfile.ZipInfo("preview.png", cas), predogled)
                 for p in ploscice_:
-                    z.writestr("tiles/%s.zst" % hashlib.sha256(p).hexdigest(), p)
-                z.writestr("manifest.json", opis)
+                    z.writestr(zipfile.ZipInfo("tiles/%s.zst" % hashlib.sha256(p).hexdigest(), cas), p)
+                z.writestr(zipfile.ZipInfo("manifest.json", cas), opis)
         v1, v2 = os.path.join(self.mapa, "v1.pcraft"), os.path.join(self.mapa, "v2.pcraft")
         zip_(v1, rnd.randbytes(50_000), ploscice, json.dumps({"plasti": 3, "ploscice": len(ploscice)}))
         nove = ploscice[:60] + [rnd.randbytes(4000)] + ploscice[60:]

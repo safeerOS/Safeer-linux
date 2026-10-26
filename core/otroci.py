@@ -79,14 +79,40 @@ def _skupina(p: Any) -> Optional[int]:
     return skupina
 
 
+def _zivi_clan(skupina: int) -> Optional[bool]:
+    """Ali ima skupina vsaj en proces, ki ni zombi (/proc), ali None, ce /proc ni berljiv (ni Linux).
+
+    Zombi ne steje: osiroteli vnuk (sh se je koncal) dobi starsa PID 1; v vsebniku CI brez inita (Docker, GitHub
+    Actions) ga ta nikoli ne pobere. kill(pgid, 0) uspe tudi za zombija, zato je bila skupina navidez ziva do roka,
+    nato pa je sledil SIGKILL na skupino s samim tujim zombijem (hitra-vrata (1), 26. 10. 2026)."""
+    try:
+        imena = os.listdir("/proc")
+    except OSError:
+        return None
+    for ime in imena:
+        if not ime.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % ime, "rb") as f:
+                polja = f.read().rsplit(b")", 1)[1].split()
+        except (OSError, IndexError):
+            continue                     # proces se je medtem koncal
+        # polja: stanje, ppid, pgrp, ...
+        if len(polja) > 2 and polja[2] == str(skupina).encode() and polja[0] not in (b"Z", b"X"):
+            return True
+    return False
+
+
 def _skupina_zivi(skupina: int) -> bool:
     try:
         os.killpg(skupina, 0)
-        return True
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
+    # kill(0) uspe tudi, ce so v skupini sami zombiji: ti ne tecejo vec in jim signal ne more nic.
+    zivi = _zivi_clan(skupina)
+    return True if zivi is None else zivi
 
 
 def _signal_skupini(skupina: int, sig: int) -> None:

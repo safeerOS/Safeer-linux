@@ -143,6 +143,18 @@ class Skupina(unittest.TestCase):
         self._zabelezi(vnuk)
         self.assertTrue(pocakaj_konec(vnuk), "soffice.bin (vnuk) je ostal po roku")
 
+    def test_skupina_s_samim_zombijem_ni_ziva(self):
+        """Vsebnik CI brez inita: koncan proces skupine ostane zombi. kill(pgid, 0) uspe, skupina pa ni ziva.
+
+        Pred popravkom je ustavi() na tako skupino cakal do roka in poslal killpg(9) tujemu zombiju (hitra-vrata (1))."""
+        p = otroci.zazeni(["sh", "-c", "exit 0"], stdin=subprocess.DEVNULL)
+        self.assertTrue(pocakaj_konec(p.pid))          # zombi: nihce ga se ni pobral (p.poll() ni bil klican)
+        with open("/proc/%d/stat" % p.pid) as f:
+            self.assertEqual(f.read().rsplit(")", 1)[1].split()[0], "Z")
+        os.killpg(p.pid, 0)                             # jedro ga se steje v skupino ...
+        self.assertFalse(otroci._skupina_zivi(p.pid))   # ... ziv pa ni nihce
+        self.assertEqual(otroci.pocakaj(p, rok=5), 0)
+
     def test_otrok_brez_svoje_skupine_samo_on(self):
         """Nikoli killpg na skupino Safeer OS: otrok brez start_new_session dobi signal sam."""
         p = subprocess.Popen(["sleep", "60"])
