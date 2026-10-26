@@ -824,6 +824,7 @@ class Debrid:
         # Grokov pregled 47: velja po kljucu, »Odstrani« in zamenjava je ne odpravita (U1); bere in pise se samo pod
         # _zaklep_zapor (U4) - pise ga vec niti (⚡, predvajanje, »Preveri« v niti mostu, samodejna preverba).
         self._zaprti: dict = {}
+        self._odtisa_ix: dict = {}       # (oznaka naslova, oznaka kljuca) -> (stari, novi) odtis indeksatorja (O1; samo v pomnilniku)
         self._zaklep_zapor = threading.Lock()   # notranji: pod njim se ne klice nic drugega (zaklep nastavitev je zunanji)
 
     def _rocna_cez(self, p: str, odtis: str) -> int:
@@ -846,7 +847,7 @@ class Debrid:
 
     def _spremeni(self, fn: Callable[[dict], None]) -> None:
         with self._zaklep:
-            d = dict(self._nastavitve())
+            d = self._z_novim_odtisom(dict(self._nastavitve()))     # O1: stanje pod starim odtisom gre z naslednjim zapisom na novega
             fn(d)
             self._pisi(d)
 
@@ -1000,12 +1001,66 @@ class Debrid:
         k = self.kljuc(p)
         return P.odtis_stanja(k) if k else None
 
+    def _odtisa_indeksatorja(self, d: dict) -> Optional[tuple]:
+        """(stari, novi) odtis shranjenega indeksatorja v [d]: stari je odtis naslova, kot je shranjen (do U5, 9ea51fe), novi
+        P.odtis_indeksatorja. Desifriranje samo enkrat na par zapisov (zbirka skrivnosti je klic D-Bus); None = ni
+        indeksatorja ali ga ni mogoce prebrati."""
+        u = d.get("usenet")
+        if not isinstance(u, dict) or not u.get("url") or not u.get("kljuc"):
+            return None
+        oznaki = (str(u["url"]), str(u["kljuc"]))
+        par = self._odtisa_ix.get(oznaki)
+        if par is None:
+            ix = self._indeksator_iz(d)
+            if not ix:
+                return None
+            if len(self._odtisa_ix) >= 16:
+                self._odtisa_ix.clear()
+            par = self._odtisa_ix[oznaki] = (P.odtis_stanja(ix[0] + "|" + ix[1]), P.odtis_indeksatorja(ix[0], ix[1]))
+        return par
+
+    def _z_novim_odtisom(self, d: dict) -> dict:
+        """Grokov pregled 49, O1: U5 (9ea51fe) je odtis indeksatorja izracunal iz poenotenega naslova, stanje in zapore
+        iz prejsnje razlicice pa so pod odtisom naslova, kot je bil vpisan (»www.«, velike crke …): zaklenjen indeksator je
+        bil »brez stanja« in ga je samodejna preverba klicala (zaklep racuna). Vrne [d] z odtisom shranjenega indeksatorja
+        prenesenim na novega (stanje na mestu storitve in zapora v seznamu; ob dveh zaporah velja strozja) ali [d] samega."""
+        st, zs = d.get("stanja"), d.get("zapore")
+        mesto = isinstance(st, dict) and isinstance(st.get(P.INDEKSATOR), dict)
+        seznam = isinstance(zs, dict) and isinstance(zs.get(P.INDEKSATOR), dict)
+        if not mesto and not seznam:
+            return d
+        par = self._odtisa_indeksatorja(d)
+        if not par or par[0] == par[1]:
+            return d
+        star, nov = par
+        mesto = mesto and st[P.INDEKSATOR].get("odtis") == star
+        seznam = seznam and star in zs[P.INDEKSATOR]
+        if not mesto and not seznam:
+            return d
+        d = dict(d)
+        if mesto:
+            d["stanja"] = dict(st, **{P.INDEKSATOR: dict(st[P.INDEKSATOR], odtis=nov)})
+        if seznam:
+            z, novi = zs[P.INDEKSATOR], {}
+            for o, s in z.items():
+                if o == star:
+                    if nov not in z:                # sicer pride na vrsto pri vnosu novega odtisa
+                        novi[nov] = s
+                elif o == nov:
+                    novi[o] = P.strozja_zapora(s, z[star])
+                else:
+                    novi[o] = s
+            d["zapore"] = dict(zs, **{P.INDEKSATOR: novi})
+        return d
+
     def _stanje_v(self, d: dict, p: str, odtis: Optional[str]) -> Optional[str]:
         """Stanje kljuca z [odtis] (P.STANJE_*), tudi kljuca, ki ni (vec) shranjen: P.stanje_z_zaporo iz zapore v
         pomnilniku (S3), zapisa na mestu storitve v nastavitvah [d] (P.stanje_iz_zapisa: neberljiv zapis je »ne velja«) in
         zapore po kljucu (Grokov pregled 47, U1). None = ni zapisa ali je zapis drugega kljuca."""
         if not odtis:
             return None
+        if p == P.INDEKSATOR:
+            d = self._z_novim_odtisom(d)           # Grokov pregled 49, O1: stanje in zapora pod odtisom pred U5 veljata
         st = d.get("stanja")
         na_mestu = (P.STANJE_NE_VELJA if st is not None and not isinstance(st, dict)    # pokvarjen razdelek stanj (S3)
                     else P.stanje_iz_zapisa((st or {}).get(p), odtis))
@@ -1193,7 +1248,10 @@ class Debrid:
     # ---- Usenet: uporabnikov indeksator Newznab (naslov in kljuc samo sifrirana, kot kljuci storitev)
     def indeksator(self) -> Optional[tuple]:
         """(osnova, kljuc) ali None. Naslov je lahko zaseben (streznik v domacem omrezju), zato je tudi sifriran."""
-        u = self._nastavitve().get("usenet") or {}
+        return self._indeksator_iz(self._nastavitve())
+
+    def _indeksator_iz(self, d: dict) -> Optional[tuple]:
+        u = d.get("usenet") or {}
         if not isinstance(u, dict) or not u.get("url") or not u.get("kljuc"):
             return None
         try:

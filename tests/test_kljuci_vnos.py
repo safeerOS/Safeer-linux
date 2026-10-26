@@ -1055,6 +1055,53 @@ class StanjeKljuca(unittest.TestCase):
                          (P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN, False))
         self.assertEqual(d.indeksator()[0], "https://WWW.NZBFinder.ws")       # za zahteve ostane vpisani naslov
 
+    def test_stanje_indeksatorja_pod_odtisom_pred_u5_ostane_po_posodobitvi(self):
+        """Grokov pregled 49, O1: U5 je odtis indeksatorja izracunal iz poenotenega naslova - stanje in zapora, shranjena
+        pod odtisom naslova, kot je bil vpisan (»www.«, velike crke), po posodobitvi nista bila najdena: zaklenjen indeksator
+        je bil »brez stanja« in ga je samodejna preverba takoj poklicala (zaklep racuna)."""
+        naslov = "https://WWW.Primer.test/"
+        osn = U.osnova(naslov)
+        star, nov = P.odtis_stanja(osn + "|" + KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX)
+        self.assertNotEqual(star, nov)
+
+        def po_posodobitvi(razdelki):
+            """Nastavitve iz prejsnje razlicice: indeksator z neenotnim naslovom in stanje/zapore pod STARIM odtisom."""
+            d, nast, z = _debrid()
+            d.nastavi_indeksator(naslov, KLJUC_IX)
+            nast["d"].update(json.loads(json.dumps(razdelki)))
+            return debrid.Debrid(lambda: nast["d"], lambda x: nast.__setitem__("d", json.loads(json.dumps(x))),
+                                 z.skrij, z.razkrij, z.pozabi), nast
+
+        for s in (P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA):
+            for razdelki in ({"stanja": {P.INDEKSATOR: {"s": s, "odtis": star, "ob": 1.0}}},
+                             {"zapore": {P.INDEKSATOR: {star: s}}}):
+                d, nast = po_posodobitvi(razdelki)
+                self.assertEqual((d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)), (s, False), razdelki)
+                with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("klic storitve")) as ix, \
+                        mock.patch.object(debrid, "klic", side_effect=AssertionError("klic storitve")):
+                    d.preveri_nepreverjene()                    # samodejna preverba ne sme poklicati zaprtega kljuca
+                    self.assertEqual(ix.call_count, 0)
+                # Prvi zapis nastavitev prenese stanje na novi odtis (potem ga »velja« odpravi pri pravem kljucu).
+                d.nastavi_kljuc(P.TORBOX, KLJUC_TB, None, P.STANJE_VELJA)
+                self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), s)
+                self.assertNotIn(star, json.dumps(nast["d"].get("stanja", {}).get(P.INDEKSATOR)) + json.dumps(nast["d"].get("zapore", {}).get(P.INDEKSATOR)))
+        # »velja« pod starim odtisom je »velja« (isti kljuc) in tak kljuc sme k storitvi.
+        d, _ = po_posodobitvi({"stanja": {P.INDEKSATOR: {"s": P.STANJE_VELJA, "odtis": star, "ob": 1.0}}})
+        self.assertEqual((d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)), (P.STANJE_VELJA, True))
+        # Zapora pod obema odtisoma: velja strozja (zaklep racuna), ne glede na vrstni red.
+        for a, b, pricakovano in ((P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN),
+                                  (P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN),
+                                  (P.STANJE_NE_VELJA, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA)):
+            for vrstni_red in ((star, nov), (nov, star)):
+                vrednosti = {star: a, nov: b}
+                d, _ = po_posodobitvi({"zapore": {P.INDEKSATOR: {o: vrednosti[o] for o in vrstni_red}}})
+                self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), pricakovano, (a, b, vrstni_red))
+        self.assertEqual(P.strozja_zapora(P.STANJE_NE_VELJA, None), P.STANJE_NE_VELJA)
+        self.assertEqual(P.strozja_zapora(None, P.STANJE_ZAKLENJEN), P.STANJE_ZAKLENJEN)
+        # Stanje drugega kljuca (ne tega odtisa) se ne prenese: nov kljuc je nepreverjen.
+        d, _ = po_posodobitvi({"stanja": {P.INDEKSATOR: {"s": P.STANJE_ZAKLENJEN, "odtis": P.odtis_stanja("drug|" + KLJUC_IX), "ob": 1.0}}})
+        self.assertIsNone(d.stanje_kljuca(P.INDEKSATOR))
+
     def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
         """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
         »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""

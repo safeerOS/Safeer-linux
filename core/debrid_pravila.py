@@ -367,6 +367,14 @@ def zapore_iz_zapisa(zapis: object) -> Optional[dict]:
     return {o: s for o, s in zapis.items() if isinstance(o, str) and o and _je_zapora(s)}
 
 
+def strozja_zapora(a: object, b: object) -> object:
+    """Dve zapori istega kljuca (npr. pod starim in novim odtisom indeksatorja): »zaklenjen« (zaklep racuna) > »ne velja«;
+    sicer tista, ki je zapora. Zapora ne izgine zato, ker je druga manj stroga (Grokov pregled 49, O1)."""
+    if STANJE_ZAKLENJEN in (a, b):
+        return STANJE_ZAKLENJEN
+    return a if _je_zapora(a) else b
+
+
 def z_zaporo(zapore: dict, odtis: str, s: Optional[str]) -> dict:
     """Zapore po novem stanju [s] kljuca [odtis] (kot Android zZaporo): »ne velja« in »zaklenjen« se zapomnita po kljucu
     (najnovejsa zadnja, najvec NAJVEC_ZAPOR); samo »velja« (»Preveri« ali vpis, ki ga storitev potrdi) zaporo odpravi -
