@@ -92,6 +92,20 @@ pokaže v Upravitelju programov, namesti zaganjalnik pod Internet, se registrira
 spletni brskalnik in nikoli na skrivaj ne prevzame vloge privzetega brskalnika — če ga hočeš
 imeti za privzetega, je tu `safeer --set-default`.
 
+## Usenet
+
+- Safeer je odjemalec, kot bralnik novic. Za svoj račun pri ponudniku Useneta, za vsebino in za zakonito uporabo si
+  odgovoren sam.
+- Noben indeksator NZB ni vnaprej nastavljen in Safeer nobenega ne priloži. Dodaš svojega (naslov Newznab in ključ API).
+- Podprt je poljuben ponudnik NNTP prek ene splošne nastavitve: strežnik, vrata, TLS, uporabnik, geslo in število
+  povezav.
+- Vse se zgodi na tvoji napravi: iskanje pri tvojem indeksatorju, prenos NZB, branje člankov (NNTP prek TLS) in
+  predvajanje. Nič ne gre v oblak ali na strežnik Safeer.
+- Safeer ne daje priporočil glede vsebine ali ponudnika.
+
+Stanje: lasten pogon Usenet (NNTP neposredno z naprave) je v razvoju in še ni v izdaji. Do takrat Usenet predvaja
+storitev debrid, ki jo nastaviš sam - takrat gre datoteka NZB k tej storitvi.
+
 ## Namestitev
 
 [![Izdaja](https://img.shields.io/badge/Release-v1.0.108-2dd4bf?style=flat-square)](../../releases/tag/v1.0.108)

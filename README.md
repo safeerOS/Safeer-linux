@@ -96,6 +96,20 @@ Software Manager, installs a launcher under Internet, registers as an alternativ
 and never grabs the default-browser role behind your back — `safeer --set-default` is there if
 you want it.
 
+## Usenet
+
+- Safeer is a client, like a newsreader. You are responsible for your account with your Usenet provider, for the
+  content you access and for using it lawfully.
+- No NZB indexer is preset and Safeer bundles none. You add your own indexer (Newznab address and API key).
+- Any NNTP provider works through one generic setting: server, port, TLS, username, password and number of
+  connections.
+- Everything happens on your device: the search at your indexer, the NZB download, reading the articles (NNTP over
+  TLS) and playback. Nothing is sent to a cloud or to a Safeer server.
+- Safeer gives no recommendations about content or providers.
+
+Status: the built-in Usenet engine (NNTP straight from your device) is in development and not yet in a release. Until
+then Usenet plays through a debrid service you set up yourself - in that case the NZB file goes to that service.
+
 ## Install
 
 [![Release](https://img.shields.io/badge/Release-v1.0.132-2dd4bf?style=flat-square)](../../releases/tag/v1.0.132)
