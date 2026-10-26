@@ -350,7 +350,9 @@ class Prehod(Osnova):
         self.assertIn(S.nadomestna_osnova(zapis["url"]), Path(self.tmp, "media-predpomnilnik.json").read_text())
         izvoz = mc.viri_izvoz()
         self.assertEqual([v["naslov"] for v in izvoz["sources"]], ["https://v3-cinemeta.strem.io/manifest.json"])
-        self.assertEqual(izvoz["sources_deleted"], {"stremio|https://a.example/manifest.json": 8})
+        # Izbris dodatka, ki ni znan javen, gre samo ozjemu krogu (mc-iptv-serije, pregled 51; zdruzitev 26. 10. 2026).
+        self.assertEqual(izvoz["sources_deleted"], {})
+        self.assertEqual(mc.viri_izvoz(ozji=True)["sources_deleted"], {"stremio|https://a.example/manifest.json": 8})
         self.assertNotIn("webtor", Path(self.tmp, "viri_za_naprave.json").read_text())
         # Drugi zagon: nic novega, nadomestek ostane.
         os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=_sifriraj, secret_decryptor=_desifriraj)

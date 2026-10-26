@@ -212,7 +212,10 @@ def znan_javen(naslov: object, oznacen: bool = False) -> bool:
     from . import kanali_iptv
     if ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True):
         return False
-    return kanali_iptv.znan_javni_vir(besedilo) or oznacen is True
+    # Javni dodatek Stremio brez kljuca: samo tocen naslov Cinemete (enako kot Android StremioPravila JAVNI_DODATKI, Ñ1);
+    # po zdruzitvi kljuci-namizje + mc-iptv-serije (26. 10. 2026) ga je sicer izvoz izpustil (test_skrivni_dodatki).
+    from .media_servers import CINEMETA
+    return kanali_iptv.znan_javni_vir(besedilo) or besedilo == CINEMETA or oznacen is True
 
 
 def za_ozji_krog(naslov: object, oznacen: bool = False) -> bool:
