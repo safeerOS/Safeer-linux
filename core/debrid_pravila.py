@@ -207,6 +207,8 @@ PREVERBA_MEJA = "meja"                   # storitev odgovori »prevec zahtev« -
 PREVERBA_NI_ODGOVORA = "ni_odgovora"     # brez povezave ali napaka streznika: nepreverjen, preverba znova
 PREVERBA_OBLIKA = "oblika"               # to ni kljuc (presledki, naslov, prekratek, vzorec): ne shranimo
 PREVERBA_ZAKLENJEN = "zaklenjen"         # racun zaklenjen ali caka potrditev (NAPAKA_ZAKLENJEN): shranimo, ne klicemo
+PREVERBA_POCAKAJ = "pocakaj"             # isti kljuc je sel storitvi pred manj kot minuto: brez klica (ROCNA_PREVERBA_S)
+PREVERBA_TECE = "tece"                   # preverba ze tece (samodejna ob odprtju okna): »Preveri« ne caka v niti mostu
 
 #: Stanje shranjenega kljuca - vezano na kljuc (odtis_stanja), nikoli med naprave.
 STANJE_VELJA = "velja"
@@ -216,6 +218,9 @@ STANJE_ZAKLENJEN = "zaklenjen"
 
 #: Nepreverjen kljuc (izpad ob vpisu) preverimo znova najvec tako pogosto (Android PREVERI_ZNOVA_MS).
 PREVERI_ZNOVA_S = 600.0
+#: »Preveri« in ponoven vpis ISTEGA kljuca najvec enkrat na minuto (Android ROCNA_PREVERBA_MS; Grokov pregled 40, S8):
+#: vsak zavrnjen klic je pri storitvi se en neuspel poskus prijave.
+ROCNA_PREVERBA_S = 60.0
 
 _KLJUC_TORBOX = re.compile(r"[A-Za-z0-9_-]{20,128}")     # Android TorBoxPravila.ocistiKljuc
 _KLJUC_INDEKSATORJA = re.compile(r"[A-Za-z0-9_-]{8,128}")  # = usenet_pravila.ocisti_kljuc
@@ -312,6 +317,12 @@ def preveri_zdaj(stanje: Optional[str], zadnjic: float, zdaj: float) -> bool:
     Lastnik 26. 10. 2026 (»Nevarnost zaklepa racuna je prioriteta«): prej je bil kljuc brez stanja preverjen ob VSAKEM
     odprtju okna, dokler se stanje ni zapisalo - ce zapis ne uspe, je bil vsak klik nov klic storitve."""
     return stanje in (None, STANJE_NEPREVERJEN) and not 0 <= zdaj - zadnjic < PREVERI_ZNOVA_S
+
+
+def rocna_preverba_dovoljena(zadnjic: float, zdaj: float) -> bool:
+    """Ali uporabnikov »Preveri« ali ponoven vpis istega kljuca gre storitvi (kot Android rocnaPreverbaDovoljena):
+    od zadnjega klica s tem kljucem ([zadnjic], s) je minila vsaj ROCNA_PREVERBA_S; ura nazaj = dovoli."""
+    return not 0 <= zdaj - zadnjic < ROCNA_PREVERBA_S
 
 
 def sme_klicati(stanje: Optional[str]) -> bool:

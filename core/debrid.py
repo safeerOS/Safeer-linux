@@ -816,6 +816,23 @@ class Debrid:
         # Odtis kljuca, ki ga je ta zadnja preverba preverila: zamenjan kljuc se preveri takoj (P.preveri_zdaj po kljucu).
         self._preverjen_odtis: dict = {}
         self._preverjam = threading.Lock()      # ena preverba nepreverjenih naenkrat (okno odprto veckrat zapored)
+        # (storitev, odtis) -> zadnji »Preveri« ali vpis tega kljuca (time.monotonic): najvec 1 na minuto (S8).
+        self._rocna: "OrderedDict[tuple, float]" = OrderedDict()
+        self._zaklep_rocne = threading.Lock()
+
+    def _rocna_cez(self, p: str, odtis: str) -> int:
+        """Grokov pregled 40, S8: 0 = »Preveri« ali vpis kljuca z [odtis] sme k storitvi (cas se zabelezi), sicer sekunde
+        do naslednjega. Prej ni bilo meje - vsak klik na »Preveri« ali Enter z istim kljucem je bil nov poskus prijave."""
+        zdaj = time.monotonic()
+        with self._zaklep_rocne:
+            zadnjic = self._rocna.get((p, odtis))
+            if zadnjic is not None and not P.rocna_preverba_dovoljena(zadnjic, zdaj):
+                return min(int(P.ROCNA_PREVERBA_S), int(P.ROCNA_PREVERBA_S - (zdaj - zadnjic)) + 1)
+            self._rocna.pop((p, odtis), None)
+            self._rocna[(p, odtis)] = zdaj
+            while len(self._rocna) > 64:
+                self._rocna.popitem(last=False)
+        return 0
 
     def _nastavitve(self) -> dict:
         d = self._beri()
@@ -896,6 +913,9 @@ class Debrid:
         k = P.kljuc_iz_vnosa(vnos, p)
         if p not in P.VSI or k is None:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "paket": None, "stanje": None}
+        cez = self._rocna_cez(p, P.odtis_stanja(k))
+        if cez:
+            return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "paket": None, "stanje": None, "cez_s": cez}
         prej = self.stanje_kljuca(p) if self._odtis(p) == P.odtis_stanja(k) else None     # isti kljuc znova
         izid, paket = preveri(k) if preveri is not None else preveri_kljuc(p, k)
         s = P.stanje_po_vpisu(prej, izid)
@@ -1035,11 +1055,18 @@ class Debrid:
     def preveri_izrecno(self, p: str) -> dict:
         """Uporabnik je pritisnil »Preveri« pri kljucu [p] (storitev ali P.INDEKSATOR): ena preverba ne glede na stanje -
         edina pot, po kateri se kljuc »ne velja« ali »zaklenjen« znova poskusi (lastnik 26. 10. 2026). Gumb je med
-        preverbo zaklenjen; hkratna samodejna preverba pocaka. {"ok", "preverba", "stanje"}."""
-        with self._preverjam:
+        preverbo zaklenjen. {"ok", "preverba", "stanje"[, "cez_s"]}.
+        Grokov pregled 40, S8: isti kljuc najvec enkrat na minuto (P.PREVERBA_POCAKAJ, brez klica) in brez cakanja na
+        tekoco samodejno preverbo (do 4 x 8 s v niti mostu) - P.PREVERBA_TECE."""
+        if not self._preverjam.acquire(blocking=False):
+            return {"ok": False, "preverba": P.PREVERBA_TECE, "stanje": self.stanje_kljuca(p)}
+        try:
             oznaka, odtis = self._oznaka(self._nastavitve(), p), self._odtis(p)
             if not odtis:
                 return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}
+            cez = self._rocna_cez(p, odtis)
+            if cez:
+                return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "stanje": self.stanje_kljuca(p), "cez_s": cez}
             self._zadnja_preverba[p], self._preverjen_odtis[p] = time.time(), odtis
             izid, paket = self._preveri_eno(p)
             s = P.stanje_po_rocni_preverbi(izid)
@@ -1049,6 +1076,8 @@ class Debrid:
             else:
                 self._zapisi_stanje(p, oznaka, odtis, s, paket)
             return {"ok": True, "preverba": izid, "stanje": self.stanje_kljuca(p)}
+        finally:
+            self._preverjam.release()
 
     def paket(self, p: str) -> Optional[int]:
         """Paket ob zadnji preverbi kljuca (TorBox: P.TORBOX_PAKETI) ali None, ce ga ne poznamo."""
@@ -1121,6 +1150,9 @@ class Debrid:
         osn, k = U.osnova(naslov), P.kljuc_iz_vnosa(kljuc, P.INDEKSATOR)
         if not osn or not k:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}
+        cez = self._rocna_cez(P.INDEKSATOR, P.odtis_stanja(osn + "|" + k))
+        if cez:
+            return {"ok": False, "preverba": P.PREVERBA_POCAKAJ, "stanje": None, "cez_s": cez}
         isti = self._odtis(P.INDEKSATOR) == P.odtis_stanja(osn + "|" + k)
         prej = self.stanje_kljuca(P.INDEKSATOR) if isti else None
         izid = (preveri or indeksator_preveri)(osn, k)
@@ -1448,4 +1480,4 @@ def most(dbr: Debrid, a: list) -> dict:
     elif ukaz == "preveri":
         dbr.preveri_nepreverjene()
     return dict(dbr.stanje(), ok=bool(izid.get("ok")), preverba=str(izid.get("preverba") or ""),
-                paket=str(izid.get("paket") or ""))
+                paket=str(izid.get("paket") or ""), cez_s=int(izid.get("cez_s") or 0))

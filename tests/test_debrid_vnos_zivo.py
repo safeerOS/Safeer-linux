@@ -178,6 +178,11 @@ class DebridVnos(unittest.TestCase):
                    html: document.body.innerHTML };
         })()""" % vrstica)
 
+    def _minuta(self):
+        """Grokov pregled 40, S8: isti kljuc gre storitvi najvec enkrat na minuto - preizkus premakne zadnji klic nazaj."""
+        for k in list(self.d._rocna):
+            self.d._rocna[k] -= P.ROCNA_PREVERBA_S + 1
+
     def _brez_pravih(self, storitev: str):
         """Grokov pregled 40, S7: zivi nacin izmisljenega kljuca ne poslje [storitev] - preskok PRED vpisom."""
         if ZIVO:
@@ -198,6 +203,7 @@ class DebridVnos(unittest.TestCase):
         self.assertNotIn(KLJUC_TB, po["html"] + json.dumps(po["vrednosti"]))
         if ZIVO:
             return                                  # pravi TorBox: izmisljen kljuc je zavrnjen - dovolj
+        self._minuta()                              # isti kljuc znova sele cez minuto (S8)
         with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
             self._vpisi("torbox", [KLJUC_TB])
             self._streži()
@@ -258,6 +264,7 @@ class DebridVnos(unittest.TestCase):
         self.assertNotIn(KLJUC_TB, po["html"])
         # Lastnik 26. 10. 2026 (zaklep racuna): zavrnjen kljuc se znova preveri SAMO ob gumbu »Preveri«.
         self.assertIn(["Preveri", "Preveri – TorBox", False], po["gumbi"])
+        self._minuta()
         self._klikni("torbox", "Preveri")
         with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)) as tb:
             self.assertEqual(self._postrezi_cakajoce(), [["preveri", "torbox"]])
@@ -280,6 +287,27 @@ class DebridVnos(unittest.TestCase):
         self.assertEqual(po["stanje"], po["opis"])
         self.assertIn(["Preveri", "Preveri – Real-Debrid", False], po["gumbi"])
         self.assertNotIn(KLJUC_RD, po["html"])
+        # Grokov pregled 40, S8: takoj po vpisu »Preveri« ne gre k RD - vrstica pove, koliko je treba pocakati.
+        self._klikni("realdebrid", "Preveri")
+        with mock.patch.object(debrid, "klic", side_effect=AssertionError("isti kljuc najvec 1 na minuto")):
+            self.assertEqual(self._postrezi_cakajoce(), [["preveri", "realdebrid"]])
+        _cakaj(lambda: False, 0.2)
+        po = self._po("realdebrid")
+        self.assertTrue(po["stanje"].startswith("Ta ključ je bil preverjen pred manj kot minuto – počakaj še "), po["stanje"])
+        self.assertTrue(po["opis"].startswith("Real-Debrid je račun zaklenil"), po["opis"])
+        # Grokov pregled 40, S2: RD ne odgovori (503) - »zaklenjen« ostane in vrstica to pove (prej »še ni preverjen«).
+        self._minuta()
+        self._klikni("realdebrid", "Preveri")
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")) as k:
+            self.assertEqual(self._postrezi_cakajoce(), [["preveri", "realdebrid"]])
+        self.assertEqual(k.call_count, 1)
+        _cakaj(lambda: False, 0.2)
+        po = self._po("realdebrid")
+        self.assertTrue(po["stanje"].startswith("Real-Debrid se ni odzval (ni povezave, omejitev zahtev ali napaka storitve), "
+                                                "zato stanje ostaja: Real-Debrid je račun zaklenil"), po["stanje"])
+        self.assertTrue(po["opis"].startswith("Real-Debrid je račun zaklenil"), po["opis"])
+        self.assertEqual(self.d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
+        self._minuta()
         self._klikni("realdebrid", "Preveri")
         with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 7, "username": "u"}')) as k:
             self.assertEqual(self._postrezi_cakajoce(), [["preveri", "realdebrid"]])
@@ -325,6 +353,7 @@ class DebridVnos(unittest.TestCase):
         self.assertEqual(self._po("alldebrid")["stanje"],
                          "AllDebrid je ta ključ zavrnil – ni shranjen. Preveri ga na alldebrid.com/apikeys.")
         self.assertEqual(self.zbirka.z, {})
+        self._minuta()
         with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 1, "username": "u", "email": "e@primer.test"}')):
             self._vpisi("realdebrid", [KLJUC_RD])
             self._streži()

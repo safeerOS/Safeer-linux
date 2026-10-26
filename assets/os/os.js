@@ -6103,8 +6103,17 @@
   // Lastnik 25. 10. 2026 (TorBox in NZBFinder na prenosniku kot na TV): kljuc se ob vnosu preveri pri storitvi (TorBox
   // »user/me«, indeksator z enim iskanjem) - jedro vrne samo izid in ime paketa, nikoli kljuca. Med preverbo (do 8 s) sta
   // polje in gumb zaklenjena, izid je v vrstici stanja okna (role=status) in v obvestilu.
+  // Grokov pregled 40, S8: jedro »Preveri« in ponoven vpis ISTEGA kljuca dovoli najvec enkrat na minuto (vsak zavrnjen
+  // klic je pri storitvi neuspel poskus prijave) in ne caka na tekoco samodejno preverbo - sporocilo pove, zakaj ni klica.
+  function sporociloOmejitve(o, ime) {
+    var p = (o && o.preverba) || "";
+    if (p === "pocakaj") return t("debridPocakaj", { s: (o && o.cez_s) || 60 });
+    if (p === "tece") return t("debridPreverbaTece");
+    return t("debridKljucaNi", { ime: ime });
+  }
   function sporociloPreverbe(o, x, usenet) {
     var p = (o && o.preverba) || "";
+    if (p === "pocakaj") return sporociloOmejitve(o, "");
     // Grokov pregled 40, S2: ponoven vpis zaprtega kljuca brez odgovora storitve - kljuc ostane zaprt (prej »shranjen,
     // preverjen bo ob uporabi«, ceprav ga Safeer ne uporablja).
     var brez = o && o.ok && (p === "ni_odgovora" || p === "meja");
@@ -6173,7 +6182,8 @@
         var opis = v.stanje === "zaklenjen" ? opisZaklenjen(id, usenet ? v.gostitelj : x.ime) : opisStanjaKljuca(v.stanje);
         var p = (o && o.preverba) || "";
         // Grokov pregled 40, S2: storitev ni odgovorila (izpad, 429, 5xx) - stanje ostane in vrstica to pove.
-        var sporocilo = o && o.ok && (p === "ni_odgovora" || p === "meja")
+        var sporocilo = !(o && o.ok) ? sporociloOmejitve(o, usenet ? (v.gostitelj || t("usenetIme")) : x.ime)
+          : (p === "ni_odgovora" || p === "meja")
           ? t("debridBrezOdgovora", { ime: usenet ? (v.gostitelj || t("usenetIme")) : x.ime }) + " " + opis
           : v.stanje === "zaklenjen" ? opis : (usenet ? t("usenetIme") : x.ime) + ": " + opis;
         stanje.textContent = sporocilo; obvesti(sporocilo);
