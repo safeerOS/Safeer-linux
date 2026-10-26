@@ -548,6 +548,49 @@ class StanjeKljuca(unittest.TestCase):
             self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
         self.assertEqual((n, k.call_count, d.stanje_kljuca(P.ALLDEBRID)), (1, 1, P.STANJE_ZAKLENJEN))
 
+    def test_izid_med_uporabo_vezan_na_kljuc_zahteve(self):
+        """Grokov pregled 36, D2: ob_izidu je bral kljuc sele po odgovoru - 401 starega kljuca je oznacil »ne velja«
+        kljuc, ki ga je uporabnik vpisal med predvajanjem (in ga s tem izkljucil iz rabe), uspeh starega pa novega »velja«."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+
+        def tok_401(*_a, **_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2, 2, P.STANJE_VELJA)     # medtem vpisan in potrjen nov kljuc
+            return debrid.Izid(napaka=P.NAPAKA_KLJUC, ponudnik=P.TORBOX)
+        with mock.patch.object(debrid, "torbox_tok", side_effect=tok_401):
+            d.tok(H1)
+        self.assertEqual((d.kljuc(P.TORBOX), d.stanje_kljuca(P.TORBOX)), (KLJUC_TB2, P.STANJE_VELJA))
+
+        def tok_uspeh(*_a, **_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB)                           # nov, se nepreverjen kljuc
+            return debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)
+        with mock.patch.object(debrid, "torbox_tok", side_effect=tok_uspeh):
+            d.tok(H1)
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))                     # uspeh starega ni potrditev novega
+
+        def predpomnjeni_401(*_a, **_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2, 2, P.STANJE_VELJA)
+            return debrid.Odgovor(401, '{"success": false, "error": "BAD_TOKEN"}')
+        with mock.patch.object(debrid, "klic", side_effect=predpomnjeni_401):
+            d.predpomnjeni([H1])
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
+
+    def test_401_nzb_drugega_gostitelja_ni_kljuc_indeksatorja(self):
+        """Grokov pregled 36, D2: po dovoljeni preusmeritvi na CDN je 401 CDN-ja oznacil kljuc indeksatorja »ne velja«."""
+        import urllib.error
+
+        def odpiralnik(url):
+            class O:
+                def open(self, *_a, **_k):
+                    raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, io.BytesIO(b""))
+            return lambda *_a: O()
+        povezava = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik("https://cdn.primer.test/nzb/1?sig=x")):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, U.NAPAKA_INDEKSATOR))
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik(povezava)):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, P.NAPAKA_KLJUC))
+
     def test_zamenjan_med_preverbo_ne_dobi_stanja_starega(self):
         d, _nast, _z = _debrid()
         d.nastavi_kljuc(P.TORBOX, KLJUC_TB)

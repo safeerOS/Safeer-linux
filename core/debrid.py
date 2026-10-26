@@ -192,7 +192,7 @@ def torbox_predpomnjeni(kljuc: str, hashi: Sequence[str], rok: float = 4.0,
     try:
         o = klic(P.torbox_naslov_predpomnjenih(h), kljuc, rok=rok)
         if not _tb_uspeh(o) and ob_napaki is not None:
-            ob_napaki(_tb_napaka(o).napaka)
+            _javi(lambda n, _u: ob_napaki(n), _tb_napaka(o).napaka, False)     # napaka zapisa stanja ne podre ⚡
         data = (o.json or {}).get("data") if _tb_uspeh(o) else None
         izid = P.predpomnjeni(data.keys() if isinstance(data, dict) else (), h)
         _log.info("checkcached: %d od %d pripravljenih", len(izid), len(h))
@@ -691,6 +691,13 @@ def usenet_isci(osn: str, kljuc_ix: str, ident: str, rok: float = 8.0,
         return []
 
 
+def _isti_gostitelj(a: str, b: str) -> bool:
+    try:
+        return (urllib.parse.urlsplit(a).hostname or "") == (urllib.parse.urlsplit(b).hostname or "")
+    except ValueError:
+        return False
+
+
 def usenet_nzb(povezava: str, rok: float = 30.0) -> tuple:
     """NZB z indeksatorja: (bajti, "") ali (None, napaka). Povezava vsebuje kljuc - ne gre v dnevnik; vsak skok
     preusmeritve preveri U.dovoljen_skok (_SkokNzb)."""
@@ -698,9 +705,9 @@ def usenet_nzb(povezava: str, rok: float = 30.0) -> tuple:
         zahteva = urllib.request.Request(povezava, headers={"User-Agent": "SafeerOS/1.0"})
         try:
             with urllib.request.build_opener(_SkokNzb()).open(zahteva, timeout=rok) as o:  # nosec B310 - skoki preverjeni
-                koda, telo = o.status, _beri_do(o, U.NAJVEC_NZB_BAJTOV + 1)
+                koda, telo, koncni = o.status, _beri_do(o, U.NAJVEC_NZB_BAJTOV + 1), o.geturl()
         except urllib.error.HTTPError as e:
-            koda, telo = e.code, _beri_do(e, 64 * 1024) if e.fp else b""
+            koda, telo, koncni = e.code, _beri_do(e, 64 * 1024) if e.fp else b"", e.geturl()
         if len(telo) > U.NAJVEC_NZB_BAJTOV:
             return None, U.NAPAKA_INDEKSATOR
         zacetek = telo[:4096].decode("utf-8", "replace")
@@ -708,6 +715,10 @@ def usenet_nzb(povezava: str, rok: float = 30.0) -> tuple:
             return telo, ""
         # 403 brez napake Newznab je lahko Cloudflare (U.preverba_indeksatorja) - ni zavrnjen kljuc.
         n = U.napaka(zacetek) or (P.NAPAKA_KLJUC if koda == 401 else P.NAPAKA_MEJA if koda == 429 else U.NAPAKA_INDEKSATOR)
+        if n in (P.NAPAKA_KLJUC, P.NAPAKA_ZAKLENJEN) and not _isti_gostitelj(povezava, koncni or povezava):
+            # Grokov pregled 36, D2: 401 drugega gostitelja po preusmeritvi (CDN, potekel podpisan naslov) ni odgovor
+            # indeksatorja o kljucu - kljuca indeksatorja ne oznacimo »ne velja«.
+            n = U.NAPAKA_INDEKSATOR
         _log.info("usenet nzb: HTTP %d, napaka %s", koda, n)
         return None, n
     except Exception as e:  # noqa: BLE001
@@ -939,11 +950,18 @@ class Debrid:
         self._spremeni(f)
         return bool(zapisano)
 
-    def ob_izidu(self, p: str, napaka: str, uspeh: bool) -> None:
+    def _vezava(self, p: str) -> tuple:
+        """(oznaka, odtis) kljuca [p] ob ZACETKU zahteve - preberi jo, preden preberes kljuc za zahtevo. Grokov pregled
+        36, D2: ob_izidu je oznako in odtis bral sele po odgovoru - 401 starega kljuca je oznacil »ne velja« kljuc, ki ga je
+        uporabnik vpisal med zahtevo (uspeh starega pa novega »velja«)."""
+        return self._oznaka(self._nastavitve(), p), self._odtis(p)
+
+    def ob_izidu(self, p: str, napaka: str, uspeh: bool, vezava: Optional[tuple] = None) -> None:
         """Med uporabo: zavrnjen kljuc (P.NAPAKA_KLJUC, npr. 401) -> »ne velja«; zaklenjen racun (P.NAPAKA_ZAKLENJEN) ->
         »zaklenjen«; odgovor s povezavo ali zadetki -> velja. Zapise samo spremembo. [p] je storitev ali P.INDEKSATOR.
-        Po »ne velja« ali »zaklenjen« storitve ne klicemo vec (P.sme_klicati), dokler uporabnik ne pritisne »Preveri«."""
-        oznaka, odtis = self._oznaka(self._nastavitve(), p), self._odtis(p)
+        Po »ne velja« ali »zaklenjen« storitve ne klicemo vec (P.sme_klicati), dokler uporabnik ne pritisne »Preveri«.
+        [vezava] = _vezava(p) pred zahtevo: ce je bil kljuc medtem zamenjan, se izid ne zapise (_zapisi_stanje)."""
+        oznaka, odtis = vezava if vezava is not None else self._vezava(p)
         if not odtis:
             return
         prej = self.stanje_kljuca(p)
@@ -1106,14 +1124,15 @@ class Debrid:
 
     def usenet_isci(self, ident: str) -> list:
         """Tokovi Usenet za id Stremio: [{"url": "usenet:…", "opis": …, "gb": …}]. Povezave NZB ostanejo v pomnilniku."""
+        vezava = self._vezava(P.INDEKSATOR)
         ix = self.indeksator()
         if not ix or not self.usenet_na_voljo() or not U.iscemo(ident):
             return []
         tokovi = []
-        for z in usenet_isci(ix[0], ix[1], ident, ob_izidu=lambda n, u: self.ob_izidu(P.INDEKSATOR, n, u)):
+        for z in usenet_isci(ix[0], ix[1], ident, ob_izidu=lambda n, u: self.ob_izidu(P.INDEKSATOR, n, u, vezava)):
             idt = U.id_toka(z.povezava)
             with self._zaklep:
-                self._povezave_nzb[idt] = z.povezava
+                self._povezave_nzb[idt] = (z.povezava, vezava)
                 while len(self._povezave_nzb) > 500:
                     self._povezave_nzb.pop(next(iter(self._povezave_nzb)))
             tokovi.append({"url": idt, "opis": U.opis(z), "naslov": z.naslov, "gb": z.velikost / 1073741824.0,
@@ -1147,6 +1166,7 @@ class Debrid:
                    samo_takoj: bool = False, rok_cakanja: float = U.CAKAJ_PRENOSA_S,
                    preklic: Optional[threading.Event] = None) -> Izid:
         """NZB od indeksatorja (ta racunalnik), nato TorBox. Napaka indeksatorja je U.NAPAKA_INDEKSATOR."""
+        vezava_tb = self._vezava(P.TORBOX)
         k = self.kljuc(P.TORBOX)
         if not k:
             return Izid(napaka=P.NAPAKA_KLJUC, ponudnik=P.TORBOX)
@@ -1154,20 +1174,22 @@ class Debrid:
             if not self.sme_klicati(p):         # zavrnjen ali zaklenjen: brez prenosa NZB in brez klica TorBoxa
                 return Izid(napaka=self._napaka_stanja(p), ponudnik=P.TORBOX)
         with self._zaklep:
-            povezava = self._povezave_nzb.get(id_toka)
+            v = self._povezave_nzb.get(id_toka)
+        # Povezava NZB nosi kljuc indeksatorja iz casa iskanja: izid velja za tisti kljuc (vezava ob iskanju).
+        povezava, vezava_ix = v if isinstance(v, tuple) else (v, None)
         if not povezava:
             return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
         nzb = self._nzb_zapomnjen(id_toka)
         if nzb is None:
             nzb, napaka = usenet_nzb(povezava)
             # Stanje kljuca indeksatorja sledi uporabi (401 ali Newznab 100-102 -> »ne velja«, NZB -> velja).
-            _javi(lambda n, u: self.ob_izidu(P.INDEKSATOR, n, u), napaka, nzb is not None)
+            _javi(lambda n, u: self.ob_izidu(P.INDEKSATOR, n, u, vezava_ix), napaka, nzb is not None)
             if nzb is None:
                 return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
             self._zapomni_nzb(id_toka, nzb)
         izid = torbox_usenet(k, nzb, ime_izdaje, indeks, samo_takoj, rok_cakanja=rok_cakanja, preklic=preklic)
         # Lastnik 25. 10. 2026 (kot Android Usenet.tok): stanje kljuca TorBox sledi uporabi (401 -> »ne velja«).
-        _javi(lambda n, u: self.ob_izidu(P.TORBOX, n, u), izid.napaka, bool(izid.url))
+        _javi(lambda n, u: self.ob_izidu(P.TORBOX, n, u, vezava_tb), izid.napaka, bool(izid.url))
         return izid
 
     def usenet_takoj(self, tokovi: Sequence[dict], rok: float = U.TAKOJ_ROK_S) -> Optional[tuple]:
@@ -1252,11 +1274,12 @@ class Debrid:
     # ---- predvajanje
     def predpomnjeni(self, hashi: Sequence[str]) -> set:
         """Hashi, ki jih ima storitev pripravljene (⚡). Prava preverba je samo pri TorBoxu."""
+        vezava = self._vezava(P.TORBOX)
         k = self.kljuc(P.TORBOX)
         if self.aktivna() is None or not k or not self.sme_klicati(P.TORBOX):
             return set()                        # zavrnjen kljuc: ⚡ ob vsakem seznamu virov bi bil nov zavrnjen klic
         # Zavrnjen kljuc ze ob preverbi ⚡ (kot Android TorBox.predpomnjeni): vrstica v »Debrid storitve« pove »ne velja«.
-        return torbox_predpomnjeni(k, hashi, ob_napaki=lambda napaka: self.ob_izidu(P.TORBOX, napaka, False))
+        return torbox_predpomnjeni(k, hashi, ob_napaki=lambda napaka: self.ob_izidu(P.TORBOX, napaka, False, vezava))
 
     def _napaka_stanja(self, p: str) -> str:
         """Napaka za uporabnika, ko storitve [p] ne klicemo (P.sme_klicati)."""
@@ -1264,6 +1287,7 @@ class Debrid:
 
     def _poskus(self, p: str, hash_: str, indeks: Optional[int], magnet: str, samo_pred: bool,
                 preklic: Optional[threading.Event] = None) -> Izid:
+        vezava = self._vezava(p)                # pred kljucem: izid zahteve velja samo za ta kljuc (Grok 36, D2)
         k = self.kljuc(p)
         if not k:
             return Izid(napaka=P.NAPAKA_KLJUC, ponudnik=p)
@@ -1279,7 +1303,7 @@ class Debrid:
         else:
             izid = ad_tok(k, hash_, indeks, samo_pred, preklic=preklic)
         # Lastnik 25. 10. 2026 (kot Android Debrid.obIzidu): stanje kljuca sledi uporabi (401 -> »ne velja«, povezava -> velja).
-        _javi(lambda n, u: self.ob_izidu(p, n, u), izid.napaka, bool(izid.url))
+        _javi(lambda n, u: self.ob_izidu(p, n, u, vezava), izid.napaka, bool(izid.url))
         # Izid vedno nosi storitev, ki je odgovorila (sporocilo napake jo imenuje).
         return izid if izid.ponudnik else Izid(izid.url, izid.napaka, izid.opis, p)
 
