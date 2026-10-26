@@ -6057,14 +6057,22 @@
   function opisStanjaKljuca(stanje) {
     return t(stanje === "velja" ? "debridVelja" : stanje === "ne_velja" ? "debridNeVelja" : "debridNepreverjen");
   }
+  // Lastnik 26. 10. 2026 (zaklep racuna): zaklenjen racun - vrstica pove, kaj narediti; Safeer storitve ne klice, dokler
+  // uporabnik ne pritisne »Preveri«.
+  function opisZaklenjen(id, ime) {
+    return id === "realdebrid" ? t("debridZaklenjenRd") : id === "alldebrid" ? t("debridZaklenjenAd")
+      : t("debridZaklenjen", { ime: ime });
+  }
   function opisDebrida(x) {
     if (!x.kljuc) return t("debridKje", { kje: x.kje });
+    if (x.stanje === "zaklenjen") return opisZaklenjen(x.id, x.ime);
     return opisStanjaKljuca(x.stanje) + (x.stanje === "velja" && x.paket ? " · " + t("debridPaket", { paket: x.paket }) : "")
       + (x.meritev ? " · " + x.meritev : "");
   }
   function opisUseneta(u) {
     if (!u.gostitelj) return t("usenetPojasnilo") + " " + t("usenetKje");
-    return t("usenetVpisan", { gostitelj: u.gostitelj }) + " · " + opisStanjaKljuca(u.stanje)
+    return t("usenetVpisan", { gostitelj: u.gostitelj }) + " · "
+      + (u.stanje === "zaklenjen" ? opisZaklenjen("usenet", u.gostitelj) : opisStanjaKljuca(u.stanje))
       + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "");
   }
   function nepreverjeniDebrid(s) {
@@ -6098,11 +6106,13 @@
   function sporociloPreverbe(o, x, usenet) {
     var p = (o && o.preverba) || "";
     if (usenet) {
+      if (o && o.ok && p === "zaklenjen") return opisZaklenjen("usenet", (o.usenet || {}).gostitelj || "");
       if (o && o.ok) return t(p === "veljaven" ? "usenetPotrjen" : p ? "usenetNiPreverjen" : "usenetShranjen");
       // Grokov pregled 31, H1: kljuc v polju za naslov - jedro ga ni shranilo in ni poslalo nikamor.
       return t(p === "neveljaven" ? "usenetZavrnjen" : p === "naslov_kljuc" ? "usenetNaslovKljuc" : "usenetNiVeljaven");
     }
     if (o && o.ok) {
+      if (p === "zaklenjen") return opisZaklenjen(x.id, x.ime);
       if (p === "veljaven") {
         var m = o.paket ? t("debridVeljavenPaket", { ime: x.ime, paket: o.paket }) : t("debridVeljaven", { ime: x.ime });
         return m + (x.id === "torbox" && o.paket && o.paket !== "Pro" ? " " + t("usenetBrezPro") + "." : "");
@@ -6137,6 +6147,29 @@
       gumb.removeAttribute("aria-busy"); stanje.textContent = "";
     });
   }
+  // Lastnik 26. 10. 2026: kljuc »ne velja« ali »zaklenjen« se znova preveri SAMO ob tem gumbu (ena preverba, gumb je
+  // med njo zaklenjen) - Safeer ga sam ne poskusa vec.
+  function gumbPreveri(id, x, usenet) {
+    var g = el("button", "gumb", ubezi(t("debridPreveri"))); g.type = "button";
+    g.setAttribute("aria-label", t("debridPreveri") + " – " + (usenet ? t("usenetIme") : x.ime));
+    g.addEventListener("click", function () {
+      var stanje = $("debridStanjeVnosa");
+      debridRazlicica++;
+      g.disabled = true; g.setAttribute("aria-busy", "true");
+      stanje.textContent = t("debridPreverjam");
+      klic("mediaDebrid", ["preveri", id]).then(function (o) {
+        var v = usenet ? (o && o.usenet) || {}
+          : ((o && o.storitve) || []).filter(function (s) { return s.id === id; })[0] || {};
+        var sporocilo = v.stanje === "zaklenjen" ? opisZaklenjen(id, usenet ? v.gostitelj : x.ime)
+          : (usenet ? t("usenetIme") : x.ime) + ": " + opisStanjaKljuca(v.stanje);
+        stanje.textContent = sporocilo; obvesti(sporocilo);
+        narisiDebridOkno(o);
+        var cilj = document.querySelector('#debridSeznam [data-id="' + id + '"] input');
+        if (cilj) cilj.focus();
+      }).catch(function () { g.disabled = false; g.removeAttribute("aria-busy"); stanje.textContent = ""; });
+    });
+    return g;
+  }
   function narisiDebridOkno(s) {
     if (!s) return;
     debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
@@ -6154,6 +6187,7 @@
       shrani.addEventListener("click", shraniKljuc);
       polje.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniKljuc(); } });
       vrsta.appendChild(polje); vrsta.appendChild(shrani);
+      if (x.kljuc && (x.stanje === "ne_velja" || x.stanje === "zaklenjen")) vrsta.appendChild(gumbPreveri(x.id, x, false));
       if (x.kljuc) {
         var odstrani = el("button", "gumb", ubezi(t("debridOdstrani"))); odstrani.type = "button";
         odstrani.setAttribute("aria-label", t("debridOdstrani") + " – " + x.ime);
@@ -6188,6 +6222,7 @@
     us.addEventListener("click", shraniUsenet);
     [un, uk].forEach(function (p) { p.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniUsenet(); } }); });
     uv.appendChild(un); uv.appendChild(uk); uv.appendChild(us);
+    if (u.gostitelj && (u.stanje === "ne_velja" || u.stanje === "zaklenjen")) uv.appendChild(gumbPreveri("usenet", { id: "usenet" }, true));
     if (u.gostitelj) {
       var uod = el("button", "gumb", ubezi(t("debridOdstrani"))); uod.type = "button";
       uod.setAttribute("aria-label", t("debridOdstrani") + " – " + t("usenetIme"));

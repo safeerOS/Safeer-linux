@@ -97,13 +97,16 @@ class Pravila(unittest.TestCase):
     def test_velja_samo_s_pozitivnim_dokazom(self):
         """Grokov pregled 36, D1: Real-Debrid 403 brez telesa (pozarni zid, CDN, VPN, IP podatkovnega centra) in 2xx z {}
         sta dala »velja« - napacen kljuc je dobil »kljuc velja ✓« in bi sel med naprave (P.za_uskladitev)."""
-        for http, telo in ((403, None), (403, {}), (403, {"error": "ip_not_allowed", "error_code": 22}), (200, {}),
+        for http, telo in ((403, None), (403, {}), (200, {}),
                            (200, None), (200, {"type": "premium"}), (200, {"id": "7"}), (200, {"id": True}),
                            (200, {"username": ""}), (204, None)):
             self.assertEqual(P.rd_preverba(http, telo), P.PREVERBA_NI_ODGOVORA, (http, telo))
         self.assertEqual(P.rd_preverba(200, {"id": 7}), P.PREVERBA_VELJAVEN)
         self.assertEqual(P.rd_preverba(200, {"username": UPORABNIK}), P.PREVERBA_VELJAVEN)
-        self.assertEqual(P.rd_preverba(403, {"error": "permission_denied", "error_code": 9}), P.PREVERBA_VELJAVEN)
+        # Lastnik 26. 10. 2026 (zaklep racuna): 9 ni nikoli »velja«, 14 in 22 sta zaklenjen racun.
+        self.assertEqual(P.rd_preverba(403, {"error": "permission_denied", "error_code": 9}), P.PREVERBA_NEVELJAVEN)
+        self.assertEqual(P.rd_preverba(403, {"error": "account_locked", "error_code": 14}), P.PREVERBA_ZAKLENJEN)
+        self.assertEqual(P.rd_preverba(403, {"error": "ip_not_allowed", "error_code": 22}), P.PREVERBA_ZAKLENJEN)
         self.assertEqual(P.rd_preverba(401, None), P.PREVERBA_NEVELJAVEN)
         # TorBox (api.torbox.app za Cloudflare): 403 brez kode TorBox ni zavrnjen kljuc - ne ob vpisu ne med uporabo.
         self.assertEqual(P.torbox_preverba(403, None), (P.PREVERBA_NI_ODGOVORA, None))
@@ -397,7 +400,13 @@ class StanjeKljuca(unittest.TestCase):
             self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
         self.assertEqual(_vrstica(debrid.most(d, []), P.TORBOX)["stanje"], P.STANJE_NE_VELJA)
         self.assertNotIn(KLJUC_TB, "\n".join(dnevnik.output))
-        self.assertEqual(d.kljuc(P.TORBOX), KLJUC_TB)           # kljuc ostane - uporabnik ga vpise znova
+        self.assertEqual(d.kljuc(P.TORBOX), KLJUC_TB)           # kljuc ostane - uporabnik ga vpise znova ali »Preveri«
+        # Lastnik 26. 10. 2026 (zaklep racuna): zavrnjenega kljuca ne posljemo vec, tudi ob predvajanju ne.
+        with mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)) as pv:
+            s = debrid.most(d, ["preveri", P.TORBOX])            # uporabnik pritisne »Preveri«
+        self.assertEqual((pv.call_count, s["ok"], _vrstica(s, P.TORBOX)["stanje"]), (1, True, P.STANJE_VELJA))
         with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)):
             self.assertTrue(d.tok(H1).url)
         self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
@@ -481,13 +490,63 @@ class StanjeKljuca(unittest.TestCase):
             self.assertEqual(d.predpomnjeni([H1]), set())
         self.assertEqual(k.call_count, 0)
         self.assertFalse(d.usenet_na_voljo())
-        with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)):
-            self.assertTrue(d.tok(H1).url)                      # izrecno predvajanje ga poskusi; uspeh -> velja
+        with mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)  # tudi predvajanje ne (lastnik 26. 10. 2026)
+        with mock.patch.object(debrid, "usenet_nzb", side_effect=AssertionError("brez klica")), \
+                mock.patch.object(debrid, "torbox_usenet", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.usenet_tok("usenet:0000000000000001", "F").napaka, P.NAPAKA_KLJUC)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            debrid.most(d, ["preveri", P.TORBOX])                # »Preveri« ga vrne v rabo
         self.assertTrue(d.usenet_na_voljo())
         d.ob_izidu(P.INDEKSATOR, P.NAPAKA_KLJUC, False)
         self.assertFalse(d.usenet_na_voljo())
         with mock.patch.object(debrid, "usenet_isci", side_effect=AssertionError("brez klica")):
             self.assertEqual(d.usenet_isci("tt0111161"), [])
+
+    def test_zaklenjen_racun_ne_klicemo_do_preveri(self):
+        """Lastnik 26. 10. 2026 (zaklep racuna): RD 14 »account locked« je bil »kljuc velja« (paket) in racun smo
+        uporabljali naprej; RD 22 »ip not allowed« preverba na 10 min; AllDebrid AUTH_BLOCKED »ne velja«. Zdaj zaklenjen:
+        kljuc shranjen, vrstica pove, kaj narediti, nobenega klica (ne ⚡, ne predvajanje, ne samodejna preverba) do
+        uporabnikovega »Preveri«."""
+        for p, kljuc, odgovor in (
+                (P.REAL_DEBRID, KLJUC_RD, debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')),
+                (P.REAL_DEBRID, KLJUC_RD, debrid.Odgovor(403, '{"error": "ip_not_allowed", "error_code": 22}')),
+                (P.ALLDEBRID, KLJUC_AD, debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BLOCKED"}}'))):
+            d, _nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", return_value=odgovor) as k:
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual((k.call_count, s["ok"], s["preverba"]), (1, True, P.PREVERBA_ZAKLENJEN), odgovor.telo)
+            self.assertEqual(_vrstica(s, p)["stanje"], P.STANJE_ZAKLENJEN)
+            self.assertEqual(list(z.zbirka.values()), [kljuc])
+            self.assertFalse(d.kljuc_velja(p))                   # ne gre med naprave
+            with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")) as k, \
+                    mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                    mock.patch.object(debrid, "ad_tok", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+                d._zadnja_preverba[p] -= 10 * P.PREVERI_ZNOVA_S
+                debrid.most(d, ["preveri"])                      # samodejna preverba ga ne poskusi
+            self.assertEqual(d.stanje_kljuca(p), P.STANJE_ZAKLENJEN)
+            racun = '{"id": 7, "username": "u"}' if p == P.REAL_DEBRID else '{"status": "success", "data": {"user": {}}}'
+            with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, racun)) as k:
+                s = debrid.most(d, ["preveri", p])               # po odklepu uporabnik pritisne »Preveri«
+            self.assertEqual((k.call_count, _vrstica(s, p)["stanje"]), (1, P.STANJE_VELJA))
+        # RD 9 »permission denied« ni nikoli »velja« (ni premium ali ni dovoljenja): zavrnjen, ni shranjen.
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "permission_denied", "error_code": 9}')):
+            s = debrid.most(d, ["kljuc", P.REAL_DEBRID, KLJUC_RD])
+        self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, P.PREVERBA_NEVELJAVEN, {}))
+
+    def test_zaklenjen_med_uporabo(self):
+        """AllDebrid AUTH_BLOCKED med predvajanjem (nova lokacija): zaklenjen, naslednje predvajanje brez klica."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"status": "success", "data": {"user": {}}}')):
+            d.vpisi_kljuc(P.ALLDEBRID, KLJUC_AD)
+        blokiran = debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BLOCKED", "message": "new location"}}')
+        with mock.patch.object(debrid, "klic", return_value=blokiran) as k:
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+            n = k.call_count
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+        self.assertEqual((n, k.call_count, d.stanje_kljuca(P.ALLDEBRID)), (1, 1, P.STANJE_ZAKLENJEN))
 
     def test_zamenjan_med_preverbo_ne_dobi_stanja_starega(self):
         d, _nast, _z = _debrid()
@@ -537,6 +596,15 @@ class StanjeIndeksatorja(unittest.TestCase):
         d.usenet_isci("tt0111161")
         self.assertEqual(debrid.most(d, [])["usenet"]["stanje"], P.STANJE_NE_VELJA)
         self.assertNotIn(KLJUC_IX, json.dumps(debrid.most(d, [])))
+        # Zavrnjen: iskanje se ne ponavlja (lastnik 26. 10. 2026) - do »Preveri«.
+        n = len(_Indeksator.zahteve)
+        self.assertEqual((d.usenet_isci("tt0111161"), len(_Indeksator.zahteve)), ([], n))
+        _Indeksator.odgovori["/api"] = (200, '<error code="101" description="Account suspended"/>', {})
+        s = debrid.most(d, ["preveri", "usenet"])
+        self.assertEqual((len(_Indeksator.zahteve), s["usenet"]["stanje"]), (n + 1, P.STANJE_ZAKLENJEN))
+        self.assertFalse(d.usenet_na_voljo())
+        _Indeksator.odgovori["/api"] = (200, RSS, {})
+        self.assertEqual(debrid.most(d, ["preveri", "usenet"])["usenet"]["stanje"], P.STANJE_VELJA)
 
 
 if __name__ == "__main__":

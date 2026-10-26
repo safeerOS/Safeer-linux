@@ -23,10 +23,10 @@ NI_NA_NAMIZJU = {
 PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-preverba.json"
 #: Izidi preverbe: v primerih Androidova imena, namizje ima svoje vrednosti (most in os.js ostaneta) - en slovar.
 IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
-                P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika"}
+                P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika", P.PREVERBA_ZAKLENJEN: "zaklenjen"}
 IZID_NAMIZJE = {v: k for k, v in IZID_ANDROID.items()}
 #: Stevilo primerov v PRIMERI_KLJUCI (verzija 2, 26. 10. 2026).
-STEVILO_KLJUCI = 196
+STEVILO_KLJUCI = 213
 #: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
 KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
                   U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
@@ -192,8 +192,8 @@ def izracunaj(f, v):
         return P.za_uskladitev(v["stanje"])
     if f == "sprejmi_prejetega":
         return P.sprejmi_prejetega(IZID_NAMIZJE[v["preverba"]])
-    if f == "samodejno_s_kljucem":
-        return P.samodejno_s_kljucem(v["stanje"])
+    if f == "sme_klicati":
+        return P.sme_klicati(v["stanje"])
     if f == "preveri_zdaj":
         # Primeri so v ms (Android), namizje steje v sekundah (time.time).
         return P.preveri_zdaj(v["stanje"], v["zadnjic_ms"] / 1000.0, v["zdaj_ms"] / 1000.0)

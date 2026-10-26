@@ -40,6 +40,11 @@ NAPAKA_NI_DATOTEKE = "ni_datoteke"
 NAPAKA_PRENASA = "prenasa"
 NAPAKA_STREZNIK = "streznik"
 NAPAKA_NI_PREDPOMNJENO = "ni_predpomnjeno"
+#: Racun je zaklenjen ali caka uporabnika (lastnik 26. 10. 2026: zaklep racuna): Real-Debrid 14 »account locked« in
+#: 22 »IP address not allowed«, AllDebrid AUTH_BLOCKED (potrditev nove lokacije po e-posti) in AUTH_USER_BANNED,
+#: Newznab 101 »account suspended«. Kljuc je morda pravi, a Safeer storitve ne klice, dokler uporabnik ne pritisne
+#: »Preveri« (P.sme_klicati) - vsak nov klic bi bil nov poskus prijave na zaklenjen racun.
+NAPAKA_ZAKLENJEN = "zaklenjen"
 
 #: Oznaka pred imenom vira, ki ga ima storitev pripravljenega (takoj predvajljiv).
 OZNAKA_PREDPOMNJEN = "⚡"
@@ -87,9 +92,9 @@ def aktivna(z_kljucem: Iterable[str], prednostna: Optional[str], izklopljeno: bo
 
 
 def razlog_za_uporabnika(napake: Sequence[str]) -> str:
-    """Ko nobena storitev ni dala povezave: najbolj pomenljiva napaka (kljuc > meja > paket > ni datoteke > ni
-    predpomnjeno > prenasa > streznik)."""
-    for n in (NAPAKA_KLJUC, NAPAKA_MEJA, NAPAKA_PAKET, NAPAKA_NI_DATOTEKE, NAPAKA_NI_PREDPOMNJENO, NAPAKA_PRENASA, NAPAKA_STREZNIK):
+    """Ko nobena storitev ni dala povezave: najbolj pomenljiva napaka (zaklenjen racun > kljuc > meja > paket > ni
+    datoteke > ni predpomnjeno > prenasa > streznik)."""
+    for n in (NAPAKA_ZAKLENJEN, NAPAKA_KLJUC, NAPAKA_MEJA, NAPAKA_PAKET, NAPAKA_NI_DATOTEKE, NAPAKA_NI_PREDPOMNJENO, NAPAKA_PRENASA, NAPAKA_STREZNIK):
         if n in napake:
             return n
     return NAPAKA_STREZNIK
@@ -201,11 +206,13 @@ PREVERBA_NEVELJAVEN = "neveljaven"       # storitev je kljuc zavrnila: ne shrani
 PREVERBA_MEJA = "meja"                   # storitev odgovori »prevec zahtev« - kljuc je verjetno dober: nepreverjen
 PREVERBA_NI_ODGOVORA = "ni_odgovora"     # brez povezave ali napaka streznika: nepreverjen, preverba znova
 PREVERBA_OBLIKA = "oblika"               # to ni kljuc (presledki, naslov, prekratek, vzorec): ne shranimo
+PREVERBA_ZAKLENJEN = "zaklenjen"         # racun zaklenjen ali caka potrditev (NAPAKA_ZAKLENJEN): shranimo, ne klicemo
 
 #: Stanje shranjenega kljuca - vezano na kljuc (odtis_stanja), nikoli med naprave.
 STANJE_VELJA = "velja"
 STANJE_NE_VELJA = "ne_velja"
 STANJE_NEPREVERJEN = "nepreverjen"
+STANJE_ZAKLENJEN = "zaklenjen"
 
 #: Nepreverjen kljuc (izpad ob vpisu) preverimo znova najvec tako pogosto (Android PREVERI_ZNOVA_MS).
 PREVERI_ZNOVA_S = 600.0
@@ -240,15 +247,17 @@ def kljuc_iz_vnosa(vnos: object, ponudnik: str) -> Optional[str]:
 
 
 def preverba_iz_napake(vrsta: str) -> str:
-    """Napaka storitve (NAPAKA_*) -> izid preverbe: zavrnjen kljuc ne velja; paket pomeni, da storitev kljuc pozna."""
-    return {NAPAKA_KLJUC: PREVERBA_NEVELJAVEN, NAPAKA_MEJA: PREVERBA_MEJA,
+    """Napaka storitve (NAPAKA_*) -> izid preverbe: zavrnjen kljuc ne velja; zaklenjen racun je zaklenjen; paket pomeni,
+    da storitev kljuc pozna (TorBox PLAN_RESTRICTED_FEATURE, RD 20/29, AD MUST_BE_PREMIUM - ne RD 9 in 14)."""
+    return {NAPAKA_KLJUC: PREVERBA_NEVELJAVEN, NAPAKA_MEJA: PREVERBA_MEJA, NAPAKA_ZAKLENJEN: PREVERBA_ZAKLENJEN,
             NAPAKA_PAKET: PREVERBA_VELJAVEN}.get(vrsta, PREVERBA_NI_ODGOVORA)
 
 
 def stanje_po_preverbi(izid: str) -> Optional[str]:
-    """Ali kljuc shranimo in s katerim stanjem: zavrnjen ali ne-kljuc ne (None); izpad ali meja ga ne zavrne (nepreverjen)."""
+    """Ali kljuc shranimo in s katerim stanjem: zavrnjen ali ne-kljuc ne (None); izpad ali meja ga ne zavrne (nepreverjen);
+    zaklenjen racun: kljuc je pravi, shranimo ga kot zaklenjen (po odklepu ga uporabnik samo preveri, ne vpise znova)."""
     return {PREVERBA_VELJAVEN: STANJE_VELJA, PREVERBA_MEJA: STANJE_NEPREVERJEN,
-            PREVERBA_NI_ODGOVORA: STANJE_NEPREVERJEN}.get(izid)
+            PREVERBA_NI_ODGOVORA: STANJE_NEPREVERJEN, PREVERBA_ZAKLENJEN: STANJE_ZAKLENJEN}.get(izid)
 
 
 def shrani_po_preverbi(izid: str) -> bool:
@@ -269,19 +278,20 @@ def sprejmi_prejetega(izid: str) -> bool:
 
 def preveri_zdaj(stanje: Optional[str], zadnjic: float, zdaj: float) -> bool:
     """Ali kljuc brez stanja ali nepreverjen preverimo zdaj: najvec enkrat na PREVERI_ZNOVA_S za TA kljuc ([zadnjic] =
-    zadnja preverba tega kljuca v s, 0 = se ni bil preverjen); ura nazaj = preveri. Veljaven in zavrnjen ne (zavrnjen
-    se ne ponavlja - ponavljanje zavrnjenega kljuca lahko storitev steje kot napad in zaklene racun ali IP).
+    zadnja preverba tega kljuca v s, 0 = se ni bil preverjen); ura nazaj = preveri. Veljaven, zavrnjen in zaklenjen ne
+    (zavrnjen in zaklenjen samo ob uporabnikovem »Preveri« - ponavljanje lahko storitev steje kot napad in zaklene
+    racun ali IP).
     Lastnik 26. 10. 2026 (»Nevarnost zaklepa racuna je prioriteta«): prej je bil kljuc brez stanja preverjen ob VSAKEM
     odprtju okna, dokler se stanje ni zapisalo - ce zapis ne uspe, je bil vsak klik nov klic storitve."""
     return stanje in (None, STANJE_NEPREVERJEN) and not 0 <= zdaj - zadnjic < PREVERI_ZNOVA_S
 
 
-def samodejno_s_kljucem(stanje: Optional[str]) -> bool:
-    """Ali kljuc uporabimo v klicu, ki ga ni sprozil uporabnik (⚡ checkcached ob seznamu virov, iskanje in prenos NZB
-    Usenet, preverba Usenet »pripravljen«). Kljuca, ki ga je storitev zavrnila (»ne velja«), ne posiljamo znova sami:
-    vsak tak klic je se en zavrnjen vpis pri storitvi (lastnik 26. 10. 2026: zaklep racuna). Uporabnik ga vpise znova;
-    izrecno predvajanje ga se poskusi (uspeh ga vrne v »velja«)."""
-    return stanje != STANJE_NE_VELJA
+def sme_klicati(stanje: Optional[str]) -> bool:
+    """Ali storitev s tem kljucem sploh klicemo: ⚡ (checkcached ob seznamu virov), predvajanje, iskanje in prenos NZB,
+    Usenet »pripravljen«, samodejna preverba. Kljuca, ki ga je storitev zavrnila (ne_velja), in zaklenjenega racuna
+    (zaklenjen) ne - vsak klic bi bil nov zavrnjen poskus prijave (lastnik 26. 10. 2026: zaklep racuna; RD »bruteforcing
+    ... blocked«). Znova samo, ko uporabnik pritisne »Preveri« ali vpise nov kljuc (Debrid.preveri_izrecno, vpisi_*)."""
+    return stanje not in (STANJE_NE_VELJA, STANJE_ZAKLENJEN)
 
 
 def odtis_stanja(kljuc: str) -> str:
@@ -373,10 +383,15 @@ def rd_koncna_napaka(stanje: str) -> bool:
 
 
 def rd_vrsta_napake(http: int, koda: Optional[int]) -> str:
-    """Koda Real-Debrid ima prednost pred HTTP (37 »disabled endpoint« pride tudi s 403, a ni stvar paketa)."""
-    if koda == 8:
+    """Koda Real-Debrid ima prednost pred HTTP (37 »disabled endpoint« pride tudi s 403, a ni stvar paketa).
+    Lastnik 26. 10. 2026 (zaklep racuna): 14 »account locked« in 22 »IP address not allowed« = zaklenjen racun (prej 14
+    paket -> »kljuc velja« in uporaba naprej, 22 streznik -> preverba vsakih 10 min); 9 »permission denied« (ni premium
+    ali ni dovoljenja) = kljuc ne velja za to rabo, nikoli »velja«."""
+    if koda in (8, 9):
         return NAPAKA_KLJUC
-    if koda in (9, 14, 20, 29):
+    if koda in (14, 22):
+        return NAPAKA_ZAKLENJEN
+    if koda in (20, 29):
         return NAPAKA_PAKET
     if koda in (5, 21, 23, 34, 36):
         return NAPAKA_MEJA
@@ -394,7 +409,11 @@ def rd_vrsta_napake(http: int, koda: Optional[int]) -> str:
 
 
 def ad_vrsta_napake(http: int, koda: Optional[str]) -> str:
+    """Lastnik 26. 10. 2026: AUTH_BLOCKED (prijava z nove lokacije - potrditev po e-posti AllDebrid) in AUTH_USER_BANNED
+    sta zaklenjen racun, ne napacen kljuc (prej »ne velja« - uporabnik je dobil napacno sporocilo)."""
     k = str(koda or "")
+    if k in ("AUTH_BLOCKED", "AUTH_USER_BANNED"):
+        return NAPAKA_ZAKLENJEN
     if k.startswith("AUTH_") or http == 401:
         return NAPAKA_KLJUC
     if k in ("MUST_BE_PREMIUM", "MAGNET_MUST_BE_PREMIUM", "FREE_TRIAL_LIMIT_REACHED"):

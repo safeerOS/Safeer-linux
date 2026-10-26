@@ -176,6 +176,8 @@ def preverba_indeksatorja(http: int, zacetek: str) -> str:
     403 brez napake Newznab ni zavrnjen kljuc: izmerjeno 25. 10. 2026 na nzbfinder.ws s streznikov - Cloudflare vrne 403
     s stranjo »Just a moment« (skupni primeri kljuci-preverba.json)."""
     n = napaka(zacetek)
+    if n == P.NAPAKA_ZAKLENJEN:
+        return P.PREVERBA_ZAKLENJEN
     if n == P.NAPAKA_KLJUC or http == 401:
         return P.PREVERBA_NEVELJAVEN
     if n == P.NAPAKA_MEJA or http == 429:
@@ -191,7 +193,9 @@ def napaka(xml: str) -> Optional[str]:
     if not m:
         return None
     koda = int(m.group(1))
-    if koda in (100, 101, 102):
+    if koda == 101:
+        return P.NAPAKA_ZAKLENJEN               # »account suspended« (lastnik 26. 10. 2026: zaklep racuna)
+    if koda in (100, 102):
         return P.NAPAKA_KLJUC
     if koda in (500, 501):
         return P.NAPAKA_MEJA
@@ -307,7 +311,7 @@ def je_nzb(zacetek: object) -> bool:
 def ni_predpomnjeno(samo_takoj: bool, vrsta_napake: str) -> bool:
     """createusenetdownload z add_only_if_cached, ko prenosa ni v predpomnilniku: kljuc, paket in meja ostanejo svoje
     napake; vse drugo pri »samo takoj« pomeni »ni pripravljeno«."""
-    return bool(samo_takoj) and vrsta_napake not in (P.NAPAKA_KLJUC, P.NAPAKA_PAKET, P.NAPAKA_MEJA)
+    return bool(samo_takoj) and vrsta_napake not in (P.NAPAKA_KLJUC, P.NAPAKA_PAKET, P.NAPAKA_MEJA, P.NAPAKA_ZAKLENJEN)
 
 
 def za_samodejno(gb: Sequence[float]) -> list:
