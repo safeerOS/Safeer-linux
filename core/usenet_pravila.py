@@ -209,18 +209,41 @@ class Zadetek:
     velikost: int
 
 
+def _ni_javni(gost: str) -> bool:
+    """Ime ali naslov IP, ki ni na internetu: ta racunalnik, domace omrezje, povezava (169.254 - tudi metapodatki
+    oblaka), rezervirano, skupinsko. Ime, ki se razresi v tak naslov, tu ni zaznano (DNS se ne sprasuje)."""
+    g = (gost or "").lower().rstrip(".")
+    if g == "localhost" or g.endswith((".local", ".localhost")):
+        return True
+    try:
+        ip = ipaddress.ip_address(g)
+    except ValueError:
+        return False
+    return not ip.is_global or ip.is_multicast
+
+
 def _dovoljena_povezava(p: str, gost_indeksatorja: Optional[str]) -> bool:
+    """Povezava NZB (zadetek ali skok preusmeritve): https; http samo do istega gostitelja v domacem omrezju. Grokov
+    pregled 36, D5: indeksator z interneta ne sme dati povezave v domace omrezje ali na ta racunalnik (https://192.168.…,
+    https://127.0.0.1:…) - racunalnik bi poslal slepo zahtevo GET v domace omrezje. Lokalni indeksator (NZBHydra) sme."""
     try:
         u = urllib.parse.urlsplit(p)
     except ValueError:
         return False
-    gost = (u.hostname or "").lower()
+    gost = (u.hostname or "").lower().rstrip(".")
     if not gost or "@" in u.netloc:
         return False
     shema = (u.scheme or "").lower()
     if shema == "https":
-        return True
-    return shema == "http" and gost == gost_indeksatorja and _je_lokalni_gostitelj(gost)
+        return not _ni_javni(gost) or _ni_javni(gost_indeksatorja or "")
+    return shema == "http" and gost == (gost_indeksatorja or "").rstrip(".") and _je_lokalni_gostitelj(gost)
+
+
+def _vrata(u: urllib.parse.SplitResult) -> Optional[int]:
+    try:
+        return u.port or {"http": 80, "https": 443}.get((u.scheme or "").lower())
+    except ValueError:
+        return None
 
 
 def dovoljen_skok(od: str, do: str) -> bool:
@@ -233,6 +256,8 @@ def dovoljen_skok(od: str, do: str) -> bool:
         return False
     if (a.scheme or "").lower() == "https" and (b.scheme or "").lower() != "https":
         return False
+    if (b.scheme or "").lower() == "http" and (_vrata(a) is None or _vrata(a) != _vrata(b)):
+        return False                            # http samo na ista vrata istega lokalnega gostitelja (Grok 36, D5)
     return _dovoljena_povezava(str(do or ""), (a.hostname or "").lower())
 
 

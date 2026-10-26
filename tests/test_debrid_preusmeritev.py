@@ -133,6 +133,24 @@ class SkokNzb(unittest.TestCase):
         self.assertFalse(U.dovoljen_skok(lok, "http://napadalec.primer.test/nzb/1"))
         self.assertFalse(U.dovoljen_skok("", "http://[::1"))
 
+    def test_internet_ne_v_domace_omrezje(self):
+        """Grokov pregled 36, D5: indeksator z interneta je smel preusmeriti prenos NZB na https v domace omrezje ali na
+        ta racunalnik (slepa zahteva GET); pri http so se vrata ignorirala."""
+        ix = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
+        for cilj in ("https://192.168.1.1/nzb", "https://127.0.0.1:8080/nzb", "https://localhost/nzb", "https://[::1]/nzb",
+                     "https://169.254.169.254/latest", "https://10.0.0.5./nzb", "https://nas.local/nzb", "https://100.64.0.1/x"):
+            self.assertFalse(U.dovoljen_skok(ix, cilj), cilj)
+        self.assertTrue(U.dovoljen_skok(ix, "https://cdn.primer.test/nzb/1"))
+        self.assertTrue(U.dovoljen_skok(ix, "https://8.8.8.8/nzb/1"))
+        lok = "http://192.168.1.20:5076/getnzb/api/1?apikey=" + KLJUC_IX
+        self.assertFalse(U.dovoljen_skok(lok, "http://192.168.1.20:8080/nzb/1"))                # druga vrata
+        self.assertTrue(U.dovoljen_skok(lok, "https://192.168.1.30/nzb/1"))                    # lokalni indeksator sme
+        self.assertTrue(U.dovoljen_skok("http://192.168.1.20/a", "http://192.168.1.20:80/b"))
+        rss = ('<rss><channel><item><title>A</title><enclosure url="https://192.168.1.1/a.nzb"/></item>'
+               '<item><title>B</title><enclosure url="https://cdn.primer.test/b.nzb"/></item></channel></rss>')
+        self.assertEqual([z.naslov for z in U.zadetki(rss, "https://nzbfinder.ws")], ["B"])
+        self.assertEqual([z.naslov for z in U.zadetki(rss, "http://192.168.1.20:5076")], ["A", "B"])
+
 
 if __name__ == "__main__":
     unittest.main()
