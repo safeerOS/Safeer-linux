@@ -78,6 +78,10 @@ def main(argv=None) -> int:
     zacetek = time.monotonic()
     for vir in _seznami(nastavitve):
         stevci: dict = {}
+        if not kanali_iptv.javni_brezplacni(str(vir["url"])):
+            # Seznam z racunom (Xtream ...): tudi orodje ne odpira tokov - zaklep racuna (lastnik, 26. 10. 2026).
+            viri.append({"ime": vir.get("ime"), "preskocen": "racun"})
+            continue
         try:
             vsebina, vrsta, koncni = _prenesi(str(vir["url"]))
             vnosi = os_media.parse_payload(vsebina, vrsta, koncni, str(vir.get("id") or ""), str(vir.get("ime") or ""),
@@ -86,8 +90,8 @@ def main(argv=None) -> int:
             viri.append({"ime": vir.get("ime"), "napaka": type(napaka).__name__})
             continue
         javni = kanali_iptv.je_javni_seznam(str(vir["url"]))
-        domace = False if javni else os_media.media_servers.je_domace_omrezje(urllib.parse.urlsplit(str(vir["url"])).hostname or "")
-        vsi = [x for x in vnosi if x.get("iptv")]
+        domace = False                      # javni brezplacni seznam: nikoli zasebni naslovi (pregled 30, J2)
+        vsi = [x for x in vnosi if x.get("iptv") and not kanali_iptv.s_poverilnicami(str(x.get("url") or ""))]
         izbrani = [x for x in vsi if not javni or kanali_iptv.v_izbiri(x, izbira)]
         izbrani_idji = {id(x) for x in izbrani}
         za_preverbo = izbrani if a.samo_izbrani else vsi

@@ -326,6 +326,9 @@ class PredpomnilnikPreverb(unittest.TestCase):
         obvestila = []
         p = kanali_iptv.PreverbaKanalov(self.pot, preveri=preveri)
         p.ob_spremembi = lambda: obvestila.append(1)
+        premor = mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.0)
+        premor.start()
+        self.addCleanup(premor.stop)
         kanali = [("https://g%d.test/k%d" % (i % 6, i), {}, False) for i in range(60)]
         self.assertEqual(p.preveri_v_ozadju(kanali), 60)
         self.assertEqual(p.preveri_v_ozadju(kanali), 0)          # ze v vrsti: ne dvakrat
@@ -415,9 +418,14 @@ class Katalog(unittest.TestCase):
         self.assertEqual(vir["kanali"]["ne_24_7"], 1)
         self.assertTrue(vir["kanali"]["javni"])
 
-    def test_neznani_kanali_gredo_v_preverbo_ne_na_zaslon(self):
+    def test_neznani_kanal_je_viden_z_oznako_in_gre_v_preverbo(self):
+        # Pregled 30, J3: neznan kanal je viden (»preverjam«), dokler preverba ne pove, da ne oddaja - prej je bil TV v
+        # zivo prazen, dokler preverba (pri ponudniku ure) ni koncala.
         self.mc.kanali.pozabi(["http://tok.primer.test/kanala.m3u8"], (kanali_iptv.DELUJE,))
-        self.assertEqual(self.naslovi("tv-v-zivo"), ["H2 HD"])
+        vnosi = {x["naslov"]: x for x in self.mc.catalog("", "tv-v-zivo")["vnosi"]}
+        self.assertEqual(sorted(vnosi), ["H2 HD", "Kanal A"])
+        self.assertTrue(vnosi["Kanal A"].get("preverjam"))
+        self.assertFalse(vnosi["H2 HD"].get("preverjam"))
         self.assertIn("http://tok.primer.test/kanala.m3u8", self.preverjeni)
         self.assertNotIn("http://tok.primer.test/ne247.m3u8", self.preverjeni)
         self.assertNotIn("http://tok.primer.test/sosed.m3u8", self.preverjeni)    # ni izbran: vira ne bremenimo
@@ -578,3 +586,107 @@ class Vmesnik(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------------------------- zascita racuna (J3)
+
+class ZascitaRacuna(unittest.TestCase):
+    """Lastnik, 26. 10. 2026: »Nevarnost zaklepa racuna je prioriteta.« Seznamov z racunom v ozadju ne preverjamo;
+    javne preverjamo z eno zahtevo na gostitelja, premorom, dnevno mejo in nikoli med predvajanjem."""
+    XTREAM = "http://ponudnik.test:8080/get.php?username=uporabnik&password=geslo&type=m3u_plus"
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        self.pot = Path(self.mapa.name) / "kanali-preverba.json"
+
+    def test_poverilnice_v_naslovu(self):
+        s = kanali_iptv.s_poverilnicami
+        self.assertTrue(s("http://p.test:8080/live/uporabnik/geslo/123.ts"))
+        self.assertTrue(s("http://p.test/movie/u/p/5.mkv"))
+        self.assertTrue(s("http://uporabnik:geslo@tvh.lan:9981/stream/channel/1"))
+        self.assertTrue(s(self.XTREAM, seznam=True))
+        self.assertTrue(s("https://p.test/seznam.m3u?token=abc", seznam=True))
+        self.assertFalse(s("https://cdn.test/live/kanal/index.m3u8?token=abc"))       # podpis CDN ni racun
+        self.assertFalse(s("https://iptv-org.github.io/iptv/countries/si.m3u", seznam=True))
+        j = kanali_iptv.javni_brezplacni
+        self.assertTrue(j("https://iptv-org.github.io/iptv/countries/si.m3u"))
+        self.assertTrue(j("https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"))
+        self.assertFalse(j(self.XTREAM))
+        self.assertFalse(j("http://tvh.lan:9981/playlist"))                           # domace omrezje: ne v ozadju
+        self.assertFalse(j("https://ponudnik.test/moj-seznam.m3u"))
+
+    def test_seznam_xtream_s_5000_kanali_ne_odpre_nobene_povezave(self):
+        vrstice = []
+        for i in range(5000):
+            vrstice += ['#EXTINF:-1 tvg-id="K%d.si" tvg-name="Kanal %d" group-title="SI",Kanal %d' % (i, i, i),
+                        "http://ponudnik.test:8080/live/uporabnik/geslo/%d.ts" % i]
+        vnosi = _razcleni(self.XTREAM, vrstice)
+        self.assertEqual(len(vnosi), 5000)
+        vir = {"id": "xt", "url": self.XTREAM, "ime": "Ponudnik", "posodobljeno": 1, "napaka": "", "stevilo": 5000,
+               "vnosi": vnosi, "razclenitev": kanali_iptv.RAZCLENITEV}
+        (Path(self.mapa.name) / "media.json").write_text(json.dumps({"viri": [vir], "osebni_strezniki": []}),
+                                                        encoding="utf-8")
+        mc = os_media.MediaCenter(self.mapa.name, roots=[], secret_decryptor=lambda v: "")
+        mc._ima_embed_vir = lambda data=None: False
+        mc._zakoniti_viri.get = lambda *a, **k: []
+        mc._personal_items = lambda *a, **k: []
+        preverjeni, povezave = [], []
+
+        def zabelezi(*a, **k):
+            if "ponudnik.test" in repr(a):           # drugi gostitelji (TMDB) v preizkusu: brez omrezja
+                povezave.append(a)
+            raise OSError("brez omrezja v preizkusu")
+        mc.kanali._preveri = lambda url, *a: (preverjeni.append(url), (kanali_iptv.MRTEV, "rok"))[1]
+        with mock.patch.object(zakoniti_viri, "tv_v_zivo", lambda drzava="": []), \
+                mock.patch.object(kanali_iptv.socket, "create_connection", side_effect=zabelezi), \
+                mock.patch.object(kanali_iptv.socket, "getaddrinfo", side_effect=zabelezi):
+            izid = mc.catalog("", "tv-v-zivo")
+            self.assertTrue(mc.kanali.pocakaj(3))
+        self.assertEqual((preverjeni, povezave), ([], []), "seznam z racunom je odprl tokove v ozadju")
+        self.assertEqual(mc.kanali.v_teku(), 0)
+        self.assertTrue(izid["vnosi"], "kanal seznama z racunom mora biti viden")
+        self.assertFalse(any(x.get("preverjam") for x in izid["vnosi"]))
+        vir = next(v for v in mc.sources() if v.get("id") == "xt")
+        self.assertIs(vir["kanali"]["preverba"], False)
+
+    def _preverba(self, klici):
+        def preveri(url, glave, rok, domace):
+            klici.append((url, time.monotonic()))
+            return kanali_iptv.DELUJE, "ts"
+        return kanali_iptv.PreverbaKanalov(self.pot, preveri=preveri)
+
+    def test_premor_in_dnevna_meja_gostitelja(self):
+        klici = []
+        p = self._preverba(klici)
+        with mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.3), \
+                mock.patch.object(kanali_iptv, "NAJVEC_NA_GOSTITELJA_DAN", 3):
+            p.preveri_v_ozadju([("https://javni.test/k%d" % i, {}, False) for i in range(5)])
+            self.assertTrue(p.pocakaj(10))
+        self.assertEqual(len(klici), 3, "dnevna meja odprtij na gostitelja")
+        razmiki = [b[1] - a[1] for a, b in zip(klici, klici[1:])]
+        self.assertTrue(all(r >= 0.29 for r in razmiki), razmiki)
+        self.assertIsNone(p.izid("https://javni.test/k4"))          # neznan ostane neznan (viden), ni mrtev
+
+    def test_med_predvajanjem_preverba_stoji(self):
+        klici = []
+        p = self._preverba(klici)
+        p.gleda(60)
+        with mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.0):
+            p.preveri_v_ozadju([("https://a.test/1", {}, False), ("https://b.test/1", {}, False)])
+            time.sleep(0.6)
+            self.assertEqual(klici, [], "preverba med predvajanjem")
+            p.ne_gleda()
+            self.assertTrue(p.pocakaj(5))
+        self.assertEqual(len(klici), 2)
+
+    def test_najprej_kanali_na_zaslonu(self):
+        klici = []
+        p = self._preverba(klici)
+        p.gleda(60)
+        with mock.patch.object(kanali_iptv, "VZPOREDNO", 1), mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.0):
+            p.preveri_v_ozadju([("https://a.test/1", {}, False), ("https://b.test/1", {}, False)])
+            p.preveri_v_ozadju([("https://c.test/1", {}, False), ("https://b.test/1", {}, False)])   # nova stran
+            p.ne_gleda()
+            self.assertTrue(p.pocakaj(5))
+        self.assertEqual([u for u, _t in klici], ["https://c.test/1", "https://b.test/1", "https://a.test/1"])

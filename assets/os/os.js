@@ -6338,6 +6338,8 @@
         metaOznaka += " · S" + String(x.sezona || 1).padStart(2, "0") + "E" + String(x.epizoda || 1).padStart(2, "0");
       }
       if (x.leto) metaOznaka += " · " + x.leto;
+      // Kanal javnega seznama, ki ga preverba se ni preverila: viden, z oznako (core/kanali_iptv, J3).
+      if (x.preverjam) metaOznaka += " · " + t("katKanalPreverjam");
       metaOznaka = metaOznaka.replace(/^ · /, "");
       // Skladba: pod naslovom izvajalec (koga pričakovati), ne splošna oznaka »Glasba«.
       if ((izSeznama || x.vrsta === "glasba") && x.izvajalec) metaOznaka = x.izvajalec;
@@ -8612,8 +8614,9 @@
         : t("katVirElementov", { n: source.stevilo || 0 }));
       // Seznam kanalov IPTV: steje samo, kar deluje (core/kanali_iptv.py); zaklenjene odklene naročnina pri ponudniku.
       var kanali = source.kanali;
-      if (!source.napaka && kanali) status = t("katKanaliDeluje", { n: kanali.deluje || 0 }) +
-        (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
+      // Seznam z racunom (Xtream ...) v ozadju ne preverjamo - zascita pred zaklepom racuna (core/kanali_iptv, J3).
+      if (!source.napaka && kanali) status = kanali.preverba === false ? t("katKanaliBrezPreverbe", { n: kanali.izbranih || 0 }) :
+        t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       row.appendChild(info);

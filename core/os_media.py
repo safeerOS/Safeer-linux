@@ -1225,6 +1225,9 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
                                   **({"lastni": True} if lastni_vir(item) else {}))
                              for item in variants]
         best["stevilo_razlicic"] = len(variants)
+        if any(item.get("preverjam") for item in variants):
+            # »Preverjam« samo, ce nobena razlicica (znano) ne oddaja (core/kanali_iptv, J3).
+            best["preverjam"] = all(item.get("preverjam") for item in variants)
         best["viri"] = list(dict.fromkeys(item.get("vir", "") for item in variants if item.get("vir")))
         result.append(best)
     return sorted(result, key=lambda item: (item.get("vrsta", ""), item.get("naslov", "").casefold()))
@@ -2807,10 +2810,11 @@ class MediaCenter:
                 vir = {k: value for k, value in source.items() if k != "vnosi"}
                 kanali = self._statistika_kanalov(source)
                 if kanali is not None:
-                    # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov - steje samo, kar deluje.
+                    # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov. Steje, kar je vidno: delujoci in
+                    # neznani (J3: viden z oznako »preverjam« oziroma kanal seznama z racunom, ki ga ne preverjamo).
                     vir["kanali"] = kanali
-                    vir["stevilo"] = kanali["deluje"] + sum(1 for x in source.get("vnosi") or []
-                                                            if isinstance(x, dict) and not x.get("iptv"))
+                    vir["stevilo"] = kanali["izbranih"] - kanali["mrtvih"] - kanali["zaklenjenih"] + sum(
+                        1 for x in source.get("vnosi") or [] if isinstance(x, dict) and not x.get("iptv"))
                 regular.append(vir)
             personal = [{k: value for k, value in source.items() if k not in ("secret_enc", "uporabnik")}
                         for source in data.get("osebni_strezniki", []) if isinstance(source, dict)]
@@ -3214,8 +3218,14 @@ class MediaCenter:
         threading.Thread(target=delo, name="media-razclenitev", daemon=True).start()
 
     def _vnosi_virov(self, data: dict, kind: str = "vse", preveri: bool = True) -> list[dict]:
-        """Vnosi uporabnikovih spletnih virov za katalog. Kanali seznamov IPTV samo, ce delujejo (preverba v ozadju),
-        iz javnih seznamov samo izbranih drzav in jezikov; seznam s staro razclenitvijo se prebere znova."""
+        """Vnosi uporabnikovih spletnih virov za katalog; seznam s staro razclenitvijo se prebere znova. Kanali seznamov
+        IPTV: iz javnih seznamov samo izbranih drzav in jezikov; kanal, za katerega vemo, da ne oddaja, ni viden.
+
+        Pregled 30, J3 (lastnik, 26. 10. 2026: nevarnost zaklepa racuna je prioriteta): v ozadju preverjamo samo javne
+        brezplacne sezname (kanali_iptv.preverba_dovoljena) - neznan kanal je do izida viden z oznako »preverjam«, v
+        vrsto gre v vrstnem redu prikaza (najprej, kar je na zaslonu). Seznamov z racunom (Xtream, uporabnik:geslo@)
+        ne preverjamo: kanal je viden, o njem odloci pravo predvajanje. Prej je bil neznan kanal skrit, dokler preverba
+        - pri ponudniku ure - ni koncala, in vsak kanal ponudnika se je odprl vsakih 6 h."""
         izid: list[dict] = []
         za_preverbo: list[tuple] = []
         zastareli: list[str] = []
@@ -3227,7 +3237,7 @@ class MediaCenter:
                 zastareli.append(str(source.get("id") or ""))
                 continue
             javni = kanali_iptv.je_javni_seznam(source.get("url"))
-            domace: Optional[bool] = None
+            seznam_preverljiv = kanali_iptv.javni_brezplacni(str(source.get("url") or ""))
             serije: dict[str, dict] = {}
             for item in source.get("vnosi") or []:
                 if not isinstance(item, dict) or not (kind in ("", "vse") or item.get("vrsta") == kind):
@@ -3238,12 +3248,15 @@ class MediaCenter:
                         if not kanali_iptv.v_izbiri(item, izbira):
                             continue
                     url = str(item.get("url") or "")
-                    if preveri and self.kanali.potrebuje_preverbo(url):
-                        if domace is None:
-                            domace = self._seznam_doma(str(source.get("url") or ""))
-                        za_preverbo.append((url, item.get("glave") or {}, domace))
-                    if not self.kanali.deluje(url):
-                        continue
+                    preverljiv = seznam_preverljiv and not kanali_iptv.s_poverilnicami(url)   # preverba_dovoljena
+                    potrebuje = self.kanali.potrebuje_preverbo(url)
+                    if preveri and preverljiv and potrebuje:
+                        za_preverbo.append((_text(item.get("naslov"), 200).casefold(), url, item.get("glave") or {}))
+                    izid_kanala = self.kanali.izid(url)
+                    if izid_kanala in (kanali_iptv.MRTEV, kanali_iptv.ZAKLENJEN) and (preverljiv or not potrebuje):
+                        continue                    # vemo, da ne oddaja (izid seznama brez preverbe velja do izteka)
+                    if izid_kanala != kanali_iptv.DELUJE and preverljiv:
+                        item = dict(item, preverjam=True)
                 elif item.get("iz_seznama") and item.get("vrsta") == "serija" and int(item.get("epizoda") or 0):
                     # Epizode s seznama so ena kartica serije s sezonami in epizodami (ne kartica na epizodo).
                     self._dodaj_epizodo(serije, item)
@@ -3253,21 +3266,12 @@ class MediaCenter:
         if zastareli and preveri:
             self._osvezi_zastarele_v_ozadju([z for z in zastareli if z])
         if za_preverbo:
-            self.kanali.preveri_v_ozadju(za_preverbo)
+            # Prva stran mreze TV v zivo je abecedna (_merge_variants): v tem redu tudi preverba.
+            za_preverbo.sort(key=lambda x: x[0])
+            self.kanali.preveri_v_ozadju((url, glave, False) for _ime, url, glave in za_preverbo)
         return izid
 
     NAJVEC_EPIZOD_SERIJE = 2000
-
-    def _seznam_doma(self, url: str) -> bool:
-        """Seznam je v domacem omrezju (TVHeadend, lasten streznik): samo takrat preverba sme do zasebnih naslovov.
-        Javni seznami niso doma brez poizvedbe DNS; izid si zapomnimo (preverba ne sme cakati na DNS ob vsakem ogledu)."""
-        gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower()
-        if not gostitelj or kanali_iptv.je_javni_seznam(url):
-            return False
-        zapomnjeni = self.__dict__.setdefault("_seznami_doma", {})
-        if gostitelj not in zapomnjeni:
-            zapomnjeni[gostitelj] = bool(media_servers.je_domace_omrezje(gostitelj))
-        return zapomnjeni[gostitelj]
 
     @staticmethod
     def _dodaj_epizodo(serije: dict, item: dict) -> None:
@@ -3311,13 +3315,19 @@ class MediaCenter:
         return vnos
 
     def kanal_skrit(self, item: Any) -> bool:
-        """Kartica kanala IPTV, katere noben kanal seznama ne deluje (in nima vira, ki ni seznam IPTV)."""
+        """Kartica kanala IPTV, za katere vse kanale seznama vemo, da ne oddajajo (in nima vira, ki ni seznam IPTV).
+        Neznan kanal ni skrit (pregled 30, J3); izid kanala z racunom (ki ga ne preverjamo) velja do izteka."""
         if not isinstance(item, dict) or item.get("vrsta") != "tv-v-zivo":
             return False
         razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)] or [item]
         if not all(r.get("iptv") for r in razlicice):
             return False
-        return not any(self.kanali.deluje(str(r.get("url") or "")) for r in razlicice)
+
+        def ne_oddaja(url: str) -> bool:
+            if self.kanali.izid(url) not in (kanali_iptv.MRTEV, kanali_iptv.ZAKLENJEN):
+                return False
+            return not (kanali_iptv.s_poverilnicami(url) and self.kanali.potrebuje_preverbo(url))
+        return all(ne_oddaja(str(r.get("url") or "")) for r in razlicice)
 
     def skrij_kanal(self, item: Any, url: str = "") -> bool:
         """Kanal ob kliku ni zaigral z nobeno razlicico: vsi njegovi kanali seznama so mrtvi (takoj skriti, do ponovne
@@ -3341,9 +3351,12 @@ class MediaCenter:
         izbira = self.tv_izbira() if javni else None
         vidni = [x for x in kanali if izbira is None or kanali_iptv.v_izbiri(x, izbira)]
         stevci = self.kanali.povzetek(str(x.get("url") or "") for x in vidni)
+        # Seznam z racunom ne gre v preverbo (J3): stran pove, da kanale preveri sele predvajanje.
+        preverba = kanali_iptv.javni_brezplacni(str(source.get("url") or ""))
         return {"skupaj": len(kanali), "izbranih": len(vidni), "deluje": stevci[kanali_iptv.DELUJE],
                 "zaklenjenih": stevci[kanali_iptv.ZAKLENJEN], "mrtvih": stevci[kanali_iptv.MRTEV],
-                "preverjam": stevci["neznano"], "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni}
+                "preverjam": stevci["neznano"] if preverba else 0, "preverba": preverba,
+                "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni}
 
     def ima_kodi(self) -> bool:
         return self._kodi_streznik() is not None

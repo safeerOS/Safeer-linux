@@ -1453,6 +1453,11 @@ class Katalog:
 
     def _predvajaj_vnos(self, a: list) -> Optional[dict]:
         ident = self._niz(a, 0)
+        # Uporabnik gleda: preverba kanalov IPTV v ozadju stoji (racun z 1-2 povezavama - core/kanali_iptv, J3). Velja
+        # na vseh platformah; Linux jo ob koncu predvajanja sprosti (safeer_os._medijski_tik).
+        kanali = getattr(self.mc, "kanali", None)
+        if kanali is not None:
+            kanali.gleda()
         item = self.mc.resolve(ident)
         uporabi = getattr(self.mc, "uporabi_izbiro", None)
         if uporabi is not None:

@@ -228,6 +228,56 @@ def je_javni_seznam(url: str) -> bool:
     return gostitelj == "raw.githubusercontent.com" and deli.path.lower().startswith("/iptv-org/")
 
 
+# ---------------------------------------------------------------------------------------------- zascita racuna
+
+#: Lastnik, 26. 10. 2026 (»Nevarnost zaklepa racuna je prioriteta«): preverba odpre tok pri ponudniku. Racuni s
+#: poverilnicami (Xtream .../live/<uporabnik>/<geslo>/..., get.php?username=, uporabnik:geslo@) imajo pogosto najvec 1-2
+#: hkratni povezavi in tisoc odprtij toka vodi v zaklep (pregled 30, J3: seznam Xtream s 5000 kanali je bil vsakih 6 h
+#: v celoti preverjen). Take sezname v ozadju NE preverjamo: kanal je viden, o delovanju odloci pravo predvajanje.
+#: Preverjamo samo javne brezplacne sezname (iptv-org in seznami na javnih gostiteljih kode).
+PROSTI_GOSTITELJI = ("raw.githubusercontent.com", "gist.githubusercontent.com", "gitlab.com", "codeberg.org")
+_XTREAM_POT = re.compile(r"/(?:live|movie|movies|series|timeshift)/[^/]+/[^/]+/", re.IGNORECASE)
+_XTREAM_DATOTEKE = ("/get.php", "/player_api.php", "/xmltv.php", "/panel_api.php")
+#: Imena parametrov, ki v naslovu nosijo racun. Za naslov seznama tudi zetoni (zasebni seznam), za naslov kanala ne:
+#: javni CDN pogosto podpise tok z zetonom, ki ni racun uporabnika.
+_RACUN_PARAMETRI = frozenset({"username", "password", "user", "pass", "passwd", "pwd", "login"})
+_ZETON_PARAMETRI = frozenset({"token", "access_token", "private_token", "auth", "key", "apikey", "api_key"})
+
+
+def s_poverilnicami(url: str, seznam: bool = False) -> bool:
+    """Ali naslov nosi racun pri ponudniku (`seznam`: naslov seznama - tudi zeton). Nerazumljiv naslov: da."""
+    try:
+        deli = urllib.parse.urlsplit(str(url or ""))
+        if deli.username or deli.password:
+            return True
+        kljuci = {k.lower() for k, _v in urllib.parse.parse_qsl(deli.query, keep_blank_values=True)}
+    except ValueError:
+        return True
+    pot = (deli.path or "").lower()
+    if _XTREAM_POT.search(pot) or pot.endswith(_XTREAM_DATOTEKE):
+        return True
+    return bool(kljuci & (_RACUN_PARAMETRI | (_ZETON_PARAMETRI if seznam else frozenset())))
+
+
+def javni_brezplacni(url_seznama: str) -> bool:
+    """Seznam, ki ga smemo preverjati v ozadju: javni (iptv-org) ali na javnem gostitelju kode, brez racuna."""
+    if s_poverilnicami(url_seznama, seznam=True):
+        return False
+    if je_javni_seznam(url_seznama):
+        return True
+    try:
+        deli = urllib.parse.urlsplit(str(url_seznama or ""))
+    except ValueError:
+        return False
+    gostitelj = (deli.hostname or "").lower()
+    return deli.scheme == "https" and (gostitelj in PROSTI_GOSTITELJI or gostitelj.endswith(".github.io"))
+
+
+def preverba_dovoljena(url_seznama: str, url_kanala: str) -> bool:
+    """Kanal sme v preverbo v ozadju: javni brezplacni seznam in kanal brez racuna v naslovu."""
+    return javni_brezplacni(url_seznama) and not s_poverilnicami(url_kanala)
+
+
 #: Lastnik, 25. 10. 2026 (»mojo drzavo in angleske«, »TV Uganda niti ne rabimo«): privzeta »anglescina« so kanali
 #: drzav z anglescino, ne vsi kanali v anglescini (seznam languages/eng.m3u ima kanale iz 110 drzav). Ostale drzave,
 #: tudi tiste z angleskimi kanali, uporabnik vklopi v Virih pod »Drzave in jeziki«.
@@ -257,6 +307,13 @@ DELUJE, ZAKLENJEN, MRTEV = "deluje", "zaklenjen", "mrtev"
 ROK_S = 4.0
 #: Toliko kanalov hkrati; na istega gostitelja nikoli vec kot ena zahteva (ne bremenimo vira).
 VZPOREDNO = 4
+#: Med dvema preverbama istega gostitelja (tudi javnega) premor; na dan najvec toliko odprtij toka na gostitelja
+#: (lastnik, 26. 10. 2026: zascita pred zaklepom in blokado). Kar ostane, je vidno z oznako »preverjam«.
+PREMOR_GOSTITELJA_S = 3.0
+NAJVEC_NA_GOSTITELJA_DAN = 200
+#: Ko uporabnik zacne predvajati, preverba stoji toliko sekund (platforma brez signala konca predvajanja); Linux jo
+#: med predvajanjem podaljsuje in ob koncu sprosti (gleda, ne_gleda).
+GLEDANJE_S = 3 * 3600
 #: Ponovna tiha preverba mrtvih kanalov: ena konstanta. Lastnik, 25. 10. 2026: vklopljena, dokler meritev ne pokaze,
 #: da se mrtvi kanali ne vracajo (orodje tools/kanali_preverba.py zapise izid vsakega kanala za primerjavo).
 PONOVNO_PREVERI_MRTVE = True
@@ -543,7 +600,9 @@ def kljuc(url: str) -> str:
 
 class PreverbaKanalov:
     """Izidi preverb kanalov (na disku samo odtis naslova, izid, koda in cas) in preverba v ozadju: najvec VZPOREDNO
-    kanalov hkrati, na istega gostitelja ena zahteva naenkrat.
+    kanalov hkrati, na istega gostitelja ena zahteva naenkrat, med dvema premor PREMOR_GOSTITELJA_S, na dan najvec
+    NAJVEC_NA_GOSTITELJA_DAN; med predvajanjem (gleda) nic. Klicatelj v vrsto da samo kanale, za katere velja
+    preverba_dovoljena.
 
     `ob_spremembi()` se poklice (najvec vsakih nekaj sekund in na koncu), ko se je spremenilo, kateri kanali delujejo.
     """
@@ -557,9 +616,11 @@ class PreverbaKanalov:
         self._ura = ura
         self._lock = threading.Condition()
         self._izidi: Optional[dict] = None
-        self._vrsta: list = []                 # [(kljuc, url, glave, domace)]
+        self._vrsta: list = []                 # [(kljuc, url, glave, domace, ponovitev, gostitelj)]
         self._cakajo: set = set()
         self._gostitelji: set = set()
+        self._prost_ob: dict = {}              # gostitelj -> time.monotonic(), ko je premor mimo
+        self._gleda_do = 0.0                   # time.monotonic(): do takrat preverba stoji (uporabnik gleda)
         self._delavci = 0
         self._spremembe = 0
         self._zadnje_obvestilo = 0.0
@@ -677,21 +738,50 @@ class PreverbaKanalov:
             self._beri()
             return dict(self._meta)
 
+    # --- predvajanje: preverba stoji (racun z 1-2 povezavama bi preverba med gledanjem prekinila ali zaklenila)
+    def gleda(self, sekund: float = GLEDANJE_S) -> None:
+        with self._lock:
+            self._gleda_do = max(self._gleda_do, time.monotonic() + float(sekund))
+
+    def ne_gleda(self) -> None:
+        with self._lock:
+            self._gleda_do = 0.0
+            self._lock.notify_all()
+
+    def _odprtja_danes(self) -> dict:
+        """Klicati z zaklepom: stevilo odprtij toka danes po gostitelju (odtis imena, ne ime)."""
+        dan = int(self._ura() // 86400)
+        odprtja = self._meta.get("odprtja")
+        if not isinstance(odprtja, dict) or odprtja.get("dan") != dan or not isinstance(odprtja.get("g"), dict):
+            odprtja = {"dan": dan, "g": {}}
+            self._meta["odprtja"] = odprtja
+        return odprtja["g"]
+
     # --- preverba v ozadju
     def preveri_v_ozadju(self, kanali: Iterable[tuple]) -> int:
-        """kanali: (url, glave, domace). Doda tiste, ki jih je treba preveriti; vrne stevilo novih v vrsti. Kanal, ki je
-        bil mrtev zaradi roka ali povezave, se preveri z daljsim rokom (ROK_PONOVNO_S)."""
+        """kanali: (url, glave, domace) v vrstnem redu prikaza. Doda tiste, ki jih je treba preveriti, PRED starejse
+        (najprej kanali, ki jih uporabnik pravkar gleda na zaslonu); vrne stevilo novih v vrsti. Kanal, ki je bil mrtev
+        zaradi roka ali povezave, se preveri z daljsim rokom (ROK_PONOVNO_S)."""
         novi = 0
         with self._lock:
             izidi = self._beri()
+            spredaj = []
             for url, glave, domace in kanali:
                 k = kljuc(url)
                 if k in self._cakajo:
+                    i = next((i for i, x in enumerate(self._vrsta) if x[0] == k), -1)
+                    if i >= 0:
+                        spredaj.append(self._vrsta.pop(i))      # ze v vrsti: zdaj je na zaslonu, naprej
                     continue
                 self._cakajo.add(k)
                 ponovitev = self._za_ponovitev(izidi.get(k))
-                self._vrsta.append((k, url, dict(glave or {}), bool(domace), ponovitev))
+                try:
+                    gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower()
+                except ValueError:
+                    gostitelj = ""
+                spredaj.append((k, url, dict(glave or {}), bool(domace), ponovitev, gostitelj))
                 novi += 1
+            self._vrsta[:0] = spredaj
             while self._delavci < VZPOREDNO and self._delavci < len(self._vrsta):
                 self._delavci += 1
                 threading.Thread(target=self._delaj, name="safeer-kanali", daemon=True).start()
@@ -702,15 +792,38 @@ class PreverbaKanalov:
             return len(self._cakajo)
 
     def _naslednji(self) -> Optional[tuple]:
-        """Prvi kanal v vrsti, katerega gostitelja ta hip nihce ne sprasuje (z zaklepom)."""
+        """Prvi kanal v vrsti, katerega gostitelja ta hip nihce ne sprasuje in je njegov premor mimo (z zaklepom).
+        Med predvajanjem caka; gostitelj z izcrpano dnevno mejo gre iz vrste (kanali ostanejo neznani - vidni)."""
         while self._vrsta:
-            for i, (k, url, glave, domace, ponovitev) in enumerate(self._vrsta):
-                gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower()
-                if gostitelj not in self._gostitelji:
-                    del self._vrsta[i]
-                    self._gostitelji.add(gostitelj)
-                    return k, url, glave, domace, ponovitev, gostitelj
-            self._lock.wait(1.0)
+            zdaj = time.monotonic()
+            if zdaj < self._gleda_do:
+                self._lock.wait(min(5.0, self._gleda_do - zdaj))
+                continue
+            odprtja = self._odprtja_danes()
+            cakaj, izcrpani = 1.0, []
+            for i, (k, url, glave, domace, ponovitev, gostitelj) in enumerate(self._vrsta):
+                if gostitelj in self._gostitelji:
+                    continue
+                prost = self._prost_ob.get(gostitelj, 0.0)
+                if prost > zdaj:
+                    cakaj = min(cakaj, prost - zdaj)
+                    continue
+                odtis = kljuc(gostitelj)[:12]
+                if int(odprtja.get(odtis) or 0) >= NAJVEC_NA_GOSTITELJA_DAN:
+                    izcrpani.append(i)
+                    continue
+                for j in reversed(izcrpani):
+                    self._cakajo.discard(self._vrsta.pop(j)[0])
+                del self._vrsta[i - len(izcrpani)]
+                odprtja[odtis] = int(odprtja.get(odtis) or 0) + 1
+                self._gostitelji.add(gostitelj)
+                return k, url, glave, domace, ponovitev, gostitelj
+            for j in reversed(izcrpani):
+                self._cakajo.discard(self._vrsta.pop(j)[0])
+            if izcrpani:
+                self._lock.notify_all()
+                continue
+            self._lock.wait(max(0.05, cakaj))
         return None
 
     def _delaj(self) -> None:
@@ -728,6 +841,7 @@ class PreverbaKanalov:
                 self.zapisi(url, izid, koda, ponovljeno=ponovitev)
                 with self._lock:
                     self._gostitelji.discard(gostitelj)
+                    self._prost_ob[gostitelj] = time.monotonic() + PREMOR_GOSTITELJA_S
                     self._cakajo.discard(k)
                     self._lock.notify_all()
                 self._obvesti(False)
