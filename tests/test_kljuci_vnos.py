@@ -603,6 +603,46 @@ class StanjeKljuca(unittest.TestCase):
         self.assertIsNone(d.stanje_kljuca(P.TORBOX))
         self.assertIsNone(d._nastavitve().get("stanja", {}).get(P.TORBOX))
 
+    def test_povezava_nzb_s_starim_kljucem_ne_gre_indeksatorju(self):
+        """Grokov pregled 40, S1: povezava NZB v pomnilniku (do 500) nosi kljuc indeksatorja iz casa iskanja, usenet_tok
+        pa je gledal stanje TRENUTNEGA kljuca. Po zaklepu racuna (NZBFinder 101) in vpisu drugega kljuca ali odstranitvi
+        indeksatorja je klik na star vir poslal zaklenjen kljuc indeksatorju."""
+        kljuc_ix2 = "fedcba9876543210fedcba9876543210"
+        povezava = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
+        for konec in ("nov_kljuc", "odstranjen", "zaklenjen", "isti_velja"):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)), \
+                    mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+            with mock.patch.object(debrid, "usenet_isci", return_value=[U.Zadetek("Film.2024.1080p", povezava, 2 << 30)]):
+                idt = d.usenet_isci("tt0111161")[0]["url"]
+            if konec == "isti_velja":                    # nadzor: s kljucem, ki je se shranjen in velja, NZB gre
+                with mock.patch.object(debrid, "usenet_nzb", return_value=(b"<nzb/>", "")) as nzb, \
+                        mock.patch.object(debrid, "torbox_usenet", return_value=debrid.Izid(url="https://cdn.tb/u")):
+                    self.assertEqual(d.usenet_tok(idt, "Film").url, "https://cdn.tb/u")
+                self.assertEqual(nzb.call_args[0][0], povezava)
+                continue
+            d.ob_izidu(P.INDEKSATOR, P.NAPAKA_ZAKLENJEN, False)          # NZBFinder 101: racun suspendiran
+            self.assertEqual(d._povezave_nzb, {}, konec)                  # zavrnjen kljuc ne ostane v povezavah
+            with d._zaklep:                                              # kot da bi povezava ostala (npr. hkratno iskanje)
+                d._povezave_nzb[idt] = (povezava, d._vezava(P.INDEKSATOR))
+            if konec == "nov_kljuc":
+                with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                    d.vpisi_indeksator("https://nzbfinder.ws", kljuc_ix2)
+                self.assertEqual(d._povezave_nzb, {})                    # menjava kljuca pocisti povezave
+                with d._zaklep:
+                    d._povezave_nzb[idt] = (povezava, (("x",), P.odtis_stanja("https://nzbfinder.ws|" + KLJUC_IX)))
+            elif konec == "odstranjen":
+                d.pozabi_indeksator()
+                self.assertEqual(d._povezave_nzb, {})
+                with d._zaklep:
+                    d._povezave_nzb[idt] = (povezava, (("x",), P.odtis_stanja("https://nzbfinder.ws|" + KLJUC_IX)))
+            with mock.patch.object(debrid, "usenet_nzb", side_effect=AssertionError("star kljuc ne gre ven")), \
+                    mock.patch.object(debrid, "torbox_usenet", side_effect=AssertionError("brez klica")):
+                izid = d.usenet_tok(idt, "Film")
+            self.assertEqual(izid.napaka, P.NAPAKA_ZAKLENJEN if konec == "zaklenjen" else U.NAPAKA_INDEKSATOR, konec)
+
     def test_pravila_za_uskladitev_in_prejem(self):
         """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""
         self.assertEqual([P.za_uskladitev(s) for s in (P.STANJE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA, None)],

@@ -966,6 +966,8 @@ class Debrid:
             return
         prej = self.stanje_kljuca(p)
         novo = {P.NAPAKA_KLJUC: P.STANJE_NE_VELJA, P.NAPAKA_ZAKLENJEN: P.STANJE_ZAKLENJEN}.get(napaka)
+        if novo is not None and p == P.INDEKSATOR:
+            self._pozabi_povezave(lambda o: o != odtis)     # Grok 40, S1: zavrnjen kljuc ne ostane v povezavah NZB
         if novo is not None and prej != novo:
             if self._zapisi_stanje(p, oznaka, odtis, novo):
                 _log.info("%s: med uporabo - stanje »%s«, storitve ne klicemo vec", P.ime(p), novo)
@@ -1078,6 +1080,9 @@ class Debrid:
         self._spremeni(f)
         self._zadnja_preverba.pop(P.INDEKSATOR, None)
         self._preverjen_odtis.pop(P.INDEKSATOR, None)
+        # Grokov pregled 40, S1: povezave NZB s prejsnjim kljucem (v naslovu) ne ostanejo v pomnilniku.
+        nov_odtis = self._odtis(P.INDEKSATOR)
+        self._pozabi_povezave(lambda o: o is not None and o == nov_odtis)
         self._pozabi(*[x for x in staro if x not in (nov or {}).values()])
 
     def nastavi_indeksator(self, naslov: str, kljuc: str, stanje: Optional[str] = None) -> bool:
@@ -1162,6 +1167,20 @@ class Debrid:
                                  or sum(len(b) for _c, b in self._nzb.values()) > self.NZB_NAJVEC_BAJTOV):
                 self._nzb.popitem(last=False)
 
+    @staticmethod
+    def _odtis_povezave(v: object) -> Optional[str]:
+        """Odtis kljuca indeksatorja, s katerim je bila povezava NZB najdena (vezava ob iskanju), ali None."""
+        vezava = v[1] if isinstance(v, tuple) and len(v) == 2 else None
+        return vezava[1] if isinstance(vezava, tuple) and len(vezava) == 2 and vezava[1] else None
+
+    def _pozabi_povezave(self, ostane: Callable[[Optional[str]], bool]) -> None:
+        """Povezave NZB (in NZB iz njih), katerih kljuc indeksatorja ne ostane v rabi, odstrani iz pomnilnika (Grokov
+        pregled 40, S1: povezava nosi kljuc v naslovu - zamenjan, odstranjen ali zavrnjen kljuc ne sme ostati v njej)."""
+        with self._zaklep:
+            for idt in [i for i, v in self._povezave_nzb.items() if not ostane(self._odtis_povezave(v))]:
+                self._povezave_nzb.pop(idt, None)
+                self._nzb.pop(idt, None)
+
     def usenet_tok(self, id_toka: str, ime_izdaje: str, indeks: Optional[int] = None,
                    samo_takoj: bool = False, rok_cakanja: float = U.CAKAJ_PRENOSA_S,
                    preklic: Optional[threading.Event] = None) -> Izid:
@@ -1178,6 +1197,14 @@ class Debrid:
         # Povezava NZB nosi kljuc indeksatorja iz casa iskanja: izid velja za tisti kljuc (vezava ob iskanju).
         povezava, vezava_ix = v if isinstance(v, tuple) else (v, None)
         if not povezava:
+            return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
+        # Grokov pregled 40, S1: sme_klicati zgoraj pove stanje TRENUTNEGA kljuca. Povezava iz prejsnjega iskanja je po
+        # zamenjavi ali odstranitvi zaklenjenega kljuca poslala STARI kljuc indeksatorju - klicemo samo s kljucem, ki je
+        # se shranjen (isti odtis), in torej z njegovim stanjem.
+        odtis_ix, trenutni = self._odtis_povezave(v), self._odtis(P.INDEKSATOR)
+        if not odtis_ix or odtis_ix != trenutni:
+            self._pozabi_povezave(lambda o: o is not None and o == trenutni)
+            _log.info("usenet: povezava NZB je iz iskanja s prejsnjim kljucem indeksatorja - brez klica, iskanje znova")
             return Izid(napaka=U.NAPAKA_INDEKSATOR, ponudnik=P.TORBOX)
         nzb = self._nzb_zapomnjen(id_toka)
         if nzb is None:
