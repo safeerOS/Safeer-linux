@@ -38,6 +38,20 @@ ODSTRANI = ("usr/share/xsessions", "usr/share/wayland-sessions", "etc/xdg/autost
 SYSTEMD_UPORABNIK = ("usr/lib/systemd/user", "etc/systemd/user")
 # Ce bi skripta vzdrzevalca nastavljala sejo ali samodejni zagon, je ne smemo tiho prepisati v Player.
 SEJA_V_SKRIPTAH = ("xsessions", "wayland-sessions", "xdg/autostart", "x-session-manager", "lightdm")
+# Drugi nacini zagona v ozadju (sistemske enote, prednastavitve, aktivacija D-Bus, cron, prijavna lupina, udev): gradnja
+# se ustavi, ne ugibamo. Seznam je namerno sirok - napacen alarm je poceni, tih zagon Safeer OS ob prijavi ni.
+ZAGON_V_OZADJU = (
+    "usr/lib/systemd/system", "lib/systemd/system", "etc/systemd/system",
+    "usr/lib/systemd/user-preset", "usr/lib/systemd/system-preset", "usr/lib/systemd/user-generators",
+    "usr/lib/systemd/user-environment-generators", "usr/lib/environment.d",
+    "usr/share/dbus-1/services", "usr/share/dbus-1/system-services", "etc/cron.d", "etc/cron.daily",
+    "etc/cron.hourly", "etc/profile.d", "etc/X11/Xsession.d", "usr/lib/udev/rules.d", "lib/udev/rules.d",
+)
+# Ukazi v skriptah vzdrzevalca, ki bi Player naredili za storitev ali privzeti brskalnik/sejo.
+ZAGON_V_SKRIPTAH = (
+    "systemctl", "deb-systemd-helper", "deb-systemd-invoke", "invoke-rc.d", "update-rc.d", "update-alternatives",
+    "dbus-send", "gdbus", "loginctl", "crontab", "xdg-settings", "xdg-mime",
+)
 SKRIPTE = ("preinst", "postinst", "prerm", "postrm")
 OPIS = (
     "Safeer Player - the Safeer OS Media Centre in its own window\n"
@@ -146,18 +160,34 @@ def namesceno_kib(koren: Path) -> int:
     return skupaj
 
 
-def obrezi(koren: Path, vir_zaganjalnika: Path = VIR_ZAGANJALNIKA) -> list[str]:
-    """Razpakiran safeer-os-app (dpkg-deb -R) v koren -> drevo safeer-player. Vrne odstranjene poti."""
-    for mapa in SYSTEMD_UPORABNIK:
-        if (koren / mapa).exists() and any(p.is_file() for p in (koren / mapa).rglob("*")):
-            raise NapakaPaketa(f"/{mapa} v paketu: odloci, ali sodi v Player (samodejni zagon?)")
+def preveri_skripte(debian: Path) -> None:
+    """Skripte vzdrzevalca ne smejo nastavljati seje ne zagona v ozadju (uporabi zgradi in preveri)."""
     for skripta in SKRIPTE:
-        pot = koren / "DEBIAN" / skripta
+        pot = debian / skripta
         if pot.is_file():
             besedilo = pot.read_text(errors="replace")
-            for niz in SEJA_V_SKRIPTAH:
+            for niz in SEJA_V_SKRIPTAH + ZAGON_V_SKRIPTAH:
                 if niz in besedilo:
-                    raise NapakaPaketa(f"DEBIAN/{skripta} omenja {niz!r}: seje ne prenesemo v Player")
+                    raise NapakaPaketa(f"DEBIAN/{skripta} omenja {niz!r}: seje ali zagona v ozadju ne prenesemo v Player")
+
+
+def _brez_povezav(koren: Path, rel: str) -> None:
+    """Mapa, ki jo obrezi bere ali brise, ne sme biti (ali lezati pod) simbolno povezavo: sicer brisemo zunaj drevesa."""
+    pot = koren
+    for del_poti in Path(rel).parts:
+        pot = pot / del_poti
+        if pot.is_symlink():
+            raise NapakaPaketa(f"/{pot.relative_to(koren).as_posix()} je simbolna povezava: Player je ne obreze")
+
+
+def obrezi(koren: Path, vir_zaganjalnika: Path = VIR_ZAGANJALNIKA) -> list[str]:
+    """Razpakiran safeer-os-app (dpkg-deb -R) v koren -> drevo safeer-player. Vrne odstranjene poti."""
+    for mapa in SYSTEMD_UPORABNIK + ZAGON_V_OZADJU:
+        if (koren / mapa).exists() and any(not p.is_dir() for p in (koren / mapa).rglob("*")):
+            raise NapakaPaketa(f"/{mapa} v paketu: odloci, ali sodi v Player (samodejni zagon?)")
+    preveri_skripte(koren / "DEBIAN")
+    for mapa in ("usr/share/applications", *ODSTRANI):
+        _brez_povezav(koren, mapa)
     player = koren / PLAYER_DESKTOP
     if not player.is_file():
         raise NapakaPaketa(f"/{PLAYER_DESKTOP} ni v paketu (ime v install_os_payload.sh spremenjeno?)")
@@ -247,7 +277,7 @@ def preveri(app_deb: Path, player_deb: Path) -> None:
     if namizni != [PLAYER_DESKTOP]:
         napake.append(f"vnosi .desktop: {namizni} (pricakovan samo {PLAYER_DESKTOP})")
     for pot in player:
-        if any(pot == m or pot.startswith(m + "/") for m in ODSTRANI + SYSTEMD_UPORABNIK):
+        if any(pot == m or pot.startswith(m + "/") for m in ODSTRANI + SYSTEMD_UPORABNIK + ZAGON_V_OZADJU):
             napake.append(f"seja/samodejni zagon v paketu: /{pot}")
         elif pot != ZAGANJALNIK and pot not in app:
             napake.append(f"/{pot} ni v safeer-os-app")
@@ -257,6 +287,11 @@ def preveri(app_deb: Path, player_deb: Path) -> None:
         a, p = Path(zacasno) / "app", Path(zacasno) / "player"
         _dpkg_deb("-x", str(app_deb), str(a))
         _dpkg_deb("-x", str(player_deb), str(p))
+        _dpkg_deb("-e", str(player_deb), str(Path(zacasno) / "DEBIAN"))
+        try:
+            preveri_skripte(Path(zacasno) / "DEBIAN")
+        except NapakaPaketa as napaka:
+            napake.append(str(napaka))
         elf_app = {d.relative_to(a).as_posix() for d in a.rglob("*") if d.is_file() and not d.is_symlink() and _je_elf(d)}
         elf_player = set()
         for dat in p.rglob("*"):
