@@ -2109,21 +2109,18 @@ class MediaCenter:
         return {"zelen_jezik": tok_izbira.zeleni_jezik(izvirni), "izvirni": izvirni}
 
     def _p2p_potrjeni(self) -> set:
-        """Torrenti (hash), za katere je uporabnik v tem zagonu izbral »Predvajaj neposredno« (kot Android potrjenP2p)."""
-        return self.__dict__.setdefault("_p2p_potrjeni_hashi", set())
+        """Pari (naslov, hash): torrent, ki ga je uporabnik v tem zagonu za ta naslov izrecno poslal v roj (»Predvajaj
+        neposredno«, kot Android potrjenP2p). Samo v pomnilniku - nov zagon vprasa znova."""
+        return self.__dict__.setdefault("_p2p_potrjeni_pari", set())
 
-    def _p2p_dovoljeni(self, torrenti: list) -> list:
-        """Torrenti, ki gredo v roj brez nove potrditve: potrjeni v tem zagonu ali ze na tej napravi (zapis rabe motorja -
-        naprava je v roju tega torrenta ze bila). Prazno = uporabnik mora izbrati (napaka_koda p2p_potrditev)."""
+    def _p2p_dovoljeni(self, naslov: str, torrenti: list) -> list:
+        """Torrenti, ki gredo v roj brez nove potrditve: samo tisti, ki jih je uporabnik v tem zagonu ze potrdil za TA
+        naslov. Prazno = uporabnik mora izbrati (napaka_koda p2p_potrditev). Pregled Grok 28 L1 (lastnik: IP v roj samo
+        po izrecni potrditvi za ta torrent): zapis rabe motorja NI privolitev - vanj so prisli tudi torrenti, ki so sli v
+        roj tiho pred izbiro, in potrjeni iz prejsnjih zagonov (drugo omrezje, brez VPN); ena potrjena zgoscena vrednost
+        tudi ne odobri vseh torrentov naslova ali istega paketa pri drugem naslovu."""
         potrjeni = self._p2p_potrjeni()
-        if any(str(t.get("hash") or "").lower() in potrjeni for t in torrenti):
-            return torrenti
-        try:
-            from . import link_datoteke
-            hrani = set(link_datoteke._beri_rabo(os_torrent_tok.pot_rabe()))
-        except Exception:  # noqa: BLE001 - zapisa ni: brez potrditve nic
-            return []
-        return [t for t in torrenti if str(t.get("hash") or "").lower() in hrani]
+        return [t for t in torrenti if (naslov, str(t.get("hash") or "").lower()) in potrjeni]
 
     def _ima_webtor(self) -> bool:
         """Uporabnik ima dodatek na webtor.io (tudi nadomestek ohrani gostitelja) - brez omrezja; za gumb »Poskusi znova
@@ -2133,7 +2130,7 @@ class MediaCenter:
         except Exception:  # noqa: BLE001
             return False
 
-    def _razresi_torrent(self, item: dict, tokovi: list) -> dict:
+    def _razresi_torrent(self, item: dict, tokovi: list, ob_roju: Optional[Callable[[str], None]] = None) -> dict:
         """Naslov, ki ga ponujajo samo torrenti: najboljsi torrent za to napravo prenasa motor Safeer OS, predvajalnik
         dobi lokalni tok ze med prenosom (core/os_torrent_tok.py). Brez toka: kratka koda napake, naslova ne skrijemo."""
         urejeni = tok_izbira.uredi(tokovi, lambda t: str(t.get("opis") or "%s %s" % (t.get("vir", ""), t.get("kakovost", ""))),
@@ -2152,6 +2149,8 @@ class MediaCenter:
         for i, t in enumerate(urejeni[:3]):
             if i and time.monotonic() - zacetek > self.TORRENT_ROK_S:
                 break
+            if ob_roju is not None:
+                ob_roju(str(t["hash"]).lower())     # ta torrent gre v roj z uporabnikovo izrecno potrditvijo
             try:
                 tok = os_torrent_tok.pripravi(str(t["hash"]), t.get("indeks"), str(t.get("ime") or ""), t.get("sledilniki") or (),
                                               **motor)
@@ -5531,11 +5530,13 @@ class MediaCenter:
                     return dict(item, torrent=True)
                 # P2P s tega racunalnika (naslov IP v roju) nikoli tiho (lastnik 25. 10. 2026, enako kot Android
                 # opozoriPredRojem): pomocnik na Windows je izmeril, da je izbira po neuspehu Webtorja brez besede sla v
-                # roj. Brez potrditve samo torrenti, ki jih naprava ze hrani (v roju je ze bila); sicer izbira na strani.
-                dovoljeni = torrenti if p2p else self._p2p_dovoljeni(torrenti)
+                # roj. Brez nove potrditve samo torrent, ki ga je uporabnik v tem zagonu za ta naslov ze potrdil; sicer
+                # izbira na strani. Potrjen je samo torrent, ki je res sel v roj (ne vsi torrenti naslova).
+                if p2p:
+                    potrjeni = self._p2p_potrjeni()
+                    return self._razresi_torrent(item, torrenti, ob_roju=lambda h: potrjeni.add((str(item_id), h)))
+                dovoljeni = self._p2p_dovoljeni(str(item_id), torrenti)
                 if dovoljeni:
-                    if p2p:
-                        self._p2p_potrjeni().update(str(t["hash"]).lower() for t in torrenti)
                     return self._razresi_torrent(item, dovoljeni)
                 return dict(item, napaka_koda="p2p_potrditev",
                             p2p={"webtor": bool(webtor_tokovi) or self._ima_webtor(), "debrid": bool(aktivna)})

@@ -391,7 +391,7 @@ class Izbira(unittest.TestCase):
         self.izidi = [W.Sonda(koda=404), W.Sonda(koda=404)]
         roj: list = []
         with mock.patch.object(os_media.os_torrent_tok, "podprto", return_value=True), \
-                mock.patch.object(self.mc, "_razresi_torrent", side_effect=lambda item, t: roj.append(t) or dict(item, url="http://127.0.0.1:1/t")), \
+                mock.patch.object(self.mc, "_razresi_torrent", side_effect=lambda item, t, **_k: roj.append(t) or dict(item, url="http://127.0.0.1:1/t")), \
                 mock.patch.object(self.mc, "_p2p_dovoljeni", return_value=[]):
             izid, _rd = self.resolve()
             self.assertEqual((izid.get("napaka_koda"), len(self.sonde), roj), ("p2p_potrditev", 1, []))

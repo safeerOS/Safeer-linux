@@ -345,8 +345,9 @@ class MedijskiCenter(unittest.TestCase):
 
 class RojPotrditev(unittest.TestCase):
     """Lastnik 25. 10. 2026 (pomocnik Windows: po neuspehu Webtorja je izbira tiho sla v roj): P2P s tega racunalnika
-    (naslov IP v roju) nikoli tiho - kot Android opozoriPredRojem. Brez potrditve izbira na strani; potrditev velja za
-    torrente tega naslova do konca zagona; torrent, ki ga naprava ze hrani, gre brez vprasanja (v roju je ze bila)."""
+    (naslov IP v roju) nikoli tiho - kot Android opozoriPredRojem. Brez potrditve izbira na strani; potrditev velja do
+    konca zagona samo za torrent, ki je z njo sel v roj, in samo za ta naslov. Zapis rabe motorja ni privolitev
+    (pregled Grok 28 L1)."""
     ODGOVORI = MedijskiCenter.ODGOVORI
     setUp = MedijskiCenter.setUp
     tearDown = MedijskiCenter.tearDown
@@ -381,15 +382,36 @@ class RojPotrditev(unittest.TestCase):
             self.assertEqual(nov.resolve(nov.movie_item(11, "Film ena")["id"]).get("napaka_koda"), "p2p_potrditev")
         self.assertEqual(klici, [H1, H1])
 
-    def test_torrent_ki_ga_naprava_ze_hrani_brez_vprasanja(self):
+    def test_zapis_rabe_ni_privolitev(self):
+        # Torrent, ki ga motor hrani (sel je v roj tiho pred izbiro ali v prejsnjem zagonu), ne gre v roj brez vprasanja.
         klici: list = []
         raba = os.path.join(self.tmp, "raba.json")
         with open(raba, "w", encoding="utf-8") as d:
-            json.dump({H3: 1.0}, d)                             # 4K (H3) naprava ze hrani, 1080p (H1) ne
+            json.dump({H3: 1.0, H1: 2.0}, d)
         it = self.mc.movie_item(11, "Film ena")
         with mock.patch.object(tt, "pripravi", self._pripravi(klici)), mock.patch.object(tt, "pot_rabe", lambda: raba):
             r = self.mc.resolve(it["id"])
-        self.assertEqual((r["url"], klici), ("http://127.0.0.1:5555/t/x/Film.mkv", [H3]))   # samo ze hranjen, brez novega roja
+        self.assertEqual((r.get("napaka_koda"), klici), ("p2p_potrditev", []))
+
+    def test_potrjen_samo_torrent_ki_je_sel_v_roj(self):
+        klici: list = []
+        it = self.mc.movie_item(11, "Film ena")
+        with mock.patch.object(tt, "pripravi", self._pripravi(klici)), self._brez_rabe():
+            self.mc.resolve(it["id"], p2p=True)
+        self.assertEqual(klici, [H1])
+        self.assertEqual(self.mc._p2p_potrjeni(), {(it["id"], H1)}, "ne vsi torrenti naslova (H3 ni sel v roj)")
+        tokovi = [{"hash": H1}, {"hash": H3}]
+        self.assertEqual(self.mc._p2p_dovoljeni(it["id"], tokovi), [{"hash": H1}])
+
+    def test_potrditev_ne_velja_za_drug_naslov(self):
+        # Isti torrent (npr. sezonski paket) pri drugem naslovu: nova izbira.
+        klici: list = []
+        odgovori = {KOREN + "/stream/movie/tt0000003.json": {"streams": [{"name": "T\n1080p", "title": "Paket", "infoHash": H1}]}}
+        with mock.patch.dict(self.ODGOVORI, odgovori), mock.patch.dict(os_media.TMDB_TO_IMDB, {"13": "tt0000003"}), \
+                mock.patch.object(tt, "pripravi", self._pripravi(klici)), self._brez_rabe():
+            self.mc.resolve(self.mc.movie_item(11, "Film ena")["id"], p2p=True)
+            r = self.mc.resolve(self.mc.movie_item(13, "Film tri")["id"])
+        self.assertEqual((r.get("napaka_koda"), klici), ("p2p_potrditev", [H1]))
 
     def test_z_dodatkom_webtor_ponudi_poskusi_znova(self):
         it = self.mc.movie_item(11, "Film ena")
