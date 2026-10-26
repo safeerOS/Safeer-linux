@@ -64,7 +64,7 @@ class Preslikava(unittest.TestCase):
         podatki = os.urandom(sum(velikosti))
         deli = clanki(podatki, velikosti)
         p = T.Preslikava(datoteka(range(1, 5)), deli[1])
-        self.assertEqual((p.velikost, p.celota, p.del_bajtov, p.manjkajo), (1000, 4, 300, ()))
+        self.assertEqual((p.velikost, p.celota, p.del_bajtov, p.manjkajoci()), (1000, 4, 300, []))
         for odmik in range(0, 1000, 7):
             st, k, branj = najdi(p, deli, odmik)
             self.assertEqual((st, k), resnica(velikosti, odmik))
@@ -86,7 +86,7 @@ class Preslikava(unittest.TestCase):
         velikosti = [200] * 5
         deli = clanki(os.urandom(1000), velikosti)
         p = T.Preslikava(datoteka([1, 2, 4, 5], manjka=1), deli[1])
-        self.assertEqual(p.manjkajo, (3,))
+        self.assertEqual((p.manjka, p.manjkajoci()), (1, [3]))
         self.assertTrue(p.ima_luknje)
         with self.assertRaises(T.NapakaToka) as e:
             p.poisci(450)
@@ -100,7 +100,7 @@ class Preslikava(unittest.TestCase):
         # NZB ima 3 segmente, yEnc pravi total=5: zadnja dva manjkata
         deli = clanki(os.urandom(1000), [200] * 5)
         p = T.Preslikava(datoteka([1, 2, 3]), deli[1])
-        self.assertEqual((p.celota, p.manjkajo), (5, (4, 5)))
+        self.assertEqual((p.celota, p.manjkajoci()), (5, [4, 5]))
         with self.assertRaises(T.NapakaToka) as e:
             p.poisci(999)
         self.assertEqual(e.exception.izid, T.LUKNJA)
@@ -108,7 +108,7 @@ class Preslikava(unittest.TestCase):
     def test_prvi_segment_manjka(self):
         deli = clanki(os.urandom(1000), [250] * 4)
         p = T.Preslikava(datoteka([2, 3, 4], manjka=0), deli[2])
-        self.assertEqual(p.manjkajo, (1,))
+        self.assertEqual(p.manjkajoci(), [1])
         self.assertEqual(najdi(p, deli, 999)[:2], (4, 249))
         with self.assertRaises(T.NapakaToka):
             p.poisci(10)
@@ -186,9 +186,10 @@ class PraviRar(unittest.TestCase):
     """Odlocitev pred ponudbo iz prvih bajtov pravih arhivov WinRAR - neodvisno od nasega graditelja."""
 
     def test_preveri(self):
-        self.assertEqual(R.preveri(PRAVI_STORE_ZVEZEK1), R.OK)
+        self.assertEqual(R.preveri(PRAVI_STORE_ZVEZEK1, 20480), R.OK)
         self.assertEqual(R.preveri(PRAVI_STISNJEN), R.STISNJEN)
-        self.assertEqual(R.preveri(PRAVI_SIFRIRAN), R.SIFRIRAN)
+        self.assertEqual(R.preveri(PRAVI_SIFRIRAN, 50245), R.SIFRIRAN)
+        self.assertEqual(R.preveri(PRAVI_SIFRIRAN), R.NEPOPOLNO, "brez velikosti zvezka ni dokaza, da je film")
         self.assertEqual(R.preveri(PRAVI_SIFRIRANE_GLAVE), R.SIFRIRANE_GLAVE)
 
     def test_zvezek(self):
@@ -585,6 +586,250 @@ class Streznik(unittest.TestCase):
         self.assertTrue(s.zaprt and br.zaprt)
 
 
+# ---------------------------------------------------------------------- popravki pregledov Grok 58 in 61 (naloga 29)
+
+import struct  # noqa: E402
+import tracemalloc  # noqa: E402
+import zlib  # noqa: E402
+
+
+def zvezek5(datoteke, zvezek=0, vec=True, zadnji=False, predpona=()):
+    """RAR5 zvezek kot Zlepek: [(ime, velikost, vsebina, mozn)]; [predpona] = dodatni bloki pred datotekami."""
+    deli = [G.Bajti(G.PODPIS5 + G.blok5(1, 0, G.vint((1 if vec else 0) | (2 if zvezek else 0)) +
+                                        (G.vint(zvezek) if zvezek else b"")))]
+    for b in predpona:
+        deli.append(b)
+    for ime, velikost, v, mozn in datoteke:
+        # glava brez CRC podatkov (podatki so leni), s pravo dolzino podatkov
+        glava = G.blok5(2, (0x8 if mozn.get("pred") else 0) | (0x10 if mozn.get("po") else 0),
+                        _polja5(ime, velikost, mozn), b"", v.velikost)
+        deli += [G.Bajti(glava), v]
+    deli.append(G.Bajti(G.blok5(5, 0, G.vint(0 if zadnji else 1))))
+    return G.Zlepek([(d, 0, d.velikost) for d in deli])
+
+
+def _polja5(ime, velikost, mozn):
+    i = ime.encode()
+    return (G.vint(0x0) + G.vint(velikost) + G.vint(0x20) + G.vint(mozn.get("metoda", 0) << 7) + G.vint(0) +
+            G.vint(len(i)) + i)
+
+
+class Popravki58(unittest.TestCase):
+    def setUp(self):
+        self.bralniki = []
+
+    def tearDown(self):
+        for b in self.bralniki:
+            b.zapri()
+
+    def test_t1_velik_yenc_total(self):
+        film = os.urandom(1000)
+        d = Y.dekodiraj(Y.kodiraj(film, "x.mkv", 10 ** 11, 1, 999_999_999, 1))
+        dat = Datoteka("x.mkv", (), (Segment(1, 1000, "a@primer.invalid"),), 0)
+        tracemalloc.start()
+        zacetek = time.perf_counter()
+        with self.assertRaises(T.NapakaToka) as e:
+            T.Preslikava(dat, d)
+        cas = time.perf_counter() - zacetek
+        _, vrh = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertEqual(e.exception.izid, T.NESKLADNO)
+        self.assertLess(cas, 0.1)
+        self.assertLess(vrh, 1 << 20, "brez seznama manjkajocih")
+        # dovoljen total (konec manjka v NZB) ostane: luknje kot stevilo
+        p = T.Preslikava(dat, Y.dekodiraj(Y.kodiraj(film, "x.mkv", 50_000, 1, 50, 1)))
+        self.assertEqual((p.celota, p.manjka, p.manjkajoci(3)), (50, 49, [2, 3, 4]))
+        # velikost nad celota * 4 MiB je nesmisel
+        with self.assertRaises(T.NapakaToka):
+            T.Preslikava(dat, Y.dekodiraj(Y.kodiraj(film, "x.mkv", 3 * 4 * MiB + 1, 1, 3, 1)))
+        # preveri_izdajo z enim tak clankom konca takoj
+        o = objavi(("Film.mkv", G.Bajti(film)))
+        o.datoteke[0] = ("Film.mkv", G.Bajti(film), o.datoteke[0][2])
+        nzb = NZ.razcleni(o.nzb())
+
+        def telo(mid):
+            return Y.kodiraj(film, "Film.mkv", 10 ** 11, 1, 999_999_999, 1)
+        zacetek = time.perf_counter()
+        self.assertEqual(B.preveri_izdajo(nzb, telo), T.NESKLADNO)
+        self.assertLess(time.perf_counter() - zacetek, 0.5)
+
+    def test_t2_store_vzorec_pred_stisnjenim_filmom(self):
+        vzorec = G.Leno(2 * MiB, 3)  # vec kot prvi segment (700 KiB): glava filma je za njim
+        film = G.Leno(5 * MiB, 4)
+        for metoda, pricakovano in ((3, R.STISNJEN), (0, R.OK)):
+            vol = zvezek5([("Film.sample.mkv", vzorec.velikost, vzorec, {}),
+                           ("Film.mkv", film.velikost, film, {"metoda": metoda})], vec=False, zadnji=True)
+            o = objavi(("Film.rar", vol))
+            nzb = NZ.razcleni(o.nzb())
+            self.assertEqual(R.preveri(vol.beri(0, 700 * 1024), vol.velikost), R.NEPOPOLNO)
+            self.assertEqual(B.preveri_izdajo(nzb, o.telo), pricakovano, metoda)
+            if metoda:
+                with self.assertRaises(R.NapakaRar) as e:
+                    B.pripravi(nzb, o.telo)
+                self.assertEqual(e.exception.izid, R.STISNJEN)
+            else:
+                vir, _ = B.pripravi(nzb, o.telo)
+                self.assertEqual((vir.ime, vir.velikost), ("Film.mkv", film.velikost), "predvaja film, ne vzorca")
+                b = B.Bralnik(o.telo, vir)
+                self.bralniki.append(b)
+                self.assertEqual(preberi_vse(b, 1000, 50_000), film.beri(1000, 50_000))
+
+    def test_t3_pokvarjen_segment_najvec_enkrat(self):
+        o = objavi(("Film.mkv", G.Leno(20 * MiB, 9)))
+        slab = o.datoteke[0][2][5]
+        o.pokvarjeni.add(slab)
+        b = self.bralnik(o)
+        preberi_vse(b, 0, 5 * 700 * 1024 - 10)  # do pred slabim: okno ga vkljuci
+        G.pocakaj_mir(b)
+        for _ in range(20):
+            b.beri(0, 1000)
+        with self.assertRaises(T.NapakaToka) as e:
+            b.beri(5 * 700 * 1024 + 1, 10)
+        self.assertEqual(e.exception.izid, T.POKVARJEN)
+        with self.assertRaises(T.NapakaToka):
+            b.beri(5 * 700 * 1024 + 1, 10)
+        G.pocakaj_mir(b)
+        self.assertLessEqual(o.po_clanku.get(slab, 0), 1, "pokvarjen clanek se ne prenasa znova")
+
+    def bralnik(self, o, profil=B.PROFILI["namizje"]):
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        b = B.Bralnik(o.telo, vir, profil)
+        self.bralniki.append(b)
+        return b
+
+    def test_t4_priprava_omejena(self):
+        film = G.Leno(60 * 300 * 1024, 5)
+        vols = G.zvezki_leno(5, "Film.mkv", film, 300 * 1024)
+        o = objavi(*[("Film.part%02d.rar" % (i + 1), z) for i, z in enumerate(vols)], del_bajtov=100 * 1024)
+        hkrati, najvec = [0], [0]
+        zaklep = threading.Lock()
+
+        def telo(mid):
+            with zaklep:
+                hkrati[0] += 1
+                najvec[0] = max(najvec[0], hkrati[0])
+            try:
+                time.sleep(0.002)
+                return o.telo(mid)
+            finally:
+                with zaklep:
+                    hkrati[0] -= 1
+        vir, bajtov = B.pripravi(NZ.razcleni(o.nzb()), telo)
+        self.assertEqual(vir.velikost, film.velikost)
+        self.assertLessEqual(najvec[0], B.PRIPRAVA_HKRATI)
+        with self.assertRaises(T.NapakaToka) as e:
+            B.pripravi(NZ.razcleni(o.nzb()), o.telo, najvec_bajtov=1 * MiB)
+        self.assertEqual(e.exception.izid, T.PREVEC)
+
+    def test_t5_iskanje_glav_z_mejo(self):
+        # 40 storitvenih blokov po 1,5 MiB pred glavo datoteke: brez meje bi bral 40+ segmentov
+        bloki = []
+        for _ in range(40):
+            bloki.append(G.Bajti(G.blok5(3, 0, G.vint(0) * 6, b"", int(1.5 * MiB))))
+            bloki.append(G.Nicle(int(1.5 * MiB)))
+        film = G.Leno(MiB, 7)
+        vol = zvezek5([("Film.mkv", film.velikost, film, {"po": True})], predpona=bloki)
+        vol2 = zvezek5([("Film.mkv", film.velikost, film, {"pred": True})], zvezek=1, zadnji=True)
+        o = objavi(("Film.part1.rar", vol), ("Film.part2.rar", vol2))
+        nzb = NZ.razcleni(o.nzb())
+        self.assertEqual(B.preveri_izdajo(nzb, o.telo), T.PREVEC)
+        self.assertLessEqual(o.poslanih, 1 + B.NAJVEC_GLAV_SEGMENTOV + 1)
+
+    def test_t9_zapri_zbudi_cakajoce(self):
+        o = objavi(("Film.mkv", G.Leno(4 * MiB, 1)))
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        sprosti = threading.Event()
+        b = B.Bralnik(lambda mid: (sprosti.wait(10), o.telo(mid))[1], vir)
+        izid = []
+        t = threading.Thread(target=lambda: izid.append(self._izid(lambda: b.beri(2 * MiB, 10))))
+        t.start()
+        time.sleep(0.1)
+        b.zapri()
+        t.join(1.0)
+        self.assertFalse(t.is_alive(), "bralec se zbudi ob zapri, ne sele ko se prenos konca")
+        self.assertEqual(izid, [T.ZAPRTO])
+        sprosti.set()
+
+    @staticmethod
+    def _izid(fn):
+        try:
+            fn()
+        except T.NapakaToka as e:
+            return e.izid
+        return None
+
+    def test_t12_range_velike_crke_in_napaka_pred_glavami(self):
+        self.assertEqual(S.obseg("Bytes=0-9", 100), (0, 9))
+        o = objavi(("Film.mkv", G.Leno(3 * MiB, 2)))
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        b = B.Bralnik(o.telo, vir)
+        o.manjka.add(o.datoteke[0][2][1])
+        with S.Streznik(b) as s:
+            c = http.client.HTTPConnection("127.0.0.1", s.vrata, timeout=10)
+            pot = s.url.split(str(s.vrata), 1)[1]
+            c.request("GET", pot, headers={"Range": "bytes=%d-" % (700 * 1024 + 5)})
+            r = c.getresponse()
+            self.assertEqual((r.status, r.read()), (502, b""))
+            c.close()
+
+    def test_t13_vzorec_in_zakrito_ime(self):
+        for ime, vzorec in (("Film.Sample.mkv", True), ("sample-film.mkv", True), ("Film.2026.vzorec.mkv", True),
+                            ("Samplers.2026.1080p.mkv", False), ("The.Sampler.mkv", False), ("Film.mkv", False)):
+            self.assertEqual(B.je_vzorec(ime), vzorec, ime)
+        film = G.Leno(3 * MiB, 8)
+        en = zvezek5([("Film.mkv", film.velikost, film, {})], vec=False, zadnji=True)  # en zvezek
+        o = objavi(("a8f3c2d19e7b", en))
+        nzb = NZ.razcleni(o.nzb())
+        self.assertEqual(B.preveri_izdajo(nzb, o.telo), R.OK)
+        vir, _ = B.pripravi(nzb, o.telo)
+        b = B.Bralnik(o.telo, vir)
+        self.bralniki.append(b)
+        self.assertEqual((vir.ime, vir.velikost), ("Film.mkv", film.velikost))
+        self.assertEqual(preberi_vse(b, 5, 1000), film.beri(5, 1000), "pretaka film, ne surovega zvezka")
+        vec = G.zvezki_leno(5, "Film.mkv", film, MiB)
+        o2 = objavi(*[("%032x" % i, z) for i, z in enumerate(vec)])
+        nzb2 = NZ.razcleni(o2.nzb())
+        self.assertEqual(B.preveri_izdajo(nzb2, o2.telo), B.NI_PODPRTO)
+        with self.assertRaises(T.NapakaToka):
+            B.pripravi(nzb2, o2.telo)
+
+    def test_w1_negativna_cela_stevila(self):
+        ime = b"x"
+        polja = G.vint(0) + G.vint(1) + G.vint(0x20) + G.vint(0) + G.vint(0) + b"\xff" * 9 + b"\x01" + ime
+        arh = G.PODPIS5 + G.blok5(1, 0, G.vint(0)) + G.blok5(2, 0, polja, b"", 1) + b"x"
+        self.assertEqual(R.preveri(arh, len(arh)), R.POSKODOVAN)
+        rar4 = bytearray(G.rar4([("film.mkv", 5, b"abc", {"velika": True})]))
+        glava = len(G.PODPIS4 + G.blok4(0x73, 0, bytes(6)))
+        rar4[glava + 32:glava + 36] = b"\xff\xff\xff\xff"  # HIGH_PACK z zgornjim bitom
+        rar4[glava:glava + 2] = struct.pack("<H", zlib.crc32(bytes(rar4[glava + 2:glava + rar4[glava + 5] + rar4[glava + 6] * 256])) & 0xFFFF)
+        self.assertEqual(R.preveri(bytes(rar4), len(rar4)), R.POSKODOVAN)
+        prevec = G.PODPIS5 + G.blok5(1, 0, G.vint(0)) + G.glava5_datoteke("a.mkv", 10, b"0123456789") + b"0123"
+        self.assertEqual(R.preveri(prevec, len(prevec)), R.POSKODOVAN, "podatki cez konec zvezka")
+
+    def test_w6_luknje_pred_ponudbo(self):
+        film = G.Leno(5 * 700 * 1024, 4)
+        o = objavi(("Film.mkv", film))
+        self.assertEqual(B.preveri_izdajo(NZ.razcleni(o.nzb({o.datoteke[0][2][0]})), o.telo), T.LUKNJA)
+        self.assertEqual(B.preveri_izdajo(NZ.razcleni(o.nzb({o.datoteke[0][2][2]})), o.telo), T.LUKNJA)
+        self.assertEqual(B.preveri_izdajo(NZ.razcleni(o.nzb()), o.telo), R.OK)
+
+    def test_t7_meja_povezav_in_zeton_pred_vsem(self):
+        o = objavi(("Film.mkv", G.Leno(MiB, 1)))
+        vir, _ = B.pripravi(NZ.razcleni(o.nzb()), o.telo)
+        b = B.Bralnik(o.telo, vir)
+        s = S.Streznik(b, nedejavnost_s=0.5)
+        self.addCleanup(s.zapri)
+        prazne = [socket.create_connection(("127.0.0.1", s.vrata)) for _ in range(S.NAJVEC_POVEZAV + 4)]
+        self.addCleanup(lambda: [x.close() for x in prazne])
+        time.sleep(0.3)
+        with s._zaklep:
+            self.assertLessEqual(s._povezav, S.NAJVEC_POVEZAV)
+        konec = time.monotonic() + 5
+        while not s.zaprt and time.monotonic() < konec:
+            time.sleep(0.05)
+        self.assertTrue(s.zaprt, "povezave brez zetona ne drzijo streznika zivega")
+
+
 # ---------------------------------------------------------------------- konec do konca (korak 2, del 6)
 
 try:
@@ -615,7 +860,7 @@ class KonecDoKonca(unittest.TestCase):
 
     def tek(self, objava):
         with mock.patch.object(TN, "CLANKI", objava):
-            srv = TN.LazniStreznik(self._mapa.name)
+            srv = TN.LazniStreznik(self._mapa.name, rok_posiljanja=10.0)
             self.addCleanup(srv.ustavi)
             bazen = N.Bazen("127.0.0.1", srv.vrata, uporabnik=TN.UPORABNIK, geslo=TN.GESLO, povezav=4,
                             kontekst=__import__("ssl").create_default_context(cafile=os.path.join(self._mapa.name, "ca.pem")),

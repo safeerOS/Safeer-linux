@@ -11,18 +11,22 @@ Datoteka iz NZB je zaporedje segmentov (clankov); vsak clanek je del yEnc z '=yp
    ni popravila par2: preklop na drugo izdajo je odlocitev klicatelja). Clanek, ki ga ponudnik nima (430), je luknja,
    ki jo odkrije sele branje (bralnik).
 
-Pravila so skupna z Android-tv (Kotlin): tests/skupni-primeri/usenet-pogon.json v4 (tok_odmik, tok_segmenti).
-Brez omrezja; message-id ni v repr ali izjemi.
+Pregled Grok 58: T1 - yEnc total iz clanka je omejen (NZB dovoli najvec 200 000 segmentov datoteke), manjkajoci so
+samo stevilo; T6 - sidra so urejena (Sidra), vnos in iskanje O(log n) namesto kopije in urejanja vseh ob vsakem branju.
+
+Pravila so skupna z Android-tv (Kotlin): tests/skupni-primeri/usenet-pogon.json (tok_odmik, tok_segmenti,
+tok_preslikava). Brez omrezja; message-id ni v repr ali izjemi.
 """
 
 from __future__ import annotations
 
 import threading
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Optional
 
-from .usenet_nzb import Datoteka, Segment
-from .usenet_yenc import DelYenc
+from .usenet_nzb import NAJVEC_SEGMENTOV_DATOTEKE, Datoteka, Segment
+from .usenet_yenc import NAJVEC_DEL_BAJTOV, DelYenc
 
 OK = "ok"
 IZVEN = "izven"  # odmik zunaj datoteke
@@ -30,6 +34,8 @@ LUKNJA = "luknja"  # segment manjka (v NZB ali pri ponudniku)
 NESKLADNO = "neskladno"  # razponi segmentov si nasprotujejo (pokvarjen ali zlonameren NZB/clanek)
 POKVARJEN = "pokvarjen"  # clanek ni veljaven yEnc ali CRC se ne ujema (bralnik)
 ZAPRTO = "zaprto"  # bralnik je zaprt
+PREVEC = "prevec"  # presezena meja (promet priprave ali iskanja glav, zvezkov)
+PREKINJENO = "prekinjeno"  # branje vec kot NAJVEC_PREKLICEV krat preklicano (dva bralca drug drugemu)
 
 #: Najvec branj, s katerimi bralnik isce segment za odmik (enakomerna objava: 1; dve zdruzeni objavi: nekaj).
 NAJVEC_ISKANJ = 24
@@ -50,32 +56,77 @@ class Ugib:
     natancno: bool  # razpon segmenta je znan (prebran), ne ugibamo
 
 
-def _preveri_znane(velikost: int, celota: int, znani: dict) -> list:
-    """Znani razponi {stevilka: (odmik, dolzina)} po stevilki; nasprotje = NESKLADNO."""
-    vrsta = sorted(znani.items())
-    prejsnji_st, prejsnji_konec = 0, 0
-    for st, (z, d) in vrsta:
-        if not 1 <= st <= celota or d < 1 or z < 0 or z + d > velikost:
-            raise NapakaToka(NESKLADNO)
-        # vsak vmesni segment ima vsaj en bajt; sosednja segmenta se stikata
-        if z - prejsnji_konec < st - prejsnji_st - 1 or (st == prejsnji_st + 1 and z != prejsnji_konec):
-            raise NapakaToka(NESKLADNO)
-        prejsnji_st, prejsnji_konec = st, z + d
-    if velikost - prejsnji_konec < celota - prejsnji_st or (prejsnji_st == celota and prejsnji_konec != velikost):
-        raise NapakaToka(NESKLADNO)
-    return vrsta
+class Sidra:
+    """Znani razponi segmentov, urejeni po stevilki (in zato po odmiku): vnos preveri samo soseda, iskanje z bisect -
+    O(log n) na branje (pregled Grok 58 T6; prej je vsako branje uredilo in kopiralo vse znane - izmerjeno 26. 10. 2026
+    pri 10^5 sidrih 1,08 s na branje). Pravila so ista kot prej: vsak vmesni segment ima vsaj en bajt, sosednja segmenta
+    se stikata, zadnji znan pusti prostor za ostale in segment [celota] konca na velikosti datoteke."""
 
+    def __init__(self, velikost: int, celota: int):
+        self.velikost, self.celota = velikost, celota
+        self._st: list = []
+        self._z: list = []
+        self._d: list = []
 
-def _sidri(vrsta: list, odmik: int, velikost: int, celota: int) -> tuple:
-    """(levo_st, levo_konec, desno_st, desno_zacetek): najblizja znana razpona okoli odmika (navidezna 0 in celota+1)."""
-    lst, lkon, dst, dzac = 0, 0, celota + 1, velikost
-    for st, (z, d) in vrsta:
-        if z + d <= odmik:
-            lst, lkon = st, z + d
-        elif z > odmik:
-            dst, dzac = st, z
-            break
-    return lst, lkon, dst, dzac
+    def __len__(self) -> int:
+        return len(self._st)
+
+    @classmethod
+    def iz_slovarja(cls, velikost: int, celota: int, znani: dict) -> "Sidra":
+        s = cls(velikost, celota)
+        for st, (z, d) in sorted(znani.items()):
+            s.dodaj(st, z, d)
+        return s
+
+    @staticmethod
+    def _par(st_a: int, konec_a: int, st_b: int, zac_b: int) -> bool:
+        return zac_b - konec_a >= st_b - st_a - 1 and (st_b != st_a + 1 or zac_b == konec_a)
+
+    def dodaj(self, st: int, z: int, d: int) -> None:
+        if not 1 <= st <= self.celota or d < 1 or z < 0 or z + d > self.velikost:
+            raise NapakaToka(NESKLADNO)
+        i = bisect_left(self._st, st)
+        enak = i < len(self._st) and self._st[i] == st
+        if enak and (self._z[i], self._d[i]) == (z, d):
+            return
+        lst, lkon = (self._st[i - 1], self._z[i - 1] + self._d[i - 1]) if i > 0 else (0, 0)
+        j = i + 1 if enak else i
+        if not self._par(lst, lkon, st, z):
+            raise NapakaToka(NESKLADNO)
+        if j < len(self._st):
+            if not self._par(st, z + d, self._st[j], self._z[j]):
+                raise NapakaToka(NESKLADNO)
+        elif self.velikost - (z + d) < self.celota - st or (st == self.celota and z + d != self.velikost):
+            raise NapakaToka(NESKLADNO)
+        if enak:
+            self._z[i], self._d[i] = z, d
+        else:
+            self._st.insert(i, st)
+            self._z.insert(i, z)
+            self._d.insert(i, d)
+
+    def znan(self, st: int) -> Optional[tuple]:
+        i = bisect_left(self._st, st)
+        return (self._z[i], self._d[i]) if i < len(self._st) and self._st[i] == st else None
+
+    def okoli_odmika(self, odmik: int) -> tuple:
+        """('znan', st, odmik v njem) ali ('vrzel', levo_st, levo_konec, desno_st, desno_zacetek)."""
+        i = bisect_right(self._z, odmik) - 1
+        if i >= 0 and odmik < self._z[i] + self._d[i]:
+            return ("znan", self._st[i], odmik - self._z[i])
+        lst, lkon = (self._st[i], self._z[i] + self._d[i]) if i >= 0 else (0, 0)
+        dst, dzac = (self._st[i + 1], self._z[i + 1]) if i + 1 < len(self._st) else (self.celota + 1, self.velikost)
+        return ("vrzel", lst, lkon, dst, dzac)
+
+    def okoli_stevilke(self, st: int) -> tuple:
+        """(levo_st, levo_konec, desno_st, desno_zacetek) za neznano stevilko."""
+        i = bisect_left(self._st, st)
+        lst, lkon = (self._st[i - 1], self._z[i - 1] + self._d[i - 1]) if i > 0 else (0, 0)
+        dst, dzac = (self._st[i], self._z[i]) if i < len(self._st) else (self.celota + 1, self.velikost)
+        return lst, lkon, dst, dzac
+
+    def kot_slovar(self) -> dict:
+        return {st: (z, d) for st, z, d in zip(self._st, self._z, self._d)}
 
 
 def _enakomerno(lst: int, lkon: int, dst: int, dzac: int, del_bajtov: Optional[int], celota: int) -> bool:
@@ -87,44 +138,31 @@ def _enakomerno(lst: int, lkon: int, dst: int, dzac: int, del_bajtov: Optional[i
     return dzac == (dst - 1) * del_bajtov
 
 
-def poisci(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, odmik: int) -> Ugib:
-    """Segment za odmik (skupni primeri tok_odmik). [del_bajtov] = velikost dela iz prvega segmenta (None = ni znana),
-    [znani] = {stevilka: (odmik, dolzina)} prebranih segmentov. Ugib: odmik // del + 1, ce je vrzel med sidroma
-    skladna z enakimi deli (_enakomerno), sicer enakomerna razdelitev vrzeli na vmesne segmente. Napaka: NapakaToka(IZVEN / NESKLADNO)."""
-    if not 0 <= odmik < velikost:
+def _poisci(s: Sidra, del_bajtov: Optional[int], odmik: int) -> Ugib:
+    if not 0 <= odmik < s.velikost:
         raise NapakaToka(IZVEN)
-    if celota < 1 or velikost < celota:
+    if s.celota < 1 or s.velikost < s.celota:
         raise NapakaToka(NESKLADNO)
-    vrsta = _preveri_znane(velikost, celota, znani)
-    for st, (z, d) in vrsta:
-        if z <= odmik < z + d:
-            return Ugib(st, odmik - z, True)
-    lst, lkon, dst, dzac = _sidri(vrsta, odmik, velikost, celota)
-    if _enakomerno(lst, lkon, dst, dzac, del_bajtov, celota):
+    o = s.okoli_odmika(odmik)
+    if o[0] == "znan":
+        return Ugib(o[1], o[2], True)
+    _, lst, lkon, dst, dzac = o
+    if _enakomerno(lst, lkon, dst, dzac, del_bajtov, s.celota):
         st = odmik // del_bajtov + 1
         return Ugib(st, odmik - (st - 1) * del_bajtov, False)
-    vmes = dst - lst - 1  # >= 1 (preverjeno v _preveri_znane)
-    na = (dzac - lkon) / vmes
+    na = (dzac - lkon) / (dst - lst - 1)  # vsaj en vmesni (preverjeno ob vnosu)
     st = min(dst - 1, max(lst + 1, lst + 1 + int((odmik - lkon) // na)))
     return Ugib(st, odmik - (lkon + int((st - lst - 1) * na)), False)
 
 
-def razpon(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, stevilka: int) -> tuple:
-    """(odmik, dolzina, natancno) segmenta - znan ali ocenjen enako kot v poisci (za okno vnaprej)."""
-    if not 1 <= stevilka <= celota:
+def _razpon(s: Sidra, del_bajtov: Optional[int], stevilka: int) -> tuple:
+    if not 1 <= stevilka <= s.celota:
         raise NapakaToka(IZVEN)
-    vrsta = _preveri_znane(velikost, celota, znani)
-    if stevilka in znani:
-        z, d = znani[stevilka]
-        return z, d, True
-    lst, lkon, dst, dzac = 0, 0, celota + 1, velikost
-    for st, (z, d) in vrsta:
-        if st < stevilka:
-            lst, lkon = st, z + d
-        else:
-            dst, dzac = st, z
-            break
-    if _enakomerno(lst, lkon, dst, dzac, del_bajtov, celota):
+    znan = s.znan(stevilka)
+    if znan is not None:
+        return znan[0], znan[1], True
+    lst, lkon, dst, dzac = s.okoli_stevilke(stevilka)
+    if _enakomerno(lst, lkon, dst, dzac, del_bajtov, s.celota):
         z = (stevilka - 1) * del_bajtov
         return z, min(del_bajtov, dzac - z), False
     na = (dzac - lkon) / (dst - lst - 1)
@@ -133,22 +171,61 @@ def razpon(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, s
     return z, max(1, k - z), False
 
 
+def _segmenti_okna(s: Sidra, del_bajtov: Optional[int], odmik: int, dolzina: int) -> list:
+    if dolzina <= 0 or not 0 <= odmik < s.velikost:
+        return []
+    konec = min(s.velikost, odmik + dolzina)
+    st = _poisci(s, del_bajtov, odmik).stevilka
+    izid = []
+    while st <= s.celota:
+        z, _d, _ = _razpon(s, del_bajtov, st)
+        if z >= konec:
+            break
+        izid.append(st)
+        st += 1
+    return izid
+
+
+def poisci(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, odmik: int) -> Ugib:
+    """Segment za odmik (skupni primeri tok_odmik). [del_bajtov] = velikost dela iz prvega segmenta (None = ni znana),
+    [znani] = {stevilka: (odmik, dolzina)} prebranih segmentov. Ugib: odmik // del + 1, ce je vrzel med sidroma
+    skladna z enakimi deli (_enakomerno), sicer enakomerna razdelitev vrzeli na vmesne segmente. Napaka:
+    NapakaToka(IZVEN / NESKLADNO)."""
+    if not 0 <= odmik < velikost:
+        raise NapakaToka(IZVEN)
+    if celota < 1 or velikost < celota:
+        raise NapakaToka(NESKLADNO)
+    return _poisci(Sidra.iz_slovarja(velikost, celota, znani), del_bajtov, odmik)
+
+
+def razpon(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, stevilka: int) -> tuple:
+    """(odmik, dolzina, natancno) segmenta - znan ali ocenjen enako kot v poisci (za okno vnaprej)."""
+    if not 1 <= stevilka <= celota:
+        raise NapakaToka(IZVEN)
+    return _razpon(Sidra.iz_slovarja(velikost, celota, znani), del_bajtov, stevilka)
+
+
 def segmenti_okna(velikost: int, celota: int, del_bajtov: Optional[int], znani: dict, odmik: int,
                   dolzina: int) -> list:
     """Stevilke segmentov, ki (po znanem ali ocenjenem razponu) pokrivajo [odmik, odmik + dolzina) - skupni primeri
     tok_segmenti. Konec datoteke okno prireze."""
     if dolzina <= 0 or not 0 <= odmik < velikost:
         return []
-    konec = min(velikost, odmik + dolzina)
-    st = poisci(velikost, celota, del_bajtov, znani, odmik).stevilka
-    izid = []
-    while st <= celota:
-        z, d, _ = razpon(velikost, celota, del_bajtov, znani, st)
-        if z >= konec:
-            break
-        izid.append(st)
-        st += 1
-    return izid
+    return _segmenti_okna(Sidra.iz_slovarja(velikost, celota, znani), del_bajtov, odmik, dolzina)
+
+
+def meje_preslikave(stevil_v_nzb: int, manjka_v_nzb: int, velikost: int, skupaj: Optional[int]) -> int:
+    """Celota segmentov datoteke iz NZB in glave prvega clanka (skupni primeri tok_preslikava). yEnc total napise
+    posiljatelj (do 999 999 999): nad NAJVEC_SEGMENTOV_DATOTEKE = NESKLADNO, sicer celota = max(NZB, total). Vsak del
+    ima 1 do NAJVEC_DEL_BAJTOV bajtov, zato velikost < celota ali > celota * NAJVEC_DEL_BAJTOV = NESKLADNO."""
+    celota = stevil_v_nzb + manjka_v_nzb
+    if skupaj is not None:
+        if skupaj > NAJVEC_SEGMENTOV_DATOTEKE:
+            raise NapakaToka(NESKLADNO)
+        celota = max(celota, skupaj)
+    if velikost < celota or velikost > celota * NAJVEC_DEL_BAJTOV:
+        raise NapakaToka(NESKLADNO)
+    return celota
 
 
 class Preslikava:
@@ -162,25 +239,30 @@ class Preslikava:
             raise NapakaToka(NESKLADNO)
         self.ime = datoteka.ime
         self.velikost = prvi.velikost
-        celota = len(datoteka.segmenti) + datoteka.manjka
-        if prvi.skupaj is not None:
-            celota = max(celota, prvi.skupaj)  # yEnc total: segmenti na koncu, ki jih NZB nima
-        self.celota = celota
-        if self.velikost < celota:
-            raise NapakaToka(NESKLADNO)
-        self.manjkajo = tuple(n for n in range(1, celota + 1) if n not in self._segmenti)
+        self.celota = meje_preslikave(len(datoteka.segmenti), datoteka.manjka, prvi.velikost, prvi.skupaj)
+        self.manjka = self.celota - len(self._segmenti)  # stevilke v NZB so vse <= celota; nikoli seznam (T1)
         # del iz segmenta, ki ni zadnji (zadnji je krajsi); enodelna datoteka: del = velikost
-        self.del_bajtov: Optional[int] = len(prvi.podatki) if st < celota or celota == 1 else None
-        self._znani: dict = {}
+        self.del_bajtov: Optional[int] = len(prvi.podatki) if st < self.celota or self.celota == 1 else None
+        self._sidra = Sidra(self.velikost, self.celota)
         self._zaklep = threading.Lock()
         self.vnesi(st, prvi)
 
     def __repr__(self) -> str:
-        return "Preslikava(%d B, %d segmentov, %d manjka)" % (self.velikost, self.celota, len(self.manjkajo))
+        return "Preslikava(%d B, %d segmentov, %d manjka)" % (self.velikost, self.celota, self.manjka)
 
     @property
     def ima_luknje(self) -> bool:
-        return bool(self.manjkajo)
+        return self.manjka > 0
+
+    def manjkajoci(self, najvec: int = 100) -> list:
+        """Prvih [najvec] manjkajocih stevilk (diagnostika) - nikoli seznam vseh."""
+        izid = []
+        n = 1
+        while n <= self.celota and len(izid) < najvec and len(izid) < self.manjka:
+            if n not in self._segmenti:
+                izid.append(n)
+            n += 1
+        return izid
 
     def segment(self, stevilka: int) -> Segment:
         s = self._segmenti.get(stevilka)
@@ -190,30 +272,33 @@ class Preslikava:
 
     def znani(self) -> dict:
         with self._zaklep:
-            return dict(self._znani)
+            return self._sidra.kot_slovar()
 
     def vnesi(self, stevilka: int, d: DelYenc) -> None:
         """Prebran segment: njegov pravi razpon postane sidro. Druga velikost datoteke ali razpon, ki nasprotuje
         znanim, je NESKLADNO (segment druge datoteke ali pokvarjen NZB)."""
         if d.velikost != self.velikost or not d.podatki:
             raise NapakaToka(NESKLADNO)
+        self._vnesi_razpon(stevilka, d.odmik, len(d.podatki))
+
+    def _vnesi_razpon(self, stevilka: int, z: int, n: int) -> None:
         with self._zaklep:
-            znani = dict(self._znani)
-            znani[stevilka] = (d.odmik, len(d.podatki))
-            _preveri_znane(self.velikost, self.celota, znani)
-            self._znani = znani
+            self._sidra.dodaj(stevilka, z, n)
 
     def poisci(self, odmik: int) -> Ugib:
         """Segment za odmik; manjkajoc segment = NapakaToka(LUKNJA)."""
-        u = poisci(self.velikost, self.celota, self.del_bajtov, self.znani(), odmik)
+        with self._zaklep:
+            u = _poisci(self._sidra, self.del_bajtov, odmik)
         if u.stevilka not in self._segmenti:
             raise NapakaToka(LUKNJA)
         return u
 
     def razpon(self, stevilka: int) -> tuple:
-        return razpon(self.velikost, self.celota, self.del_bajtov, self.znani(), stevilka)
+        with self._zaklep:
+            return _razpon(self._sidra, self.del_bajtov, stevilka)
 
     def segmenti_okna(self, odmik: int, dolzina: int) -> list:
         """Segmenti okna brez manjkajocih (teh ni smiselno brati vnaprej - branje jih javi kot luknjo)."""
-        return [n for n in segmenti_okna(self.velikost, self.celota, self.del_bajtov, self.znani(), odmik, dolzina)
-                if n in self._segmenti]
+        with self._zaklep:
+            st = _segmenti_okna(self._sidra, self.del_bajtov, odmik, dolzina)
+        return [n for n in st if n in self._segmenti]

@@ -94,7 +94,10 @@ class LazniStreznik:
     def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False,
                  zamuda_gesla=0.0, napacno="481 Authentication failed", meja=None,
                  odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0, po_kosih=0.0,
-                 drug_id=False, ostanek=b""):
+                 drug_id=False, ostanek=b"", rok_posiljanja=0.2):
+        # rok_posiljanja: rok vticnice med posiljanjem clanka (0.2 s je rok branja zanke; bralnik v preizkusih konec do
+        # konca pod obremenitvijo ne bere tako hitro - 26. 10. 2026 je na Windows obcasno potekel, 3 od 11 tekov)
+        self.rok_posiljanja = rok_posiljanja
         self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
         self.pozdrav = pozdrav
@@ -245,7 +248,9 @@ class LazniStreznik:
                                 time.sleep(self.po_kosih)
                         else:
                             vrnjen = b"drug.Tt@primer.invalid" if self.drug_id else mid.encode()
+                            s.settimeout(self.rok_posiljanja)
                             s.sendall(b"222 0 <%s> body\r\n" % vrnjen + _nntp(CLANKI[mid]) + self.ostanek)
+                            s.settimeout(0.2)
                     else:
                         # streznik ponovi message-id - odjemalec besedila odgovora ne sme prenesti v izjemo ali dnevnik
                         s.sendall(b"430 No such article <%s>\r\n" % mid.encode())

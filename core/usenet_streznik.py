@@ -7,10 +7,14 @@ Namizje predvaja film z Useneta prek http://127.0.0.1:<nakljucna vrata>/<nakljuc
   predvajalnik in njegove dnevnike; tega ne ponovimo. Zeton se primerja s hmac.compare_digest.
 - Brez dnevnika zahtev (BaseHTTPRequestHandler bi pot z zetonom izpisal na stderr). Glava Host mora biti 127.0.0.1 ali
   localhost z nasimi vrati (stran v brskalniku s preusmeritvijo DNS ne doseze toka, tudi ce bi zeton uganila).
-- SO_REUSEADDR izklopljen: na Windows bi drug proces lahko prevzel ista vrata.
+- SO_REUSEADDR izklopljen, na Windows SO_EXCLUSIVEADDRUSE (pregled Grok 58 T8: samo to prepreci, da drug proces istega
+  uporabnika z SO_REUSEADDR veze ista vrata).
+- Najvec NAJVEC_POVEZAV hkratnih povezav (nad tem takoj zapre), rok ROK_POVEZAVE_S na branje, nedejavnost steje samo
+  zahteva z veljavnim zetonom (T7: prej je vsaka povezava brez zetona drzala streznik ziv in dobila svojo nit).
+- Prvi kos se prebere pred glavami: napaka (luknja, pokvarjen ...) da 502, prehodna 503 - ne prirezanega 200/206 (T12).
 - 206 z Content-Range, 200 brez (ali z neveljavnim/vecdelnim) Range, HEAD, 416 izven obsega (Content-Range bytes */N).
-- Zapre se ob koncu predvajanja (zapri) ali sam po [nedejavnost_s] brez zahtev in brez odprte povezave; takrat
-  zapre tudi bralnik (branje vnaprej se ustavi - ni prometa po koncu ogleda).
+- Zapre se ob koncu predvajanja (zapri) ali sam po [nedejavnost_s] brez veljavnih zahtev; takrat zapre tudi bralnik
+  (branje vnaprej se ustavi; prenos clanka, ki ze tece, se konca v bazenu - T9).
 """
 
 from __future__ import annotations
@@ -36,7 +40,10 @@ NEDEJAVNOST_S = 300.0
 _VRSTE = {".mkv": "video/x-matroska", ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
           ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".m2ts": "video/mp2t", ".mov": "video/quicktime",
           ".wmv": "video/x-ms-wmv", ".mpg": "video/mpeg", ".mpeg": "video/mpeg"}
-_RANGE = re.compile(r"\Abytes=(\d{0,19})-(\d{0,19})\Z")
+_RANGE = re.compile(r"\Abytes=(\d{0,19})-(\d{0,19})\Z", re.I)  # enota neobcutljiva na velike crke (RFC 9110, T12)
+NAJVEC_POVEZAV = 16
+ROK_POVEZAVE_S = 60.0
+_TRAJNE = ("luknja", "pokvarjen", "neskladno", "izven")
 NI_OBSEGA = "416"
 
 
@@ -76,6 +83,12 @@ class _Strezba(ThreadingHTTPServer):
     allow_reuse_address = False
     allow_reuse_port = False
 
+    def server_bind(self) -> None:
+        izkljucno = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)  # samo Windows
+        if izkljucno is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, izkljucno, 1)
+        super().server_bind()
+
 
 class Streznik:
     """En film na 127.0.0.1. [bralnik] ima beri(odmik, n), zapri() in vir.velikost (usenet_bralnik.Bralnik)."""
@@ -92,7 +105,9 @@ class Streznik:
         self._nedejavnost_s = float(nedejavnost_s)
         self._ob_koncu = ob_koncu
         self._zaklep = threading.Lock()
-        self._odprtih = 0
+        self._povezav = 0  # vse odprte povezave (meja)
+        self._aktivnih = 0  # zahteve z veljavnim zetonom v teku (nedejavnost)
+        self._vticnice: set = set()
         self._zadnja = time.monotonic()
         self._zaprt = False
         self._srv = _Strezba((GOSTITELJ, 0), self._razred())
@@ -121,7 +136,7 @@ class Streznik:
         while not self._zaprt:
             time.sleep(min(1.0, max(0.05, self._nedejavnost_s / 4)))
             with self._zaklep:
-                miruje = self._odprtih == 0 and time.monotonic() - self._zadnja > self._nedejavnost_s
+                miruje = self._aktivnih == 0 and time.monotonic() - self._zadnja > self._nedejavnost_s
             if miruje:
                 _log.info("usenet streznik: zaprt po nedejavnosti")
                 self.zapri()
@@ -132,11 +147,17 @@ class Streznik:
             if self._zaprt:
                 return
             self._zaprt = True
-        threading.Thread(target=self._srv.shutdown, daemon=True).start()  # shutdown caka na serve_forever
-        try:
-            self._srv.socket.close()
-        except OSError:
-            pass
+        def ustavi() -> None:  # shutdown caka na konec serve_forever, sele nato server_close (T9)
+            self._srv.shutdown()
+            self._srv.server_close()
+        threading.Thread(target=ustavi, name="safeer-usenet-http-konec", daemon=True).start()
+        with self._zaklep:
+            odprte = list(self._vticnice)
+        for v in odprte:  # keep-alive povezave ne cakajo na rok
+            try:
+                v.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         self.bralnik.zapri()
         if self._ob_koncu is not None:
             try:
@@ -152,6 +173,8 @@ class Streznik:
             protocol_version = "HTTP/1.1"
             server_version = "Safeer"
             sys_version = ""
+            timeout = ROK_POVEZAVE_S  # StreamRequestHandler: rok na branje vticnice
+            _prevec = False
 
             def log_message(self, *_a) -> None:  # pot nosi zeton: nikoli v dnevnik
                 pass
@@ -165,16 +188,23 @@ class Streznik:
                 except OSError:
                     pass
                 with streznik._zaklep:
-                    streznik._odprtih += 1
-                    streznik._zadnja = time.monotonic()
+                    self._prevec = streznik._povezav >= NAJVEC_POVEZAV
+                    if not self._prevec:
+                        streznik._povezav += 1
+                        streznik._vticnice.add(self.connection)
+
+            def handle(self) -> None:
+                if not self._prevec:  # nad mejo povezav: takoj zapri, brez cakanja na zahtevo
+                    super().handle()
 
             def finish(self) -> None:
                 try:
                     super().finish()
                 finally:
-                    with streznik._zaklep:
-                        streznik._odprtih -= 1
-                        streznik._zadnja = time.monotonic()
+                    if not self._prevec:
+                        with streznik._zaklep:
+                            streznik._povezav -= 1
+                            streznik._vticnice.discard(self.connection)
 
             def _prazno(self, koda: int, glave: Tuple = ()) -> None:
                 self.send_response(koda)
@@ -192,17 +222,35 @@ class Streznik:
                 return pravi and gost in ("127.0.0.1:%d" % streznik.vrata, "localhost:%d" % streznik.vrata)
 
             def _odgovori(self, telo: bool) -> None:
-                with streznik._zaklep:
-                    streznik._zadnja = time.monotonic()
                 if streznik._zaprt or not self._dovoljeno():
+                    self.close_connection = True  # zeton se preveri pred vsem ostalim; brez njega povezava ne ostane
                     self._prazno(404)
                     return
+                with streznik._zaklep:
+                    streznik._aktivnih += 1
+                    streznik._zadnja = time.monotonic()
+                try:
+                    self._streci(telo)
+                finally:
+                    with streznik._zaklep:
+                        streznik._aktivnih -= 1
+                        streznik._zadnja = time.monotonic()
+
+            def _streci(self, telo: bool) -> None:
                 n = streznik.velikost
                 o = obseg(self.headers.get("Range"), n)
                 if o == NI_OBSEGA:
                     self._prazno(416, (("Content-Range", "bytes */%d" % n), ("Accept-Ranges", "bytes")))
                     return
                 zacetek, konec = (0, n - 1) if o is None else o
+                prvi = b""
+                if telo and konec >= zacetek:
+                    try:
+                        prvi = streznik.bralnik.beri(zacetek, min(KOS, konec - zacetek + 1))
+                    except NapakaToka as e:
+                        self.close_connection = True
+                        self._prazno(502 if e.izid in _TRAJNE else 503)
+                        return
                 self.send_response(200 if o is None else 206)
                 self.send_header("Content-Type", streznik._vrsta)
                 self.send_header("Accept-Ranges", "bytes")
@@ -216,7 +264,8 @@ class Streznik:
                 poz = zacetek
                 try:
                     while poz <= konec:
-                        kos = streznik.bralnik.beri(poz, min(KOS, konec - poz + 1))
+                        kos = prvi or streznik.bralnik.beri(poz, min(KOS, konec - poz + 1))
+                        prvi = b""
                         if not kos:
                             break
                         self.wfile.write(kos)

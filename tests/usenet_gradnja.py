@@ -123,6 +123,16 @@ class Leno:
         return b"".join(deli)
 
 
+class Nicle:
+    """[velikost] nicel brez drzanja v RAM (veliki podatki storitvenih blokov RAR)."""
+
+    def __init__(self, velikost: int):
+        self.velikost = int(velikost)
+
+    def beri(self, o: int, n: int) -> bytes:
+        return bytes(max(0, min(n, self.velikost - o)))
+
+
 class Bajti:
     def __init__(self, podatki: bytes):
         self.podatki, self.velikost = bytes(podatki), len(podatki)
@@ -185,6 +195,8 @@ class Objava:
         self.poslano = 0
         self.poslanih = 0
         self.manjka = set()  # message-id, ki jih »ponudnik nima« (430)
+        self.pokvarjeni = set()  # message-id s pokvarjenim telesom (CRC)
+        self.po_clanku = {}  # message-id -> kolikokrat poslan
 
     def dodaj(self, ime: str, vsebina) -> list:
         n = max(1, (vsebina.velikost + self.del_bajtov - 1) // self.del_bajtov)
@@ -205,8 +217,12 @@ class Objava:
         od = (st - 1) * self.del_bajtov
         kos = v.beri(od, self.del_bajtov)
         telo = Y.kodiraj(kos, ime, v.velikost, st, len(idji), od + 1)
+        if mid in self.pokvarjeni:  # en bajt podatkov drugacen: CRC se ne ujema
+            i = telo.index(b"\r\n", telo.index(b"=ypart")) + 2
+            telo = telo[:i] + (b"B" if telo[i] == 65 else b"A") + telo[i + 1:]
         self.poslano += len(telo)
         self.poslanih += 1
+        self.po_clanku[mid] = self.po_clanku.get(mid, 0) + 1
         return telo
 
     def telo(self, mid: str) -> bytes:

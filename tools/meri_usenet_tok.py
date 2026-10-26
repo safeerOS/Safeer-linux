@@ -65,7 +65,7 @@ def tek(mapa: str, opis: str, velikost: int, mbit: float, rar, skok: float, prof
     if hasattr(N, "nastavi_shrambo_zapaha"):
         N.nastavi_shrambo_zapaha(os.path.join(mapa, "zapah"))
     with mock.patch.object(TN, "CLANKI", o):
-        srv = TN.LazniStreznik(mapa)
+        srv = TN.LazniStreznik(mapa, rok_posiljanja=30.0)
         bazen = N.Bazen("127.0.0.1", srv.vrata, uporabnik=TN.UPORABNIK, geslo=TN.GESLO, povezav=8,
                         kontekst=ssl.create_default_context(cafile=os.path.join(mapa, "ca.pem")), rok=30.0)
         try:
@@ -92,7 +92,35 @@ def tek(mapa: str, opis: str, velikost: int, mbit: float, rar, skok: float, prof
             "priprava_s": round(t_prip, 2)}
 
 
+def zvezki(n: int = 600, velikost_zvezka: int = 100 * MiB) -> dict:
+    """Pregled Grok 58 T4: priprava izdaje z [n] zvezki RAR5 store (60 GB pri 600 x 100 MiB, leno). Meri vrh RAM
+    (tracemalloc, samo priprava - clanki brez streznika v istem procesu), promet in cas priprave."""
+    import tracemalloc
+    film = G.Leno(n * velikost_zvezka - 12345, 3)
+    o = G.Objava()
+    for i, z in enumerate(G.zvezki_leno(5, "Film.mkv", film, velikost_zvezka)):
+        o.dodaj("Film.part%03d.rar" % (i + 1), z)
+    nzb = NZ.razcleni(o.nzb())
+    o.poslano = 0
+    tracemalloc.start()
+    t0 = time.perf_counter()
+    try:
+        vir, priprava = B.pripravi(nzb, o.telo)
+        izid = "ok"
+    except Exception as e:  # noqa: BLE001 - meritev pove izid
+        vir, priprava, izid = None, o.poslano, getattr(e, "izid", type(e).__name__)
+    cas = time.perf_counter() - t0
+    _, vrh = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return {"zvezkov": n, "izid": izid, "vrh_ram_mib": round(vrh / MiB, 1), "promet_mib": round(o.poslano / MiB, 1),
+            "priprava_s": round(cas, 1), "film_gib": round(film.velikost / 1024 ** 3, 1)}
+
+
 def main() -> None:
+    if "--zvezki" in sys.argv:
+        for n in (15, 150, 600):
+            print(json.dumps(zvezki(n), ensure_ascii=False))
+        return
     with tempfile.TemporaryDirectory() as mapa:
         TN.ustvari_potrdila(mapa)
         izidi = [tek(mapa, *t) for t in TEKI]

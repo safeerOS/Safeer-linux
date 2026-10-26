@@ -39,6 +39,8 @@ PODPIS5 = b"Rar!\x1a\x07\x01\x00"
 NAJVEC_BLOKOV = 10_000
 NAJVEC_GLAVA5 = 2 * 1024 * 1024  # RAR5: glava najvec 2 MiB (specifikacija)
 NAJVEC_IME = 4096
+NAJVEC_VINT = (1 << 63) - 1
+NAJVEC_ZVEZKOV = 1_000_000
 
 _BeriT = Callable[[int, int], bytes]
 
@@ -96,6 +98,9 @@ def _vint(b: bytes, i: int) -> tuple:
         c = b[i + k]
         v |= (c & 0x7F) << premik
         if not c & 0x80:
+            # Vrednost nad 2^63 - 1 je nesmisel (Kotlin Long bi bil negativen - pregled Grok 61 W1): enako na obeh straneh.
+            if v > NAJVEC_VINT:
+                raise NapakaRar(POSKODOVAN)
             return v, i + k + 1
         premik += 7
     raise NapakaRar(POSKODOVAN)
@@ -149,8 +154,12 @@ def _rar4(beri: _BeriT, velikost: int) -> Zvezek:
                 if vel < 40:
                     raise NapakaRar(POSKODOVAN)
                 vp, vn = struct.unpack_from("<II", glava, 32)
+                if vp & 0x80000000 or vn & 0x80000000:
+                    raise NapakaRar(POSKODOVAN)  # nad 2^63 (Kotlin: negativna dolzina - Grok 61 W1)
                 paket, nestisnjeno, o = paket | vp << 32, nestisnjeno | vn << 32, 40
                 dodatno = paket
+            if paket > velikost - (i + vel):
+                raise NapakaRar(POSKODOVAN)  # podatki datoteke ne morejo segati cez zvezek
             if n_ime > NAJVEC_IME or o + n_ime > vel:
                 raise NapakaRar(POSKODOVAN)
             vnosi.append(Vnos(_ime(glava[o:o + n_ime], bool(zast & 0x0200)), i + vel, paket, nestisnjeno,
@@ -203,8 +212,8 @@ def _rar5(beri: _BeriT, velikost: int) -> Zvezek:
                 pod, k = _vint(h, k)
         except NapakaRar:
             raise NapakaRar(POSKODOVAN) from None
-        if dod > len(h) - k:
-            raise NapakaRar(POSKODOVAN)
+        if dod > len(h) - k or pod > velikost - (i + z + vel):
+            raise NapakaRar(POSKODOVAN)  # dodatni del v glavi, podatki v zvezku (Grok 61 W1)
         if vrsta == 4:
             raise NapakaRar(SIFRIRANE_GLAVE)
         if prvi_blok and vrsta != 1:
@@ -215,6 +224,8 @@ def _rar5(beri: _BeriT, velikost: int) -> Zvezek:
                 vec = bool(af & 0x1)
                 if af & 0x2:
                     stevilka, k = _vint(h, k)
+                    if stevilka > NAJVEC_ZVEZKOV:
+                        raise NapakaRar(POSKODOVAN)
                 elif vec:
                     stevilka = 0
             elif vrsta == 2:
@@ -283,14 +294,24 @@ def glavni_vnos(z: Zvezek) -> Optional[Vnos]:
 
 def preveri(prvi_bajti: bytes, velikost: Optional[int] = None) -> str:
     """Odlocitev PRED ponudbo iz prvih bajtov prvega zvezka (prvi segment): ok, stisnjen, sifriran, sifrirane_glave,
-    ni_rar, poskodovan, nepopolno (ni niti ene datoteke v prebranih bajtih), ni_datoteke. Skupni primeri rar_glava."""
+    ni_rar, poskodovan, nepopolno, ni_datoteke. Skupni primeri rar_glava.
+    Pregled Grok 58 T2: ce glave segajo cez prebrane bajte, odloci samo datoteka, ki je ocitno film - razdeljena cez
+    zvezke ali vsaj pol zvezka [velikost]; sicer (npr. store vzorec pred filmom) NEPOPOLNO in klicatelj prebere naprej
+    glave (z mejo) - prej je manjsi store vzorec dal OK in stisnjen film za njim ni bil nikoli preverjen."""
     try:
         z = razcleni_zvezek(prvi_bajti, velikost if velikost is not None else 1 << 62)
     except NapakaRar as e:
         return e.izid
+    return odloci(z, velikost)
+
+
+def odloci(z: Zvezek, velikost: Optional[int] = None) -> str:
+    """Odlocitev iz razclenjenih glav (preveri; pri celem seznamu glav tudi bralnik po branju naprej)."""
     v = glavni_vnos(z)
     if v is None:
         return NEPOPOLNO if z.nepopolno else NI_DATOTEKE
+    if z.nepopolno and not (v.razdeljen_po or (velikost is not None and v.velikost * 2 >= velikost)):
+        return NEPOPOLNO
     if v.sifriran:
         return SIFRIRAN
     if not v.store:
