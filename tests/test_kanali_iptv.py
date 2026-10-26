@@ -567,6 +567,30 @@ class Katalog(unittest.TestCase):
         self.assertEqual(osvezeni, ["si"])
 
 
+class ZastareliVirZnova(unittest.TestCase):
+    """Pregled 30, J9: vir s staro razclenitvijo, ki ga ni bilo mogoce prebrati, je ostal skrit do ponovnega zagona."""
+
+    def test_neuspela_ponovna_razclenitev_se_ponovi(self):
+        mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(mapa.cleanup)
+        mc = os_media.MediaCenter(mapa.name, roots=[], secret_decryptor=lambda v: "")
+        klici = []
+
+        def refresh_source(ident):
+            klici.append(ident)
+            raise OSError("brez povezave")
+        mc.refresh_source = refresh_source
+        mc._kanali_spremenjeni = lambda viri=False: None
+        mc._osvezi_zastarele_v_ozadju(["vir1"])
+        time.sleep(0.3)
+        mc._osvezi_zastarele_v_ozadju(["vir1"])                     # takoj: ne znova
+        time.sleep(0.3)
+        with mock.patch.object(os_media.MediaCenter, "ZASTARELI_ZNOVA_S", 0.0):
+            mc._osvezi_zastarele_v_ozadju(["vir1"])                 # po casu: znova
+            time.sleep(0.3)
+        self.assertEqual(klici, ["vir1", "vir1"])
+
+
 def _seznam_eng():
     return ["#EXTINF:-1 tvg-id=\"3ABNTVUganda.ug@SD\" group-title=\"Religious\",3ABN TV Uganda (720p)",
             "https://tok.primer.test/ug.m3u8",

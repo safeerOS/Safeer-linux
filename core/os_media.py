@@ -3202,9 +3202,16 @@ class MediaCenter:
         return any(isinstance(x, dict) and urllib.parse.urlsplit(str(x.get("url") or "")).path.lower().endswith((".m3u8", ".ts"))
                    for x in (source.get("vnosi") or [])[:50])
 
+    #: Vir, ki ga ni bilo mogoce prebrati znova (brez povezave, VPN), poskusimo spet ob odprtju kataloga po tem casu -
+    #: prej je ostal skrit do ponovnega zagona (pregled 30, J9).
+    ZASTARELI_ZNOVA_S = 600.0
+
     def _osvezi_zastarele_v_ozadju(self, idji: list) -> None:
         with self._lock:
-            novi = [i for i in idji if i not in self._zastareli_viri]
+            neuspeli = self.__dict__.setdefault("_zastareli_neuspeh", {})
+            zdaj = time.monotonic()
+            novi = [i for i in idji if i not in self._zastareli_viri
+                    and zdaj - neuspeli.get(i, -self.ZASTARELI_ZNOVA_S) >= self.ZASTARELI_ZNOVA_S]
             self._zastareli_viri.update(novi)
         if not novi:
             return
@@ -3214,6 +3221,9 @@ class MediaCenter:
                 try:
                     self.refresh_source(ident)
                 except Exception:  # noqa: BLE001
+                    with self._lock:
+                        self._zastareli_viri.discard(ident)
+                        neuspeli[ident] = time.monotonic()
                     continue
             self._kanali_spremenjeni(viri=True)
 
