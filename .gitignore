@@ -31,6 +31,7 @@ tests/*
 !tests/lazni_imap.py
 !tests/wayland_okolje.py
 !tests/zasebno_vodilo.py
+!tests/usenet_gradnja.py
 !tests/varovalo_niti.py
 !tests/skupni-primeri/
 !tests/varovalo_signalov.py
