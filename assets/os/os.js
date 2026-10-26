@@ -8653,6 +8653,8 @@
       if (!source.napaka && source.caka_uporabnika) status = t("katVirCaka");
       // Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden takoj, prva povezava ob odprtju seznama (core/os_media, prvo_uporaba).
       else if (!source.napaka && source.prvo_uporaba) status = t("katVirPrvo");
+      // Premor po zavrnitvi velja tudi za »Osvezi«: vrstica pove, cez koliko casa je nov poskus mogoc (pregled 68, Ą5).
+      if (source.premor_s) status += " · " + t("katVirPremor", { t: trajanjeBesedilo(Math.max(60, source.premor_s)) });
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
@@ -8681,11 +8683,26 @@
         row.appendChild(izbira);
         if (kat.tvIzbiraOdprta) naloziTvIzbiro(plosca);
       }
+      // Vir iz ozjega kroga se poveze samo, ko uporabnik odpre TA vir (core/os_media.odpri_vir; pregled 68, Ą4).
+      if (source.odpri) {
+        var odpri = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirOdpri")) + "</span>"); odpri.type = "button";
+        odpri.onclick = function () {
+          klic("mediaOdpriVir", [source.id]).then(function () {
+            $("katVirSporocilo").textContent = t("katOsvezi") + " …";
+            setTimeout(function () { naloziKatViri(); naloziKatalog(); }, 2500);
+          }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        };
+        row.appendChild(odpri);
+      }
       var refresh = el("button", "gumb-ikona", svg("ponovno")); refresh.type = "button"; refresh.title = t("katOsvezi");
       refresh.onclick = function () {
         $("katVirSporocilo").textContent = t("katOsvezi") + " …";
-        klic("mediaOsveziVir", [source.id]).then(function () { $("katVirSporocilo").textContent = t("katOsvezeno"); naloziKatViri(); naloziKatalog(); },
-                                                function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        klic("mediaOsveziVir", [source.id]).then(function (r) {
+          // Premor po zavrnitvi: brez zahteve, sporocilo pove, cez koliko casa je poskus mogoc (Ą5).
+          $("katVirSporocilo").textContent = r && r.premor_s
+            ? t("katVirPremor", { t: trajanjeBesedilo(Math.max(60, r.premor_s)) }) : t("katOsvezeno");
+          naloziKatViri(); naloziKatalog();
+        }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
       };
       row.appendChild(refresh);
       // Vticniki strežnika Jellyfin (samo, ce most to zna - core/os_katalog.py doda oznako »vticniki«).

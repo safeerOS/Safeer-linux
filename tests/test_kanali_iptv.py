@@ -734,9 +734,15 @@ class ZavrnjenSeznam(unittest.TestCase):
         vir = next(v for v in self.mc.sources() if v["id"] == "xt")
         self.assertEqual(vir["zavrnjen"]["koda"], 403)          # stran pokaze katVirZavrnjen (6 jezikov)
         self.assertTrue(vir["napaka"])
-        # Rocna osvezitev velja takoj; ko ponudnik seznam spet da, oznake ni vec.
+        # Pregled 68, Ą5: tudi rocna osvezitev spostuje premor (ni zahteve, odgovor pove cas); ko premor mine in ponudnik
+        # seznam spet da, oznake ni vec.
         self.mc._download = lambda url: (b"#EXTM3U\n#EXTINF:-1 tvg-id=\"K1.si\",Kanal 1\n"
                                          b"http://ponudnik.test:8080/live/u/g/1.ts\n", "audio/x-mpegurl", url)
+        prenosov = len(self.prenosi)
+        odgovor = self.mc.refresh_source("xt")
+        self.assertEqual((odgovor["ok"], odgovor["napaka"], odgovor["premor_s"] > 0), (False, "premor", True))
+        self.assertEqual(len(self.prenosi), prenosov)
+        self._postaraj(24 * 3600 + 1)
         self.assertTrue(self.mc.refresh_source("xt")["ok"])
         self.assertNotIn("zavrnjen", self._vir())
 
@@ -833,12 +839,15 @@ class ZavrnjenSeznam(unittest.TestCase):
                 self.assertFalse(self.mc.refresh_source("xt")["ok"])
                 self.assertNotIn("zavrnjen", self._vir(), poskus)
             for poskus, n in ((3, 1), (4, 2), (5, 3), (6, 4), (7, 4)):
+                if poskus > 3:
+                    self._postaraj(24 * 3600 + 1)           # premor je pretekel (Ą5: »Osvezi« ga spostuje)
                 self.assertFalse(self.mc.refresh_source("xt")["ok"])
                 self.assertEqual((self._vir()["zavrnjen"]["koda"], self._vir()["zavrnjen"]["n"]), (0, n), poskus)
         self.assertGreater(self.mc._zavrnjen_do(self._vir()), time.time())          # samodejno ne prej
         # Ponudnik spet da seznam: oznaki sta pozabljeni.
         self.mc._download = lambda url: (b"#EXTM3U\n#EXTINF:-1 tvg-id=\"K1.si\",Kanal 1\nhttp://ponudnik.test:8080/live/u/g/1.ts\n",
                                          "audio/x-mpegurl", url)
+        self._postaraj(24 * 3600 + 1)
         self.assertTrue(self.mc.refresh_source("xt")["ok"])
         self.assertTrue(set(self._vir()).isdisjoint({"zavrnjen", "ni_povezave"}))
 

@@ -2857,6 +2857,14 @@ class MediaCenter:
                 vir = {k: value for k, value in source.items() if k != "vnosi"}
                 # Na zaslonu cel naslov samo pozitivno znanega javnega vira, drugo samo gostitelj (pregled 46, Ö1).
                 vir["url_prikaz"] = viri_sink.prikaz_naslova(source.get("url"), source.get("javni") is True)
+                if self._racun_vira(source):
+                    ostane = self._zavrnjen_do(source) - time.time()
+                    if ostane > 0:
+                        vir["premor_s"] = int(ostane) + 1       # vrstica pove, cez koliko casa je nov poskus mogoc (Ą5)
+                if (source.get("ozji_krog") and not source.get("caka_uporabnika") and "premor_s" not in vir
+                        and (source.get("prvo_uporaba")
+                             or time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S)):
+                    vir["odpri"] = True                         # gumb »Odpri«: povezava samo za ta vir (Ą4)
                 kanali = self._statistika_kanalov(source)
                 if kanali is not None:
                     # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov. Steje, kar je vidno: delujoci in
@@ -3260,8 +3268,8 @@ class MediaCenter:
     #: Vir z racunom, pri katerem tolikokrat zapored ni bilo povezave (koda 0), dobi isti rastoci premor (Ê1).
     NI_POVEZAVE_ZAPORED = 3
     #: Vir iz ozjega kroga (lastnik, 26. 10. 2026: »v ozadju se ne osvezuje«): po prvi uporabi velja prebran seznam 24 h.
-    #: To je MEJA, ne sprozilec (pregled 68, Ą1): osvezitev sprozi samo uporabnik - odprtje seznama (katalog), ko je
-    #: seznam starejsi od 24 h, ali »Osvezi«; refresh_stale in refresh_all vira ne kazeta nikoli. Vsaka osvezitev, tudi
+    #: To je MEJA, ne sprozilec (pregled 68, Ą1): osvezitev sprozi samo uporabnik - odprtje TEGA vira (odpri_vir; ne
+    #: katalog, Ą4), ko je seznam starejsi od 24 h, ali »Osvezi«; refresh_stale vira ne kazeta nikoli. Vsaka osvezitev, tudi
     #: uporabnikova, je najvec ena na minuto. Meje veljajo na napravo: usklajevanja med napravami ni, zato dnevne
     #: osvezitve v ozadju na vsaki napravi ne bi smeli imeti (N naprav = N prijav na dan z razlicnih naslovov IP).
     OZJI_KROG_PREDPOMNILNIK_S = 24 * 3600.0
@@ -3278,8 +3286,23 @@ class MediaCenter:
             return 0.0
         return ob + self.ZAVRNJEN_PREMORI_S[min(max(n, 1), len(self.ZAVRNJEN_PREMORI_S)) - 1]
 
-    def _prvo_uporaba_v_ozadju(self, viri: list) -> None:
-        """Povezava vira iz ozjega kroga ob uporabnikovem odprtju seznama (katalog; lastnik, 26. 10. 2026): prva, nato
+    def odpri_vir(self, source_id: str) -> dict:
+        """Uporabnik je odprl TA vir (vrstica v Virih; pregled 68, Ą4). Vir iz ozjega kroga, ki se se ni prebral ali je
+        prebran pred vec kot 24 h, dobi eno povezavo v ozadju (premor, 1/min in »ena naenkrat« veljajo); drug vir ali vir
+        v predpomnilniku ne naredi nic. Vrne {"ok": True, "zacet": bool}."""
+        with self._lock:
+            source = next((s.copy() for s in self._load().get("viri", []) if s.get("id") == source_id), None)
+        if source is None:
+            return {"ok": False, "napaka": "ni_vira", "zacet": False}
+        if not source.get("ozji_krog") or source.get("caka_uporabnika"):
+            return {"ok": True, "zacet": False}
+        stara = time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S
+        if not (source.get("prvo_uporaba") or stara):
+            return {"ok": True, "zacet": False}
+        return {"ok": True, "zacet": bool(self._prvo_uporaba_v_ozadju([source]))}
+
+    def _prvo_uporaba_v_ozadju(self, viri: list) -> list:
+        """Povezava vira iz ozjega kroga ob uporabnikovem odprtju tega vira (odpri_vir; lastnik, 26. 10. 2026): prva, nato
         sele ko je prebrani seznam starejsi od 24 h (pregled 68, Ą1: nikoli iz ozadja). Ena zahteva na vir; ne med
         premorom po napaki (_zavrnjen_do), ne ce ze tece ena in ne pogosteje kot na minuto. Uspeh odstrani oznako
         prvo_uporaba, napaka jo pusti (premor se daljsa v refresh_source)."""
@@ -3297,7 +3320,7 @@ class MediaCenter:
                 poskusi[ident] = zdaj
             v_teku.update(novi)
         if not novi:
-            return
+            return []
 
         def delo() -> None:
             for ident in novi:
@@ -3311,6 +3334,7 @@ class MediaCenter:
             self._kanali_spremenjeni(viri=True)
 
         threading.Thread(target=delo, name="media-prva-uporaba", daemon=True).start()
+        return novi
 
     def _osvezi_zastarele_v_ozadju(self, idji: list) -> None:
         with self._lock:
@@ -3326,7 +3350,7 @@ class MediaCenter:
             for ident in novi:
                 try:
                     odgovor = self.refresh_source(ident)
-                    uspeh = bool(odgovor.get("ok")) and not odgovor.get("predpomnjeno")
+                    uspeh = bool(odgovor.get("ok")) and not odgovor.get("predpomnjeno") and not odgovor.get("ze_tece")
                 except Exception:  # noqa: BLE001
                     uspeh = False
                 if not uspeh:
@@ -3351,20 +3375,15 @@ class MediaCenter:
         izid: list[dict] = []
         za_preverbo: list[tuple] = []
         zastareli: list[str] = []
-        prvi: list[dict] = []
         izbira: Optional[dict] = None
         for source in data.get("viri", []):
             if isinstance(source, dict) and source.get("prvo_uporaba"):
-                # Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden, a prazen do prve uporabe. Odprtje seznama (preveri:
-                # katalog, ne iskalnik ali stevci) je prva povezava; v ozadju (refresh_stale, zastarela razclenitev) ne.
-                if preveri:
-                    prvi.append(source)
+                # Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden, a prazen do prve uporabe. Povezavo sprozi samo
+                # uporabnikovo odprtje TEGA vira (odpri_vir; pregled 68, Ą4), nikoli katalog: ta bi ob odprtju katere koli
+                # kategorije prijavil vse cakajoce vire hkrati.
                 continue
             if not isinstance(source, dict) or source.get("caka_uporabnika"):
                 continue                    # prejet vir z racunom ima prazen seznam do uporabnikove osvezitve (Ñ2)
-            if (preveri and source.get("ozji_krog")
-                    and time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S):
-                prvi.append(source)         # prebran seznam je starejsi od 24 h: osvezi ga uporabnikovo odprtje (Ą1)
             if self._zastarela_razclenitev(source):
                 if time.time() >= self._zavrnjen_do(source):
                     zastareli.append(str(source.get("id") or ""))
@@ -3397,8 +3416,6 @@ class MediaCenter:
                     continue
                 izid.append(item)
             izid.extend(serije.values())
-        if prvi:
-            self._prvo_uporaba_v_ozadju(prvi)
         if zastareli and preveri:
             self._osvezi_zastarele_v_ozadju([z for z in zastareli if z])
         if za_preverbo:
@@ -4440,6 +4457,22 @@ class MediaCenter:
         return not (viri_sink.verjetno_racun_seznama(source.get("url")) or viri_sink.verjetno_racun_seznama(final_url))
 
     def refresh_source(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
+        """Osvezi vir. Najvec ena osvezitev istega vira naenkrat (pregled 68, Ą5): sociasen »Osvezi« in prva uporaba ali
+        osvezitev v ozadju bi sicer poslala ponudniku dve prijavi z geslom - drugi klic vrne {"ze_tece": True} brez zahteve."""
+        if source_id.startswith("streznik-"):
+            return self._refresh_source_ena(source_id, dovoli_vdelavo)
+        with self._lock:
+            tece = self.__dict__.setdefault("_osvezuje_vire", set())
+            if source_id in tece:
+                return {"ok": False, "napaka": "", "ze_tece": True}
+            tece.add(source_id)
+        try:
+            return self._refresh_source_ena(source_id, dovoli_vdelavo)
+        finally:
+            with self._lock:
+                tece.discard(source_id)
+
+    def _refresh_source_ena(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
         if source_id.startswith("streznik-"):
             with self._lock:
                 self._server_cache = {key: value for key, value in self._server_cache.items()
@@ -4450,6 +4483,13 @@ class MediaCenter:
                            if item.get("id") == source_id), None)
         if source is None:
             return {"ok": False, "napaka": "ni_vira"}
+        if self._racun_vira(source):
+            # Pregled 68, Ą5 (lastnikova prednost: nikoli zaklep racuna): premor po zavrnitvi velja tudi za uporabnikov
+            # »Osvezi«. Prej je rocna osvezitev premor obsla (10 klikov = 10 prijav na racun, ki ga je ponudnik ze zavrnil).
+            ostane = self._zavrnjen_do(source) - time.time()
+            if ostane > 0:
+                return {"ok": False, "napaka": "premor", "premor_s": int(ostane) + 1,
+                        "vir": {k: v for k, v in source.items() if k != "vnosi"}}
         if source.get("ozji_krog"):
             # Vir iz ozjega kroga: najvec ena zahteva na minuto, ne glede na to, kdo jo sprozi (uporabnik, katalog, ozadje).
             try:
