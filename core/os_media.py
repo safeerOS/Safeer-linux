@@ -2240,8 +2240,9 @@ class MediaCenter:
         with self._lock:
             vsi = [x for x in self._seznami_beri() if not x.get("zaseben")]   # seznami racuna YouTube ostanejo tukaj
             if not ime:
-                return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
-                                        "stevilo": len(x["skladbe"])} for x in vsi],
+                # Vir seznama z naslovom (geslom) samo ozjemu krogu (pregled 46, Ö2; enako core/link_seznami.py).
+                return dict({"lists": [{"ime": x["ime"], "vir": viri_sink.vir_seznama_za(x.get("vir"), ozji),
+                                        "cas": int(x.get("cas") or 0), "stevilo": len(x["skladbe"])} for x in vsi],
                              "deleted": self._izbrisani_beri()}, **self.viri_izvoz(ozji))
             sz = next((x for x in vsi if x["ime"] == ime), None)
         if not sz:
@@ -2254,8 +2255,8 @@ class MediaCenter:
         # Prijava streznika ne gre na druge naprave (enako core/link_seznami.py, skladba_za_napravo).
         skladbe = [{k: c[k] for k in polja if k in c} for c in
                    (viri_sink.skladba_za(s, ozji) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
-        return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
-                "od": od, "skladbe": skladbe}
+        return {"ime": sz["ime"], "vir": viri_sink.vir_seznama_za(sz.get("vir"), ozji), "cas": int(sz.get("cas") or 0),
+                "stevilo": len(sz["skladbe"]), "od": od, "skladbe": skladbe}
 
     def seznami_uskladi(self, vprasaj) -> bool:
         """Prevzame novejse sezname, izbrise in Moje vire ene naprave v Linku (vprasaj(parametri) -> data ukaza

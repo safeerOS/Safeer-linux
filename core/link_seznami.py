@@ -68,13 +68,14 @@ def _viri(koren: str, ozji: bool = False) -> dict:
 def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None, ozji: bool = False) -> dict:
     """Odgovor na `lists.get`: kazalo seznamov ({}) ali ena stran skladb seznama ({"ime", "od"}). `ozji`: sprasuje
     naprava v ozjem krogu tega racunalnika (core/link_dostop.v_ozjem_krogu) - samo ta dobi vire in tokove z racunom."""
+    from core import viri_sink        # vir seznama z naslovom (geslom) samo ozjemu krogu (pregled 46, Ö2)
     parametri = parametri if isinstance(parametri, dict) else {}
     koren = koren or mapa()
     ime = str(parametri.get("ime") or "")
     vsi = _seznami(koren)
     if not ime:
-        return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
-                                "stevilo": len(x["skladbe"])} for x in vsi],
+        return dict({"lists": [{"ime": x["ime"], "vir": viri_sink.vir_seznama_za(x.get("vir"), ozji),
+                                "cas": int(x.get("cas") or 0), "stevilo": len(x["skladbe"])} for x in vsi],
                      "deleted": _izbrisani(koren)}, **_viri(koren, ozji))
     sz = next((x for x in vsi if x["ime"] == ime), None)
     if not sz:
@@ -84,5 +85,5 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None, ozji: b
     except (TypeError, ValueError):
         od = 0
     skladbe = [skladba_za_napravo(s, ozji) for s in sz["skladbe"][od:od + STRAN] if isinstance(s, dict)]
-    return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
-            "od": od, "skladbe": skladbe}
+    return {"ime": sz["ime"], "vir": viri_sink.vir_seznama_za(sz.get("vir"), ozji), "cas": int(sz.get("cas") or 0),
+            "stevilo": len(sz["skladbe"]), "od": od, "skladbe": skladbe}

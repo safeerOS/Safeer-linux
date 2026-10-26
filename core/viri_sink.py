@@ -22,6 +22,7 @@ Pravila:
 """
 from __future__ import annotations
 
+import json
 import re
 import urllib.parse
 from typing import Optional
@@ -253,13 +254,81 @@ def viri_za(izvoz: object, ozji: bool = False) -> dict:
     return {"sources": [c for c, _z in viri][:NAJVEC_VIROV], "sources_deleted": izbrisi}
 
 
+#: Gostitelji slik, ki so pozitivno javni (ovitki YouTube in Spotify iz uvoza seznamov, core/uvoz_seznama.py): taka
+#: slika skladbe gre tudi napravi zunaj ozjega kroga. Druge (logotip ponudnika IPTV, ovitek osebnega streznika) samo
+#: ozjemu krogu (pregled 46, Ö2).
+JAVNE_SLIKE = frozenset({"i.ytimg.com", "img.youtube.com", "i.scdn.co", "mosaic.scdn.co", "image-cdn-ak.spotifycdn.com",
+                         "image-cdn-fa.spotifycdn.com"})
+_NASLOV_V_BESEDILU = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>\\]+")
+#: Ime polja ali parametra z racunom v zapisu Androida (JSON ali poizvedba): username, password, token, mac ...
+_RACUN_V_BESEDILU = re.compile(r"(?i)\b(user(name)?|pass(word|wd)?|pwd|login|token|access_token|private_token|api_?key|"
+                               r"auth|mac)[\"']?\s*[:=]")
+
+
+def javna_slika(naslov: object) -> bool:
+    """Slika z znanega javnega gostitelja (JAVNE_SLIKE), https, brez prijave ali racuna v naslovu - ali znan javen vir."""
+    besedilo = naslov if isinstance(naslov, str) else ""
+    if not besedilo.startswith("https://") or not besedilo.isprintable() or " " in besedilo:
+        return False
+    from . import kanali_iptv
+    if ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True):
+        return False
+    try:
+        gostitelj = (urllib.parse.urlsplit(besedilo).hostname or "").lower()
+    except ValueError:
+        return False
+    return gostitelj in JAVNE_SLIKE or znan_javen(besedilo)
+
+
+def zapis_androida_javen(zapis: object) -> bool:
+    """Zapis naprave Android (`android`, ki ga racunalnik le prenese naprej) sme napravi zunaj ozjega kroga samo, ce v
+    njem ni racuna (username=, "password": ...) in so vsi naslovi v njem pozitivno javni. Zapis JSON se pred tem
+    razcleni in zapise znova brez ubeznic (\\/ in \\u003d ne skrijeta naslova ali gesla)."""
+    besedilo = zapis if isinstance(zapis, str) else ""
+    try:
+        besedilo = json.dumps(json.loads(besedilo), ensure_ascii=False)
+    except ValueError:
+        besedilo = besedilo.replace("\\/", "/")
+    except RecursionError:
+        return False                    # pregloboko gnezden zapis: ne vemo, kaj je notri - ob dvomu ne
+    if _RACUN_V_BESEDILU.search(besedilo):
+        return False
+    naslovi = _NASLOV_V_BESEDILU.findall(besedilo)
+    if besedilo.count("//") != len(naslovi):
+        return False                    # naslov brez sheme (//gostitelj/...) ali nerazumljiv zapis
+    return all(znan_javen(n) or javna_slika(n) for n in naslovi)
+
+
+def vir_seznama_za(vir: object, ozji: bool = False) -> str:
+    """Polje »vir« seznama predvajanja za drugo napravo (pregled 46, Ö2): ozjemu krogu nespremenjeno, drugim samo kratka
+    oznaka (YouTube, Spotify ...) - ce je v njem naslov, samo gostitelj (prikaz_naslova; seznam z druge naprave ima
+    lahko v viru naslov seznama z geslom)."""
+    vir = str(vir or "")
+    if ozji:
+        return vir
+    if len(vir) <= 80 and vir.isprintable() and not any(z in vir for z in "/:@?=&%#\\"):
+        return vir
+    return prikaz_naslova(vir)
+
+
 def skladba_za(s: object, ozji: bool = False) -> object:
-    """Skladba seznama za drugo napravo: brez prijave streznika (cista_skladba); tok z racunom ponudnika (Xtream:
-    uporabnik in geslo v naslovu) samo napravi v ozjem krogu - druga dobi skladbo brez naslova toka."""
+    """Skladba seznama za drugo napravo: brez prijave streznika (cista_skladba). Napravi zunaj ozjega kroga samo
+    pozitivno javna polja (pregled 46, Ö1, Ö2): tok samo znan javen (znan_javen), slika in ozadje samo z znanih javnih
+    gostiteljev (javna_slika), zapis Androida samo brez racuna (zapis_androida_javen), naslov ali izvajalec z naslovom
+    v besedilu samo z gostiteljem."""
     cista = cista_skladba(s)
-    if not ozji and isinstance(cista, dict) and za_ozji_krog(cista.get("url")):
-        cista = {k: v for k, v in cista.items() if k != "url"}
-    return cista
+    if ozji or not isinstance(cista, dict):
+        return cista
+    izid = {k: v for k, v in cista.items() if not (k == "url" and not znan_javen(v))}
+    for polje in ("slika", "ozadje"):
+        if izid.get(polje) and not javna_slika(izid[polje]):
+            del izid[polje]
+    if "android" in izid and not zapis_androida_javen(izid["android"]):
+        del izid["android"]
+    for polje in ("naslov", "izvajalec"):
+        if isinstance(izid.get(polje), str) and "://" in izid[polje]:
+            izid[polje] = _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), izid[polje])
+    return izid
 
 
 def cista_skladba(s: object) -> object:

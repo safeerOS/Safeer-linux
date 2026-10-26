@@ -222,6 +222,62 @@ class ObDvomuOzjiKrog(unittest.TestCase):
                          {"sources": [], "sources_deleted": {}})
 
 
+class PoljaSeznamaZunajOzjegaKroga(unittest.TestCase):
+    """Pregled 46, Ö2: polje »vir« seznama (kazalo in stran) je slo vsem napravam nespremenjeno, pri skladbi z racunom
+    se je odstranil samo `url` - slika (logotip ponudnika z username=), zapis Androida in naslov z naslovom toka so
+    ostali. Napravi zunaj ozjega kroga gredo samo pozitivno javna polja."""
+
+    LOGO = "http://ponudnik.test:8080/images/logo.png?username=uporabnik&password=skrito-geslo"
+    ANDROID = '{"url":"http:\\/\\/ponudnik.test:8080\\/live\\/uporabnik\\/skrito-geslo\\/1.ts","ime":"Kanal"}'
+    GSON = '{"u":"http://ponudnik.test/k.ts?username\\u003duporabnik\\u0026password\\u003dskrito-geslo"}'
+    YT = {"naslov": "Pesem", "izvajalec": "Pevka", "youtube": "59o4m222aVw", "sekund": 200,
+          "slika": "https://i.ytimg.com/vi/59o4m222aVw/mqdefault.jpg",
+          "android": '{"slika":"https:\\/\\/i.ytimg.com\\/vi\\/59o4m222aVw\\/mqdefault.jpg"}'}
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        skladbe = [{"naslov": KANAL_XTREAM, "url": KANAL_XTREAM, "slika": self.LOGO, "android": self.ANDROID},
+                   {"naslov": "Kanal 2", "izvajalec": "Ponudnik " + KANAL_XTREAM, "android": self.GSON}, self.YT]
+        with open(os.path.join(self.mapa.name, "seznami.json"), "w", encoding="utf-8") as f:
+            json.dump([{"ime": "TV", "vir": XTREAM, "cas": 7, "skladbe": skladbe},
+                       {"ime": "Glasba", "vir": "YouTube", "cas": 8, "skladbe": [self.YT]}], f)
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[])
+
+    def test_vir_seznama_in_polja_skladbe_brez_gesla(self):
+        for parametri in ({}, {"ime": "TV"}):
+            for ozji in (False, True):
+                with self.subTest(parametri=parametri, ozji=ozji):
+                    izvoz = link_seznami.izvoz(parametri, self.mapa.name, ozji=ozji)
+                    self.assertEqual(izvoz, self.mc.seznami_izvoz(parametri, ozji=ozji))
+                    self.assertEqual("skrito-geslo" in json.dumps(izvoz), ozji)
+        kazalo = link_seznami.izvoz({}, self.mapa.name)
+        self.assertEqual([(x["ime"], x["vir"]) for x in kazalo["lists"]], [("TV", "ponudnik.test:8080"), ("Glasba", "YouTube")])
+        stran = link_seznami.izvoz({"ime": "TV"}, self.mapa.name)
+        self.assertEqual(stran["vir"], "ponudnik.test:8080")
+        kanal, drugi, yt = stran["skladbe"]
+        self.assertEqual(kanal, {"naslov": "ponudnik.test:8080"})
+        self.assertEqual(drugi, {"naslov": "Kanal 2", "izvajalec": "Ponudnik ponudnik.test:8080"})
+        self.assertEqual(yt, self.YT)                                       # javna slika in zapis z javno sliko ostaneta
+
+    def test_ozji_krog_dobi_vse(self):
+        stran = link_seznami.izvoz({"ime": "TV"}, self.mapa.name, ozji=True)
+        self.assertEqual(stran["vir"], XTREAM)
+        self.assertEqual((stran["skladbe"][0]["url"], stran["skladbe"][0]["slika"], stran["skladbe"][0]["android"]),
+                         (KANAL_XTREAM, self.LOGO, self.ANDROID))
+
+    def test_pravila_polj(self):
+        self.assertEqual(viri_sink.vir_seznama_za("Spotify"), "Spotify")
+        self.assertEqual(viri_sink.vir_seznama_za("Seznam: " + XTREAM), "")
+        self.assertEqual(viri_sink.vir_seznama_za(XTREAM, True), XTREAM)
+        self.assertFalse(viri_sink.zapis_androida_javen('{"password": "skrito-geslo"}'))
+        self.assertFalse(viri_sink.zapis_androida_javen("//ponudnik.test/live/uporabnik/skrito-geslo/1.ts"))
+        self.assertFalse(viri_sink.zapis_androida_javen(self.GSON))
+        self.assertTrue(viri_sink.zapis_androida_javen('{"naslov": "Pesem", "avtor": "Pevka"}'))
+        self.assertFalse(viri_sink.javna_slika("http://i.ytimg.com/vi/x/hq.jpg"))           # samo https
+        self.assertFalse(viri_sink.javna_slika("https://i.ytimg.com.ponudnik.test/x.jpg"))
+
+
 class ControlTests(unittest.TestCase):
     def test_control_odgovori_na_lists_get(self):
         izidi = []
