@@ -33,8 +33,19 @@ _log = logging.getLogger("safeer.usenet")
 VRATA = 563
 PRIVZETO_POVEZAV = 8
 NAJVEC_POVEZAV = 50
-NAJVEC_TELO_BAJTOV = 16 * 1024 * 1024
+#: Telo clanka (surovo). Izmerjeno 25. 10. 2026 na 5 pravih NZB (prototip): clanek povprecno 384-719 KiB;
+#: 4 MiB je vec kot 5x najvecji, a 8 povezav x 4 MiB se vedno ustreze pomnilniku TV (skupni primeri: telo_bajtov).
+NAJVEC_TELO_BAJTOV = 4 * 1024 * 1024
 NAJVEC_VRSTICA_BAJTOV = 4096  # RFC 3977: odgovor najvec 512 oktetov - vec je napaka ali napad
+NAJVEC_POVERILNICA_BAJTOV = 400  # RFC 3977: ukaz najvec 512 oktetov z »AUTHINFO PASS « in CRLF
+#: Prosta povezava, nedejavna dlje od tega, se zapre (RFC 3977 priporoca vsaj 3 min; ponudniki zapirajo prej).
+PROSTA_NAJDLJE_S = 60.0
+#: Premor novih povezav po »prevec povezav« (ali zacasni napaki streznika): od 10 s, podvojen do 300 s.
+PREMOR_OD_S = 10.0
+PREMOR_BREZ_ODPRTIH_S = 60.0  # ni nobene druge odprte povezave, ki bi se sprostila
+PREMOR_DO_S = 300.0
+#: Bazen, zmanjsan zaradi meje povezav, po 10 min brez nove meje spet dobi eno mesto (druga naprava je morda koncala).
+RAST_BAZENA_S = 600.0
 ROK_POVEZAVE_S = 10.0
 ROK_ZAHTEVE_S = 30.0
 _BERI = 256 * 1024
@@ -47,6 +58,7 @@ ZASEDEN = "zaseden"
 NAPAKA_STREZNIKA = "napaka_streznika"
 NAPAKA_PROTOKOLA = "napaka_protokola"
 ZAPRTO = "zaprto"
+DOSTOP = "dostop"
 OMREZJE = "omrezje"
 ROK = "rok"
 POTRDILO = "potrdilo"
@@ -54,6 +66,25 @@ POTRDILO = "potrdilo"
 _OK = {"POZDRAV": (200, 201), "AUTHINFO USER": (281,), "AUTHINFO PASS": (281,), "ARTICLE": (220,), "HEAD": (221,),
        "BODY": (222,), "STAT": (223,), "QUIT": (205,)}
 _CLANEK = ("ARTICLE", "HEAD", "BODY", "STAT")
+_AUTHINFO = ("AUTHINFO USER", "AUTHINFO PASS")
+_MEJA = ("too many", "limit", "max", "exceed", "no more")
+_ZAKLEP = ("lock", "ban", "block", "attempt", "suspend", "expire", "disable")
+_NI_MEJA = ("fail", "pass", "invalid", "incorrect", "wrong") + _ZAKLEP
+
+# Faze povezave za ukrep_bazena: povezava (TCP, TLS, pozdrav - nic AUTHINFO), prijava (od AUTHINFO USER do 281), ukaz.
+FAZA_POVEZAVA = "povezava"
+FAZA_PRIJAVA = "prijava"
+FAZA_UKAZ = "ukaz"
+
+# Ukrepi bazena (skupni primeri nntp_ukrep).
+VRNI = "vrni"
+ZNOVA = "znova"
+NAPAKA = "napaka"
+ZMANJSAJ_POCAKAJ = "zmanjsaj_pocakaj"
+POCAKAJ = "pocakaj"
+NEZNANA_PRIJAVA = "neznana_prijava"
+USTAVI_RACUN = "ustavi_racun"
+USTAVI_BAZEN = "ustavi_bazen"
 
 
 class NapakaNntp(Exception):
@@ -80,30 +111,116 @@ def koda_vrstice(vrstica: str) -> Optional[int]:
     return int(vrstica[:3])
 
 
-def izid_odgovora(ukaz: str, vrstica: str) -> str:
+def meja_povezav(besedilo: str) -> bool:
+    """Ali besedilo odgovora jasno pove mejo povezav (»too many connections«). Ce omenja tudi napacno prijavo ali
+    zaklep, NI meja: dvom pomeni zavrnjeno prijavo, ki se ne ponovi (lastnik 26. 10. 2026: zaklep je prioriteta)."""
+    t = besedilo.lower()
+    if any(b in t for b in _NI_MEJA):
+        return False
+    return "connection limit" in t or ("connections" in t and any(b in t for b in _MEJA))
+
+
+def izid_odgovora(ukaz: str, vrstica: str, prijava_uspela: bool = False) -> str:
     """Statusna vrstica odgovora na [ukaz] -> izid. Ukazi: POZDRAV, AUTHINFO USER, AUTHINFO PASS, ARTICLE, HEAD, BODY,
-    STAT, QUIT."""
+    STAT, QUIT. Pri AUTHINFO je vse razen 281/381 in meje povezav PRIJAVA (RFC 4643 2.3.2: 481 zavrnjeno, 482 napacen
+    vrstni red, 502 ni dovoljeno) - »481 Authentication failed for this connection« ni meja povezav. [prijava_uspela]:
+    ista prijava je v bazenu ze uspela in prijavljena povezava je odprta - takrat je 480/481/502 meja povezav (ponudnik,
+    uradna pomoc: prevec povezav = napaka prijave 480), razen ce besedilo omenja zaklep ali poskuse."""
     koda = koda_vrstice(vrstica)
+    avtor = ukaz in _AUTHINFO
     if koda is None:
-        return NAPAKA_PROTOKOLA
+        return PRIJAVA if avtor else NAPAKA_PROTOKOLA
     if koda in _OK.get(ukaz, ()):
         return OK
     if ukaz == "AUTHINFO USER" and koda == 381:
         return GESLO
-    # Ponudniki »prevec povezav« javljajo z razlicnimi kodami (400, 481, 482, 502), besedilo pa vedno omeni povezave.
-    if koda in (400, 481, 482, 502) and "connection" in vrstica[4:].lower():
+    if koda in (400, 480, 481, 482, 502) and meja_povezav(vrstica[4:]):
         return ZASEDEN
+    if avtor:
+        zaklep = any(b in vrstica[4:].lower() for b in _ZAKLEP)
+        return ZASEDEN if prijava_uspela and koda in (480, 481, 502) and not zaklep else PRIJAVA
     if koda in (423, 430) and ukaz in _CLANEK:
         return NI_CLANKA
-    if koda in (480, 481, 482) or (koda == 502 and ukaz.startswith("AUTHINFO")):
+    if koda in (480, 481, 482):
         return PRIJAVA
-    if koda in (400, 502):
-        return ZASEDEN
+    if koda == 400:
+        return NAPAKA_STREZNIKA if ukaz == "POZDRAV" else ZAPRTO  # RFC 3977: zacasno / streznik zapira povezavo
+    if koda == 502:
+        return DOSTOP  # RFC 3977: trajno ali brez pravic - ponovitev ne pomaga
     if koda == 403:
         return NAPAKA_STREZNIKA
     if koda == 205:
         return ZAPRTO
     return NAPAKA_PROTOKOLA
+
+
+def ukrep_bazena(izid: str, faza: str, stara: bool, poskus: int) -> str:
+    """Kaj bazen naredi po napaki [izid] v [faza] (skupni primeri nntp_ukrep; Android isto). [stara] = povezava iz
+    bazena, [poskus] 0 ali 1. Ponovitev (ZNOVA) je vedno z novo povezavo; po AUTHINFO nikoli ponovitev v zanki."""
+    if faza == FAZA_POVEZAVA:
+        if izid == OMREZJE:
+            return ZNOVA if poskus == 0 else NAPAKA
+        return {ZASEDEN: ZMANJSAJ_POCAKAJ, NAPAKA_STREZNIKA: POCAKAJ, DOSTOP: USTAVI_BAZEN, POTRDILO: USTAVI_BAZEN,
+                PRIJAVA: USTAVI_RACUN}.get(izid, NAPAKA)
+    if faza == FAZA_PRIJAVA:
+        if izid == ZASEDEN:
+            return ZMANJSAJ_POCAKAJ
+        if izid in (OMREZJE, ROK, ZAPRTO, NAPAKA_PROTOKOLA):
+            return NEZNANA_PRIJAVA  # geslo je morda prislo do streznika, odgovora pa ni
+        return USTAVI_RACUN
+    if izid == NI_CLANKA:
+        return VRNI
+    if izid == PRIJAVA:
+        return USTAVI_RACUN
+    if izid in (DOSTOP, POTRDILO):
+        return USTAVI_BAZEN
+    if izid == ZASEDEN:
+        return ZNOVA if stara and poskus == 0 else ZMANJSAJ_POCAKAJ
+    if izid in (OMREZJE, NAPAKA_STREZNIKA):
+        return ZNOVA if poskus == 0 else NAPAKA
+    return ZNOVA if stara and poskus == 0 else NAPAKA
+
+
+def sme_odpreti(ustavljen: bool, premor: bool, odprtih: int, najvec: int, uspela: bool, sonda: bool) -> bool:
+    """Ali bazen sme odpreti novo povezavo (skupni primeri nntp_sme_odpreti): dokler prijava ni uspela (ali ni nobena
+    prijavljena povezava odprta), se odpira ena sama povezava naenkrat (sonda): napacno geslo gre k strezniku enkrat.
+    """
+    if ustavljen or premor or odprtih >= najvec:
+        return False
+    return True if uspela else not sonda
+
+
+def nov_premor(najvec: int, odprtih: int, premor_s: float, tece: bool, zmanjsaj: bool) -> tuple:
+    """(najvec, premor_s) po meji povezav ali zacasni napaki (skupni primeri nntp_premor). [odprtih] = DRUGE prijavljene
+    odprte povezave (te je streznik sprejel): bazen pade nanje, najmanj 1 - hkratne zavrnitve ga ne skrcijo pod to.
+    Premor 10 s ali 60 s (ni nobene druge), nato dvakrat daljsi do 300 s; [tece] (ista nesreca) ga ne podaljsa."""
+    if zmanjsaj:
+        najvec = max(1, min(najvec, odprtih))
+    if tece:
+        return najvec, premor_s
+    if premor_s > 0:
+        premor_s = min(PREMOR_DO_S, 2 * premor_s)
+    else:
+        premor_s = PREMOR_OD_S if odprtih > 0 else PREMOR_BREZ_ODPRTIH_S
+    return najvec, premor_s
+
+
+def varna_poverilnica(vrednost: object) -> bool:
+    """Argument AUTHINFO (skupni primeri nntp_poverilnica): 1-400 bajtov UTF-8, brez znakov pod 0x20 in 0x7F."""
+    if not isinstance(vrednost, str) or any(z < " " or z == "\x7f" for z in vrednost):
+        return False
+    try:
+        n = len(vrednost.encode("utf-8"))
+    except UnicodeEncodeError:  # osamljen nadomestni znak
+        return False
+    return 1 <= n <= NAJVEC_POVERILNICA_BAJTOV
+
+
+def id_odgovora_ustreza(vrstica: str, message_id: str) -> bool:
+    """Ali odgovor 222/223 velja za zahtevani clanek (skupni primeri nntp_id_odgovora): prvi <...> mora biti id."""
+    i = vrstica.find("<")
+    j = vrstica.find(">", i + 1) if i >= 0 else -1
+    return i < 0 or j < 0 or vrstica[i + 1:j] == message_id
 
 
 def konec_telesa(medpomnilnik, od: int = 0) -> int:
@@ -141,8 +258,8 @@ def varen_kontekst(kontekst: Optional[ssl.SSLContext] = None) -> ssl.SSLContext:
 
 
 def _preveri_poverilnico(vrednost: Optional[str]) -> None:
-    if vrednost is not None and (not isinstance(vrednost, str) or any(z in vrednost for z in "\r\n\x00")):
-        raise ValueError("usenet nntp: neveljavna poverilnica")  # brez vrednosti
+    if vrednost is not None and not varna_poverilnica(vrednost):
+        raise ValueError("usenet nntp: neveljavna poverilnica")  # brez vrednosti (UnicodeError bi nosil celo vrednost)
 
 
 def _ukaz_z_id(ukaz: str, message_id: str) -> bytes:

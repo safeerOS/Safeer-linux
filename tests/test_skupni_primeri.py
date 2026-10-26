@@ -81,7 +81,18 @@ def _usenet(f, v):
             return {"izid": Y.PRIREZANO} if r is None else _yenc_izhod(r[0])
         return None if r is None else {"telo_b64": _b64(r[0]), "ostanek_b64": _b64(r[1])}
     if f == "nntp_izid":
-        return NN.izid_odgovora(v["ukaz"], v["vrstica"])
+        return NN.izid_odgovora(v["ukaz"], v["vrstica"], v.get("prijava_uspela", False))
+    if f == "nntp_ukrep":
+        return NN.ukrep_bazena(v["izid"], v["faza"], v["stara"], v["poskus"])
+    if f == "nntp_sme_odpreti":
+        return NN.sme_odpreti(v["ustavljen"], v["premor"], v["odprtih"], v["najvec"], v["uspela"], v["sonda"])
+    if f == "nntp_premor":
+        n, p = NN.nov_premor(v["najvec"], v["odprtih"], v["premor_s"], v["tece"], v["zmanjsaj"])
+        return {"najvec": n, "premor_s": int(p)}
+    if f == "nntp_poverilnica":
+        return NN.varna_poverilnica(v["vrednost"])
+    if f == "nntp_id_odgovora":
+        return NN.id_odgovora_ustreza(v["vrstica"], v["id"])
     if f == "nntp_id":
         return NZ.id_clanka(v["id"])
     if f == "varno_ime":
@@ -95,15 +106,19 @@ def _usenet(f, v):
                 "nzb_segmentov": NZ.NAJVEC_SEGMENTOV, "nzb_elementov": NZ.NAJVEC_ELEMENTOV,
                 "segmentov_datoteke": NZ.NAJVEC_SEGMENTOV_DATOTEKE,
                 "telo_bajtov": NN.NAJVEC_TELO_BAJTOV, "del_bajtov": Y.NAJVEC_DEL_BAJTOV,
-                "ime_znakov": NZ.NAJVEC_IME_ZNAKOV, "naslov_znakov": NZ.NAJVEC_NASLOV_ZNAKOV,
-                "skupin": NZ.NAJVEC_SKUPIN, "vrstica_bajtov": NN.NAJVEC_VRSTICA_BAJTOV,
-                "id_znakov": NZ.NAJVEC_ID_ZNAKOV, "povezav_privzeto": NN.PRIVZETO_POVEZAV,
-                "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA}
+                "ime_znakov": NZ.NAJVEC_IME_ZNAKOV, "ime_bajtov": NZ.NAJVEC_IME_BAJTOV,
+                "naslov_znakov": NZ.NAJVEC_NASLOV_ZNAKOV, "skupin": NZ.NAJVEC_SKUPIN,
+                "vrstica_bajtov": NN.NAJVEC_VRSTICA_BAJTOV, "id_znakov": NZ.NAJVEC_ID_ZNAKOV,
+                "poverilnica_bajtov": NN.NAJVEC_POVERILNICA_BAJTOV, "povezav_privzeto": NN.PRIVZETO_POVEZAV,
+                "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA, "prosta_najdlje_s": int(NN.PROSTA_NAJDLJE_S),
+                "premor_od_s": int(NN.PREMOR_OD_S), "premor_brez_odprtih_s": int(NN.PREMOR_BREZ_ODPRTIH_S),
+                "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S)}
     raise KeyError("neznano pravilo: " + f)
 
 
 USENET_POGON = {"yenc_dekodiraj", "nntp_telo", "yenc_iz_nntp", "nntp_izid", "nntp_id", "varno_ime", "nzb_ime",
-                "nzb_razcleni", "usenet_meje"}
+                "nzb_razcleni", "usenet_meje", "nntp_ukrep", "nntp_sme_odpreti", "nntp_premor", "nntp_poverilnica",
+                "nntp_id_odgovora"}
 
 
 def izracunaj(f, v):
@@ -229,7 +244,7 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def test_usenet_pogon(self):
-        self._preveri(PRIMERI_USENET, set(), 160)
+        self._preveri(PRIMERI_USENET, set(), 400)  # v3: 410 primerov
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

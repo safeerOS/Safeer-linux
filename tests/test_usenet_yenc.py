@@ -103,7 +103,7 @@ class Yenc(unittest.TestCase):
         self.assertEqual(e.exception.izid, Y.NAPAKA_VELIKOSTI)
 
     def test_ime_samo_ime(self):
-        for ime, pricakovano in (("../../.bashrc", ".bashrc"), ("C:\\Windows\\x.dll", "x.dll"), ("/", None)):
+        for ime, pricakovano in (("../../.bashrc", "_bashrc"), ("C:\\Windows\\x.dll", "x.dll"), ("/", None)):
             self.assertEqual(Y.dekodiraj(Y.kodiraj(b"a", ime)).ime, pricakovano)
 
 

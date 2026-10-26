@@ -25,8 +25,8 @@ from typing import Optional
 
 from .usenet_nzb import varno_ime
 
-#: Najvecji del (dekodiran). Clanki na Usenetu so obicajno 0,7-1 MB; vecji glavi ne verjamemo (pomnilnik TV).
-NAJVEC_DEL_BAJTOV = 16 * 1024 * 1024
+#: Najvecji del (dekodiran) - enako kot usenet_nntp.NAJVEC_TELO_BAJTOV (clanki 384-719 KiB, merjeno 25. 10. 2026).
+NAJVEC_DEL_BAJTOV = 4 * 1024 * 1024
 
 OK = "ok"
 NI_YENC = "ni_yenc"
@@ -40,6 +40,7 @@ _ODMIK = bytes((c - 42) & 255 for c in range(256))
 _KODIRAJ = bytes((c + 42) & 255 for c in range(256))
 _UBEZNI = [bytes(((c - 64) & 255,)) for c in range(256)]  # nato se -42: skupaj (c - 106) & 255
 _CEL = re.compile(rb"[0-9]{1,12}\Z")
+_DEL = re.compile(rb"[0-9]{1,9}\Z")  # part, total (skupni primeri v3)
 _HEX = re.compile(rb"[0-9A-Fa-f]{1,8}\Z")
 _UBEZI = {c: bytes((61, (c + 64) & 255)) for c in range(256)}
 
@@ -100,9 +101,12 @@ def _cel(polja: dict, kljuc: bytes, obvezno: bool) -> Optional[int]:
         if obvezno:
             raise NapakaYenc(NAPAKA_OBLIKE)
         return None
-    if not _CEL.match(v):
+    if not (_DEL if kljuc in (b"part", b"total") else _CEL).match(v):
         raise NapakaYenc(NAPAKA_OBLIKE)
-    return int(v)
+    n = int(v)
+    if kljuc in (b"part", b"total") and n < 1:
+        raise NapakaYenc(NAPAKA_OBLIKE)
+    return n
 
 
 def _crc(polja: dict, kljuc: bytes) -> Optional[int]:
@@ -175,6 +179,8 @@ def dekodiraj(telo: bytes) -> DelYenc:
     velikost = _cel(polja, b"size", True)
     del_ = _cel(polja, b"part", False)
     skupaj = _cel(polja, b"total", False)
+    if del_ is not None and skupaj is not None and del_ > skupaj:
+        raise NapakaYenc(NAPAKA_OBLIKE)
     if del_ is not None:
         if not telo.startswith(b"=ypart ", nasl):
             raise NapakaYenc(NAPAKA_OBLIKE)

@@ -5,13 +5,17 @@ tests/skupni-primeri/usenet-pogon.json (nzb_razcleni, nzb_ime, varno_ime, nntp_i
 
 Varnost (NZB pride od indeksatorja, ki ga izbere uporabnik - lahko je zlonameren):
 - XXE in eksplozija entitet: '<!ENTITY', '<!ELEMENT', '<!ATTLIST', '<!NOTATION' kjerkoli = zavrnjeno. Dovoljen je samo
-  standardni '<!DOCTYPE nzb PUBLIC ".." "..">' (skoraj vsak NZB ga ima) brez notranjega dela; ne nalaga se, odstrani
-  se pred razclenitvijo, zato expat ne vidi nobenega DTD in nedefinirana entiteta je napaka.
+  standardni '<!DOCTYPE nzb PUBLIC ".." "..">' (skoraj vsak NZB ga ima) brez notranjega dela; ne nalaga se, pred
+  razclenitvijo se nadomesti s presledki (odstranitev bi z lepljenjem »<!DOC<!DOCTYPE nzb>TYPE ...« sestavila nov
+  DOCTYPE - pregled Grok 37 C4) in nato nobenega '<!' s crko ne sme biti vec; expat ne vidi nobenega DTD.
 - Kodiranje samo UTF-8 ali ISO-8859-1 in brez bajta NUL: pregled zgoraj bi pri UTF-16 zgresil '<!ENTITY'.
 - Meje: NZB do 20 MiB, 5000 datotek, 500 000 segmentov, 1 000 000 elementov; razclenjujemo sproti (XMLPullParser) in
   sproti brisemo obdelane datoteke - cel ElementTree iz 20 MiB '<a/>' bi zasedel stotine MiB.
 - message-id je samo ASCII 0x21-0x7E brez '<' '>' (nikoli CR/LF: ukaz NNTP »BODY <id>« se ne da podaljsati).
-- Ime datoteke iz subject je samo ime (brez poti, brez '..', brez znakov, ki jih Windows ne dovoli).
+- Ime datoteke iz subject je samo ime (brez poti, brez '..', brez znakov, ki jih Windows ne dovoli, brez vodilne pike,
+  najvec 240 bajtov UTF-8).
+- Skupine samo po RFC 3977 (ASCII brez presledkov in CR/LF - korak 2 jih lahko uporabi v ukazu GROUP); naslov brez
+  znakov Cc in Cf (npr. U+202E obrne smer besedila v vmesniku).
 - message-id in geslo arhiva nista v repr (pravilo: nikoli v dnevnik).
 """
 
@@ -30,6 +34,7 @@ NAJVEC_SEGMENTOV = 500_000
 NAJVEC_ELEMENTOV = 1_000_000
 NAJVEC_SEGMENTOV_DATOTEKE = 200_000
 NAJVEC_IME_ZNAKOV = 200
+NAJVEC_IME_BAJTOV = 240  # ext4/f2fs: ime najvec 255 bajtov; 200 kodnih tock CJK bi bilo 600 B (ENAMETOOLONG)
 NAJVEC_NASLOV_ZNAKOV = 200
 NAJVEC_SKUPIN = 50
 NAJVEC_SKUPINA_ZNAKOV = 200
@@ -96,18 +101,28 @@ def _dovoljen(z: str) -> bool:
 
 
 def varno_ime(vnos: object) -> Optional[str]:
-    """Ime datoteke iz NZB ali glave yEnc: samo zadnji del poti, crke/stevke in nekaj locil (drugo '_'), najvec 200
-    kodnih tock (koncnica do 9 znakov ostane), brez presledkov in pik na koncu, rezervirana imena Windows z '_'.
-    None = ni imena."""
+    """Ime datoteke iz NZB ali glave yEnc: samo zadnji del poti, NFC, crke/stevke in nekaj locil (drugo '_'), najvec
+    200 kodnih tock in 240 bajtov UTF-8 (koncnica do 9 znakov ostane), brez presledkov in pik na koncu, vodilna pika ->
+    '_' (skrita datoteka), rezervirana imena Windows z '_'. None = ni imena."""
     s = str(vnos or "").replace("\\", "/").rsplit("/", 1)[-1]
+    s = unicodedata.normalize("NFC", s)
     s = "".join(z if _dovoljen(z) else "_" for z in s)
     if len(s) > NAJVEC_IME_ZNAKOV:
         p = s.rfind(".")
         konc = s[p:] if p >= 0 and len(s) - p <= 10 else ""
         s = s[:NAJVEC_IME_ZNAKOV - len(konc)] + konc
+    if len(s.encode("utf-8")) > NAJVEC_IME_BAJTOV:
+        p = s.rfind(".")
+        konc = s[p:] if p >= 0 and len(s) - p <= 10 else ""
+        osnova = s[:len(s) - len(konc)]
+        while osnova and len((osnova + konc).encode("utf-8")) > NAJVEC_IME_BAJTOV:
+            osnova = osnova[:-1]
+        s = osnova + konc
     s = s.rstrip(" .").lstrip(" ")
     if not s:
         return None
+    if s.startswith("."):
+        s = "_" + s[1:]
     if s.split(".", 1)[0].upper() in _REZERVIRANA:
         s = "_" + s
     return s
@@ -162,6 +177,9 @@ _LIT = r"""(?:"[^"<>\[\]]*"|'[^'<>\[\]]*')"""
 _DOVOLJEN_DOCTYPE = re.compile(r"<!DOCTYPE\s+nzb(?:\s+PUBLIC\s+" + _LIT + r"\s+" + _LIT + r"|\s+SYSTEM\s+" + _LIT
                                + r")?\s*>")
 _STEVILKA = re.compile(r"[0-9]{1,6}\Z")
+_SKUPINA = re.compile(r"[\x22-\x29\x2b\x2d-\x3e\x40-\x5a\x5e-\x7e]{1,200}\Z")  # RFC 3977 wildmat-exact (ASCII)
+_ODPRTJE = re.compile(r"<![A-Za-z]")
+_PRESLEDKI = frozenset(" \t\n\r\f\v")
 _BAJTOV = re.compile(r"[0-9]{1,9}\Z")
 _KOS = 64 * 1024
 
@@ -195,8 +213,17 @@ def _besedilo(podatki: bytes) -> str:
         m = _DOVOLJEN_DOCTYPE.match(besedilo, dt[0]) if len(dt) == 1 else None
         if not m:
             raise NapakaNzb(ZAVRNJENO_DTD)
-        besedilo = besedilo[:m.start()] + besedilo[m.end():]
+        # Presledki enake dolzine, ne odstranitev: »<!DOC<!DOCTYPE nzb>TYPE ...« bi sestavil nov DOCTYPE.
+        besedilo = besedilo[:m.start()] + " " * (m.end() - m.start()) + besedilo[m.end():]
+        if _ODPRTJE.search(besedilo):
+            raise NapakaNzb(ZAVRNJENO_DTD)
     return besedilo
+
+
+def _naslov(besedilo: str) -> str:
+    """ASCII presledki -> ' ', znaki Cc in Cf (npr. U+202E obrat smeri) proc, strnjeno, najvec 200 kodnih tock."""
+    s = "".join(" " if z in _PRESLEDKI else ("" if unicodedata.category(z) in ("Cc", "Cf") else z) for z in besedilo)
+    return " ".join(x for x in s.split(" ") if x)[:NAJVEC_NASLOV_ZNAKOV]
 
 
 def _datoteka(el) -> Optional[Datoteka]:
@@ -207,7 +234,7 @@ def _datoteka(el) -> Optional[Datoteka]:
         if ime == "groups":
             for g in otrok:
                 t = (g.text or "").strip() if _lokalno(g.tag) == "group" else ""
-                if t and len(t) <= NAJVEC_SKUPINA_ZNAKOV and len(skupine) < NAJVEC_SKUPIN:
+                if _SKUPINA.match(t) and len(t) <= NAJVEC_SKUPINA_ZNAKOV and len(skupine) < NAJVEC_SKUPIN:
                     skupine.append(t)
         elif ime == "segments":
             for s in otrok:
@@ -266,9 +293,9 @@ def razcleni(podatki: bytes) -> Nzb:
                 elif ime == "head":
                     for meta in el:
                         vrsta = str(meta.get("type") or "").lower() if _lokalno(meta.tag) == "meta" else ""
-                        t = " ".join((meta.text or "").split())
+                        t = _naslov(meta.text or "")
                         if vrsta == "title" and naslov is None and t:
-                            naslov = t[:NAJVEC_NASLOV_ZNAKOV]
+                            naslov = t
                         elif vrsta == "password" and geslo is None and t:
                             geslo = (meta.text or "").strip()  # geslo arhiva ostane, kot je (brez strnjevanja)
                 del koren[:]  # obdelano - ne drzimo celega drevesa v pomnilniku
