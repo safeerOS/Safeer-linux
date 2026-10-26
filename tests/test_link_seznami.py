@@ -523,11 +523,8 @@ class PrejetiViriNeGredoNaprej(unittest.TestCase):
                 self.assertNotIn(tuje, json.dumps(mc.viri_izvoz(ozji=True)))
 
 
-class PrejetSeznamZRacunom(unittest.TestCase):
-    """Pregled 51, Ñ2 (z Androida): vir z racunom, ki ga naprava prejme z druge naprave (lists.get, »ozji«), se ob prejemu
-    NE prenese - sicer bi vsaka naprava v krogu ob prvem usklajevanju poslala ponudniku zahtevo z geslom (zaklep racuna
-    ali IP). Prenese ga naprava, kjer je bil dodan; druge, ko uporabnik osvezi vir (gumb »Osvezi«); samodejno
-    osvezevanje cakajocega vira ne vidi, premor zavrnitve (I5) velja naprej."""
+class _PrejetOsnova(unittest.TestCase):
+    """Skupna priprava za preizkuse prejetih virov z racunom: sredisce brez omrezja, ki steje vsako povezavo."""
 
     LIST = b'#EXTM3U\n#EXTINF:-1 tvg-id="K1.si",Kanal 1\nhttp://ponudnik.test:8080/live/u/g/1.ts\n'
 
@@ -561,11 +558,23 @@ class PrejetSeznamZRacunom(unittest.TestCase):
                   "ozji": ozji}
         self.assertTrue(self.mc.viri_uskladi(kazalo))
 
+    def _prejmi_neznan(self, *viri):
+        """Vir brez dokaza o ozjem krogu (add_source brez ozji_krog): fail-closed, caka uporabnikovo osvezitev."""
+        for tip, naslov in viri:
+            self.assertTrue(self.mc.add_source(naslov, "TV", prevzet={"tip": tip, "naslov": naslov, "cas": 9})["ok"])
+
     def _viri(self):
         return {v["link_naslov"]: v for v in self.mc._load()["viri"]}
 
+
+class PrejetSeznamZRacunom(_PrejetOsnova):
+    """Pregled 51, Ñ2 (z Androida): vir z racunom, ki ga naprava prejme z druge naprave (lists.get, »ozji«), se ob prejemu
+    NE prenese - sicer bi vsaka naprava v krogu ob prvem usklajevanju poslala ponudniku zahtevo z geslom (zaklep racuna
+    ali IP). Prenese ga naprava, kjer je bil dodan; druge, ko uporabnik osvezi vir (gumb »Osvezi«); samodejno
+    osvezevanje cakajocega vira ne vidi, premor zavrnitve (I5) velja naprej."""
+
     def test_prejem_vira_z_racunom_ne_odpre_nobene_povezave(self):
-        self._prejmi(("seznam", XTREAM_B), ("url", POT), ("seznam", "http://kratka.primer.test/abc"))
+        self._prejmi_neznan(("seznam", XTREAM_B), ("url", POT), ("seznam", "http://kratka.primer.test/abc"))
         self.assertEqual(self.povezave, [])
         viri = self._viri()
         self.assertEqual(sorted(viri), sorted([XTREAM_B, POT, "http://kratka.primer.test/abc"]))      # shranjeni, ne preskoceni
@@ -598,7 +607,7 @@ class PrejetSeznamZRacunom(unittest.TestCase):
             for naslov in naslovi:
                 with self.subTest(tip=tip, naslov=naslov):
                     self.setUp()
-                    self._prejmi((tip, naslov))
+                    self._prejmi_neznan((tip, naslov))
                     self.assertEqual(self.povezave, [])                  # ne prenos, ne ping, ne rezerva, ne omrezje
                     vir = self._viri()[naslov]
                     self.assertTrue(vir.get("caka_uporabnika"), vir)
@@ -617,7 +626,7 @@ class PrejetSeznamZRacunom(unittest.TestCase):
                 self.assertNotIn("caka_uporabnika", self._viri()[JAVNI])
 
     def test_uporabnikova_osvezitev_cakajocega_podkasta_prenese_enkrat(self):
-        self._prejmi(("podkast", PODKAST))
+        self._prejmi_neznan(("podkast", PODKAST))
         self.assertEqual(self.povezave, [])
         ident = self._viri()[PODKAST]["id"]
         self.assertTrue(self.mc.refresh_source(ident)["ok"])
@@ -630,7 +639,7 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         self.assertNotIn("caka_uporabnika", self.mc._load()["viri"][0])
 
     def test_uporabnikova_osvezitev_prenese_enkrat(self):
-        self._prejmi(("seznam", XTREAM_B))
+        self._prejmi_neznan(("seznam", XTREAM_B))
         ident = self._viri()[XTREAM_B]["id"]
         self.assertEqual(self.povezave, [])
         self.assertTrue(self.mc.refresh_source(ident)["ok"])
@@ -644,7 +653,7 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         self.assertEqual(self.povezave, [])
 
     def test_osvezitev_ki_ponudnik_zavrne_ima_premor(self):
-        self._prejmi(("seznam", XTREAM_B))
+        self._prejmi_neznan(("seznam", XTREAM_B))
         ident = self._viri()[XTREAM_B]["id"]
         self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 403, "Forbidden", None, None))
         self.assertFalse(self.mc.refresh_source(ident)["ok"])
@@ -656,7 +665,7 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         """Pregled 57, Ş6: oznaka »caka« je odpadla ze ob neuspeli osvezitvi, zato je refresh_stale vir od takrat sam
         ponavljal (pri kodi 0 vsakih 10 min, prvi dve napaki brez premora): naprava, ki racuna nikoli ni prebrala,
         je postala samodejni odjemalec racuna v tezavah. Oznako odstrani sele uspesna osvezitev."""
-        self._prejmi(("seznam", XTREAM_B))
+        self._prejmi_neznan(("seznam", XTREAM_B))
         ident = self._viri()[XTREAM_B]["id"]
         for napaka in (OSError("preizkus: brez povezave"), urllib.error.HTTPError("x", 500, "Napaka", None, None),
                        ValueError("preizkus: vir je prevelik")):
@@ -692,6 +701,192 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         self.assertIn("source.caka_uporabnika", js)
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{[^\n]*\"katVirCaka\": \"[^\"]{40,}\"" % jezik)
+
+
+class VirIzOzjegaKroga(_PrejetOsnova):
+    """Lastnik, 26. 10. 2026 (vse naprave pripadajo uporabniku): prejet vir z racunom ali neznane oblike od naprave, ki nas
+    ima v ozjem krogu, ne caka vec na »Osvezi«: viden je takoj, v ozadju se ne osvezuje, prva povezava (ena) je ob odprtju
+    seznama na tej napravi, nato 24-urni predpomnilnik in najvec ena osvezitev na minuto; premor po napaki ostane. Brez
+    dokaza o ozjem krogu ostane fail-closed (caka; razred PrejetSeznamZRacunom, ki ga ta podeduje, tega ne spreminja)."""
+
+    NASLOVI = (("seznam", XTREAM_B), ("url", POT), ("seznam", "http://kratka.primer.test/abc"), ("podkast", PODKAST))
+
+    def _pocakaj_niti(self):
+        for nit in threading.enumerate():
+            if nit.name in ("media-razclenitev", "media-prva-uporaba"):
+                nit.join(5)
+
+    def _odpri_katalog(self):
+        self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+        self._pocakaj_niti()
+
+    def _vir(self, naslov=XTREAM_B):
+        return self._viri()[naslov]
+
+    def _prenosi(self):
+        return [p for p in self.povezave if p[0] == "prenos"]
+
+    def test_vir_je_viden_takoj_in_brez_povezav_v_ozadju(self):
+        self._prejmi(*self.NASLOVI, ozji=True)
+        self.assertEqual(self.povezave, [])                          # ne prenos, ne ping, ne rezerva, ne omrezje
+        viri = self._viri()
+        self.assertEqual(sorted(viri), sorted(n for _t, n in self.NASLOVI))        # shranjeni in vidni
+        for naslov, vir in viri.items():
+            with self.subTest(naslov=naslov):
+                self.assertTrue(vir.get("prvo_uporaba"), vir)
+                self.assertTrue(vir.get("ozji_krog"), vir)
+                self.assertNotIn("caka_uporabnika", vir)             # ne caka na »Osvezi«
+                self.assertEqual((vir["stevilo"], vir["vnosi"], vir["napaka"]), (0, [], ""))
+        self.assertTrue(all(v.get("prvo_uporaba") for v in self.mc.sources()))      # stran dobi stanje
+        # Samodejne poti: nobene povezave (refresh_all, refresh_stale, iskalnik in stevci s preveri=False).
+        self.mc.refresh_stale(max_age=60)
+        self.assertEqual(self.mc.refresh_all()["rezultati"], [])
+        self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo", preveri=False)
+        self.mc._vnosi_virov(self.mc._load(), "vse", preveri=False)
+        self._pocakaj_niti()
+        self.assertEqual(self.povezave, [])
+
+    def test_prva_povezava_ob_odprtju_seznama_je_ena(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        url = self.mc._load()["viri"][0]["url"]
+        self.assertEqual(self.povezave, [])
+        for _ in range(3):                                           # trikrat zapored odprt katalog = ena zahteva
+            self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+        self._pocakaj_niti()
+        self.assertEqual([p[0] for p in self.povezave], ["prenos"], self.povezave)
+        self.assertEqual(self._prenosi(), [("prenos", url)])
+        vir = self._vir()
+        self.assertEqual((vir["stevilo"], vir["napaka"], "prvo_uporaba" in vir, vir["ozji_krog"]), (1, "", False, True))
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 1)                    # po uspehu ne znova
+
+    def test_osvezitev_najvec_enkrat_na_minuto_in_predpomnilnik_24_ur(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        ident = self._vir()["id"]
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 1)
+        odgovor = self.mc.refresh_source(ident)                      # uporabnik takoj pritisne »Osvezi«: brez nove zahteve
+        self.assertEqual((odgovor["ok"], odgovor.get("predpomnjeno"), len(self._prenosi())), (True, True, 1))
+
+        def postari(**polja):
+            podatki = self.mc._load()
+            podatki["viri"][0].update(polja)
+            self.mc._save(podatki)
+        zdaj = __import__("time").time()
+        postari(zadnja_zahteva=int(zdaj) - 61)                       # minuta mine: uporabnikova osvezitev velja
+        self.assertTrue(self.mc.refresh_source(ident)["ok"])
+        self.assertEqual(len(self._prenosi()), 2)
+        postari(zadnja_zahteva=int(zdaj) - 61, posodobljeno=int(zdaj) - 7 * 3600)       # starejse od 6 h, mlajse od 24 h
+        self.mc.refresh_stale()
+        self.assertEqual(len(self._prenosi()), 2)                    # 24-urni predpomnilnik: ozadje ne osvezi
+        postari(posodobljeno=int(zdaj) - 25 * 3600)
+        self.mc.refresh_stale()
+        self.assertEqual(len(self._prenosi()), 3)                    # starejse od 24 h: ena osvezitev
+        self.mc.refresh_stale()
+        self.assertEqual(len(self._prenosi()), 3)                    # takoj za tem je spet predpomnilnik
+
+    def test_premor_po_napaki_ostane_tudi_ob_odpiranju_seznama(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+
+        def zavrni(url):
+            self.povezave.append(("prenos", url))
+            raise urllib.error.HTTPError(url, 403, "Forbidden", None, None)
+        self.mc._download = zavrni
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 1)
+        vir = self._vir()
+        self.assertEqual((vir["zavrnjen"]["koda"], vir.get("prvo_uporaba") is not None, "caka_uporabnika" in vir),
+                         (403, True, False))
+        self.assertGreater(self.mc._zavrnjen_do(vir), __import__("time").time())
+        self.mc.__dict__.get("_prvo_poskusi", {}).clear()           # tudi brez omejitve na minuto: premor velja
+        self._odpri_katalog()
+        self.mc.refresh_stale(max_age=60)
+        self.mc.refresh_all()
+        self.assertEqual(len(self._prenosi()), 1)
+
+    def test_brez_povezave_ni_vec_kot_ena_zahteva_na_minuto(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+
+        def odpadi(url):
+            self.povezave.append(("prenos", url))
+            raise OSError("preizkus: brez povezave")
+        self.mc._download = odpadi
+        for _ in range(4):
+            self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 1)
+        vir = self._vir()
+        self.assertTrue(vir["napaka"] and vir.get("prvo_uporaba"), vir)          # napaka vidna, oznaka ostane
+        self.assertEqual(self.mc.refresh_source(vir["id"])["ok"], False)         # tudi uporabnik: najvec ena na minuto
+        self.assertEqual(len(self._prenosi()), 1)
+
+    def test_prvo_uporabo_sprozi_samo_odprtje_seznama(self):
+        """Seznam sprejetih virov v nastavitvah, iskalnik in stevci kategorij niso uporaba seznama."""
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        self.mc.sources()
+        self.mc.viri_izvoz(ozji=True)
+        self.mc._vnosi_virov(self.mc._load(), "vse", preveri=False)
+        self._pocakaj_niti()
+        self.assertEqual(self.povezave, [])
+
+    def test_zunaj_kroga_ostane_fail_closed(self):
+        for ozji in (False, None):
+            with self.subTest(ozji=ozji):
+                self.setUp()
+                kazalo = {"sources": [{"tip": t, "ime": "TV", "naslov": n, "cas": 9} for t, n in self.NASLOVI],
+                          "sources_deleted": {}}
+                if ozji is not None:
+                    kazalo["ozji"] = ozji
+                self.assertFalse(self.mc.viri_uskladi(kazalo))       # vira z racunom sploh ne prevzamemo
+                self.assertEqual(self.mc._load().get("viri", []), [])
+                self.assertEqual(self.povezave, [])
+        # Vir, ki ga vseeno doda koda brez dokaza o ozjem krogu (neznan izvor), caka uporabnikovo osvezitev.
+        self.setUp()
+        self._prejmi_neznan(*self.NASLOVI)
+        for vir in self._viri().values():
+            self.assertTrue(vir.get("caka_uporabnika") and "prvo_uporaba" not in vir and "ozji_krog" not in vir, vir)
+        self._odpri_katalog()
+        self.mc.refresh_stale(max_age=60)
+        self.assertEqual(self.mc.refresh_all()["rezultati"], [])
+        self.assertEqual(self.povezave, [])
+
+    def test_vir_ki_ga_odgovor_ne_potrdi_ne_more_sam_postati_ozji_krog(self):
+        """Polje »ozji« postavi samo viri_uskladi iz odgovora naprave; naslov in vrsta iz seznama ga ne moreta."""
+        kazalo = {"sources": [{"tip": "seznam", "ime": "TV", "naslov": XTREAM_B, "cas": 9, "ozji": True, "ozji_krog": True,
+                               "prvo_uporaba": 1}], "sources_deleted": {}, "ozji": False}
+        self.assertFalse(self.mc.viri_uskladi(kazalo))
+        self.assertEqual(self.mc._load().get("viri", []), [])
+
+    def test_javni_vir_iz_ozjega_kroga_se_prenese_takoj_kot_prej(self):
+        self._prejmi(("seznam", JAVNI), ozji=True)
+        self.assertEqual(self._prenosi(), [("prenos", JAVNI)])
+        vir = self._viri()[JAVNI]
+        self.assertEqual(("prvo_uporaba" in vir, "ozji_krog" in vir, vir["stevilo"]), (False, False, 1))
+
+    def test_lastni_vir_ima_samo_rezervno_omejitev_brez_ozjega_kroga(self):
+        self.assertTrue(self.mc.add_source(XTREAM, "Moj")["ok"])
+        vir = self.mc._load()["viri"][0]
+        self.assertEqual(("ozji_krog" in vir, "prvo_uporaba" in vir, "zadnja_zahteva" in vir), (False, False, False))
+
+    def test_refresh_stale_spostuje_premor_po_napaki_vsakega_vira(self):
+        """Samodejna osvezitev je prej gledala samo staro starost: vir z racunom, ki ga je ponudnik zavrnil, je dobil novo
+        zahtevo ob vsakem klicu (premor je bral samo katalog)."""
+        self.assertTrue(self.mc.add_source(XTREAM, "Moj")["ok"])
+        podatki = self.mc._load()
+        podatki["viri"][0].update(posodobljeno=1, zavrnjen={"koda": 403, "ob": int(__import__("time").time()), "n": 1})
+        self.mc._save(podatki)
+        self.povezave.clear()
+        self.mc.refresh_stale(max_age=60)
+        self.assertEqual(self.povezave, [])
+
+    def test_stran_pove_da_seznam_caka_na_prvo_odprtje(self):
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
+            js = f.read()
+        with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        self.assertIn("source.prvo_uporaba", js)
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{\"katVirPrvo\": \"[^\"]{40,}\"" % jezik)
 
 
 class GesloNiVPodatkihStrani(unittest.TestCase):

@@ -239,6 +239,23 @@ def prevzem_dovoljen(naslov: object, ozji_odgovor: object) -> bool:
     return znan_javen(naslov)
 
 
+#: Stanje prejetega vira (skupni primeri iptv-racun.json, razdelek ozji_krog, verzija 5 - enako Android).
+STANJE_JAVEN = "javen"                  # pozitivno znan javen vir: prenos takoj
+STANJE_PRVA_UPORABA = "prvo_uporaba"    # vir z racunom ali neznane oblike iz ozjega kroga: viden takoj, prva povezava ob uporabi
+STANJE_NI_PREVZET = "ni_prevzet"        # brez dokaza o ozjem krogu vira z racunom ne prevzamemo (prevzem_dovoljen)
+
+
+def stanje_prejetega(naslov: object, ozji_odgovor: object) -> str:
+    """Kaj naredimo z virom z druge naprave (lastnik, 26. 10. 2026: vse naprave pripadajo uporabniku). Naprava, ki nas ima
+    v ozjem krogu (`ozji` true), vir z racunom ali neznane oblike pokaze takoj, a ga ne osvezuje v ozadju: prva
+    povezava je ob prvi uporabi na tej napravi. Odgovor false ali brez zastavice (starejsa razlicica, neznan izvor) ostane
+    fail-closed: vira z racunom sploh ne prevzamemo. Vir, ki ga kdo vseeno doda brez dokaza o ozjem krogu (add_source brez
+    ozji_krog), caka uporabnikovo osvezitev (skupni primeri, razdelek caka)."""
+    if znan_javen(naslov):
+        return STANJE_JAVEN
+    return STANJE_PRVA_UPORABA if ozji_odgovor is True else STANJE_NI_PREVZET
+
+
 def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = False) -> bool:
     """Za opozorilo lastniku (pregled 46, Ö3): vir, ki ni znan javen, ima v naslovu prepoznan racun ali je seznam
     kanalov IPTV (ponudnik ima racun tudi v oblikah naslova, ki jih hevristika ne pozna). Podkast brez racuna: ne."""

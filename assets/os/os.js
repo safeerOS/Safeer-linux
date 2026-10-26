@@ -8651,6 +8651,8 @@
         t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
       // Prejet vir, ki ni znan javen, caka na osvezitev: ponudniku ga ne poslje vsaka naprava (core/os_media.add_source, Ñ2, Ş1).
       if (!source.napaka && source.caka_uporabnika) status = t("katVirCaka");
+      // Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden takoj, prva povezava ob odprtju seznama (core/os_media, prvo_uporaba).
+      else if (!source.napaka && source.prvo_uporaba) status = t("katVirPrvo");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
