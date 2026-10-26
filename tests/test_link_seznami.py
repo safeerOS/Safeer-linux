@@ -62,7 +62,7 @@ class IzvozTests(unittest.TestCase):
 
     def test_brez_mape_ali_s_pokvarjeno_datoteko_je_kazalo_prazno(self):
         self.assertEqual(link_seznami.izvoz({}, os.path.join(self.mapa.name, "ni")),
-                         {"lists": [], "deleted": {}, "sources": [], "sources_deleted": {}})
+                         {"lists": [], "deleted": {}, "ozji": False, "sources": [], "sources_deleted": {}})
         with open(os.path.join(self.mapa.name, "seznami.json"), "w", encoding="utf-8") as f:
             f.write("{napol zapisano")
         self.assertEqual(link_seznami.izvoz({}, self.mapa.name)["lists"], [])
@@ -276,6 +276,124 @@ class PoljaSeznamaZunajOzjegaKroga(unittest.TestCase):
         self.assertTrue(viri_sink.zapis_androida_javen('{"naslov": "Pesem", "avtor": "Pevka"}'))
         self.assertFalse(viri_sink.javna_slika("http://i.ytimg.com/vi/x/hq.jpg"))           # samo https
         self.assertFalse(viri_sink.javna_slika("https://i.ytimg.com.ponudnik.test/x.jpg"))
+
+
+POT = "http://ponudnik.primer.test:8080/playlist/uporabnik/skrito-geslo/m3u_plus"
+XTREAM_B = "http://drug.primer.test:8080/get.php?username=gost&password=skrito-geslo&type=m3u_plus"
+
+
+class ZeRazposlaneKopije(unittest.TestCase):
+    """Pregled 46, Ö3: starejse razlicice so vir z geslom dale vsem napravam s »Predvajalnik«; izbris vira z racunom
+    zunaj ozjega kroga ne pride, zato ga je naprava obdrzala za vedno. Ob posodobitvi prejemnik prejete vire z racunom
+    odstrani (brez zapisa izbrisa) in jih znova prevzame samo od naprave, ki ga ima v ozjem krogu; lastnik vira, ki je
+    bil res ponujen navadnemu krogu, enkrat dobi opozorilo za menjavo gesla."""
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        kanal = [{"id": "k1", "iptv": True, "url": KANAL_XTREAM, "naslov": "Kanal"}]
+
+        def vir(ident, url, **x):
+            return dict({"id": ident, "url": url, "ime": ident, "stevilo": 3, "napaka": "", "dodan": 5, "vnosi": []}, **x)
+        viri = [vir("lastni-xt", XTREAM, vnosi=kanal), vir("lastni-pot", POT, vnosi=kanal), vir("lastni-pod", PODKAST),
+                vir("lastni-nov", "http://nov.primer.test/get.php?username=u&password=skrito-geslo", vnosi=kanal),
+                vir("prejet-xt", XTREAM_B, link_naslov=XTREAM_B, link_tip="seznam"),
+                vir("prejet-javni", JAVNI, link_naslov=JAVNI, link_tip="seznam")]
+        strezniki = [{"id": "prejet-dodatek", "vrsta": "streznik", "ponudnik": "stremio", "ime": "Dodatek",
+                      "url": "https://dodatek.primer.test", "link_naslov": "https://dodatek.primer.test/manifest.json",
+                      "zaseben": False, "dodan": 5}]
+        with open(os.path.join(self.mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump({"viri": viri, "osebni_strezniki": strezniki}, f)
+        # Zapis starejse razlicice (brez delitve na »ozji«): vse je bilo ponujeno vsem napravam s Predvajalnik.
+        with open(os.path.join(self.mapa.name, "viri_za_naprave.json"), "w", encoding="utf-8") as f:
+            json.dump({"sources": [{"tip": "url", "ime": "", "naslov": n, "cas": 5}
+                                   for n in (XTREAM, POT, PODKAST, XTREAM_B, JAVNI)], "sources_deleted": {}}, f)
+
+    def _mc(self, navadni=True):
+        with mock.patch.object(os_media.MediaCenter, "_navadni_krog_s_predvajalnikom", staticmethod(lambda: navadni)):
+            return os_media.MediaCenter(self.mapa.name, roots=[])
+
+    def test_prejeti_viri_z_racunom_gredo_brez_izbrisa(self):
+        mc = self._mc()
+        data = mc._load()
+        self.assertEqual([v["id"] for v in data["viri"]], ["lastni-xt", "lastni-pot", "lastni-pod", "lastni-nov", "prejet-javni"])
+        self.assertEqual(data["osebni_strezniki"], [])
+        self.assertEqual(data["racuni_preseljeni"], os_media.MediaCenter.PRESELITEV_RACUNOV)
+        # Brez zapisa izbrisa: izbris bi se razsiril nazaj na napravo, ki ga je poslala, in vir izbrisal lastniku.
+        self.assertEqual(mc.viri_izvoz(ozji=True)["sources_deleted"], {})
+        self.assertEqual(mc._viri_stanje()["izbrisani"], {})
+        # Stari zapis za Control (geslo v javnem delu) je takoj zamenjan z razdeljenim.
+        with open(os.path.join(self.mapa.name, "viri_za_naprave.json"), encoding="utf-8") as f:
+            zapis = json.load(f)
+        self.assertEqual([v["naslov"] for v in zapis["sources"]], [JAVNI])
+        self.assertNotIn(XTREAM_B, json.dumps(zapis))
+
+    def test_opozorilo_samo_lastnemu_viru_ki_je_bil_ponujen_navadnemu_krogu(self):
+        mc = self._mc()
+        opozorjeni = sorted(v["id"] for v in mc.sources() if v.get("deljeno_zunaj"))
+        # Podkast nima gesla, »lastni-nov« ni bil nikoli ponujen (ga ni v starem zapisu), prejetih ni vec.
+        self.assertEqual(opozorjeni, ["lastni-pot", "lastni-xt"])
+        self.assertEqual(mc.potrdi_opozorilo_deljeno("lastni-xt"), {"ok": True})
+        self.assertEqual(mc.potrdi_opozorilo_deljeno("ni-ga"), {"ok": False, "napaka": "ni_vira"})
+        drugic = self._mc()                                     # naslednji zagon: selitev ne tece znova
+        self.assertEqual(sorted(v["id"] for v in drugic.sources() if v.get("deljeno_zunaj")), ["lastni-pot"])
+
+    def test_brez_naprave_zunaj_ozjega_kroga_ni_opozorila(self):
+        mc = self._mc(navadni=False)
+        self.assertEqual([v["id"] for v in mc.sources() if v.get("deljeno_zunaj")], [])
+        self.assertNotIn("prejet-xt", [v["id"] for v in mc._load()["viri"]])
+
+    def test_selitev_samo_enkrat(self):
+        self._mc()
+        with open(os.path.join(self.mapa.name, "media.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        data["viri"].append({"id": "spet", "url": XTREAM_B, "link_naslov": XTREAM_B, "stevilo": 3, "vnosi": []})
+        with open(os.path.join(self.mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f)          # znova prevzet od naprave, ki nas ima v ozjem krogu
+        self.assertIn("spet", [v["id"] for v in self._mc()._load()["viri"]])
+
+    def test_nova_namestitev_ne_seli(self):
+        with tempfile.TemporaryDirectory() as prazna:
+            mc = os_media.MediaCenter(prazna, roots=[])
+            self.assertFalse(os.path.exists(os.path.join(prazna, "media.json")))
+            with mc._lock:
+                data = mc._load()
+                data["viri"].append({"id": "p", "url": XTREAM_B, "link_naslov": XTREAM_B, "vnosi": []})
+                mc._save(data)
+            self.assertEqual(os_media.MediaCenter(prazna, roots=[])._load()["viri"][0]["id"], "p")
+
+    def test_prevzem_po_odgovoru_naprave(self):
+        with tempfile.TemporaryDirectory() as prazna:
+            mc = os_media.MediaCenter(prazna, roots=[])
+            viri = [{"tip": "seznam", "ime": "", "naslov": n, "cas": 9} for n in (XTREAM, POT, JAVNI)]
+            for ozji, pricakovano in ((None, [POT, JAVNI]), (False, [JAVNI]), (True, [XTREAM, POT, JAVNI])):
+                klici = []
+                kazalo = dict({"sources": viri, "sources_deleted": {}}, **({} if ozji is None else {"ozji": ozji}))
+                with mock.patch.object(mc, "_prevzemi_vir", lambda v: klici.append(v["naslov"]) or (False, 0)):
+                    mc.viri_uskladi(kazalo)
+                self.assertEqual(klici, pricakovano, ozji)
+
+    def test_odgovor_pove_ozji_krog(self):
+        mc = self._mc()
+        for ozji in (False, True):
+            kazalo = link_seznami.izvoz({}, self.mapa.name, ozji=ozji)
+            self.assertIs(kazalo["ozji"], ozji)
+            self.assertEqual(kazalo, mc.seznami_izvoz({}, ozji=ozji))
+        self.assertNotIn("ozji", link_seznami.izvoz({"ime": "x"}, self.mapa.name))
+
+    def test_opozorilo_na_strani(self):
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
+            js = f.read()
+        with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        with open(os.path.join(koren, "core", "os_katalog.py"), encoding="utf-8") as f:
+            katalog = f.read()
+        self.assertIn('klic("mediaPotrdiOpozorilo", [source.id])', js)
+        self.assertIn('if (source.deljeno_zunaj) {', js)
+        self.assertIn('"mediaPotrdiOpozorilo": "_potrdi_opozorilo"', katalog)
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{\"katVirGesloDeljeno\": \"[^\"]{40,}\", \"katVirGesloRazumem\"" % jezik)
 
 
 class ControlTests(unittest.TestCase):

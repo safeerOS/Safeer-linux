@@ -8638,6 +8638,18 @@
         t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
+      // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
+      // (core/os_media._preseli_racune, pregled 46, Ö3).
+      if (source.deljeno_zunaj) {
+        info.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljeno"))));
+        var razumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
+        razumem.type = "button";
+        razumem.onclick = function () {
+          klic("mediaPotrdiOpozorilo", [source.id]).then(function () { naloziKatViri(); },
+            function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        };
+        info.appendChild(razumem);
+      }
       var oznacljiv = !source.napaka && kanali && kanali.oznacljiv;
       if (oznacljiv && !kanali.oznacen_javni) info.appendChild(el("small", "", ubezi(t("katKanaliJavniNamig"))));
       row.appendChild(info);

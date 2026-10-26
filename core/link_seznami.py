@@ -74,9 +74,10 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None, ozji: b
     ime = str(parametri.get("ime") or "")
     vsi = _seznami(koren)
     if not ime:
+        # "ozji": ali je vprasujoca naprava v ozjem krogu - prejemnik po tem odloci, kaj prevzame (pregled 46, Ö3).
         return dict({"lists": [{"ime": x["ime"], "vir": viri_sink.vir_seznama_za(x.get("vir"), ozji),
                                 "cas": int(x.get("cas") or 0), "stevilo": len(x["skladbe"])} for x in vsi],
-                     "deleted": _izbrisani(koren)}, **_viri(koren, ozji))
+                     "deleted": _izbrisani(koren), "ozji": ozji is True}, **_viri(koren, ozji))
     sz = next((x for x in vsi if x["ime"] == ime), None)
     if not sz:
         return {"ime": ime, "stevilo": 0, "skladbe": []}

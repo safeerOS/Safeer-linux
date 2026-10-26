@@ -1382,6 +1382,9 @@ class MediaCenter:
         self.kanali = kanali_iptv.PreverbaKanalov(self.config_dir / "kanali-preverba.json")
         self.kanali.ob_spremembi = self._kanali_spremenjeni
         self._zastareli_viri: set[str] = set()
+        # Enkratna selitev po pregledu 46 (Ö3) - pred vsakim drugim zapisom media.json in viri_za_naprave.json.
+        self._racuni_preseljeni = False
+        self._preseli_racune()
 
     # --- prijava osebnih streznikov ob predvajanju ------------------------------
     #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
@@ -1830,6 +1833,8 @@ class MediaCenter:
         return None
 
     def _save(self, data: dict) -> None:
+        if self._racuni_preseljeni:
+            data["racuni_preseljeni"] = self.PRESELITEV_RACUNOV      # zapis te razlicice: selitev ni vec potrebna
         self.config_dir.mkdir(parents=True, exist_ok=True)
         shramba_json.zapisi_atomsko(self.store_path, data, indent=2)
         # Viri so se spremenili: shranjeni pogledi se ob naslednjem odprtju osvezijo v ozadju.
@@ -2243,7 +2248,7 @@ class MediaCenter:
                 # Vir seznama z naslovom (geslom) samo ozjemu krogu (pregled 46, Ö2; enako core/link_seznami.py).
                 return dict({"lists": [{"ime": x["ime"], "vir": viri_sink.vir_seznama_za(x.get("vir"), ozji),
                                         "cas": int(x.get("cas") or 0), "stevilo": len(x["skladbe"])} for x in vsi],
-                             "deleted": self._izbrisani_beri()}, **self.viri_izvoz(ozji))
+                             "deleted": self._izbrisani_beri(), "ozji": ozji is True}, **self.viri_izvoz(ozji))
             sz = next((x for x in vsi if x["ime"] == ime), None)
         if not sz:
             return {"ime": ime, "stevilo": 0, "skladbe": []}
@@ -3968,6 +3973,87 @@ class MediaCenter:
             self._spoznaj_dodatke(neznani)
         return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]))
 
+    #: Enkratna selitev virov z racunom (pregled 46, Ö3); zapis "racuni_preseljeni" v media.json.
+    PRESELITEV_RACUNOV = 1
+
+    def _preseli_racune(self) -> None:
+        """Enkrat po posodobitvi (pregled 46, Ö3). Starejse razlicice so vir z racunom (seznam Xtream z geslom) dale
+        vsem napravam z dovoljenjem Predvajalnik; izbris ga zunaj ozjega kroga ne doseze.
+        1) Vir, prejet z druge naprave (link_naslov), ki ni pozitivno znan javen, gre s te naprave - BREZ zapisa izbrisa
+           (izbris bi se razsiril nazaj in vir izbrisal lastniku). Naprava v ozjem krogu ga ob naslednjem usklajevanju
+           dobi znova (odgovor z "ozji": true; viri_sink.prevzem_dovoljen).
+        2) Lastni vir z racunom (viri_sink.verjetno_geslo), ki ga je starejsa razlicica ponudila navadnemu krogu (javni
+           del starega viri_za_naprave.json), dobi opozorilo »deljeno_zunaj«, ce ima v Linku kaksna naprava dovoljenje
+           Predvajalnik zunaj ozjega kroga (ali tega ni mogoce prebrati): lastniku priporocimo menjavo gesla."""
+        if self._racuni_preseljeni:
+            return
+        self._racuni_preseljeni = True
+        try:
+            data = json.loads(self.store_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return                      # ni zapisa (nova namestitev) ali ga ni mogoce prebrati: ni cesa preseliti
+        if not isinstance(data, dict) or int(data.get("racuni_preseljeni") or 0) >= self.PRESELITEV_RACUNOV:
+            return
+        try:
+            prej = json.loads((self.config_dir / "viri_za_naprave.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            prej = None
+        ponujeni = {str(v.get("naslov") or "") for v in prej["sources"] if isinstance(v, dict)} \
+            if isinstance(prej, dict) and isinstance(prej.get("sources"), list) else set()
+        navadni = bool(ponujeni) and self._navadni_krog_s_predvajalnikom()
+        zdaj = self._zdaj_ms()
+
+        def prejet(s: object) -> bool:
+            return isinstance(s, dict) and bool(s.get("link_naslov")) and viri_sink.za_ozji_krog(str(s["link_naslov"]))
+        with self._lock:
+            data = self._load()
+            if int(data.get("racuni_preseljeni") or 0) >= self.PRESELITEV_RACUNOV:
+                return
+            strezniki = data.get("osebni_strezniki") if isinstance(data.get("osebni_strezniki"), list) else []
+            odstranjeni = [str(s.get("id") or "") for s in strezniki if prejet(s)]
+            data["osebni_strezniki"] = [s for s in strezniki if not prejet(s)]
+            pred = len(data["viri"])
+            data["viri"] = [v for v in data["viri"] if not prejet(v)]
+            for v in data["viri"]:
+                if (navadni and isinstance(v, dict) and not v.get("link_naslov") and not v.get("deljeno_potrjeno")
+                        and self._vir_kljuc(v)[1] in ponujeni
+                        and viri_sink.verjetno_geslo(v.get("url"), any(isinstance(x, dict) and x.get("iptv")
+                                                                      for x in v.get("vnosi") or []), v.get("javni") is True)):
+                    v["deljeno_zunaj"] = zdaj
+            self._save(data)
+            self._server_cache = {k: c for k, c in self._server_cache.items()
+                                  if not any(k.startswith(i + ":") for i in odstranjeni if i)}
+        if odstranjeni or len(data["viri"]) != pred:
+            print("[SafeerMedia] selitev: prejeti viri z racunom odstranjeni: %d" % (len(odstranjeni) + pred - len(data["viri"])),
+                  flush=True)
+        if prej is not None:
+            self._viri_zapisi_izvoz()   # stari zapis (vir z geslom v javnem delu) takoj zamenjamo - Control bere tega
+
+    @staticmethod
+    def _navadni_krog_s_predvajalnikom() -> bool:
+        """Ali ima v Linku kaksna naprava dovoljenje Predvajalnik (lists.get) zunaj ozjega kroga. Ce zapisa dovoljenj ni
+        mogoce prebrati: da (ob dvomu opozorimo - priporocilo menjave gesla je manjsa skoda kot geslo pri tujcu)."""
+        try:
+            from core import link_dostop
+            return any(not link_dostop.OZJI_KROG <= link_dostop.zmoznosti_jedra(j)
+                       for j in link_dostop.naprave_z(link_dostop.PREDVAJALNIK))
+        except Exception:  # noqa: BLE001
+            return True
+
+    def potrdi_opozorilo_deljeno(self, source_id: str) -> dict:
+        """Lastnik je prebral opozorilo, da je bilo geslo vira deljeno zunaj ozjega kroga (pregled 46, Ö3): ne pokazemo
+        ga vec."""
+        with self._lock:
+            data = self._load()
+            source = next((x for x in data.get("viri", []) if isinstance(x, dict) and x.get("id") == str(source_id or "")),
+                          None)
+            if source is None:
+                return {"ok": False, "napaka": "ni_vira"}
+            if source.pop("deljeno_zunaj", None) is not None:
+                source["deljeno_potrjeno"] = self._zdaj_ms()
+                self._save(data)
+        return {"ok": True}
+
     def _viri_zapisi_izvoz(self) -> None:
         """Na Linuxu drugim napravam odgovarja Safeer Control (tudi ko Safeer OS ni odprt, core/link_seznami.py): vire
         zanj zapisemo v datoteko ob seznamih. Zapis je ze prefiltriran - zasebnih dodatkov v njem ni."""
@@ -4033,6 +4119,8 @@ class MediaCenter:
         if not isinstance(kazalo, dict):
             return False
         tuji_izbrisi = viri_sink.cisti_izbrisi(kazalo.get("sources_deleted"))
+        # Ali nas ima naprava v ozjem krogu (true/false); None: starejsa razlicica (pregled 46, Ö3).
+        ozji_odgovor = kazalo.get("ozji") if isinstance(kazalo.get("ozji"), bool) else None
         surovi = kazalo.get("sources") if isinstance(kazalo.get("sources"), list) else []
         tuji = [c for c in (viri_sink.cist_vir(o) for o in surovi[:viri_sink.NAJVEC_VIROV]) if c]
         if not tuji_izbrisi and not tuji:
@@ -4063,6 +4151,8 @@ class MediaCenter:
         for v in tuji:
             if v["tip"] not in viri_sink.PREVZEMLJIVE or poskusov >= self.NAJVEC_PREVZEMOV:
                 continue
+            if not viri_sink.prevzem_dovoljen(v["naslov"], ozji_odgovor):
+                continue                # vir z racunom samo od naprave, ki nas ima v ozjem krogu (pregled 46, Ö3)
             i = viri_sink.istovetnost(v["tip"], v["naslov"])
             zdaj = self._zdaj_ms()
             with self._lock:

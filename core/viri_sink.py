@@ -219,6 +219,32 @@ def prikaz_naslova(naslov: object, oznacen: bool = False) -> str:
     return gostitelj + (":%d" % vrata if vrata else "")
 
 
+def zaznan_racun(naslov: object) -> bool:
+    """Racun, ki ga hevristika prepozna (prijava, Xtream, username=, mac=, zeton seznama). Samo za vire naprave
+    starejse razlicice (prevzem_dovoljen) in opozorilo lastniku; kam gre vir, odloca znan_javen."""
+    besedilo = str(naslov or "")
+    from . import kanali_iptv
+    return ima_prijavo(besedilo) or kanali_iptv.s_poverilnicami(besedilo, seznam=True)
+
+
+def prevzem_dovoljen(naslov: object, ozji_odgovor: object) -> bool:
+    """Ali vir z druge naprave prevzamemo (pregled 46, Ö3). Odgovor `lists.get` od te razlicice naprej pove, ali nas
+    ima naprava v ozjem krogu ("ozji"): true - vsak vir; false - samo pozitivno znan javen (drugega nam ne bi smela
+    poslati). Naprava starejse razlicice ("ozji" ga ni) je dala vse vire vsem: od nje ne prevzamemo vira z racunom, ki
+    ga hevristika prepozna - kopija gesla ne ostane na napravi, ki morda ni v njenem ozjem krogu."""
+    if ozji_odgovor is True:
+        return True
+    if ozji_odgovor is False:
+        return znan_javen(naslov)
+    return not zaznan_racun(naslov)
+
+
+def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = False) -> bool:
+    """Za opozorilo lastniku (pregled 46, Ö3): vir, ki ni znan javen, ima v naslovu prepoznan racun ali je seznam
+    kanalov IPTV (ponudnik ima racun tudi v oblikah naslova, ki jih hevristika ne pozna). Podkast brez racuna: ne."""
+    return za_ozji_krog(naslov, oznacen) and (zaznan_racun(naslov) or seznam_iptv is True)
+
+
 def _oznacen(v: object) -> bool:
     """Uporabnik je vir izrecno oznacil kot javnega (samo seznam IPTV brez racuna, MediaCenter.nastavi_javni_seznam)."""
     return isinstance(v, dict) and v.get("javni") is True

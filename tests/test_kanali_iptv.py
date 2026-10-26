@@ -61,6 +61,14 @@ class SkupniPrimeri(unittest.TestCase):
                     self.assertEqual(viri_sink.prikaz_naslova(p["naslov"], oznacen), p["prikaz"])
                 self.assertNotIn("skrito-geslo", viri_sink.prikaz_naslova(p["naslov"], oznacen) if p["ozji"] else "")
 
+    def test_primeri_prevzema(self):
+        """Pregled 46, Ö3: vir z druge naprave po odgovoru "ozji" (skupni primeri - enako Android)."""
+        d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(d["prevzem"]), 6)
+        for p in d["prevzem"]:
+            with self.subTest(p["naslov"], ozji=p["ozji"]):
+                self.assertIs(viri_sink.prevzem_dovoljen(p["naslov"], p["ozji"]), p["prevzem"])
+
     def test_vsi_primeri(self):
         d = json.loads(PRIMERI.read_text(encoding="utf-8"))
         primeri = d["primeri"]
