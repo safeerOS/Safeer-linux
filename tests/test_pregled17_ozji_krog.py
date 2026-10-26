@@ -333,6 +333,39 @@ def _zapis_prejsnje(naprave, oznaka=True):
     return pot
 
 
+class G1DomacaMapaSamoObVklopu(_Osnova):
+    """Pregled 29, G1: domaco mapo je podelila vsaka sprememba stikal (nastavi_ozji_krog je vedno zapisal dom)."""
+
+    def test_sprememba_drugega_stikala_ne_da_domace_mape(self):
+        _zapis_prejsnje({B: "dpvz"})
+        self.assertFalse(link_dostop.sme_domaco_mapo(B))
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "dvz"))          # izklop »Programi«
+        self.assertEqual(link_dostop.zmoznosti(B), set("dvz"))
+        self.assertFalse(link_dostop.sme_domaco_mapo(B), "izklop drugega stikala je dal domaco mapo")
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "dpvz"))         # vklop »Programi« (ozji krog je ze bil)
+        self.assertFalse(link_dostop.sme_domaco_mapo(B))
+
+    def test_izklop_zunaj_ozjega_kroga_ne_da_pravic(self):
+        _zapis_prejsnje({B: "pv", A: "dpv"})
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "v"))            # izklop »Programi«
+        self.assertEqual(link_dostop.zmoznosti(B), {"v"}, "izklop je dal upravljanje in mape")
+        self.assertFalse(link_dostop.sme_domaco_mapo(B))
+        # Okno »d« ne pokaze: izklop »Predvajalnik« ga ne vzame (izbrane mape iz prejsnje razlicice ostanejo).
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, "p"))
+        self.assertEqual(link_dostop.zmoznosti(A), {"d", "p"})
+
+    def test_vklop_ozjega_kroga_je_privolitev(self):
+        _zapis_prejsnje({B: "pv", A: "dz"})
+        self.assertTrue(link_dostop.nastavi_ozji_krog(B, "pvz"))
+        self.assertEqual(link_dostop.zmoznosti(B), set("dpvz"))
+        self.assertTrue(link_dostop.sme_domaco_mapo(B))
+        # d+z iz prejsnje razlicice: izklop in vklop stikala ozjega kroga je izrecna privolitev.
+        self.assertFalse(link_dostop.sme_domaco_mapo(A))
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, ""))
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, "z"))
+        self.assertTrue(link_dostop.sme_domaco_mapo(A))
+
+
 class G2IzrecnaMedCakajocoMigracijo(_Osnova):
     """Pregled 29, G2: med cakajoco migracijo je naprava z vsemi stirimi izgubila ozji krog, tudi z izrecno novo
     privolitvijo, okno pa je javilo »Shranjeno«; ko je migracija stekla, je vzela se domaco mapo."""

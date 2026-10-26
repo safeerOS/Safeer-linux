@@ -1050,8 +1050,13 @@ def _nastavi(device_id: str, dano: Iterable[str], ozji: bool) -> bool:
 
 def nastavi_ozji_krog(device_id: str, dano: Iterable[str]) -> bool:
     """Stikala v oknu Safeer Link (izrecna privolitev uporabnika na TEM racunalniku): katerokoli dovoljenje da ozji
-    krog (ozji_krog), prazen nabor ga vzame v celoti. Stikalo ozjega kroga pove, da vsebuje domaco mapo (link.js
-    dostopZaslonOpis): vklop je tudi privolitev zanjo (sme_domaco_mapo)."""
+    krog (ozji_krog), prazen nabor ga vzame v celoti. Samo odvzem napravi zunaj ozjega kroga je natancen: izklop
+    stikala ne sme dati nove pravice (»pv« brez »p« je »v«, ne »dvz« s Safeer Vnos in domaco mapo).
+
+    Domaca mapa (polje »dom«, sme_domaco_mapo) samo ob VKLOPU ozjega kroga - stikalo ozjega kroga pove, da jo
+    vsebuje (link.js dostopZaslonOpis). Sprememba drugega stikala naprave, ki je ze v ozjem krogu, privolitve ne doda:
+    naprava d+z iz prejsnje razlicice jo dobi samo z »Dovoli domaco mapo« ali z izklopom in vklopom ozjega kroga
+    (pregled 29, G1: prej jo je zapisala vsaka sprememba stikal, tudi izklop »Programi«)."""
     return _nastavi(device_id, dano, ozji=True)
 
 
@@ -1087,8 +1092,13 @@ def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False) -> bool:
         ucinkovito = set(_nalozen().get(j) or ())
         nabor = set(zahtevano)
         if ozji and nabor:
-            nabor = ozji_krog(nabor)
-        dom = ozji and OZJI_KROG <= nabor
+            if nabor < ucinkovito and not OZJI_KROG <= ucinkovito:
+                # Samo izklop napravi zunaj ozjega kroga: vzame se samo izklopljeno. »d« (izbrane mape iz prejsnje
+                # razlicice) okno samo ne pokaze - ostane, dokler uporabnik ne izklopi vsega.
+                nabor |= ucinkovito & {DATOTEKE}
+            else:
+                nabor = ozji_krog(nabor)
+        dom = ozji and OZJI_KROG <= nabor and not OZJI_KROG <= ucinkovito
         novo = bool(nabor - ucinkovito)
 
         def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:

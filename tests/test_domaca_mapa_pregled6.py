@@ -103,7 +103,8 @@ class U1OzjiKrogVLinkDostop(unittest.TestCase):
     def test_samo_d_ni_ozji_krog(self):
         link_dostop.nastavi(ZUNANJI, "dpv")
         self.assertFalse(link_dostop.v_ozjem_krogu(ZUNANJI))
-        link_dostop.nastavi_ozji_krog(ZUNANJI, "p")
+        # Vklop stikala (okno ob vsakem vklopu oznaci tudi ozji krog »z«); samo izklop ozjega kroga ne da (pregled 29, G1).
+        link_dostop.nastavi_ozji_krog(ZUNANJI, "pz")
         self.assertTrue(link_dostop.v_ozjem_krogu(ZUNANJI))
         link_dostop.nastavi(ZUNANJI, "")
         self.assertFalse(link_dostop.v_ozjem_krogu(ZUNANJI))
