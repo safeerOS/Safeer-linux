@@ -188,6 +188,8 @@ def izracunaj(f, v):
         return P.za_uskladitev(v["stanje"])
     if f == "sprejmi_prejetega":
         return P.sprejmi_prejetega(IZID_NAMIZJE[v["preverba"]])
+    if f == "samodejno_s_kljucem":
+        return P.samodejno_s_kljucem(v["stanje"])
     if f == "preveri_zdaj":
         # Primeri so v ms (Android), namizje steje v sekundah (time.time).
         return P.preveri_zdaj(v["stanje"], v["zadnjic_ms"] / 1000.0, v["zdaj_ms"] / 1000.0)

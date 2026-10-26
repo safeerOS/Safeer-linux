@@ -268,8 +268,20 @@ def sprejmi_prejetega(izid: str) -> bool:
 
 
 def preveri_zdaj(stanje: Optional[str], zadnjic: float, zdaj: float) -> bool:
-    """Ali kljuc (brez stanja ali nepreverjen, zadnja preverba ob [zadnjic] s) preverimo zdaj; ura nazaj = preveri."""
-    return stanje is None or (stanje == STANJE_NEPREVERJEN and not 0 <= zdaj - zadnjic < PREVERI_ZNOVA_S)
+    """Ali kljuc brez stanja ali nepreverjen preverimo zdaj: najvec enkrat na PREVERI_ZNOVA_S za TA kljuc ([zadnjic] =
+    zadnja preverba tega kljuca v s, 0 = se ni bil preverjen); ura nazaj = preveri. Veljaven in zavrnjen ne (zavrnjen
+    se ne ponavlja - ponavljanje zavrnjenega kljuca lahko storitev steje kot napad in zaklene racun ali IP).
+    Lastnik 26. 10. 2026 (»Nevarnost zaklepa racuna je prioriteta«): prej je bil kljuc brez stanja preverjen ob VSAKEM
+    odprtju okna, dokler se stanje ni zapisalo - ce zapis ne uspe, je bil vsak klik nov klic storitve."""
+    return stanje in (None, STANJE_NEPREVERJEN) and not 0 <= zdaj - zadnjic < PREVERI_ZNOVA_S
+
+
+def samodejno_s_kljucem(stanje: Optional[str]) -> bool:
+    """Ali kljuc uporabimo v klicu, ki ga ni sprozil uporabnik (⚡ checkcached ob seznamu virov, iskanje in prenos NZB
+    Usenet, preverba Usenet »pripravljen«). Kljuca, ki ga je storitev zavrnila (»ne velja«), ne posiljamo znova sami:
+    vsak tak klic je se en zavrnjen vpis pri storitvi (lastnik 26. 10. 2026: zaklep racuna). Uporabnik ga vpise znova;
+    izrecno predvajanje ga se poskusi (uspeh ga vrne v »velja«)."""
+    return stanje != STANJE_NE_VELJA
 
 
 def odtis_stanja(kljuc: str) -> str:

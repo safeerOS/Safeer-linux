@@ -801,6 +801,8 @@ class Debrid:
         self._nzb: "OrderedDict[str, tuple]" = OrderedDict()
         # Zadnja preverba kljuca po storitvi (samo v pomnilniku - po zagonu se nepreverjen preveri znova, kot Android).
         self._zadnja_preverba: dict = {}
+        # Odtis kljuca, ki ga je ta zadnja preverba preverila: zamenjan kljuc se preveri takoj (P.preveri_zdaj po kljucu).
+        self._preverjen_odtis: dict = {}
         self._preverjam = threading.Lock()      # ena preverba nepreverjenih naenkrat (okno odprto veckrat zapored)
 
     def _nastavitve(self) -> dict:
@@ -886,7 +888,7 @@ class Debrid:
         s = P.stanje_po_preverbi(izid)
         if s is None:
             return {"ok": False, "preverba": izid, "paket": None, "stanje": None}
-        self._zadnja_preverba[p] = time.time()
+        self._zadnja_preverba[p], self._preverjen_odtis[p] = time.time(), P.odtis_stanja(k)
         return {"ok": self.nastavi_kljuc(p, k, paket, s), "preverba": izid, "paket": paket, "stanje": s}
 
     # ---- stanje kljuca (lastnik 25. 10. 2026, kot Android Debrid.stanjeKljuca/obIzidu/preveriNepreverjene)
@@ -946,12 +948,21 @@ class Debrid:
             self._zapisi_stanje(p, oznaka, odtis, P.STANJE_VELJA)
 
     def _preveri_eno(self, p: str) -> tuple:
-        """(P.PREVERBA_*, paket) za shranjen kljuc [p] - blokirajoce."""
+        """(P.PREVERBA_*, paket) za shranjen kljuc [p] - blokirajoce. Shranjen ne-kljuc (vzorec iz navodil ali oblika iz
+        prejsnje razlicice) ne gre storitvi (Grokov pregled 36, D7): »ne velja« brez klica - zavrnjen vpis manj."""
         if p == P.INDEKSATOR:
             ix = self.indeksator()
-            return (indeksator_preveri(ix[0], ix[1]), None) if ix else (P.PREVERBA_OBLIKA, None)
+            if not ix:
+                return P.PREVERBA_OBLIKA, None
+            if P.kljuc_iz_vnosa(ix[1], P.INDEKSATOR) is None:
+                return P.PREVERBA_NEVELJAVEN, None
+            return indeksator_preveri(ix[0], ix[1]), None
         k = self.kljuc(p)
-        return preveri_kljuc(p, k) if k else (P.PREVERBA_OBLIKA, None)
+        if not k:
+            return P.PREVERBA_OBLIKA, None
+        if P.kljuc_iz_vnosa(k, p) is None:
+            return P.PREVERBA_NEVELJAVEN, None
+        return preveri_kljuc(p, k)
 
     def preveri_nepreverjene(self) -> bool:
         """Kljuci brez stanja (shranjeni pred to razlicico) ali nepreverjeni: preverba pri storitvi, nepreverjen najvec na
@@ -966,9 +977,11 @@ class Debrid:
                 if not odtis:
                     continue
                 prej, zdaj = self.stanje_kljuca(p), time.time()
-                if not P.preveri_zdaj(prej, float(self._zadnja_preverba.get(p, 0.0)), zdaj):
+                # Omejitev je po kljucu in v pomnilniku: tudi ce se stanje ne zapise, isti kljuc najvec na 10 min.
+                zadnjic = float(self._zadnja_preverba.get(p, 0.0)) if self._preverjen_odtis.get(p) == odtis else 0.0
+                if not P.preveri_zdaj(prej, zadnjic, zdaj):
                     continue
-                self._zadnja_preverba[p] = zdaj
+                self._zadnja_preverba[p], self._preverjen_odtis[p] = zdaj, odtis
                 izid, paket = self._preveri_eno(p)
                 if izid == P.PREVERBA_OBLIKA:
                     continue
@@ -995,6 +1008,7 @@ class Debrid:
             self._postavi_stanje(d, p, None)
         self._spremeni(f)
         self._zadnja_preverba.pop(p, None)
+        self._preverjen_odtis.pop(p, None)
         self._pozabi(*staro)
 
     # ---- Usenet: uporabnikov indeksator Newznab (naslov in kljuc samo sifrirana, kot kljuci storitev)
@@ -1024,6 +1038,7 @@ class Debrid:
             self._postavi_stanje(d, P.INDEKSATOR, stanje if nov is not None else None)
         self._spremeni(f)
         self._zadnja_preverba.pop(P.INDEKSATOR, None)
+        self._preverjen_odtis.pop(P.INDEKSATOR, None)
         self._pozabi(*[x for x in staro if x not in (nov or {}).values()])
 
     def nastavi_indeksator(self, naslov: str, kljuc: str, stanje: Optional[str] = None) -> bool:
@@ -1051,6 +1066,7 @@ class Debrid:
             return {"ok": False, "preverba": izid, "stanje": None}
         ok = self.nastavi_indeksator(osn, k, s)
         self._zadnja_preverba[P.INDEKSATOR] = time.time()
+        self._preverjen_odtis[P.INDEKSATOR] = P.odtis_stanja(osn + "|" + k)
         return {"ok": ok, "preverba": izid, "stanje": s}
 
     def pozabi_indeksator(self) -> None:
@@ -1061,8 +1077,12 @@ class Debrid:
         return (urllib.parse.urlsplit(ix[0]).hostname or "") if ix else ""
 
     def usenet_na_voljo(self) -> bool:
-        """Indeksator, kljuc TorBox (prenese in pretaka TorBox) in uporabnik ni izbral »Brez debrida«."""
-        return self.indeksator() is not None and bool(self.kljuc(P.TORBOX)) and self.aktivna() is not None
+        """Indeksator, kljuc TorBox (prenese in pretaka TorBox) in uporabnik ni izbral »Brez debrida«. Iskanje in prenos
+        NZB tecejo sama ob seznamu virov: s kljucem, ki ga je indeksator ali TorBox zavrnil, ne (P.samodejno_s_kljucem -
+        vsak klic bi bil se en zavrnjen vpis; indeksatorji stejejo klice API na dan)."""
+        return (self.indeksator() is not None and bool(self.kljuc(P.TORBOX)) and self.aktivna() is not None
+                and P.samodejno_s_kljucem(self.stanje_kljuca(P.INDEKSATOR))
+                and P.samodejno_s_kljucem(self.stanje_kljuca(P.TORBOX)))
 
     def usenet_isci(self, ident: str) -> list:
         """Tokovi Usenet za id Stremio: [{"url": "usenet:…", "opis": …, "gb": …}]. Povezave NZB ostanejo v pomnilniku."""
@@ -1210,8 +1230,8 @@ class Debrid:
     def predpomnjeni(self, hashi: Sequence[str]) -> set:
         """Hashi, ki jih ima storitev pripravljene (⚡). Prava preverba je samo pri TorBoxu."""
         k = self.kljuc(P.TORBOX)
-        if self.aktivna() is None or not k:
-            return set()
+        if self.aktivna() is None or not k or not P.samodejno_s_kljucem(self.stanje_kljuca(P.TORBOX)):
+            return set()                        # zavrnjen kljuc: ⚡ ob vsakem seznamu virov bi bil nov zavrnjen klic
         # Zavrnjen kljuc ze ob preverbi ⚡ (kot Android TorBox.predpomnjeni): vrstica v »Debrid storitve« pove »ne velja«.
         return torbox_predpomnjeni(k, hashi, ob_napaki=lambda napaka: self.ob_izidu(P.TORBOX, napaka, False))
 
