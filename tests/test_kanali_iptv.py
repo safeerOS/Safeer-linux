@@ -856,38 +856,97 @@ class ZavrnjenSeznam(unittest.TestCase):
         self.assertEqual(klici, [javni])
         self.assertNotIn("zavrnjen", self._vir())
 
-    def test_lastna_stran_html_brez_poverilnice_dobi_vdelavo(self):
+    def _novi_mc(self, odgovor):
+        """Nov Medijski center brez virov; `odgovor(url)` vrne (telo, vrsta, koncni_url) ali sprozi izjemo."""
+        mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(mapa.cleanup)
+        mc = os_media.MediaCenter(mapa.name, roots=[])
+        mc._kanali_spremenjeni = lambda viri=False: None
+        mc._izmeri_ping = lambda u: None
+        mc.prenosi = []
+
+        def prenesi(u):
+            mc.prenosi.append(u)
+            return odgovor(u)
+        mc._download = prenesi
+        return mc
+
+    def test_lastna_stran_html_brez_poverilnice_dobi_vdelavo_ob_dodajanju(self):
         """Lastnik: uporabnik lahko vdela katero koli stran. Vir, ki ga uporabnik SAM doda na tej napravi in je stran HTML
-        brez predvajljive vsebine, dobi vnos »Vdelana vsebina«, ce naslov nima znakov poverilnice (pregled 57, Ş2);
-        z znaki poverilnice, prejet z druge naprave, ali brez HTML (prazno telo) ostane zavrnitev."""
+        brez predvajljive vsebine, dobi ob PRVEM dodajanju vnos »Vdelana vsebina«, ce naslov (tudi po preusmeritvi) nima
+        znakov poverilnice (pregled 57, Ş2; pregled 63, Ŷ2: vsak podprimer s svežim virom)."""
         html = b"<html><body><h1>Moja stran</h1></body></html>"
         stran = "https://stran.primer.test/film"
-        primeri = [(stran, {}, html, "text/html; charset=utf-8", True),
-                   ("https://stran.primer.test/watch?id=5", {}, html, "text/html", True),
-                   ("https://stran.primer.test/get.php?username=u&password=g", {}, html, "text/html", False),   # poverilnica
-                   ("https://u:g@stran.primer.test/film", {}, html, "text/html", False),
-                   ("https://stran.primer.test/film?token=abc", {}, html, "text/html", False),
-                   ("http://stran.primer.test/live/u/g/1", {}, html, "text/html", False),
-                   (stran, {"link_naslov": stran, "link_tip": "url"}, html, "text/html", False),              # prejet
-                   (stran, {}, b"", "text/html", False),                                                      # prazno telo
-                   (stran, {}, html, "text/plain", False)]
-        for url, dodatno, telo, vrsta, pricakovano in primeri:
-            with self.subTest(url=url, dodatno=dodatno, vrsta=vrsta, telo=len(telo)):
-                with self.mc._lock:
-                    data = self.mc._load()
-                    data["viri"][0].update(url=url, vnosi=[], zavrnjen=None, **dodatno)
-                    data["viri"][0].pop("zavrnjen")
-                    self.mc._save(data)
-                self.prenosi.clear()
-                self.mc._download = lambda u, t=telo, v=vrsta: (self.prenosi.append(u), (t, v, u))[1]
-                r = self.mc.refresh_source("xt")
-                self.assertEqual(self.prenosi, [url])                   # vedno ena zahteva
-                self.assertIs(r["ok"], pricakovano)
+        preusmeritev = "https://stran.primer.test/get.php?username=u&password=g"
+        # (naslov, telo, vrsta, koncni naslov, pricakovano)
+        primeri = [(stran, html, "text/html; charset=utf-8", stran, True),
+                   ("https://stran.primer.test/watch?id=5", html, "text/html", "https://stran.primer.test/watch?id=5", True),
+                   ("https://stran.primer.test/get.php?username=u&password=g", html, "text/html", None, False),   # poverilnica
+                   ("https://stran.primer.test/film?token=abc", html, "text/html", None, False),
+                   ("http://stran.primer.test/live/u/g/1", html, "text/html", None, False),
+                   (stran, html, "text/html", preusmeritev, False),             # poverilnica po preusmeritvi
+                   (stran, b"", "text/html", stran, False),                      # prazno telo
+                   (stran, html, "text/plain", stran, False)]                    # ni HTML
+        for url, telo, vrsta, koncni, pricakovano in primeri:
+            with self.subTest(url=url, vrsta=vrsta, telo=len(telo), koncni=koncni):
+                mc = self._novi_mc(lambda u, t=telo, v=vrsta, k=koncni: (t, v, k or u))
+                r = mc.add_source(url, "Stran")
+                kanonicni = os_media.canonical_url(url)
+                self.assertEqual(mc.prenosi, [kanonicni])                   # vedno ena zahteva
+                self.assertIs(r["ok"], pricakovano, r)
                 if pricakovano:
-                    self.assertEqual([x["url"] for x in self._vir()["vnosi"]], [url])
-                    self.assertNotIn("zavrnjen", self._vir())
+                    vir = mc._load()["viri"][0]
+                    self.assertEqual(([x["url"] for x in vir["vnosi"]], vir["tip"]), ([kanonicni], "vdelana_stran"))
                 else:
-                    self.assertEqual(self._vir()["zavrnjen"]["n"], 1)
+                    self.assertEqual(mc._load()["viri"], [])                  # vir ni dodan
+
+    def test_prejet_vir_ne_dobi_vdelave_niti_ob_osvezitvi(self):
+        stran = "https://stran.primer.test/film"
+        mc = self._novi_mc(lambda u: (b"<html><body>x</body></html>", "text/html", u))
+        self.assertTrue(mc.add_source(stran, "Stran", prevzet={"tip": "url", "naslov": stran, "cas": 9})["caka"])
+        self.assertEqual(mc.prenosi, [])
+        vir = mc._load()["viri"][0]
+        self.assertFalse(mc.refresh_source(vir["id"])["ok"])                # osvezitev: ni vdelave
+        vir = mc._load()["viri"][0]
+        self.assertEqual((mc.prenosi, vir["vnosi"], vir["zavrnjen"]["n"], bool(vir.get("caka_uporabnika"))),
+                         ([stran], [], 1, True))
+
+    def test_oznaka_javni_ne_izklopi_poverilnice_za_vdelavo(self):
+        for naslov in ("https://stran.primer.test/get.php?username=u&password=g", "https://u:g@stran.primer.test/film"):
+            self.assertFalse(os_media.MediaCenter._vdelava_strani({"url": naslov, "javni": True}, "text/html",
+                                                                  b"<html>x</html>", naslov), naslov)
+
+    def test_osvezitev_html_ne_nadomesti_prebranega_seznama_in_ne_brise_premora(self):
+        """Pregled 63, Ŷ1: odgovor HTML (potekel ali zaklenjen racun) je pri osvezitvi napaka s premorom; kanali IPTV, ki so
+        ze bili prebrani, ostanejo, zavrnjen in ni_povezave se ne pobrisata."""
+        url = "https://ponudnik.primer.test/7f3a9c1e5b2d/tv"             # oblika, ki je hevristika ne pozna
+        kanal = [{"id": "k", "iptv": True, "url": "http://ponudnik.primer.test:8080/live/u/g/1.ts", "naslov": "K"}]
+        with self.mc._lock:
+            data = self.mc._load()
+            data["viri"][0].update(url=url, vnosi=kanal, stevilo=1, posodobljeno=5, zavrnjen={"koda": 404, "ob": 1, "n": 2},
+                                   ni_povezave=2)
+            self.mc._save(data)
+        self.mc._download = lambda u: (self.prenosi.append(u), (b"<html><body>Racun je potekel</body></html>", "text/html", u))[1]
+        r = self.mc.refresh_source("xt")
+        vir = self._vir()
+        self.assertFalse(r["ok"])
+        self.assertEqual(self.prenosi, [url])
+        self.assertEqual((vir["zavrnjen"]["n"], vir["vnosi"], vir["stevilo"], vir["napaka"]),
+                         (3, kanal, 1, "Ponudnik ni vrnil seznama."))
+        self.assertNotIn("tip", vir)                                       # ni postal vdelana stran
+        self.assertGreater(self.mc._zavrnjen_do(vir), time.time())          # samodejno ne prej
+
+    def test_vdelana_stran_se_ne_prenasa_znova(self):
+        stran = "https://stran.primer.test/film"
+        mc = self._novi_mc(lambda u: (b"<html><body>x</body></html>", "text/html", u))
+        self.assertTrue(mc.add_source(stran, "Stran")["ok"])
+        self.assertEqual(mc.prenosi, [stran])
+        ident = mc._load()["viri"][0]["id"]
+        mc.prenosi.clear()
+        self.assertTrue(mc.refresh_source(ident)["ok"])
+        mc.refresh_stale(max_age=60)
+        vir = mc._load()["viri"][0]
+        self.assertEqual((mc.prenosi, [x["url"] for x in vir["vnosi"]], vir.get("zavrnjen")), ([], [stran], None))
 
     def test_znana_platforma_brez_racuna_ohrani_rezervno_pot(self):
         """Pregled 57, Ş2: »neznano je racun« ne sme vzeti vdelave YouTube, SoundCloud in Bandcamp (nobena nima racuna

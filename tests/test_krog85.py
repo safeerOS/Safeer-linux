@@ -265,7 +265,7 @@ class Viri(unittest.TestCase):
         def preveri(base):
             return "" if "stream" in manifest(base)["resources"] else "Samo seznam naslovov."
 
-        def osvezi(source_id):
+        def osvezi(source_id, **_k):
             with self.mc._lock:
                 data = self.mc._load()
                 vir = next(v for v in data["viri"] if v["id"] == source_id)

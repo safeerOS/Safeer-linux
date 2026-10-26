@@ -3737,7 +3737,8 @@ class MediaCenter:
         # Odziv vira začnemo meriti takoj ob dodajanju, da je meritev navadno
         # že na voljo, ko uporabnik prvič izbere film ali epizodo.
         threading.Thread(target=self._izmeri_ping, args=(canonical,), daemon=True).start()
-        rezultat = self.refresh_source(source["id"])
+        # Vdelava strani HTML samo ob prvem dodajanju, ko je uporabnik prisoten (pregled 63, Ŷ1); prejet vir je ne dobi.
+        rezultat = self.refresh_source(source["id"], dovoli_vdelavo=not prevzet)
         vir = rezultat.get("vir") or {}
         # Vir predvajalnika (TMDB katalog + vdelani predvajalnik) nima lastnih vnosov, a je predvajljiv.
         if rezultat.get("ok") and (int(vir.get("stevilo") or 0) > 0 or source.get("tip") == "predvajalni_vir"
@@ -4343,16 +4344,17 @@ class MediaCenter:
         """Stran HTML brez predvajljive vsebine dobi vnos »Vdelana vsebina« (lastnik: uporabnik lahko vdela katero koli
         stran; pregled 57, Ş2), ce je uporabnik vir SAM dodal na tej napravi (ni prejet z druge: brez link_naslov in
         link_tip) in naslov (tudi po preusmeritvi) NIMA znakov poverilnice (user:pass@, username=, password=, token=,
-        /live/<u>/<g>/, get.php ...: viri_sink.verjetno_racun_seznama). Prazno telo ali drugo vrsto vsebine to ni."""
+        /live/<u>/<g>/, get.php ...: viri_sink.verjetno_racun_seznama). Prazno telo ali drugo vrsto vsebine to ni.
+        Klice jo samo prvo dodajanje (add_source), nikoli osvezitev (pregled 63, Ŷ1: odgovor HTML poteklega racuna bi
+        sicer pobrisal premor in zamenjal ze prebrane kanale IPTV). Oznake »javni« ne upoštevamo: poverilnica v naslovu
+        izklopi vdelavo tudi za oznacen vir."""
         if source.get("link_naslov") or source.get("link_tip"):
             return False
         if str(content_type or "").split(";")[0].strip().casefold() != "text/html" or not (payload or b"").strip():
             return False
-        oznacen = source.get("javni") is True
-        return not (viri_sink.verjetno_racun_seznama(source.get("url"), oznacen)
-                    or viri_sink.verjetno_racun_seznama(final_url, oznacen))
+        return not (viri_sink.verjetno_racun_seznama(source.get("url")) or viri_sink.verjetno_racun_seznama(final_url))
 
-    def refresh_source(self, source_id: str) -> dict:
+    def refresh_source(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
         if source_id.startswith("streznik-"):
             with self._lock:
                 self._server_cache = {key: value for key, value in self._server_cache.items()
@@ -4385,16 +4387,25 @@ class MediaCenter:
                 if not items:
                     raise ValueError("Neposrednega medijskega toka ni mogoče dodati.")
                 source["tip"] = "neposredni_medijski_tok"
+            elif source.get("tip") == "vdelana_stran":
+                # Stran, vdelana ob dodajanju: ne spreminja se, ponovni prenos ni potreben (brez zahteve na naslov).
+                items = _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
+                if not items:
+                    raise ValueError("Strani ni mogoče vdelati.")
             else:
                 payload, content_type, final_url = self._download(source["url"])
                 stevci: dict = {}
                 items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
                 source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
-                    if self._racun_vira(source) and not self._vdelava_strani(source, content_type, payload, final_url):
+                    vdelava = (dovoli_vdelavo and self._racun_vira(source)
+                               and self._vdelava_strani(source, content_type, payload, final_url))
+                    if self._racun_vira(source) and not vdelava:
                         # Odgovor brez seznama na naslov z geslom: brez se ene zahteve z geslom (vdelani predvajalnik)
-                        # in samodejno vse redkeje (pregled 46, Ö5).
+                        # in samodejno vse redkeje (pregled 46, Ö5). Osvezitev nikoli ne vdela strani (pregled 63, Ŷ1).
                         raise _PrazenOdgovor("Ponudnik ni vrnil seznama.")
+                    if vdelava:
+                        source["tip"] = "vdelana_stran"
                     items = _resolve_embed_or_direct_source(final_url, source["id"], source["ime"])
             source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
                            "razclenitev": kanali_iptv.RAZCLENITEV})

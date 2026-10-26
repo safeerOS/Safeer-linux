@@ -745,6 +745,24 @@ class GesloNiVPodatkihStrani(unittest.TestCase):
                 for skrivnost in ("novo-geslo", "skrito-geslo"):
                     self.assertNotIn(skrivnost, json.dumps(r))
 
+    def test_dodaj_vir_ob_napaki_ne_vrne_gesla_strani(self):
+        """Pregled 63 (Ŷ2, V7): tudi neuspesno dodajanje z izjemo, ki nosi geslo (repr cilja z ' in "), ne nosi gesla v odgovoru."""
+        import http.client
+        from core import os_katalog
+        k = os_katalog.Katalog(self.mapa.name, lambda *a: None, lambda f: f(), lambda *a, **kw: True, lambda u: True,
+                               lambda *a: True, lambda u: True)
+        k._mc = self.mc
+        self.mc._izmeri_ping = lambda u: None
+        naslov = "http://drug.test:8080/get.php?username=novi&password=novo'geslo\"x&type=m3u_plus"
+
+        def prenesi(u):
+            raise http.client.InvalidURL("URL can't contain control characters. %r (found at least ' ')" % u.partition("8080")[2])
+        self.mc._download = prenesi
+        r = k._dodaj_vir([naslov, "Ime"])
+        self.assertFalse(r["ok"])
+        for skrivnost in ("novo", "geslo", "novi"):
+            self.assertNotIn(skrivnost, json.dumps(r))
+
     def test_napaka_brez_naslova(self):
         self.mc._download = lambda url: (_ for _ in ()).throw(ValueError("unknown url type: %r" % url))
         self.assertFalse(self.mc.refresh_source("xt")["ok"])
