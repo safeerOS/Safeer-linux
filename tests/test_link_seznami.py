@@ -586,9 +586,43 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         vir = self._viri()[JAVNI]
         self.assertEqual((vir["stevilo"], "caka_uporabnika" in vir), (1, False))
 
-    def test_podkast_se_prenese_takoj(self):
+    def test_vir_neprepoznane_oblike_caka_ne_glede_na_vrsto(self):
+        """Pregled 57, Ş1: odlocala je hevristika oblike naslova ali vrsta »seznam«: kratka povezava, zeton v poti in
+        .../x.m3u vrste »url« so se ob prejemu takoj prenesli na vsaki napravi v ozjem krogu (zaklep racuna pri
+        ponudniku). Zdaj caka vsak prejet vir, ki ni POZITIVNO znan javen - vrste, ki jo poslje druga naprava, ne
+        presojamo (tudi »podkast« in »tok« ne)."""
+        naslovi = ["http://kratka.primer.test/abc", "http://ponudnik.primer.test:8080/7f3a9c1e5b2d/tv",
+                   "http://ponudnik.primer.test:8080/zeton123.m3u", "https://ponudnik.primer.test/m3u/zeton123.m3u",
+                   "http://ponudnik.primer.test/c/00:1A:79:00:00:01", PODKAST, "https://podkast.primer.si/zasebno/zeton123"]
+        for tip in ("url", "seznam", "podkast", "tok", "tok-hls"):
+            for naslov in naslovi:
+                with self.subTest(tip=tip, naslov=naslov):
+                    self.setUp()
+                    self._prejmi((tip, naslov))
+                    self.assertEqual(self.povezave, [])                  # ne prenos, ne ping, ne rezerva, ne omrezje
+                    vir = self._viri()[naslov]
+                    self.assertTrue(vir.get("caka_uporabnika"), vir)
+                    self.assertEqual((vir["stevilo"], vir["vnosi"], vir["napaka"]), (0, [], ""))
+                    self.assertEqual(self.mc.viri_izvoz(ozji=True)["sources"], [])
+                    self.mc.refresh_stale(max_age=60)
+                    self.assertEqual(self.mc.refresh_all()["rezultati"], [])        # skupna osvezitev tudi ne
+                    self.assertEqual(self.povezave, [])
+
+    def test_znan_javni_vir_se_prenese_ne_glede_na_vrsto(self):
+        for tip in ("url", "seznam"):
+            with self.subTest(tip=tip):
+                self.setUp()
+                self._prejmi((tip, JAVNI))
+                self.assertEqual([p for p in self.povezave if p[0] == "prenos"], [("prenos", JAVNI)])
+                self.assertNotIn("caka_uporabnika", self._viri()[JAVNI])
+
+    def test_uporabnikova_osvezitev_cakajocega_podkasta_prenese_enkrat(self):
         self._prejmi(("podkast", PODKAST))
-        self.assertEqual([p[0] for p in self.povezave].count("prenos"), 1)
+        self.assertEqual(self.povezave, [])
+        ident = self._viri()[PODKAST]["id"]
+        self.assertTrue(self.mc.refresh_source(ident)["ok"])
+        self.assertEqual([p[0] for p in self.povezave], ["prenos"])
+        self.assertNotIn("caka_uporabnika", self._viri()[PODKAST])
 
     def test_lastni_vir_z_racunom_se_prenese_takoj(self):
         self.assertTrue(self.mc.add_source(XTREAM, "Moj")["ok"])

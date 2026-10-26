@@ -8649,7 +8649,7 @@
       // Seznam z racunom (Xtream ...) v ozadju ne preverjamo - zascita pred zaklepom racuna (core/kanali_iptv, J3).
       if (!source.napaka && kanali) status = kanali.preverba === false ? t("katKanaliBrezPreverbe", { n: kanali.izbranih || 0 }) :
         t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
-      // Prejet seznam z racunom caka na osvezitev: ponudniku ga ne poslje vsaka naprava (core/os_media.add_source, Ñ2).
+      // Prejet vir, ki ni znan javen, caka na osvezitev: ponudniku ga ne poslje vsaka naprava (core/os_media.add_source, Ñ2, Ş1).
       if (!source.napaka && source.caka_uporabnika) status = t("katVirCaka");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));

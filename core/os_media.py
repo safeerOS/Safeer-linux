@@ -3719,11 +3719,12 @@ class MediaCenter:
             if _je_predvajalni_vir(canonical):
                 source["tip"] = "predvajalni_vir"
             self._vir_dodan(source, viri_sink.URL, canonical, prevzet)
-            caka = bool(prevzet) and self._caka_uporabnika(canonical, prevzet)
+            caka = bool(prevzet) and self._caka_uporabnika(canonical)
             if caka:
-                # Pregled 51, Ñ2: seznam z racunom, prejet z druge naprave, se ne prenese ob prejemu (vsaka naprava v krogu
+                # Pregled 51, Ñ2: vir z racunom, prejet z druge naprave, se ne prenese ob prejemu (vsaka naprava v krogu
                 # bi ob prvem usklajevanju poslala ponudniku zahtevo z geslom). Prenese ga naprava, kjer je bil dodan; ta
-                # ga prenese, ko uporabnik osvezi vir (refresh_source); samodejna pota ga preskocijo.
+                # ga prenese, ko uporabnik osvezi vir (refresh_source); samodejna pota ga preskocijo. Pregled 57, Ş1:
+                # velja za vsak prejet vir, ki ni pozitivno znan javen, ne le za prepoznano obliko racuna.
                 source["caka_uporabnika"] = int(time.time())
                 source["razclenitev"] = kanali_iptv.RAZCLENITEV       # ni »zastarel«: katalog ga ne bere v ozadju
             data.setdefault("viri", []).append(source)
@@ -3756,11 +3757,14 @@ class MediaCenter:
         return {"ok": False, "napaka": razlog or "nepredvajljiv", "nepredvajljiv": True, "sporocilo": sporocilo}
 
     @staticmethod
-    def _caka_uporabnika(naslov: str, prevzet: dict) -> bool:
-        """Vir, prejet z druge naprave, ki ga ob prejemu ne prenesemo (pregled 51, Ñ2): ni pozitivno znan javen IN ima
-        prepoznan racun ali obliko seznama z racunom, ali ga je naprava poslala kot seznam (Android: tip »seznam«)."""
-        return viri_sink.za_ozji_krog(naslov) and (viri_sink.verjetno_racun_seznama(naslov)
-                                                  or str(prevzet.get("tip") or "") == "seznam")
+    def _caka_uporabnika(naslov: str) -> bool:
+        """Vir, prejet z druge naprave, ki ga ob prejemu ne prenesemo (pregled 51, Ñ2): vsak, ki ni POZITIVNO znan javen
+        (viri_sink.za_ozji_krog, enako kot pri izvozu in prikazu). Pregled 57, Ş1: prej je odlocala hevristika oblike
+        naslova ali vrsta, ki jo je navedla druga naprava (»seznam«), zato se je kratka povezava, zeton v poti ali
+        .../x.m3u vrste »url« ob prejemu takoj prenesla na vsaki napravi v ozjem krogu (lastnikov racun, zaklep pri
+        ponudniku). Vrsti ne zaupamo (doloci jo druga naprava), obliki naslova tudi ne: ob dvomu vir caka, dokler
+        uporabnik na tej napravi izrecno ne pritisne »Osvezi« (refresh_source)."""
+        return viri_sink.za_ozji_krog(naslov)
 
     def remove_source(self, source_id: str, cas: int = 0, kljuc: str = "") -> bool:
         """`cas`, `kljuc`: izbris je prisel z druge naprave v Linku (njen cas in njen kljuc vira, core/viri_sink.py)."""
@@ -4441,7 +4445,9 @@ class MediaCenter:
         return {"ok": ok, "napaka": error, "vir": public}
 
     def refresh_all(self) -> dict:
-        ids = [source.get("id", "") for source in self.sources()]
+        # Cakajoci vir (Ñ2, Ş1) osvezi samo uporabnikov pritisk na NJEGOVO vrstico: skupna osvezitev bi na enkrat
+        # poslala zahteve z gesli vsem virom, ki jih uporabnik se ni potrdil.
+        ids = [source.get("id", "") for source in self.sources() if not source.get("caka_uporabnika")]
         results = [self.refresh_source(source_id) for source_id in ids]
         return {"ok": all(item.get("ok") for item in results), "rezultati": results}
 
