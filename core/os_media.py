@@ -3301,6 +3301,44 @@ class MediaCenter:
             return {"ok": True, "zacet": False}
         return {"ok": True, "zacet": bool(self._prvo_uporaba_v_ozadju([source]))}
 
+    @staticmethod
+    def _kategorije_vira(source: dict) -> set:
+        """Kategorije Medijskega centra (vrste kataloga), kamor spada vir iz ozjega kroga: prebran vir po vrstah vnosov,
+        se neprebran po vrsti, ki jo je navedla druga naprava (link_tip; vrsti ne zaupamo za nic drugega kot za to, v
+        kateri kategoriji uporabnik vir pricakuje): podkast - Glasba, tok - TV v zivo in Radio, drugo (seznam IPTV,
+        neznana oblika) - TV v zivo."""
+        izid = set()
+        for x in source.get("vnosi") or []:
+            if not isinstance(x, dict):
+                continue
+            vrsta = "tv-v-zivo" if x.get("iptv") else str(x.get("vrsta") or "")
+            izid.add("glasba" if vrsta in ("podcast", "podkast") else vrsta)
+        izid.discard("")
+        if izid:
+            return izid
+        tip = str(source.get("link_tip") or "")
+        if tip == "podkast":
+            return {"glasba"}
+        if tip in ("tok", "tok-hls"):
+            return {"tv-v-zivo", "radio"}
+        return {"tv-v-zivo"}
+
+    def odpri_kategorijo(self, vrsta: str) -> dict:
+        """Uporabnik je odprl KATEGORIJO Medijskega centra (klik na zavihek, npr. TV v zivo; pregled 68, Ą4). Vsak vir iz
+        ozjega kroga, ki pripada tej kategoriji in ga je treba prebrati (prvic ali po 24 h), dobi eno povezavo v ozadju;
+        viri drugih kategorij ne. Klic samo iz uporabnikovega klika - ne iz obnove zaslona ob zagonu, predgrevanja
+        ali samodejnega osvezevanja kataloga. Premor, 1/min in ena naenkrat veljajo (_prvo_uporaba_v_ozadju)."""
+        vrsta = str(vrsta or "")
+        if not vrsta or vrsta == "vse":
+            return {"ok": True, "zacetih": 0}
+        pred = time.time() - self.OZJI_KROG_PREDPOMNILNIK_S
+        with self._lock:
+            viri = [s.copy() for s in self._load().get("viri", []) if isinstance(s, dict)
+                    and s.get("ozji_krog") and not s.get("caka_uporabnika")
+                    and (s.get("prvo_uporaba") or float(s.get("posodobljeno") or 0) <= pred)]
+        viri = [s for s in viri if vrsta in self._kategorije_vira(s)]
+        return {"ok": True, "zacetih": len(self._prvo_uporaba_v_ozadju(viri)) if viri else 0}
+
     def _prvo_uporaba_v_ozadju(self, viri: list) -> list:
         """Povezava vira iz ozjega kroga ob uporabnikovem odprtju tega vira (odpri_vir; lastnik, 26. 10. 2026): prva, nato
         sele ko je prebrani seznam starejsi od 24 h (pregled 68, Ą1: nikoli iz ozadja). Ena zahteva na vir; ne med
@@ -3379,8 +3417,8 @@ class MediaCenter:
         for source in data.get("viri", []):
             if isinstance(source, dict) and source.get("prvo_uporaba"):
                 # Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden, a prazen do prve uporabe. Povezavo sprozi samo
-                # uporabnikovo odprtje TEGA vira (odpri_vir; pregled 68, Ą4), nikoli katalog: ta bi ob odprtju katere koli
-                # kategorije prijavil vse cakajoce vire hkrati.
+                # uporabnikovo odprtje njegove KATEGORIJE (odpri_kategorijo) ali TEGA vira (odpri_vir; pregled 68, Ą4),
+                # nikoli klic kataloga: ta pride tudi ob obnovi zaslona, predgrevanju in osvezevanju ter bi prijavil vse.
                 continue
             if not isinstance(source, dict) or source.get("caka_uporabnika"):
                 continue                    # prejet vir z racunom ima prazen seznam do uporabnikove osvezitve (Ñ2)

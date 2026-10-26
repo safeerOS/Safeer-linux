@@ -472,7 +472,7 @@ class Katalog:
         # Drzave in jeziki kanalov javnih seznamov IPTV (core/kanali_iptv.py): [] -> stanje, [drzave, jeziki] -> shrani.
         "mediaTvIzbira": "_tv_izbira",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
-        "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdpriVir": "_odpri_vir", "mediaOdkrijDlna": "_odkrij_dlna",
+        "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdpriVir": "_odpri_vir", "mediaOdpriKategorijo": "_odpri_kategorijo", "mediaOdkrijDlna": "_odkrij_dlna",
         # Seznam IPTV kot javni brezplacni: samo tak (in znani javni viri) se preverja v ozadju (kanali_iptv, pregled 39, I1).
         "mediaJavniSeznam": "_javni_seznam",
         # Opozorilo »geslo vira je bilo deljeno zunaj ozjega kroga« je lastnik prebral (os_media, pregled 46, Ö3).
@@ -707,6 +707,11 @@ class Katalog:
     def _osvezi_vir(self, a: list) -> Any:
         ident = self._niz(a, 0)
         return self.mc.refresh_source(ident) if ident else self.mc.refresh_all()
+
+    def _odpri_kategorijo(self, a: list) -> Any:
+        """[vrsta kataloga]: uporabnik je s klikom odprl kategorijo (TV v zivo ...); viri iz ozjega kroga te kategorije se
+        prvic povezejo (pregled 68, Ą4). Samo klik na zavihek - ne obnova zaslona ob zagonu."""
+        return self.mc.odpri_kategorijo(self._niz(a, 0))
 
     def _odpri_vir(self, a: list) -> Any:
         """[id vira]: uporabnik je odprl ta vir (vir iz ozjega kroga se prvic poveze samo tako; pregled 68, Ą4)."""

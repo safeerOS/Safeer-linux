@@ -795,6 +795,83 @@ class VirIzOzjegaKroga(_PrejetOsnova):
         po_odprtju = self._viri()
         self.assertEqual([k for k, v in po_odprtju.items() if v.get("prvo_uporaba")], [XTREAM_B, PODKAST])   # ostala cakata
 
+    def test_odprtje_kategorije_sprozi_povezavo_samo_za_vire_te_kategorije(self):
+        """Pregled 68, Ą4 (z uporabnikove strani, kot Android): uporabnik odpre TV v zivo in pricakuje svoje kanale. Prvo
+        povezavo sprozi odprtje KATEGORIJE vira (seznam IPTV - TV v zivo, podkast - Glasba), samo za vire te kategorije;
+        druga kategorija = 0 povezav; ponovno odprtje ne naredi nove zahteve (premor, 1/min)."""
+        self._prejmi(("seznam", XTREAM_B), ("podkast", PODKAST), ozji=True)
+        for druga in ("film", "serija", "radio", "vse", ""):
+            self.assertEqual(self.mc.odpri_kategorijo(druga)["zacetih"], 0, druga)
+        self._pocakaj_niti()
+        self.assertEqual(self.povezave, [])                          # druga kategorija = 0 povezav
+        self.assertEqual(self.mc.odpri_kategorijo("tv-v-zivo")["zacetih"], 1)
+        self._pocakaj_niti()
+        self.assertEqual(self._prenosi(), [("prenos", self._vir()["url"])])        # IPTV vir iz kroga = 1 povezava
+        self.assertEqual(len(self.povezave), 1, self.povezave)       # podkast (Glasba) se ni dotaknil
+        viri = self._viri()
+        self.assertNotIn("prvo_uporaba", viri[XTREAM_B])
+        self.assertTrue(viri[PODKAST].get("prvo_uporaba"))
+        for _ in range(3):                                           # klik na zavihek znova in znova: brez nove zahteve
+            self.mc.odpri_kategorijo("tv-v-zivo")
+        self._pocakaj_niti()
+        self.assertEqual(len(self.povezave), 1, self.povezave)
+        self.assertEqual(self.mc.odpri_kategorijo("glasba")["zacetih"], 1)           # podkast ob odprtju svoje kategorije
+        self._pocakaj_niti()
+        self.assertEqual(len(self.povezave), 2, self.povezave)
+
+    def test_odprtje_kategorije_ne_sprozi_vira_brez_dokaza_o_krogu(self):
+        """Vir, ki caka uporabnika (fail-closed), se ob odprtju kategorije NE prebere - samo »Osvezi«."""
+        self._prejmi_neznan(("seznam", XTREAM_B))
+        self.assertTrue(self._vir().get("caka_uporabnika"))
+        self.assertEqual(self.mc.odpri_kategorijo("tv-v-zivo")["zacetih"], 0)
+        self._pocakaj_niti()
+        self.assertEqual(self.povezave, [])
+
+    def test_odprtje_kategorije_spostuje_premor_po_napaki(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        podatki = self.mc._load()
+        podatki["viri"][0]["zavrnjen"] = {"koda": 401, "ob": __import__("time").time(), "n": 1}
+        self.mc._save(podatki)
+        self.assertEqual(self.mc.odpri_kategorijo("tv-v-zivo")["zacetih"], 0)
+        self._pocakaj_niti()
+        self.assertEqual(self.povezave, [])                          # premor: nobene zahteve ponudniku
+
+    def test_prebran_vir_se_po_24_urah_osvezi_ob_odprtju_njegove_kategorije(self):
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        self.mc.odpri_kategorijo("tv-v-zivo")
+        self._pocakaj_niti()
+        self.assertEqual(len(self._prenosi()), 1)
+        self.mc.odpri_kategorijo("tv-v-zivo")                        # prebran pred trenutkom: brez nove zahteve
+        self._pocakaj_niti()
+        self.assertEqual(len(self._prenosi()), 1)
+        podatki = self.mc._load()
+        podatki["viri"][0].update(posodobljeno=1, zadnja_zahteva=1)
+        self.mc._save(podatki)
+        self.mc._prvo_poskusi.clear()                                # minila je ze vec kot minuta
+        self.mc.odpri_kategorijo("film")                             # druga kategorija: se vedno nic
+        self._pocakaj_niti()
+        self.assertEqual(len(self._prenosi()), 1)
+        self.mc.odpri_kategorijo("tv-v-zivo")                        # starejsi od 24 h in uporabnik odpre njegovo kategorijo
+        self._pocakaj_niti()
+        self.assertEqual(len(self._prenosi()), 2)
+
+    def test_kategorijo_sprozi_samo_klik_uporabnika_v_vmesniku(self):
+        """Obnova zaslona ob zagonu, predgrevanje in osvezevanje kataloga NE smejo klicati mostu za odprtje kategorije."""
+        import re
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js = open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8").read()
+        klici = [m.start() for m in re.finditer(r"odpriKategorijoViri\(", js)]
+        self.assertEqual(len(klici), 3, klici)                       # definicija + klik na zavihek + klik »Vse«
+        self.assertEqual(js.count('"mediaOdpriKategorijo"'), 1)
+        for ime in ("zadnjaMedijskaKategorija", "uskladiKatalog", "naloziMedije"):
+            telo = js[js.index("function %s(" % ime):]
+            telo = telo[:telo.index("\n  function ")] if "\n  function " in telo else telo
+            self.assertNotIn("odpriKategorijoViri", telo, ime)
+        kat = open(os.path.join(koren, "core", "os_katalog.py"), encoding="utf-8").read()
+        self.assertIn('"mediaOdpriKategorijo": "_odpri_kategorijo"', kat)
+        predgrej = kat[kat.index("def _predgrej"):]
+        self.assertNotIn("odpri_kategorijo", predgrej[:predgrej.index("\n    def ")])
+
     def test_gumb_odpri_samo_za_vir_ki_ga_je_treba_prebrati(self):
         self._prejmi(("seznam", XTREAM_B), ozji=True)
         vir = self.mc.sources()[0]

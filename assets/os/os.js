@@ -1416,7 +1416,7 @@
     if (omejeno) {
       var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
       vse.type = "button";
-      vse.addEventListener("click", function () { izberiMedijskoKategorijo("glasba"); naloziMedije(); });
+      vse.addEventListener("click", function () { izberiMedijskoKategorijo("glasba"); naloziMedije(); odpriKategorijoViri("glasba"); });
       seznamSkladb.appendChild(vse);
     }
     c.appendChild(seznamSkladb);
@@ -1554,6 +1554,13 @@
     // Klik na zavihek med iskanjem: iskanje se konca, pokaze se zavihek (ne mesanica vseh vrst).
     if (S.mediaFilter === "vse") { S.mediaIskanje = ""; $("mediaIskanje").value = ""; }
     izberiMedijskoKategorijo(k); naloziMedije();
+    odpriKategorijoViri(k);
+  }
+  // Uporabnik je s klikom odprl kategorijo: viri iz ozjega kroga te kategorije se prvic povezejo (core/os_media.
+  // odpri_kategorijo; pregled 68, Ą4). Samo iz klika na zavihek - nikoli iz obnove zaslona, predgrevanja ali osvezevanja.
+  function odpriKategorijoViri(k) {
+    var vrsta = KAT_VRSTE[k]; if (!vrsta || vrsta === "vse") return;
+    klic("mediaOdpriKategorijo", [vrsta]).then(function () {}, function () {});
   }
   // ---- leva navigacija: gumb na vrhu jo skrci na ikone in razsiri nazaj (ime v namigu). Lastnik 18. 10. 2026: samo ena
   // moznost (»Skrij meni« in rocaj odstranjena, brez podvajanja). Tipke: v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska
