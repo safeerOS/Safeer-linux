@@ -4004,9 +4004,12 @@ class MediaCenter:
         1) Vir, prejet z druge naprave (link_naslov), ki ni pozitivno znan javen, gre s te naprave - BREZ zapisa izbrisa
            (izbris bi se razsiril nazaj in vir izbrisal lastniku). Naprava v ozjem krogu ga ob naslednjem usklajevanju
            dobi znova (odgovor z "ozji": true; viri_sink.prevzem_dovoljen).
-        2) Lastni vir z racunom (viri_sink.verjetno_geslo), ki ga je starejsa razlicica ponudila navadnemu krogu (javni
-           del starega viri_za_naprave.json), dobi opozorilo »deljeno_zunaj«, ce ima v Linku kaksna naprava dovoljenje
-           Predvajalnik zunaj ozjega kroga (ali tega ni mogoce prebrati): lastniku priporocimo menjavo gesla."""
+        2) Opozorilo za menjavo gesla (pregled 51, Ê2; lastnik: opozorilo je neskodljivo, zato ob dvomu da). Dobi ga
+           vsak lastni vir z racunom (viri_sink.verjetno_geslo), razen ce je DOKAZANO, da nikoli ni sel zunaj ozjega
+           kroga: zapisa za naprave (viri_za_naprave.json, edini vir za Control, core/link_seznami.py) sploh ni bilo ali
+           vira nikoli nismo uspesno prebrali. Ne zavisi od javnega dela starega zapisa (razlicica 0f3f368 je vir pisala
+           v »ozji«, zapis se prepisuje ob spremembah), ne od trenutnih naprav v Linku (gost je lahko ze odstranjen) in ne
+           od tega, da vir se obstaja: za izbrisane vire z geslom (viri_sink.json) je eno splosno opozorilo."""
         if self._racuni_preseljeni:
             return
         self._racuni_preseljeni = True
@@ -4017,12 +4020,12 @@ class MediaCenter:
         if not isinstance(data, dict) or int(data.get("racuni_preseljeni") or 0) >= self.PRESELITEV_RACUNOV:
             return
         try:
-            prej = json.loads((self.config_dir / "viri_za_naprave.json").read_text(encoding="utf-8"))
+            (self.config_dir / "viri_za_naprave.json").read_text(encoding="utf-8")
+            zapis_je = True
+        except FileNotFoundError:
+            zapis_je = False            # Control ni imel kaj ponuditi: nobena naprava ni dobila gesla
         except (OSError, ValueError):
-            prej = None
-        ponujeni = {str(v.get("naslov") or "") for v in prej["sources"] if isinstance(v, dict)} \
-            if isinstance(prej, dict) and isinstance(prej.get("sources"), list) else set()
-        navadni = bool(ponujeni) and self._navadni_krog_s_predvajalnikom()
+            zapis_je = True             # zapis je, a ga ne moremo prebrati: ne dokazuje nic
         zdaj = self._zdaj_ms()
 
         def prejet(s: object) -> bool:
@@ -4037,36 +4040,45 @@ class MediaCenter:
             pred = len(data["viri"])
             data["viri"] = [v for v in data["viri"] if not prejet(v)]
             for v in data["viri"]:
-                if (navadni and isinstance(v, dict) and not v.get("link_naslov") and not v.get("deljeno_potrjeno")
-                        and self._vir_kljuc(v)[1] in ponujeni
+                if (zapis_je and isinstance(v, dict) and not v.get("link_naslov") and not v.get("deljeno_potrjeno")
+                        and not self._nikoli_prebran(v)
                         and viri_sink.verjetno_geslo(v.get("url"), any(isinstance(x, dict) and x.get("iptv")
                                                                       for x in v.get("vnosi") or []), v.get("javni") is True)):
                     v["deljeno_zunaj"] = zdaj
+            if (zapis_je and not data.get("deljeno_izbrisani_potrjeno")
+                    and any(viri_sink.verjetno_racun_seznama(k.partition("|")[2]) for k in self._viri_stanje()["izbrisani"])):
+                data["deljeno_izbrisani"] = zdaj
             self._save(data)
             self._server_cache = {k: c for k, c in self._server_cache.items()
                                   if not any(k.startswith(i + ":") for i in odstranjeni if i)}
         if odstranjeni or len(data["viri"]) != pred:
             print("[SafeerMedia] selitev: prejeti viri z racunom odstranjeni: %d" % (len(odstranjeni) + pred - len(data["viri"])),
                   flush=True)
-        if prej is not None:
+        if zapis_je:
             self._viri_zapisi_izvoz()   # stari zapis (vir z geslom v javnem delu) takoj zamenjamo - Control bere tega
 
     @staticmethod
-    def _navadni_krog_s_predvajalnikom() -> bool:
-        """Ali ima v Linku kaksna naprava dovoljenje Predvajalnik (lists.get) zunaj ozjega kroga. Ce zapisa dovoljenj ni
-        mogoce prebrati: da (ob dvomu opozorimo - priporocilo menjave gesla je manjsa skoda kot geslo pri tujcu)."""
-        try:
-            from core import link_dostop
-            return any(not link_dostop.OZJI_KROG <= link_dostop.zmoznosti_jedra(j)
-                       for j in link_dostop.naprave_z(link_dostop.PREDVAJALNIK))
-        except Exception:  # noqa: BLE001
-            return True
+    def _nikoli_prebran(vir: dict) -> bool:
+        """Vira nikoli nismo uspesno prebrali (posodobljeno in stevilo 0, brez vnosov): ponujen ni bil nikoli
+        (`_vir_za_naprave` zahteva stevilo > 0)."""
+        return not vir.get("vnosi") and not int(vir.get("posodobljeno") or 0) and not int(vir.get("stevilo") or 0)
+
+    def opozorila_virov(self) -> dict:
+        """Splosna opozorila Virov, ki niso vezana na en vir: `izbrisani` - geslo vira, ki ga je lastnik ze izbrisal, je
+        bilo morda deljeno zunaj ozjega kroga (pregled 51, Ê2)."""
+        with self._lock:
+            return {"izbrisani": bool(self._load().get("deljeno_izbrisani"))}
 
     def potrdi_opozorilo_deljeno(self, source_id: str) -> dict:
         """Lastnik je prebral opozorilo, da je bilo geslo vira deljeno zunaj ozjega kroga (pregled 46, Ö3): ne pokazemo
-        ga vec."""
+        ga vec. `*`: splosno opozorilo za izbrisane vire (pregled 51, Ê2)."""
         with self._lock:
             data = self._load()
+            if source_id == "*":
+                if data.pop("deljeno_izbrisani", None) is not None:
+                    data["deljeno_izbrisani_potrjeno"] = self._zdaj_ms()
+                    self._save(data)
+                return {"ok": True}
             source = next((x for x in data.get("viri", []) if isinstance(x, dict) and x.get("id") == str(source_id or "")),
                           None)
             if source is None:

@@ -477,6 +477,8 @@ class Katalog:
         "mediaJavniSeznam": "_javni_seznam",
         # Opozorilo »geslo vira je bilo deljeno zunaj ozjega kroga« je lastnik prebral (os_media, pregled 46, Ö3).
         "mediaPotrdiOpozorilo": "_potrdi_opozorilo",
+        # Splosno opozorilo za izbrisane vire z geslom (os_media.opozorila_virov, pregled 51, Ê2).
+        "mediaOpozorilaViri": "_opozorila_virov",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
         "mediaYtRacun": "_yt_racun", "mediaYtSeznam": "_yt_seznam", "mediaYtShrani": "_yt_shrani",
         "mediaTwitchRacun": "_twitch_racun", "mediaTwitchPosnetki": "_twitch_posnetki", "mediaTwitchKakovost": "_twitch_kakovost",
@@ -705,8 +707,12 @@ class Katalog:
         return self.mc.refresh_source(ident) if ident else self.mc.refresh_all()
 
     def _potrdi_opozorilo(self, a: list) -> Any:
-        """[id vira]: opozorila o deljenem geslu vira ne pokazemo vec."""
+        """[id vira]: opozorila o deljenem geslu vira ne pokazemo vec; `*`: splosnega za izbrisane vire."""
         return self.mc.potrdi_opozorilo_deljeno(self._niz(a, 0))
+
+    def _opozorila_virov(self, _a: list) -> Any:
+        """[]: splosna opozorila Virov ({"izbrisani": bool})."""
+        return self.mc.opozorila_virov()
 
     def _javni_seznam(self, a: list) -> Any:
         """[id vira, true/false]: uporabnik oznaci seznam IPTV kot javni brezplacni (brez racuna) ali oznako umakne."""

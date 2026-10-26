@@ -286,7 +286,10 @@ class ZeRazposlaneKopije(unittest.TestCase):
     """Pregled 46, Ö3: starejse razlicice so vir z geslom dale vsem napravam s »Predvajalnik«; izbris vira z racunom
     zunaj ozjega kroga ne pride, zato ga je naprava obdrzala za vedno. Ob posodobitvi prejemnik prejete vire z racunom
     odstrani (brez zapisa izbrisa) in jih znova prevzame samo od naprave, ki ga ima v ozjem krogu; lastnik vira, ki je
-    bil res ponujen navadnemu krogu, enkrat dobi opozorilo za menjavo gesla."""
+    bil res ponujen navadnemu krogu, enkrat dobi opozorilo za menjavo gesla.
+    Pregled 51, Ê2: opozorilo ne sme biti odvisno od javnega dela starega zapisa, od trenutnih naprav in od tega, da vir
+    se obstaja; ne pokaze se samo, ce je dokazano, da vir nikoli ni sel ven (zapisa za naprave nikoli ni bilo ali vira
+    nikoli nismo uspesno prebrali)."""
 
     def setUp(self):
         self.mapa = tempfile.TemporaryDirectory()
@@ -309,9 +312,17 @@ class ZeRazposlaneKopije(unittest.TestCase):
             json.dump({"sources": [{"tip": "url", "ime": "", "naslov": n, "cas": 5}
                                    for n in (XTREAM, POT, PODKAST, XTREAM_B, JAVNI)], "sources_deleted": {}}, f)
 
-    def _mc(self, navadni=True):
-        with mock.patch.object(os_media.MediaCenter, "_navadni_krog_s_predvajalnikom", staticmethod(lambda: navadni)):
-            return os_media.MediaCenter(self.mapa.name, roots=[])
+    def _mc(self):
+        # Brez zapisa dovoljenj naprav v Linku: opozorilo od trenutnih naprav ne zavisi (Ê2).
+        return os_media.MediaCenter(self.mapa.name, roots=[])
+
+    def _zapis(self, vsebina=None):
+        pot = os.path.join(self.mapa.name, "viri_za_naprave.json")
+        if vsebina is None:
+            os.remove(pot)
+        else:
+            with open(pot, "w", encoding="utf-8") as f:
+                f.write(vsebina if isinstance(vsebina, str) else json.dumps(vsebina))
 
     def test_prejeti_viri_z_racunom_gredo_brez_izbrisa(self):
         mc = self._mc()
@@ -328,20 +339,76 @@ class ZeRazposlaneKopije(unittest.TestCase):
         self.assertEqual([v["naslov"] for v in zapis["sources"]], [JAVNI])
         self.assertNotIn(XTREAM_B, json.dumps(zapis))
 
-    def test_opozorilo_samo_lastnemu_viru_ki_je_bil_ponujen_navadnemu_krogu(self):
+    def test_opozorilo_vsakemu_lastnemu_viru_z_geslom(self):
         mc = self._mc()
         opozorjeni = sorted(v["id"] for v in mc.sources() if v.get("deljeno_zunaj"))
-        # Podkast nima gesla, »lastni-nov« ni bil nikoli ponujen (ga ni v starem zapisu), prejetih ni vec.
-        self.assertEqual(opozorjeni, ["lastni-pot", "lastni-xt"])
+        # Podkast nima gesla, prejetih ni vec. »lastni-nov« ni v starem zapisu, a to ne dokazuje, da ga ni dobila nobena
+        # naprava (zapis se prepisuje ob spremembah): opozorilo (pregled 51, Ê2; prej samo xt in pot).
+        self.assertEqual(opozorjeni, ["lastni-nov", "lastni-pot", "lastni-xt"])
         self.assertEqual(mc.potrdi_opozorilo_deljeno("lastni-xt"), {"ok": True})
         self.assertEqual(mc.potrdi_opozorilo_deljeno("ni-ga"), {"ok": False, "napaka": "ni_vira"})
         drugic = self._mc()                                     # naslednji zagon: selitev ne tece znova
-        self.assertEqual(sorted(v["id"] for v in drugic.sources() if v.get("deljeno_zunaj")), ["lastni-pot"])
+        self.assertEqual(sorted(v["id"] for v in drugic.sources() if v.get("deljeno_zunaj")), ["lastni-nov", "lastni-pot"])
 
-    def test_brez_naprave_zunaj_ozjega_kroga_ni_opozorila(self):
-        mc = self._mc(navadni=False)
+    def test_opozorilo_ne_zavisi_od_trenutnih_naprav(self):
+        """Gost je bil ze odstranjen iz Linka (ali je dobil ozji krog), kopija gesla pa je se pri njem (Ê2)."""
+        mc = self._mc()                                  # _mc: nobene naprave zunaj ozjega kroga
+        self.assertTrue([v for v in mc.sources() if v.get("deljeno_zunaj")])
+        self.assertNotIn("prejet-xt", [v["id"] for v in mc._load()["viri"]])
+
+    def test_opozorilo_ko_je_stari_zapis_ze_razdeljen_ali_neberljiv(self):
+        """Zapis iz razlicice 0f3f368 ima vir z geslom v delu »ozji«, ne v »sources«; neberljiv zapis ne dokazuje nic."""
+        for vsebina in ({"sources": [], "sources_deleted": {},
+                         "ozji": {"sources": [{"tip": "url", "ime": "", "naslov": XTREAM, "cas": 5}], "sources_deleted": {}}},
+                        "{ni json", "[]", {}):
+            with self.subTest(vsebina=str(vsebina)[:40]):
+                self.setUp()
+                self._zapis(vsebina)
+                opozorjeni = sorted(v["id"] for v in self._mc().sources() if v.get("deljeno_zunaj"))
+                self.assertEqual(opozorjeni, ["lastni-nov", "lastni-pot", "lastni-xt"])
+
+    def test_brez_zapisa_za_naprave_je_dokazano_da_ni_sel_ven(self):
+        """Nobene razlicice, ki bi zapis pisala, ni bilo: Control ni imel kaj ponuditi (core/link_seznami.py bere samo
+        ta zapis), zato opozorila ni. Prejeti viri z geslom gredo z naprave vseeno."""
+        self._zapis(None)
+        mc = self._mc()
         self.assertEqual([v["id"] for v in mc.sources() if v.get("deljeno_zunaj")], [])
         self.assertNotIn("prejet-xt", [v["id"] for v in mc._load()["viri"]])
+
+    def test_vir_ki_ga_nikoli_nismo_prebrali_ni_bil_ponujen(self):
+        with open(os.path.join(self.mapa.name, "media.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        data["viri"].append({"id": "nikoli", "url": XTREAM_B.replace("drug", "nov"), "ime": "n", "stevilo": 0,
+                             "posodobljeno": 0, "napaka": "", "dodan": 5, "vnosi": []})
+        with open(os.path.join(self.mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        opozorjeni = sorted(v["id"] for v in self._mc().sources() if v.get("deljeno_zunaj"))
+        self.assertEqual(opozorjeni, ["lastni-nov", "lastni-pot", "lastni-xt"])
+
+    IZBRISAN = "http://izbrisan.primer.test:8080/get.php?username=u&password=skrito-geslo&type=m3u_plus"
+
+    def _izbrisani(self, kljuci):
+        with open(os.path.join(self.mapa.name, "viri_sink.json"), "w", encoding="utf-8") as f:
+            json.dump({"izbrisani": kljuci, "zavrnjeni": {}}, f)
+
+    def test_izbrisan_vir_z_geslom_da_eno_splosno_opozorilo(self):
+        """Lastnik je vir z geslom ze izbrisal, kopija pri gostu pa ostane (izbris z geslom zunaj ozjega kroga ni sel):
+        vira ni vec, opozorilo je eno splosno (Ê2)."""
+        self._izbrisani({"url|" + self.IZBRISAN: 9, "url|" + PODKAST: 8})
+        mc = self._mc()
+        self.assertEqual(mc.opozorila_virov(), {"izbrisani": True})
+        self.assertEqual(self._mc().opozorila_virov(), {"izbrisani": True})          # dokler ga lastnik ne potrdi
+        self.assertEqual(mc.potrdi_opozorilo_deljeno("*"), {"ok": True})
+        self.assertEqual(mc.opozorila_virov(), {"izbrisani": False})
+        self.assertEqual(self._mc().opozorila_virov(), {"izbrisani": False})         # nikoli vec
+
+    def test_izbrisan_podkast_ali_brez_zapisa_ni_opozorila(self):
+        self._izbrisani({"url|" + PODKAST: 8, "url|" + JAVNI: 7})
+        self.assertEqual(self._mc().opozorila_virov(), {"izbrisani": False})
+        self.setUp()
+        self._izbrisani({"url|" + self.IZBRISAN: 9})
+        self._zapis(None)                                # zapisa nikoli ni bilo: ni sel ven
+        self.assertEqual(self._mc().opozorila_virov(), {"izbrisani": False})
 
     def test_selitev_samo_enkrat(self):
         self._mc()
@@ -392,8 +459,12 @@ class ZeRazposlaneKopije(unittest.TestCase):
         self.assertIn('klic("mediaPotrdiOpozorilo", [source.id])', js)
         self.assertIn('if (source.deljeno_zunaj) {', js)
         self.assertIn('"mediaPotrdiOpozorilo": "_potrdi_opozorilo"', katalog)
+        self.assertIn('"mediaOpozorilaViri": "_opozorila_virov"', katalog)           # splosno opozorilo za izbrisane (Ê2)
+        self.assertIn('klic("mediaOpozorilaViri")', js)
+        self.assertIn('klic("mediaPotrdiOpozorilo", ["*"])', js)
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{\"katVirGesloDeljeno\": \"[^\"]{40,}\", \"katVirGesloRazumem\"" % jezik)
+            self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{[^\n]*\"katVirGesloDeljenoIzbrisan\": \"[^\"]{40,}\"" % jezik)
 
 
 class GesloNiVPodatkihStrani(unittest.TestCase):

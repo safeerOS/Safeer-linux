@@ -8620,6 +8620,18 @@
     // Zasebni dodatki so skriti, dokler »Zasebno« ni vklopljeno: le diskretna vrstica s stevilom.
     var skriti = !S.mediaZasebno.vklopljeno && S.mediaZasebno.skriti ? el("p", "drobno kat-zasebni-skriti",
       ubezi(t("katZasebniSkriti", { n: S.mediaZasebno.skriti }))) : null;
+    // Geslo izbrisanega vira je bilo morda deljeno zunaj ozjega kroga (core/os_media._preseli_racune, pregled 51, Ê2).
+    if (kat.opozoriloIzbrisani) {
+      var splosno = el("div", "kat-vir");
+      var besedilo = el("div"); besedilo.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljenoIzbrisan"))));
+      var splosnoRazumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
+      splosnoRazumem.type = "button";
+      splosnoRazumem.onclick = function () {
+        klic("mediaPotrdiOpozorilo", ["*"]).then(function () { kat.opozoriloIzbrisani = false; narisiKatViri(); },
+          function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+      };
+      besedilo.appendChild(splosnoRazumem); splosno.appendChild(besedilo); cilj.appendChild(splosno);
+    }
     if (!kat.viri.length) { cilj.appendChild(skriti || el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
@@ -8736,6 +8748,7 @@
   }
   function naloziKatViri() {
     klic("mediaZasebno").then(function (z) { nastaviZasebno(z); narisiKatViri(); }, function () {});
+    klic("mediaOpozorilaViri").then(function (o) { kat.opozoriloIzbrisani = !!(o && o.izbrisani); narisiKatViri(); }, function () {});
     return klic("mediaViri").then(function (viri) { kat.viri = Array.isArray(viri) ? viri : []; narisiKatViri(); }, function () {});
   }
   function preklopiZasebno() {

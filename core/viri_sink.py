@@ -245,6 +245,17 @@ def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = Fa
     return za_ozji_krog(naslov, oznacen) and (zaznan_racun(naslov) or seznam_iptv is True)
 
 
+#: Oblika naslova seznama IPTV, ki ga zaznan_racun ne prepozna (…/playlist/<u>/<g>/m3u_plus, get.php, m3u8).
+_OBLIKA_SEZNAMA = re.compile(r"m3u|/playlist/|/get\.php|/player_api\.php", re.IGNORECASE)
+
+
+def verjetno_racun_seznama(naslov: object, oznacen: bool = False) -> bool:
+    """Naslov, ki ni znan javen in ima prepoznan racun ali obliko seznama IPTV (pregled 51, Ê2: izbrisan vir ima samo
+    se naslov, zato seznama kanalov ne moremo pogledati). Podkast ali stran brez racuna: ne."""
+    besedilo = str(naslov or "")
+    return za_ozji_krog(besedilo, oznacen) and (zaznan_racun(besedilo) or bool(_OBLIKA_SEZNAMA.search(besedilo)))
+
+
 def _oznacen(v: object) -> bool:
     """Uporabnik je vir izrecno oznacil kot javnega (samo seznam IPTV brez racuna, MediaCenter.nastavi_javni_seznam)."""
     return isinstance(v, dict) and v.get("javni") is True
