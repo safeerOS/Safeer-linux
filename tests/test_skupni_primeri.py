@@ -119,7 +119,7 @@ def _usenet(f, v):
                 "premor_od_s": int(NN.PREMOR_OD_S), "premor_brez_odprtih_s": int(NN.PREMOR_BREZ_ODPRTIH_S),
                 "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S),
                 "ziva_prijava_s": int(NN.ZIVA_PRIJAVA_S), "zapah_ponovitev": NN.ZAPAH_PONOVITEV,
-                "zapahov_najvec": NN.NAJVEC_ZAPAHOV}
+                "zapahov_najvec": NN.NAJVEC_ZAPAHOV, "napak_ukaza_zapored": NN.NAPAK_UKAZA_ZAPORED}
     raise KeyError("neznano pravilo: " + f)
 
 

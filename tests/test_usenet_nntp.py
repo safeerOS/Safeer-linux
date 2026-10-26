@@ -30,7 +30,8 @@ ID_NI = "ni-ga.Yy@primer.invalid"
 ID_PREKINI = "prekini.Ww@primer.invalid"
 ID_ROK = "rok.Vv@primer.invalid"
 ID_VELIK = "velik.Uu@primer.invalid"
-VSI_ID = (ID_OK, ID_PIKA, ID_NI, ID_PREKINI, ID_ROK, ID_VELIK)
+ID_502 = "omejen.Ss@primer.invalid"
+VSI_ID = (ID_OK, ID_PIKA, ID_NI, ID_PREKINI, ID_ROK, ID_VELIK, ID_502)
 
 PODATKI = bytes(range(256)) * 20
 CLANKI = {
@@ -109,6 +110,7 @@ class LazniStreznik:
         self.ostanek = ostanek  # bajti za koncem bloka (brez cevovoda jih ne sme biti)
         self.prijavljenih = 0
         self.geslo = GESLO  # geslo racuna pri ponudniku (zamenjaj_geslo: lastnik ga zamenja med sejo)
+        self.rod = 0  # pozabi_seje: prijavljene seje starejsega rodu dobijo pri BODY/STAT 480 (preklop zaledja)
         self.seje = set()
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
@@ -131,6 +133,10 @@ class LazniStreznik:
                 socket.socket.shutdown(x, socket.SHUT_RDWR)
             except OSError:
                 pass
+
+    def pozabi_seje(self):
+        with self.zaklep:
+            self.rod += 1
 
     def ustavi(self):
         self.ustavi_dogodek.set()
@@ -185,7 +191,7 @@ class LazniStreznik:
             s.sendall(self.pozdrav.encode() + b"\r\n")
             if not self.pozdrav.startswith("20"):
                 return
-            buf, uporabnik, prijavljen = b"", None, False
+            buf, uporabnik, prijavljen, rod = b"", None, False, self.rod
             while True:
                 vrstica, buf = self._vrstica(s, buf)
                 if vrstica is None:
@@ -212,13 +218,15 @@ class LazniStreznik:
                             s.sendall(self.odgovor_meja.encode() + b"\r\n")
                             return
                         s.sendall(b"281 Authentication accepted\r\n")
-                        prijavljen_seja = True
+                        prijavljen_seja, rod = True, self.rod
                     else:
                         s.sendall(self.napacno.encode() + b"\r\n")
                 elif ukaz in ("BODY", "STAT"):
                     mid = arg.strip("<>")
-                    if not prijavljen:
+                    if not prijavljen or rod != self.rod:
                         s.sendall(b"480 Authentication required\r\n")
+                    elif mid == ID_502:
+                        s.sendall(b"502 Access restricted\r\n")
                     elif mid == ID_ROK:
                         self.ustavi_dogodek.wait(10)
                         return
@@ -635,6 +643,37 @@ class Nntp(unittest.TestCase):
         N._ZAVRNJENI.add(o)
         self.assertTrue(N.prijava_zavrnjena("ssl.primer.invalid", UPORABNIK, "napacno"))
         self.assertFalse(N.prijava_zavrnjena("ssl.primer.invalid", UPORABNIK, "drugo"))
+
+    def test_480_pri_body_ne_zaklene_pravega_gesla(self):
+        # Grok 43 C4: streznik je seje pozabil (preklop zaledja) in pri BODY vrne 480 - prej zapah racuna s pravilnim
+        # geslom do ponovnega vpisa. Zdaj gre samo ta povezava stran, nova prijava (pravo geslo) uspe.
+        s = self.streznik(zamuda_body=0.1)
+        b = self.bazen(s, povezav=4)
+        self.assertEqual(self._hkrati(b, 4, 1), ["ok"] * 4)
+        s.pozabi_seje()  # vse seje hkrati (vec kot NAPAK_UKAZA_ZAPORED): bazen se ne sme ustaviti
+        self.assertEqual(self._hkrati(b, 4, 2), ["ok"] * 8)
+        self.assertFalse(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO))
+        self.assertFalse(os.path.exists(self.zapah), "brez trajnega zapaha")
+
+    def test_502_pri_enem_clanku_ne_ustavi_bazena(self):
+        # Grok 43 C4: 502 pri enem clanku (omejena skupina) je ustavil ves bazen. Zdaj samo ta zahteva; zaporedni 502
+        # (racun brez pravic) bazen ustavijo brez novih prijav v zanki.
+        s = self.streznik()
+        b = self.bazen(s)
+        self.assertEqual(self.napaka(lambda: b.telo(ID_502)).izid, N.DOSTOP)
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 1, "ista povezava ostane")
+        for _ in range(N.NAPAK_UKAZA_ZAPORED):
+            self.assertEqual(self.napaka(lambda: b.telo(ID_502)).izid, N.DOSTOP)
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.DOSTOP, "zaporedni 502: bazen ustavljen")
+        self.assertEqual((s.sprejete, self._gesel(s)), (1, 1), "brez novih povezav in prijav")
+
+    def test_pozdrav_481_ne_zaklene_racuna(self):
+        # Grok 43 C4: 48x v pozdravu (geslo ni bilo poslano) je prej postavil zapah racuna.
+        s = self.streznik(pozdrav="481 Authentication required")
+        self.assertEqual(self.napaka(lambda: self.bazen(s).telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 0)
+        self.assertFalse(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO), "geslo ni bilo poslano: brez zapaha")
 
     def test_481_za_to_povezavo_je_prijava(self):
         s = self.streznik(napacno="481 Authentication failed for this connection")

@@ -61,6 +61,9 @@ PREMOR_BREZ_ODPRTIH_S = 60.0  # ni nobene druge odprte povezave, ki bi se sprost
 PREMOR_DO_S = 300.0
 #: Bazen, zmanjsan zaradi meje povezav, po 10 min brez nove meje spet dobi eno mesto (druga naprava je morda koncala).
 RAST_BAZENA_S = 600.0
+#: Zaporedni ukazi, zavrnjeni z 502 ali 480/481 (brez uspeha vmes), ustavijo bazen: posamezen clanek (omejena skupina)
+#: ga ne ustavi, racun brez pravic pa ne odpira novih prijav v zanki (pregled Grok 43 C4).
+NAPAK_UKAZA_ZAPORED = 3
 #: Prijava je ziva samo, ce je povezava v zadnjih 30 s uspesno koncala prijavo ali ukaz (pregled Grok 43 C1: odprta
 #: vticnica ni dokaz - ponudnik je sejo ob menjavi gesla morda ze zaprl). Samo ziva prijava dovoli vzporedno odpiranje.
 ZIVA_PRIJAVA_S = 30.0
@@ -188,23 +191,28 @@ def izid_odgovora(ukaz: str, vrstica: str) -> str:
 
 def ukrep_bazena(izid: str, faza: str, stara: bool, poskus: int) -> str:
     """Kaj bazen naredi po napaki [izid] v [faza] (skupni primeri nntp_ukrep; Android isto). [stara] = povezava iz
-    bazena, [poskus] 0 ali 1. Ponovitev (ZNOVA) je vedno z novo povezavo; po AUTHINFO nikoli ponovitev v zanki."""
+    bazena, [poskus] 0 ali 1. Ponovitev (ZNOVA) je vedno z novo povezavo; po AUTHINFO nikoli ponovitev v zanki. Zapah
+    racuna (USTAVI_RACUN) samo po odgovoru na AUTHINFO (pregled Grok 43 C4: 480 pri BODY ali v pozdravu je prej zaklenil
+    pravilno geslo)."""
     if faza == FAZA_POVEZAVA:
         if izid == OMREZJE:
             return ZNOVA if poskus == 0 else NAPAKA
+        # 48x v pozdravu (ali zapah drugega bazena): geslo ni bilo poslano - bazen se ustavi, novega zapaha ni.
         return {ZASEDEN: ZMANJSAJ_POCAKAJ, NAPAKA_STREZNIKA: POCAKAJ, DOSTOP: USTAVI_BAZEN, POTRDILO: USTAVI_BAZEN,
-                PRIJAVA: USTAVI_RACUN}.get(izid, NAPAKA)
+                PRIJAVA: USTAVI_BAZEN}.get(izid, NAPAKA)
     if faza == FAZA_PRIJAVA:
         if izid == ZASEDEN:
             return ZMANJSAJ_POCAKAJ
         if izid in (OMREZJE, ROK, ZAPRTO, NAPAKA_PROTOKOLA):
             return NEZNANA_PRIJAVA  # geslo je morda prislo do streznika, odgovora pa ni
         return USTAVI_RACUN
-    if izid == NI_CLANKA:
-        return VRNI
+    if izid in (NI_CLANKA, DOSTOP):
+        return VRNI  # 502 pri enem clanku (omejena skupina) ne ustavi bazena; NAPAK_UKAZA_ZAPORED zapored ga ustavi
     if izid == PRIJAVA:
-        return USTAVI_RACUN
-    if izid in (DOSTOP, POTRDILO):
+        # 480/481 pri ukazu: streznik je sejo pozabil - enkrat nova povezava z novo prijavo (skozi vrata prijave:
+        # zavrnjeno geslo gre k strezniku enkrat in postavi zapah).
+        return ZNOVA if stara and poskus == 0 else NAPAKA
+    if izid == POTRDILO:
         return USTAVI_BAZEN
     if izid == ZASEDEN:
         return ZNOVA if stara and poskus == 0 else ZMANJSAJ_POCAKAJ
@@ -416,8 +424,8 @@ class Povezava:
     # -------------------------------------------------------------- nizka raven
 
     def _napaka(self, izid: str, koda: int = 0, vzrok: Optional[BaseException] = None) -> NapakaNntp:
-        if izid != NI_CLANKA:
-            self.zapri()
+        if izid != NI_CLANKA and not (izid == DOSTOP and self.faza == FAZA_UKAZ):
+            self.zapri()  # 430 in 502 pri ukazu: odgovor je cel, povezava ostane usklajena (Grok 43 C4)
         # Brez gostitelja (ponudnik je zaseben podatek - Grok 37 C8), poverilnic, id in besedila streznika.
         (_log.debug if izid == NI_CLANKA else _log.info)(
             "usenet nntp: %s%s", izid, " (%s)" % type(vzrok).__name__ if vzrok else (" (%d)" % koda if koda else ""))
@@ -642,8 +650,8 @@ class Povezava:
         izid, koda = self._odgovor(ukaz, konec)
         if izid in (OK, NI_CLANKA):
             self.zadnji_uspeh = time.monotonic()  # streznik je odgovoril: seja je ziva
-        # 480 pri ukazu NI povod za novo prijavo (prijava je ze bila ob odprtju): PRIJAVA ustavi bazen - geslo nikoli
-        # ne gre k strezniku mimo vrat bazena (sonda, zapah).
+        # 480 pri ukazu NI povod za novo prijavo na tej povezavi: ukrep_bazena jo zapre in odpre novo - geslo nikoli ne
+        # gre k strezniku mimo vrat bazena (vrata prijave, zapah).
         if izid != OK:
             raise self._napaka(izid, koda)
         if not id_odgovora_ustreza(self._zadnja_vrstica, mid):
@@ -899,6 +907,7 @@ class Bazen:
         self._premor_do = 0.0
         self._premor_izid = ZASEDEN
         self._zadnja_meja = 0.0
+        self._napak_ukaza = 0  # zaporedni ukazi, zavrnjeni z 502 ali 480/481 (NAPAK_UKAZA_ZAPORED)
         with _ZAVRNJENI_ZAKLEP:
             _BAZENI.add(self)
 
@@ -1133,6 +1142,14 @@ class Bazen:
                 izid = delo(p)
             except NapakaNntp as e:
                 u = ukrep_bazena(e.izid, p.faza, stara, poskus)
+                # 480 na stari seji je pozabljena seja (ZNOVA), ne racun brez pravic: steje samo na sveze prijavljeni.
+                if p.faza == FAZA_UKAZ and (e.izid == DOSTOP or (e.izid == PRIJAVA and not stara)):
+                    with self._pogoj:
+                        self._napak_ukaza += 1
+                        if self._napak_ukaza >= NAPAK_UKAZA_ZAPORED:
+                            u = USTAVI_BAZEN  # vsak ukaz zavrnjen (racun brez pravic): brez novih prijav v zanki
+                elif e.izid == NI_CLANKA:
+                    self._napak_ukaza = 0
                 if u != VRNI:
                     p.zapri()
                 # Stanje bazena PRED sprostitvijo sonde: cakajoca nit ne sme poslati gesla, preden je zapah postavljen.
@@ -1164,6 +1181,7 @@ class Bazen:
                 p.zapri()  # nepricakovana napaka sredi zahteve: v medpomnilniku je lahko pol odgovora
                 self._vrni(p)
                 raise
+            self._napak_ukaza = 0
             self._vrni(p)
             return izid
 
