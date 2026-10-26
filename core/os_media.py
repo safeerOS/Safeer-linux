@@ -878,7 +878,9 @@ def _parse_m3u(text: str, base: str, source_id: str, source_name: str, stevci: O
     stevci = stevci if stevci is not None else {}
     out: list[dict] = []
     extinf, vlc, skupina = None, {}, ""
-    for raw in text.splitlines():
+    # Samo CR/LF locita vrstici: str.splitlines deli tudi na U+2028, U+0085, \x0b ... v imenu kanala - drugi del je
+    # postal lazen naslov, pravi naslov pa vnos brez atributov (pregled 30, J7).
+    for raw in re.split(r"\r\n|\r|\n", text):
         line = raw.strip()
         if not line:
             continue

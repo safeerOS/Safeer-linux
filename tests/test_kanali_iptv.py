@@ -73,6 +73,12 @@ class Razclenitev(unittest.TestCase):
         self.assertEqual(atributi["group-title"], "A,B")
         self.assertEqual(atributi["http-user-agent"], "X (KHTML, like Gecko) Y")
 
+    def test_unicode_locilo_vrstic_v_imenu(self):
+        vnosi = _razcleni("https://iptv-org.github.io/iptv/countries/si.m3u",
+                          ['#EXTINF:-1 tvg-id="A.si@SD" group-title="News",Kanal\u2028Dva\x85Tri',
+                           "https://tok.primer.test/a.m3u8"])
+        self.assertEqual([(v["naslov"], v["url"]) for v in vnosi], [("Kanal Dva Tri", "https://tok.primer.test/a.m3u8")])
+
     def test_ime_iz_tvg_name(self):
         self.assertEqual(kanali_iptv.razcleni_extinf('#EXTINF:-1 tvg-name="Rezerva" group-title="X",')[2], "Rezerva")
 
