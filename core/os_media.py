@@ -4315,7 +4315,8 @@ class MediaCenter:
         to seznam kanalov IPTV, ki ni znan javen. Podkast, stran ali navaden seznam brez racuna: ne (zanje je
         rezervna pot - vdelani predvajalnik)."""
         url, oznacen = source.get("url"), source.get("javni") is True
-        iptv = any(isinstance(x, dict) and x.get("iptv") for x in source.get("vnosi") or [])
+        vnosi = source.get("vnosi") if isinstance(source.get("vnosi"), list) else []
+        iptv = any(isinstance(x, dict) and x.get("iptv") for x in vnosi)
         return viri_sink.verjetno_racun_seznama(url, oznacen) or viri_sink.verjetno_geslo(url, iptv, oznacen)
 
     def refresh_source(self, source_id: str) -> dict:
