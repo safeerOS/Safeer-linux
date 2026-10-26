@@ -7,7 +7,12 @@ pozdrav, AUTHINFO USER/PASS (RFC 4643), BODY in STAT po message-id (RFC 3977), Q
   najmanj 1.2. Kontekst brez preverbe (CERT_NONE, check_hostname=False) se zavrne - tudi ce ga poda klicatelj.
 - Bazen: privzeto 8, najvec 50 povezav (pogosta meja ponudnikov na racun, preverjeno 25. 10. 2026); vsaka povezava ima
   naenkrat eno zahtevo (brez cevovoda). Povezava, ki jo je streznik medtem zaprl (nedejavnost), se enkrat samodejno
-  zamenja s svezo; prekinitev sredi BODY tudi. Pozdrav »zaseden« (prevec povezav) trajno zmanjsa bazen za eno mesto.
+  zamenja s svezo; prekinitev sredi BODY tudi. Kaj naredi po napaki, pove ukrep_bazena (skupni primeri nntp_ukrep).
+- Zaklep racuna (lastnik 26. 10. 2026 03:05: »Nevarnost zaklepa racuna je prioriteta«): dokler prijava ne uspe (in ni
+  nobene prijavljene povezave), se odpira ena sama povezava naenkrat - napacno geslo pride do streznika enkrat, tudi pri
+  8 hkratnih zahtevah. Zavrnjena prijava ustavi bazen (vse povezave zaprte) in zapre racun za ves proces, dokler
+  uporabnik poverilnic ne vpise znova (dovoli_prijavo_znova). »Prevec povezav« bazen skrci na sprejete povezave in
+  zacne premor novih povezav (nov_premor) - nikoli nov poskus prijave v zanki.
 - Roki: povezava (TCP + TLS + pozdrav + prijava) in celotna zahteva imata vsak svoj rok do monotonega casa - streznik,
   ki posilja po kapljicah, zahteve ne zadrzi dlje od roka.
 - Jasni izidi (NapakaNntp.izid): ni_clanka, prijava, zaseden, napaka_streznika, napaka_protokola, zaprto, omrezje, rok,
@@ -19,7 +24,9 @@ pozdrav, AUTHINFO USER/PASS (RFC 4643), BODY in STAT po message-id (RFC 3977), Q
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import socket
 import ssl
 import threading
@@ -274,7 +281,7 @@ class Povezava:
 
     def __init__(self, gostitelj: str, vrata: int = VRATA, uporabnik: Optional[str] = None, geslo: Optional[str] = None,
                  kontekst: Optional[ssl.SSLContext] = None, rok_povezave: float = ROK_POVEZAVE_S,
-                 rok: float = ROK_ZAHTEVE_S):
+                 rok: float = ROK_ZAHTEVE_S, pred_prijavo: Optional[Callable[[], tuple]] = None):
         _preveri_poverilnico(uporabnik)
         _preveri_poverilnico(geslo)
         self.gostitelj = str(gostitelj)
@@ -289,6 +296,13 @@ class Povezava:
         self._prekinjeno = False
         self._medpomnilnik = bytearray()
         self.prijavljen = False
+        #: Bazen: (ovira ali None, prijava_uspela) tik pred AUTHINFO - zavrnjen racun ne dobi gesla niti iz povezave,
+        #: ki se je odpirala vzporedno.
+        self._pred_prijavo = pred_prijavo
+        self.faza = FAZA_POVEZAVA  # kje je zadnja napaka nastala (ukrep_bazena)
+        self.pripravljena = False  # pozdrav in prijava sta uspela
+        self.sonda = False  # bazen: ta povezava je edina, ki se odpira, dokler prijava ne uspe
+        self.zadnja_raba = 0.0
 
     def __repr__(self) -> str:
         return "Povezava(%s:%d, %s)" % (self.gostitelj, self.vrata, "odprta" if self.odprta else "zaprta")
@@ -351,9 +365,9 @@ class Povezava:
             iskano = len(self._medpomnilnik)
             self._beri(konec)
 
-    def _odgovor(self, ukaz: str, konec: float) -> tuple:
+    def _odgovor(self, ukaz: str, konec: float, prijava_uspela: bool = False) -> tuple:
         vrstica = self._vrstica(konec)
-        return izid_odgovora(ukaz, vrstica), koda_vrstice(vrstica) or 0
+        return izid_odgovora(ukaz, vrstica, prijava_uspela), koda_vrstice(vrstica) or 0
 
     def _telo(self, konec: float) -> bytes:
         iskano = 0
@@ -375,6 +389,7 @@ class Povezava:
     def odpri(self) -> None:
         """TCP + TLS (preverba potrdila in imena) + pozdrav + prijava, vse v roku povezave."""
         self.zapri()
+        self.faza = FAZA_POVEZAVA
         konec = time.monotonic() + self._rok_povezave
         try:
             surov = socket.create_connection((self.gostitelj, self.vrata), timeout=self._rok_povezave)
@@ -406,17 +421,23 @@ class Povezava:
             raise self._napaka(izid, koda)
         if self.__uporabnik is not None:
             self._prijava(konec)
+        self.faza = FAZA_UKAZ
+        self.pripravljena = True
 
     def _prijava(self, konec: float) -> None:
+        ovira, uspela = self._pred_prijavo() if self._pred_prijavo is not None else (None, False)
+        if ovira is not None:
+            raise self._napaka(ovira)  # racun zavrnjen ali bazen zaprt: geslo ne gre k strezniku
+        self.faza = FAZA_PRIJAVA
         self._poslji(b"AUTHINFO USER " + self.__uporabnik.encode("utf-8") + b"\r\n", konec)
-        izid, koda = self._odgovor("AUTHINFO USER", konec)
+        izid, koda = self._odgovor("AUTHINFO USER", konec, uspela)
         if izid == GESLO:
             if self.__geslo is None:
                 raise self._napaka(PRIJAVA, koda)
             self._poslji(b"AUTHINFO PASS " + self.__geslo.encode("utf-8") + b"\r\n", konec)
-            izid, koda = self._odgovor("AUTHINFO PASS", konec)
+            izid, koda = self._odgovor("AUTHINFO PASS", konec, uspela)
         if izid != OK:
-            raise self._napaka(izid, koda)
+            raise self._napaka(ZASEDEN if izid == ZASEDEN else PRIJAVA, koda)
         self.prijavljen = True
 
     def prekini(self) -> None:
@@ -434,6 +455,7 @@ class Povezava:
         s, self._sock = self._sock, None
         self._medpomnilnik = bytearray()
         self.prijavljen = False
+        self.pripravljena = False
         if s is None:
             return
         if vljudno:
@@ -455,10 +477,8 @@ class Povezava:
         konec = time.monotonic() + self._rok
         self._poslji(vrstica, konec)
         izid, koda = self._odgovor(ukaz, konec)
-        if izid == PRIJAVA and not self.prijavljen and self.__uporabnik is not None:
-            self._prijava(konec)  # streznik zahteva prijavo sele pri ukazu (RFC 4643 480)
-            self._poslji(vrstica, konec)
-            izid, koda = self._odgovor(ukaz, konec)
+        # 480 pri ukazu NI povod za novo prijavo (prijava je ze bila ob odprtju): PRIJAVA ustavi bazen - geslo nikoli
+        # ne gre k strezniku mimo vrat bazena (sonda, zapah).
         if izid != OK:
             raise self._napaka(izid, koda)
         return self._telo(konec) if z_telesom else None
@@ -478,12 +498,44 @@ class Povezava:
             raise
 
 
-#: Izidi, pri katerih je stara (ponovno uporabljena) povezava verjetno mrtva - enkrat znova s svezo.
-_ZNOVA_STARA = (OMREZJE, ROK, ZAPRTO, ZASEDEN, NAPAKA_PROTOKOLA)
+#: Racuni (gostitelj, ime, geslo), ki jim je ponudnik zavrnil prijavo - samo v pomnilniku procesa, kot odtis s
+#: sljo procesa (nikoli geslo). Nov Bazen z istimi poverilnicami ne poskusi znova (U-4); usklajevanje zapaha med
+#: napravami kroga je korak 3.
+_ZAVRNJENI: set = set()
+_ZAVRNJENI_ZAKLEP = threading.Lock()
+_SOL = os.urandom(16)
+
+
+def _odtis_racuna(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> Optional[bytes]:
+    if uporabnik is None:
+        return None
+    h = hashlib.sha256(_SOL)
+    for x in (str(gostitelj).strip().lower(), uporabnik, geslo or ""):
+        b = x.encode("utf-8", "surrogatepass")
+        h.update(len(b).to_bytes(4, "big") + b)
+    return h.digest()
+
+
+def prijava_zavrnjena(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> bool:
+    """Ali je ponudnik te poverilnice ze zavrnil (do ponovnega vpisa jih ne posiljamo)."""
+    o = _odtis_racuna(gostitelj, uporabnik, geslo)
+    with _ZAVRNJENI_ZAKLEP:
+        return o is not None and o in _ZAVRNJENI
+
+
+def dovoli_prijavo_znova(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> None:
+    """Uporabnik je poverilnice vpisal znova (tudi enake - npr. po podaljsanju narocnine): en nov poskus prijave je spet
+    dovoljen. Klice ga samo izrecno dejanje uporabnika (shrani v nastavitvah), nikoli samodejno."""
+    o = _odtis_racuna(gostitelj, uporabnik, geslo)
+    with _ZAVRNJENI_ZAKLEP:
+        _ZAVRNJENI.discard(o)
 
 
 class Bazen:
-    """Bazen povezav NNTP do enega ponudnika. Varen za vec niti; vsaka povezava ima naenkrat eno zahtevo."""
+    """Bazen povezav NNTP do enega ponudnika. Varen za vec niti; vsaka povezava ima naenkrat eno zahtevo.
+
+    Vrata za nove povezave (sme_odpreti): dokler prijava ni uspela in ni prijavljene povezave, se odpira ena sama
+    (sonda); po uspehu vzporedno do [najvec]. Ukrep po napaki je ukrep_bazena (skupni primeri nntp_ukrep)."""
 
     def __init__(self, gostitelj: str, vrata: int = VRATA, uporabnik: Optional[str] = None, geslo: Optional[str] = None,
                  povezav: int = PRIVZETO_POVEZAV, kontekst: Optional[ssl.SSLContext] = None,
@@ -493,16 +545,23 @@ class Bazen:
         kontekst = varen_kontekst(kontekst)  # en kontekst za vse povezave (wrap_socket je varen za niti)
         self.gostitelj = str(gostitelj)
         self.vrata = int(vrata)
-        self.najvec = max(1, min(NAJVEC_POVEZAV, int(povezav)))
+        self._zgornja = max(1, min(NAJVEC_POVEZAV, int(povezav)))
+        self.najvec = self._zgornja
         self._rok = float(rok)
+        self._racun = _odtis_racuna(self.gostitelj, uporabnik, geslo)
         self.__nova: Callable[[], Povezava] = lambda: Povezava(gostitelj, vrata, uporabnik, geslo, kontekst,
-                                                                 rok_povezave, rok)
+                                                                 rok_povezave, rok, self._pred_prijavo)
         self._proste: list = []
         self._v_rabi: set = set()
-        self._zaklep = threading.Lock()
-        self._mesta = threading.Semaphore(self.najvec)
+        self._pogoj = threading.Condition(threading.Lock())
         self._zaprt = False
-        self._prijava_zavrnjena = False
+        self._ustavljen: Optional[str] = PRIJAVA if prijava_zavrnjena(self.gostitelj, uporabnik, geslo) else None
+        self._sonda = False
+        self._premor_s = 0.0
+        self._premor_do = 0.0
+        self._premor_izid = ZASEDEN
+        self._zadnja_meja = 0.0
+        self._neznanih_prijav = 0
 
     def __repr__(self) -> str:
         return "Bazen(%s:%d, %d povezav)" % (self.gostitelj, self.vrata, self.najvec)
@@ -513,61 +572,180 @@ class Bazen:
     def __exit__(self, *_a) -> None:
         self.zapri()
 
+    # -------------------------------------------------------------- stanje (vse pod self._pogoj)
+
+    def _vse(self) -> list:
+        return self._proste + list(self._v_rabi)
+
+    def _prijavljenih(self) -> int:
+        return sum(1 for x in self._vse() if x.pripravljena and x.odprta)
+
+    def _pred_prijavo(self) -> tuple:
+        """Povezava tik pred AUTHINFO: (ovira, prijava_uspela)."""
+        with self._pogoj:
+            if self._zaprt:
+                return ZAPRTO, False
+            if self._ustavljen is not None:
+                return self._ustavljen, False
+            return None, self._prijavljenih() > 0
+
+    def nastavi_najvec(self, povezav: int) -> None:
+        """Zgornja meja povezav od zunaj (korak 3: proracun povezav med napravami kroga, U-1). Zmanjsanje zapre odvecne
+        proste povezave; povecanje velja takoj, razen ce je bazen zmanjsal ponudnik (rast po RAST_BAZENA_S)."""
+        with self._pogoj:
+            self._zgornja = max(1, min(NAJVEC_POVEZAV, int(povezav)))
+            if self.najvec > self._zgornja or not self._zadnja_meja:
+                self.najvec = self._zgornja
+            odvec = self._odvec()
+            self._pogoj.notify_all()
+        for x in odvec:
+            x.zapri(vljudno=True)
+
+    def _odvec(self) -> list:
+        """Proste povezave nad [najvec] (zapre jih klicatelj izven zaklepa)."""
+        odvec = []
+        while self._proste and self._prijavljenih() > self.najvec:  # povezave v odpiranju se ne stejejo
+            odvec.append(self._proste.pop(0))
+        return odvec
+
+    def _vzemi(self, rok_do: float) -> tuple:
+        """(povezava, stara). Prosta povezava ali nova, ce jo vrata dovolijo; sicer caka do [rok_do]."""
+        with self._pogoj:
+            while True:
+                if self._zaprt:
+                    raise NapakaNntp(ZAPRTO)
+                if self._ustavljen is not None:
+                    raise NapakaNntp(self._ustavljen)
+                zdaj = time.monotonic()
+                if self.najvec < self._zgornja and self._zadnja_meja and zdaj - self._zadnja_meja >= RAST_BAZENA_S:
+                    self.najvec += 1  # druga naprava je morda koncala: eno mesto nazaj na 10 min
+                    self._zadnja_meja = zdaj
+                if self._proste:
+                    p = self._proste.pop()
+                    self._v_rabi.add(p)
+                    return p, True
+                uspela = self._prijavljenih() > 0
+                if sme_odpreti(False, zdaj < self._premor_do, len(self._v_rabi), self.najvec, uspela, self._sonda):
+                    p = self.__nova()
+                    p.sonda = not uspela
+                    self._sonda = self._sonda or p.sonda
+                    self._v_rabi.add(p)
+                    return p, False
+                if zdaj >= rok_do:
+                    raise NapakaNntp(self._premor_izid if zdaj < self._premor_do else ROK)
+                if not self._v_rabi and self._premor_do >= rok_do:
+                    raise NapakaNntp(self._premor_izid)  # nobena povezava se ne sprosti pred rokom
+                cakaj = rok_do - zdaj
+                if zdaj < self._premor_do:
+                    cakaj = min(cakaj, self._premor_do - zdaj)
+                self._pogoj.wait(cakaj)
+
     def _vrni(self, p: Povezava) -> None:
-        with self._zaklep:
+        with self._pogoj:
             self._v_rabi.discard(p)
-            if not self._zaprt and p.odprta:
+            if p.sonda:
+                p.sonda = False
+                self._sonda = False
+            # Steje samo prijavljene povezave: povezava, ki se se odpira (in morda dobi »prevec povezav«), ne izrine
+            # delujoce.
+            obdrzi = (not self._zaprt and self._ustavljen is None and p.odprta and p.pripravljena
+                      and self._prijavljenih() < self.najvec)
+            if obdrzi:
+                p.zadnja_raba = time.monotonic()
                 self._proste.append(p)
-                return
-        p.zapri(vljudno=True)
+            self._pogoj.notify_all()
+        if not obdrzi:
+            p.zapri(vljudno=True)
+
+    def _odprta(self) -> None:
+        """Povezava je odprta in prijavljena: premor in stevec neznanih prijav nazaj na nic. Prijavljene povezave je
+        streznik sprejel - bazen, skrcen ob hkratni zavrnitvi (ko ta se ni bila prijavljena), ni manjsi od njih."""
+        with self._pogoj:
+            self._premor_s = 0.0
+            self._neznanih_prijav = 0
+            self.najvec = max(self.najvec, min(self._zgornja, self._prijavljenih()))
+            self._pogoj.notify_all()
+
+    def _ustavi(self, izid: str, racun: bool = False) -> None:
+        """Ustavi bazen (zavrnjena prijava, dostop, potrdilo): vse povezave zaprte, zahteve v teku prekinjene."""
+        with self._pogoj:
+            if self._ustavljen is None:
+                self._ustavljen = izid
+            if racun and self._racun is not None:
+                with _ZAVRNJENI_ZAKLEP:
+                    _ZAVRNJENI.add(self._racun)
+            proste, self._proste = self._proste, []
+            v_rabi = list(self._v_rabi)
+            self._pogoj.notify_all()
+        _log.warning("usenet nntp: bazen ustavljen (%s) - brez novih prijav", izid)
+        for x in proste:
+            x.zapri(vljudno=True)
+        for x in v_rabi:
+            x.prekini()
+
+    def _premor(self, zmanjsaj: bool, izid: str) -> None:
+        with self._pogoj:
+            zdaj = time.monotonic()
+            tece = zdaj < self._premor_do
+            self.najvec, self._premor_s = nov_premor(self.najvec, self._prijavljenih(), self._premor_s, tece, zmanjsaj)
+            if not tece:
+                self._premor_do = zdaj + self._premor_s
+            self._premor_izid = izid
+            if zmanjsaj:
+                self._zadnja_meja = zdaj
+            odvec = self._odvec()
+            self._pogoj.notify_all()
+        for x in odvec:
+            x.zapri(vljudno=True)
+
+    def _neznana_prijava(self) -> None:
+        """Prijava brez odgovora (geslo je morda prislo do streznika): prvic premor, drugic zapored zapah."""
+        with self._pogoj:
+            self._neznanih_prijav += 1
+            drugic = self._neznanih_prijav >= 2
+        if drugic:
+            self._ustavi(PRIJAVA, racun=True)
+        else:
+            self._premor(False, OMREZJE)
+
+    # -------------------------------------------------------------- zahteve
 
     def _izvedi(self, delo: Callable[[Povezava], object]):
-        if self._zaprt:
-            raise NapakaNntp(ZAPRTO)
-        if self._prijava_zavrnjena:
-            raise NapakaNntp(PRIJAVA)  # ne ponavljamo napacnega gesla (ponudnik bi racun zaklenil)
-        if not self._mesta.acquire(timeout=self._rok):
-            raise NapakaNntp(ROK)
-        sprosti = True
-        try:
-            for poskus in (0, 1):
-                with self._zaklep:
-                    if self._zaprt:
-                        raise NapakaNntp(ZAPRTO)
-                    p = self._proste.pop() if self._proste else None
-                    stara = p is not None
-                    p = p or self.__nova()
-                    self._v_rabi.add(p)
-                try:
-                    izid = delo(p)
-                except NapakaNntp as e:
-                    if e.izid == NI_CLANKA:
-                        self._vrni(p)
-                        raise
+        rok_do = time.monotonic() + self._rok
+        for poskus in (0, 1):
+            p, stara = self._vzemi(rok_do)
+            try:
+                if not stara:
+                    p.odpri()
+                    self._odprta()
+                izid = delo(p)
+            except NapakaNntp as e:
+                u = ukrep_bazena(e.izid, p.faza, stara, poskus)
+                if u != VRNI:
                     p.zapri()
-                    self._vrni(p)
-                    if self._zaprt:
-                        raise NapakaNntp(ZAPRTO) from None  # bazen zaprt med zahtevo: ne odpiramo nove povezave
-                    if e.izid == PRIJAVA:
-                        self._prijava_zavrnjena = True
-                        raise
-                    if poskus == 0 and ((stara and e.izid in _ZNOVA_STARA) or e.izid == OMREZJE):
-                        continue
-                    if e.izid == ZASEDEN and not stara:
-                        with self._zaklep:
-                            if self.najvec > 1:
-                                self.najvec -= 1
-                                sprosti = False  # mesto ostane zasedeno: ponudnik ne dovoli toliko povezav
-                    raise
-                except BaseException:
-                    p.zapri()  # nepricakovana napaka sredi zahteve: v medpomnilniku je lahko pol odgovora
-                    self._vrni(p)
-                    raise
+                # Stanje bazena PRED sprostitvijo sonde: cakajoca nit ne sme poslati gesla, preden je zapah postavljen.
+                if u == USTAVI_RACUN:
+                    self._ustavi(PRIJAVA, racun=True)
+                elif u == USTAVI_BAZEN:
+                    self._ustavi(e.izid)
+                elif u == NEZNANA_PRIJAVA:
+                    self._neznana_prijava()
+                elif u in (ZMANJSAJ_POCAKAJ, POCAKAJ):
+                    self._premor(u == ZMANJSAJ_POCAKAJ, e.izid)
                 self._vrni(p)
-                return izid
-        finally:
-            if sprosti:
-                self._mesta.release()
+                if self._zaprt:
+                    raise NapakaNntp(ZAPRTO) from None  # bazen zaprt med zahtevo: ne odpiramo nove povezave
+                if self._ustavljen is not None:
+                    raise NapakaNntp(self._ustavljen, e.koda) from None
+                if u in (VRNI, NAPAKA) or poskus == 1:
+                    raise
+                continue  # ZNOVA; pri premoru caka prosto povezavo ali konec premora (_vzemi)
+            except BaseException:
+                p.zapri()  # nepricakovana napaka sredi zahteve: v medpomnilniku je lahko pol odgovora
+                self._vrni(p)
+                raise
+            self._vrni(p)
+            return izid
 
     def telo(self, message_id: str) -> bytes:
         _ukaz_z_id("BODY", message_id)  # neveljaven id ne zasede povezave
@@ -586,10 +764,11 @@ class Bazen:
 
     def zapri(self) -> None:
         """Zapre proste povezave in prekine zahteve v teku (te vrnejo ZAPRTO) - zapiranje ne caka na rok."""
-        with self._zaklep:
+        with self._pogoj:
             self._zaprt = True
             proste, self._proste = self._proste, []
             v_rabi = list(self._v_rabi)
+            self._pogoj.notify_all()
         for p in proste:
             p.zapri(vljudno=True)
         for p in v_rabi:

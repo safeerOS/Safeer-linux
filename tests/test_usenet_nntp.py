@@ -87,11 +87,19 @@ def _nntp(telo):
 class LazniStreznik:
     """Streznik NNTP prek TLS z vnaprej znanimi clanki; vedenje po message-id (430, prekinitev, brez odgovora)."""
 
-    def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False):
+    def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False,
+                 zamuda_gesla=0.0, napacno="481 Authentication failed", meja=None,
+                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False):
         self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
         self.pozdrav = pozdrav
         self.zapri_po_zahtevi = zapri_po_zahtevi
+        self.zamuda_gesla = zamuda_gesla  # odgovor na PASS pocasi: brez vrat bazena bi vse niti hkrati poslale geslo
+        self.napacno = napacno
+        self.meja = meja  # najvec hkrati prijavljenih sej (meja povezav racuna)
+        self.odgovor_meja = odgovor_meja
+        self.gesla_ne_odgovori = gesla_ne_odgovori  # po PASS zapre brez odgovora
+        self.prijavljenih = 0
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
         self.sprejete = self.hkrati = self.najvec_hkrati = 0
@@ -139,6 +147,7 @@ class LazniStreznik:
         return v.decode("latin-1"), buf
 
     def _obdelaj(self, surov):
+        prijavljen_seja = False
         with self.zaklep:
             self.hkrati += 1
             self.najvec_hkrati = max(self.najvec_hkrati, self.hkrati)
@@ -164,8 +173,24 @@ class LazniStreznik:
                     uporabnik = arg[5:]
                     s.sendall(b"381 PASS required\r\n")
                 elif ukaz == "AUTHINFO" and arg.startswith("PASS "):
+                    if self.zamuda_gesla:
+                        time.sleep(self.zamuda_gesla)
+                    if self.gesla_ne_odgovori:
+                        return
                     prijavljen = uporabnik == UPORABNIK and arg[5:] == GESLO
-                    s.sendall(b"281 Authentication accepted\r\n" if prijavljen else b"481 Authentication failed\r\n")
+                    if prijavljen:
+                        with self.zaklep:
+                            if self.meja is not None and self.prijavljenih >= self.meja:
+                                prijavljen = False
+                            else:
+                                self.prijavljenih += 1
+                        if not prijavljen:
+                            s.sendall(self.odgovor_meja.encode() + b"\r\n")
+                            return
+                        s.sendall(b"281 Authentication accepted\r\n")
+                        prijavljen_seja = True
+                    else:
+                        s.sendall(self.napacno.encode() + b"\r\n")
                 elif ukaz in ("BODY", "STAT"):
                     mid = arg.strip("<>")
                     if not prijavljen:
@@ -194,6 +219,8 @@ class LazniStreznik:
         finally:
             with self.zaklep:
                 self.hkrati -= 1
+                if prijavljen_seja:
+                    self.prijavljenih -= 1
             surov.close()
 
 
@@ -223,6 +250,8 @@ class Nntp(unittest.TestCase):
         logging.getLogger("safeer.usenet").addHandler(self.zajem)
         logging.getLogger("safeer.usenet").setLevel(logging.DEBUG)
         self.addCleanup(logging.getLogger("safeer.usenet").removeHandler, self.zajem)
+        N._ZAVRNJENI.clear()  # zapah racuna velja za ves proces - vsak preizkus zacne brez njega
+        self.addCleanup(N._ZAVRNJENI.clear)
 
     def kontekst(self):
         return ssl.create_default_context(cafile=self.ca)
@@ -366,7 +395,95 @@ class Nntp(unittest.TestCase):
     def test_zaseden_pozdrav_zmanjsa_bazen(self):
         s = self.streznik(pozdrav="502 Too many connections")
         b = self.bazen(s, povezav=3)
+        zacetek = time.monotonic()
         self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ZASEDEN)
+        self.assertEqual(b.najvec, 1, "nobena druga povezava ni sprejeta: bazen na 1")
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ZASEDEN)
+        self.assertLess(time.monotonic() - zacetek, 2.0, "premor 60 s je daljsi od roka: brez cakanja")
+        self.assertEqual(s.sprejete, 1, "med premorom nobene nove povezave (ni ponavljanja v zanki)")
+
+    # ------------------------------------------------------------ zaklep racuna (Grok 35 Y2, 37 C2; lastnik 26. 10.)
+
+    def _hkrati(self, b, niti=8, zahtev=1, mid=ID_OK):
+        izidi, ovira = [], threading.Barrier(niti)
+
+        def delo():
+            ovira.wait(5)
+            for _ in range(zahtev):
+                try:
+                    b.telo(mid)
+                    izidi.append("ok")
+                except N.NapakaNntp as e:
+                    izidi.append(e.izid)
+        t = [threading.Thread(target=delo) for _ in range(niti)]
+        for x in t:
+            x.start()
+        for x in t:
+            x.join(30)
+        return izidi
+
+    def _gesel(self, s):
+        return sum(1 for u in s.ukazi if u.startswith("AUTHINFO PASS"))
+
+    def test_osem_niti_napacno_geslo_en_poskus(self):
+        # Brez vrat bazena (sonda) bi vseh 8 niti hkrati odprlo svojo povezavo in poslalo napacno geslo.
+        s = self.streznik(zamuda_gesla=0.3)
+        b = self.bazen(s, geslo="napacno-geslo", povezav=8)
+        izidi = self._hkrati(b, 8, 3)
+        self.assertEqual(izidi, [N.PRIJAVA] * 24)
+        self.assertEqual(self._gesel(s), 1, "napacno geslo pride do streznika enkrat")
+        self.assertEqual(s.sprejete, 1)
+        self.brez_skrivnosti(repr(b))
+
+    def test_zapah_velja_za_racun(self):
+        s = self.streznik()
+        b = self.bazen(s, geslo="napacno-geslo")
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.PRIJAVA)
+        self.addCleanup(N.dovoli_prijavo_znova, "127.0.0.1", UPORABNIK, "napacno-geslo")
+        b2 = self.bazen(s, geslo="napacno-geslo")
+        self.assertEqual(self.napaka(lambda: b2.telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual((s.sprejete, self._gesel(s)), (1, 1), "nov bazen z istim geslom ne poskusi znova")
+        self.assertTrue(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, "napacno-geslo"))
+        self.assertEqual(self.bazen(s).telo(ID_OK), CLANKI[ID_OK], "drugo geslo (uporabnik ga je spremenil) gre")
+        N.dovoli_prijavo_znova("127.0.0.1", UPORABNIK, "napacno-geslo")  # uporabnik je geslo vpisal znova
+        self.assertEqual(self.napaka(lambda: self.bazen(s, geslo="napacno-geslo").telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 3)
+
+    def test_481_za_to_povezavo_je_prijava(self):
+        s = self.streznik(napacno="481 Authentication failed for this connection")
+        b = self.bazen(s, geslo="napacno-geslo-2", povezav=3)
+        self.addCleanup(N.dovoli_prijavo_znova, "127.0.0.1", UPORABNIK, "napacno-geslo-2")
+        for _ in range(3):
+            self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 1)
+        self.assertEqual(b.najvec, 3, "zavrnjena prijava ne krci bazena")
+
+    def test_meja_povezav_po_uspeli_prijavi(self):
+        # Ponudnik: prevec povezav javi kot napako prijave (480/481) - po uspeli prijavi je to ZASEDEN, ne zapah.
+        s = self.streznik(meja=2, odgovor_meja="481 Authentication failed", zamuda_gesla=0.05)
+        b = self.bazen(s, povezav=6)
+        izidi = self._hkrati(b, 6, 3)
+        self.assertEqual(izidi, ["ok"] * 18)
+        self.assertEqual(b.najvec, 2, "bazen na sprejete povezave")
+        self.assertLessEqual(self._gesel(s), 6, "vsaka povezava najvec ena prijava - brez zanke")
+        self.assertLessEqual(s.najvec_hkrati, 6)
+
+    def test_prijava_brez_odgovora_drugic_zapah(self):
+        s = self.streznik(gesla_ne_odgovori=True)
+        b = self.bazen(s, geslo="ne-odgovori", rok=1.0)
+        self.addCleanup(N.dovoli_prijavo_znova, "127.0.0.1", UPORABNIK, "ne-odgovori")
+        with mock.patch.object(N, "PREMOR_BREZ_ODPRTIH_S", 0.2):
+            self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 2, "prvic premor, drugic zapah - nikoli vec")
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 2)
+
+    def test_nastavi_najvec(self):
+        s = self.streznik()
+        b = self.bazen(s, povezav=8)
+        b.nastavi_najvec(2)
+        self.assertEqual(self._hkrati(b, 6, 2), ["ok"] * 12)
+        self.assertLessEqual(s.najvec_hkrati, 2)
         self.assertEqual(b.najvec, 2)
 
     def test_vzporedno_najvec_povezav(self):
