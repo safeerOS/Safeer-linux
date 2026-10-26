@@ -10,6 +10,7 @@ from pathlib import Path
 
 from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
 from core import usenet_bralnik as UB, usenet_nntp as NN, usenet_nzb as NZ, usenet_rar as UR, usenet_tok as UT
+from core import usenet_streznik as US
 from core import usenet_yenc as Y
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
@@ -112,10 +113,34 @@ def _tok(f, v):
         except UR.NapakaRar as e:
             return {"izid": e.izid}
         return {"izid": UR.OK, "ime": ime, "velikost": velikost, "kosi": [[k.zvezek, k.odmik, k.dolzina] for k in kosi]}
+    # v6 (naloga 29, pregleda Grok 58 in 61)
+    if f == "tok_preslikava":
+        try:
+            return {"izid": UT.OK, "celota": UT.meje_preslikave(v["stevil_v_nzb"], v["manjka_v_nzb"], v["velikost"],
+                                                                  v["skupaj"])}
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+    if f == "tok_vzorec":
+        return UB.je_vzorec(v["ime"])
+    if f == "tok_izbira":
+        nzb = NZ.Nzb(None, tuple(NZ.Datoteka(ime, (), (NZ.Segment(1, n, "a@primer.invalid"),), 0) for ime, n in v["datoteke"]))
+        try:
+            vrsta, indeksi = UB.izberi_datoteke(nzb)
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+        return {"izid": UT.OK, "vrsta": vrsta, "indeksi": indeksi}
+    if f == "tok_meje":
+        return {"segmentov_datoteke": NZ.NAJVEC_SEGMENTOV_DATOTEKE, "del_bajtov": Y.NAJVEC_DEL_BAJTOV,
+                "priprava_hkrati": UB.PRIPRAVA_HKRATI, "priprave_bajtov": UB.NAJVEC_PRIPRAVE_BAJTOV,
+                "glav_segmentov": UB.NAJVEC_GLAV_SEGMENTOV, "glav_bajtov": UB.NAJVEC_GLAV_BAJTOV,
+                "poskusov": UB.NAJVEC_POSKUSOV, "preklicev": UB.NAJVEC_PREKLICEV,
+                "streznik_povezav": US.NAJVEC_POVEZAV, "streznik_rok_s": int(US.ROK_POVEZAVE_S),
+                "vint_najvec": UR.NAJVEC_VINT, "zvezkov_najvec": UR.NAJVEC_ZVEZKOV}
     raise KeyError("neznano pravilo: " + f)
 
 
-TOK = {"tok_odmik", "tok_segmenti", "tok_okno", "tok_profili", "rar_glava", "rar_zvezki", "rar_sestavi"}
+TOK = {"tok_odmik", "tok_segmenti", "tok_okno", "tok_profili", "rar_glava", "rar_zvezki", "rar_sestavi",
+       "tok_preslikava", "tok_vzorec", "tok_izbira", "tok_meje"}
 
 
 def _usenet(f, v):
@@ -300,7 +325,10 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def test_usenet_pogon(self):
-        self._preveri(PRIMERI_USENET, set(), 520)  # v5 (korak 2: preslikava odmikov, RAR store, okno vnaprej)
+        self._preveri(PRIMERI_USENET, set(), 560)  # v6 (pregleda Grok 58 in 61)
+        koren = json.loads(PRIMERI_USENET.read_text(encoding="utf-8"))
+        # Grok 58 T14: tocno stevilo, ne »najmanj« - izguba primerov pri prenosu (Android) bi sicer ostala skrita.
+        self.assertEqual((koren["verzija"], len(koren["primeri"])), (6, 560))
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))
