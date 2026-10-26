@@ -276,6 +276,18 @@ def stanje_po_vpisu(prej: Optional[str], izid: str) -> Optional[str]:
     return prej if s == STANJE_NEPREVERJEN and prej in (STANJE_NE_VELJA, STANJE_ZAKLENJEN) else s
 
 
+def stanje_po_uporabi(prej: Optional[str], napaka: str, uspeh: bool) -> Optional[str]:
+    """Novo stanje kljuca po izidu med uporabo (None = brez spremembe): zavrnjen kljuc (NAPAKA_KLJUC) -> »ne velja«,
+    zaklenjen racun -> »zaklenjen«, odgovor s povezavo ali zadetki -> »velja«, a samo iz »nepreverjen« ali brez stanja.
+    Grokov pregled 40, S6 (26. 10. 2026): pozen uspeh zahteve, ki je stekla pred zaporo, je prepisal novejsi »zaklenjen«
+    ali »ne velja« (tudi izid »Preveri«) v »velja« in s tem odprl zaklenjen racun vsem potem - zaporo odpravi samo
+    »Preveri« ali nov vpis."""
+    novo = {NAPAKA_KLJUC: STANJE_NE_VELJA, NAPAKA_ZAKLENJEN: STANJE_ZAKLENJEN}.get(napaka)
+    if novo is not None:
+        return novo if novo != prej else None
+    return STANJE_VELJA if uspeh and prej in (None, STANJE_NEPREVERJEN) else None
+
+
 def shrani_po_preverbi(izid: str) -> bool:
     """Kljuc shranimo, razen ce ni kljuc ali ga je storitev zavrnila (izpad storitve ne sme zavrniti dobrega kljuca)."""
     return stanje_po_preverbi(izid) is not None

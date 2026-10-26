@@ -920,14 +920,18 @@ class Debrid:
         k = self.kljuc(p)
         return P.odtis_stanja(k) if k else None
 
-    def stanje_kljuca(self, p: str) -> Optional[str]:
-        """P.STANJE_* shranjenega kljuca [p]; None = ni kljuca ali ga se nihce ni preveril (stanje drugega kljuca ne velja)."""
-        odtis = self._odtis(p)
-        z = (self._nastavitve().get("stanja") or {}).get(p) if odtis else None
+    @staticmethod
+    def _stanje_v(d: dict, p: str, odtis: Optional[str]) -> Optional[str]:
+        """Stanje kljuca z [odtis] v nastavitvah [d] (P.STANJE_*); None = ni zapisa ali je zapis drugega kljuca."""
+        z = (d.get("stanja") or {}).get(p) if odtis else None
         if not isinstance(z, dict) or z.get("odtis") != odtis:
             return None
         s = z.get("s")
         return s if s in (P.STANJE_VELJA, P.STANJE_NE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_ZAKLENJEN) else None
+
+    def stanje_kljuca(self, p: str) -> Optional[str]:
+        """P.STANJE_* shranjenega kljuca [p]; None = ni kljuca ali ga se nihce ni preveril (stanje drugega kljuca ne velja)."""
+        return self._stanje_v(self._nastavitve(), p, self._odtis(p))
 
     def sme_klicati(self, p: str) -> bool:
         """Ali storitev [p] s shranjenim kljucem sploh klicemo (P.sme_klicati: ne »ne velja« in ne »zaklenjen«)."""
@@ -937,13 +941,17 @@ class Debrid:
         """Kljuc, ki ga je storitev potrdila - samo tak bo sel med naprave (P.za_uskladitev), ko bo namizje usklajevalo."""
         return P.za_uskladitev(self.stanje_kljuca(p))
 
-    def _zapisi_stanje(self, p: str, oznaka: tuple, odtis: str, s: str, paket: Optional[int] = None) -> bool:
-        """Zapis stanja za kljuc z [odtis], ce je kljuc se isti kot ob zacetku preverbe ([oznaka]); True = zapisano."""
+    def _zapisi_stanje(self, p: str, oznaka: tuple, odtis: str, s: str, paket: Optional[int] = None,
+                       samo_iz: Optional[tuple] = None) -> bool:
+        """Zapis stanja za kljuc z [odtis], ce je kljuc se isti kot ob zacetku preverbe ([oznaka]) in - z [samo_iz] - ce je
+        stanje TA trenutek (pod zaklepom nastavitev) eno od [samo_iz]; True = zapisano."""
         zapisano: list = []
 
         def f(d: dict) -> None:
             if self._oznaka(d, p) != oznaka:
                 return                              # kljuc je bil medtem zamenjan ali odstranjen
+            if samo_iz is not None and self._stanje_v(d, p, odtis) not in samo_iz:
+                return                              # druga nit je medtem zapisala novejse stanje (Grok 40, S6)
             self._postavi_stanje(d, p, self._zapis_stanja(s, odtis))
             if paket is not None and p == P.TORBOX:
                 d.setdefault("paketi", {})[p] = int(paket)
@@ -965,15 +973,19 @@ class Debrid:
         oznaka, odtis = vezava if vezava is not None else self._vezava(p)
         if not odtis:
             return
-        prej = self.stanje_kljuca(p)
-        novo = {P.NAPAKA_KLJUC: P.STANJE_NE_VELJA, P.NAPAKA_ZAKLENJEN: P.STANJE_ZAKLENJEN}.get(napaka)
-        if novo is not None and p == P.INDEKSATOR:
+        if p == P.INDEKSATOR and napaka in (P.NAPAKA_KLJUC, P.NAPAKA_ZAKLENJEN):
             self._pozabi_povezave(lambda o: o != odtis)     # Grok 40, S1: zavrnjen kljuc ne ostane v povezavah NZB
-        if novo is not None and prej != novo:
+        prej = self.stanje_kljuca(p)
+        novo = P.stanje_po_uporabi(prej, napaka, uspeh)
+        if novo == P.STANJE_VELJA:
+            # Grokov pregled 40, S6: »velja« samo iz »nepreverjen« ali brez stanja - preverjeno pod zaklepom nastavitev,
+            # da pozen uspeh ne prepise zapore, ki jo je druga nit zapisala po branju [prej].
+            self._zapisi_stanje(p, oznaka, odtis, novo, samo_iz=(None, P.STANJE_NEPREVERJEN))
+        elif novo is not None:
             if self._zapisi_stanje(p, oznaka, odtis, novo):
                 _log.info("%s: med uporabo - stanje »%s«, storitve ne klicemo vec", P.ime(p), novo)
-        elif uspeh and prej != P.STANJE_VELJA:
-            self._zapisi_stanje(p, oznaka, odtis, P.STANJE_VELJA)
+        elif uspeh and prej in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+            _log.info("%s: pozen uspeh ne odpravi stanja »%s« (samo »Preveri«)", P.ime(p), prej)
 
     def _preveri_eno(self, p: str) -> tuple:
         """(P.PREVERBA_*, paket) za shranjen kljuc [p] - blokirajoce. Shranjen ne-kljuc (vzorec iz navodil ali oblika iz

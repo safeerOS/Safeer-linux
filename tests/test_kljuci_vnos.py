@@ -682,6 +682,39 @@ class StanjeKljuca(unittest.TestCase):
                           P.PREVERBA_NEVELJAVEN, P.PREVERBA_OBLIKA, P.PREVERBA_NI_ODGOVORA, P.PREVERBA_MEJA)],
                          [P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA, None, None])
 
+    def test_pozen_uspeh_ne_odpravi_zapore(self):
+        """Grokov pregled 40, S6: zahteva, ki je stekla pred zaporo, je s poznim uspehom prepisala novejsi »zaklenjen« ali
+        »ne velja« v »velja« - nato so vse poti (⚡, predvajanje, Usenet) spet klicale zaklenjen racun."""
+        for napaka, zaprto in ((P.NAPAKA_ZAKLENJEN, P.STANJE_ZAKLENJEN), (P.NAPAKA_KLJUC, P.STANJE_NE_VELJA)):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+
+            def tok_pozen(*_a, **_k):
+                d.ob_izidu(P.TORBOX, napaka, False)              # medtem ⚡ ali druga zahteva dobi zaporo
+                return debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)
+            with mock.patch.object(debrid, "torbox_tok", side_effect=tok_pozen):
+                d.tok(H1)
+            self.assertEqual(d.stanje_kljuca(P.TORBOX), zaprto, napaka)
+            self.assertFalse(d.sme_klicati(P.TORBOX), napaka)
+        # Zastarelo branje: stanje je bilo prebrano pred zaporo druge niti - zapis »velja« pogleda stanje pod zaklepom.
+        d, nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        d.ob_izidu(P.TORBOX, P.NAPAKA_ZAKLENJEN, False)
+        with mock.patch.object(d, "stanje_kljuca", return_value=P.STANJE_NEPREVERJEN):
+            d.ob_izidu(P.TORBOX, "", True)
+        self.assertEqual(nast["d"]["stanja"][P.TORBOX]["s"], P.STANJE_ZAKLENJEN)
+        # Nepreverjen ali brez stanja: uspeh med uporabo kljuc potrdi (kot prej).
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        d.ob_izidu(P.TORBOX, "", True)
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
+        self.assertEqual([P.stanje_po_uporabi(s, "", True) for s in (None, P.STANJE_NEPREVERJEN, P.STANJE_VELJA,
+                                                                      P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN)],
+                         [P.STANJE_VELJA, P.STANJE_VELJA, None, None, None])
+
     def test_pravila_za_uskladitev_in_prejem(self):
         """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""
         self.assertEqual([P.za_uskladitev(s) for s in (P.STANJE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA, None)],
