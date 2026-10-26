@@ -341,20 +341,124 @@ def zapis_androida_javen(zapis: object) -> bool:
     return all(znan_javen(n) or javna_slika(n) for n in naslovi)
 
 
-#: Cilj zahteve v navednicah brez sheme in gostitelja: '/get.php?username=…&password=…', '/playlist/<u>/<g>/m3u_plus'
-#: (http.client.InvalidURL, pregled 51, Ê5). V navednicah, ker izjeme naslov izpisejo z %r.
-_CILJ_V_NAVEDNICAH = re.compile(r"""(['"])[^'"]*[/?=&][^'"]*\1""")
+#: Naslov s shemo v besedilu napake: do presledka, BREZ ustavljanja pri navednici, <, > ali \\ (pregled 57, Ş5: geslo z '
+#: ali " je prekinilo ujemanje in ostanek naslova z geslom je ostal na zaslonu).
+_NASLOV_V_NAPAKI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S*")
+#: Zacetek cilja zahteve ali racuna v besedilu napake, neodvisno od zapisa izjeme (repr, %s, navednice):
+#: navednica pred potjo ali poizvedbo ('/get.php?…', "/playlist/…"; http.client.InvalidURL nosi cilj brez sheme),
+#: pot z vsaj dvema odsekoma brez navednic, parameter poizvedbe (?a=, &a=) in imena polj z racunom (username=, password= ...).
+_ZACETEK_CILJA = re.compile(
+    r"""(?P<navednica>['"])(?=[/?])"""
+    r"""|(?<![\w.~%:-])/[\w.~%-]+/[\w.~%/-]"""
+    r"""|[?&;][\w.%~-]+="""
+    r"""|\b(?:user(?:name)?|pass(?:word|wd)?|pwd|token|access_token|api_?key|mac|auth|login)=""", re.IGNORECASE)
+#: Odseki poti in vrednosti parametrov, ki niso skrivnost (obstojijo v vsakem naslovu seznama, zakrivanje jih ne sme trgati).
+_SPLOSNI_ODSEKI = frozenset({"live", "movie", "movies", "series", "get", "get.php", "playlist", "player_api.php", "xmltv.php",
+                             "panel_api.php", "stream", "streams", "m3u", "m3u8", "m3u_plus", "m3u8_plus", "mpegts", "hls",
+                             "json", "xml", "true", "false"})
 
 
-def zakrij_naslove(besedilo: object, napaka: bool = False) -> str:
+def skrivnosti_naslova(naslov: object) -> list:
+    """Deli naslova, ki so lahko geslo ali zeton: uporabnik in geslo pred gostiteljem, vrednosti parametrov poizvedbe (v
+    surovi in odkodirani obliki) in odseki poti (tudi brez koncnice), brez splosnih (_SPLOSNI_ODSEKI) in krajsih od 3
+    znakov. Za zakrivanje po TOCNEM ujemanju v besedilu napake: ne zavisi od zapisa izjeme (navednice, repr) ali od
+    dolzine sporocila (pregled 57, Ş5). Najdaljse najprej."""
+    besedilo = str(naslov or "").strip()
+    del_za_shemo = besedilo.partition("://")[2] if "://" in besedilo else besedilo
+    pred_potjo, _, pot_in_naprej = del_za_shemo.partition("/")
+    pot, _, ostanek = pot_in_naprej.partition("?")
+    poizvedba = ostanek.partition("#")[0]
+    kandidati: list = []
+    if "@" in pred_potjo:
+        prijava = pred_potjo.rpartition("@")[0]
+        kandidati += [prijava] + prijava.split(":")
+    for del_ in poizvedba.replace(";", "&").split("&"):
+        kandidati.append(del_.partition("=")[2])
+    for odsek in pot.split("/"):
+        kandidati += [odsek, odsek.rpartition(".")[0]]
+    izid: dict = {}
+    for k in kandidati:
+        for oblika in (k, urllib.parse.unquote_plus(k)):
+            if len(oblika) >= 3 and oblika.lower() not in _SPLOSNI_ODSEKI:
+                izid[oblika] = True
+    return sorted(izid, key=len, reverse=True)
+
+
+def _zadnja_neubezna(besedilo: str, navednica: str, od: int) -> int:
+    """Mesto zadnje navednice (od `od` naprej), pred katero ni lihega stevila posevnic nazaj: repr zapise ' v nizu kot
+    \\' in taka navednica NI zakljucna. -1: ni je (besedilo je odrezano ali niz ni zakljucen - skrijemo do konca)."""
+    i = besedilo.rfind(navednica, od)
+    while i >= od:
+        n = 0
+        while i - n - 1 >= 0 and besedilo[i - n - 1] == "\\":
+            n += 1
+        if n % 2 == 0:
+            return i
+        i = besedilo.rfind(navednica, od, i)
+    return -1
+
+
+def _zakrij_cilje(besedilo: str) -> str:
+    """Besedilo napake brez cilja zahteve in racuna: vse od zacetka cilja (_ZACETEK_CILJA) naprej do ZAKLJUCNE navednice
+    iste vrste (ali do konca besedila) postane »…«; pot brez navednic do presledka. Ni odvisno od tega, kako je izjema
+    zapisala naslov: geslo z ' ali " (repr ga zapise v "…" ali z \\'), presledek v cilju ali dolgo besedilo ne pustijo
+    ostanka (pregled 57, Ş5; pregled 51, Ê5). Ob dvomu raje skrije vec."""
+    izid, poz = [], 0
+    while True:
+        m = _ZACETEK_CILJA.search(besedilo, poz)
+        if m is None:
+            break
+        navednica = m.group("navednica")
+        if navednica:
+            odprta = m.start()
+        else:
+            odprta = m.start()
+            while odprta > poz and not besedilo[odprta - 1].isspace() and besedilo[odprta - 1] not in "'\"":
+                odprta -= 1
+            if odprta > poz and besedilo[odprta - 1] in "'\"":          # cilj je v navednicah, ki se zacnejo pred njim
+                navednica = besedilo[odprta - 1]
+                odprta -= 1
+        izid.append(besedilo[poz:odprta])
+        if navednica:
+            konec = _zadnja_neubezna(besedilo, navednica, odprta + 1)
+            if konec < 0:
+                izid.append(navednica + "…")
+                poz = len(besedilo)
+            else:
+                izid.append(navednica + "…" + navednica)
+                poz = konec + 1
+        else:
+            konec = m.end()
+            while konec < len(besedilo) and not besedilo[konec].isspace():
+                konec += 1
+            izid.append("…")
+            poz = konec
+    izid.append(besedilo[poz:])
+    return "".join(izid)
+
+
+def zakrij_naslove(besedilo: object, napaka: bool = False, tajno: object = ()) -> str:
     """Besedilo (napaka, naslov skladbe) z vsakim naslovom samo kot gostitelj (prikaz_naslova) - za zaslon in druge
-    naprave (pregled 46, Ö2, Ö8: napaka »unknown url type: 'http://...'« je nosila cel naslov z geslom). Pregled 51, Ê5:
-    pri besedilu napake (`napaka`) tudi cilj zahteve brez sheme v navednicah (pot in poizvedba) - nadomesti ga »…«; pri
-    naslovu skladbe ne (v njem so navednice in »&« lahko navadno besedilo)."""
-    besedilo = _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), str(besedilo or ""))
-    if napaka:
-        besedilo = _CILJ_V_NAVEDNICAH.sub(lambda m: m.group(1) + "…" + m.group(1), besedilo)
-    return besedilo
+    naprave (pregled 46, Ö2, Ö8: napaka »unknown url type: 'http://...'« je nosila cel naslov z geslom).
+    Pri besedilu napake (`napaka`; pregled 51, Ê5, pregled 57, Ş5): najprej tocno ujemanje znanih skrivnosti vira
+    (`tajno`, skrivnosti_naslova), nato naslov s shemo do presledka (tudi z ' ali " v geslu), nazadnje cilj brez sheme
+    (_zakrij_cilje). Pri naslovu skladbe to ne velja (v njem so navednice in »&« lahko navadno besedilo)."""
+    besedilo = str(besedilo or "")
+    if not napaka:
+        return _NASLOV_V_BESEDILU.sub(lambda m: prikaz_naslova(m.group(0)), besedilo)
+    for t in sorted({str(t) for t in (tajno or ()) if len(str(t)) >= 3}, key=len, reverse=True):
+        besedilo = besedilo.replace(t, "…")
+    besedilo = _NASLOV_V_NAPAKI.sub(lambda m: prikaz_naslova(m.group(0)), besedilo)
+    return _zakrij_cilje(besedilo)
+
+
+def sporocilo_napake(izjema: object, naslov: object, oznacen: bool = False, najvec: int = 180) -> str:
+    """Besedilo izjeme pri branju vira za zaslon in media.json: ZAKRITO, sele nato skrajsano (pregled 57, Ş5: rez na 180
+    znakov pred zakrivanjem je odrezal zakljucno navednico in pot z geslom je ostala). Skrivnosti vira zakrijemo po
+    tocnem ujemanju samo za vir, ki ni pozitivno znan javen."""
+    tajno = skrivnosti_naslova(naslov) if za_ozji_krog(naslov, oznacen) else ()
+    zakrito = zakrij_naslove(str(izjema or ""), napaka=True, tajno=tajno)
+    return re.sub(r"\s+", " ", zakrito).strip()[:najvec]
 
 
 def vir_seznama_za(vir: object, ozji: bool = False) -> str:

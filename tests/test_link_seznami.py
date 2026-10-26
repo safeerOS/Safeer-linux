@@ -766,6 +766,84 @@ class GesloNiVPodatkihStrani(unittest.TestCase):
         self.assertEqual(os.stat(os.path.join(self.mapa.name, "viri_za_naprave.json")).st_mode & 0o777, 0o600)
 
 
+class NapakaViraFailClosed(unittest.TestCase):
+    """Pregled 57, Ş5: zakrivanje napake (Ê5) je bilo fail-open. Geslo z ' ali " je prekinilo ujemanje (repr zapise niz v
+    "…" ali z \\'), rez na 180 znakov je bil PRED zakrivanjem in je odrezal zakljucno navednico, presledek v cilju je
+    prekinil naslov. Zdaj: najprej tocno ujemanje skrivnosti vira, nato naslov s shemo do presledka, nato cilj do
+    zakljucne navednice ali konca - ne glede na zapis izjeme; sele nato rez."""
+
+    GESLA = ("skrito'geslo", "skrito'geslo\"dva", "skrito\"geslo", "skrito geslo", "skrito\\geslo", "skrito'")
+    SKRIVNO = ("skrito", "geslo", "uporabnik")
+
+    @staticmethod
+    def _url(geslo, dolg=False):
+        return "http://ponudnik.test:8080/get.php?username=uporabnik&password=%s&type=m3u_plus%s" % (
+            geslo, "&pad=" + "x" * 300 if dolg else "")
+
+    @staticmethod
+    def _izjema_cilja(url):
+        """Prava izjema http.client (naslov s presledkom ali nadzornim znakom): nosi samo pot in poizvedbo, z repr."""
+        import http.client
+        cilj = url.partition("8080")[2]
+        try:
+            http.client.HTTPConnection("ponudnik.test").putrequest("GET", cilj)
+        except http.client.InvalidURL as e:
+            return e
+        raise AssertionError("pricakovana izjema InvalidURL za " + repr(cilj))
+
+    def _izjeme(self, url):
+        yield "InvalidURL", self._izjema_cilja(url + " ")             # presledek na koncu: http.client zavrne cilj
+        yield "unknown url type", ValueError("unknown url type: %r" % url)
+        yield "brez repr", ValueError("Napaka pri %s: ni dosegljiv" % url)
+
+    def _vir(self, url):
+        mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(mapa.cleanup)
+        with open(os.path.join(mapa.name, "media.json"), "w", encoding="utf-8") as f:
+            json.dump({"viri": [{"id": "xt", "url": url, "ime": "Ponudnik", "stevilo": 0, "napaka": "", "vnosi": [],
+                                 "dodan": 5}], "osebni_strezniki": [], "racuni_preseljeni": 1}, f)
+        return os_media.MediaCenter(mapa.name, roots=[])
+
+    def _preveri(self, napaka, kje):
+        self.assertTrue(napaka, kje)
+        self.assertLessEqual(len(napaka), 300, kje)
+        for skrivnost in self.SKRIVNO:
+            self.assertNotIn(skrivnost, napaka, "%s: %r" % (kje, napaka))
+
+    def test_osvezitev_ne_pusti_gesla_na_zaslon_in_v_media_json(self):
+        for geslo in self.GESLA:
+            for dolg in (False, True):
+                url = self._url(geslo, dolg)
+                mc = self._vir(url)
+                for ime, izjema in self._izjeme(url):
+                    with self.subTest(geslo=geslo, dolg=dolg, izjema=ime):
+                        def prenesi(u, i=izjema):
+                            raise i
+                        mc._download = prenesi
+                        self.assertFalse(mc.refresh_source("xt")["ok"])
+                        napaka = next(v for v in mc._load()["viri"] if v["id"] == "xt")["napaka"]
+                        self._preveri(napaka, "media.json")
+                        self._preveri(os_media.vir_za_stran({"id": "xt", "url": url, "napaka": napaka})["napaka"], "stran")
+
+    def test_zakrivanje_ne_zavisi_od_reza_ali_zapisa_izjeme(self):
+        """Tudi besedilo, ki je bilo ze odrezano (starejsi zapis v media.json), je zakrito brez skrivnosti vira."""
+        for geslo in self.GESLA:
+            for dolg in (False, True):
+                url = self._url(geslo, dolg)
+                for ime, izjema in self._izjeme(url):
+                    for rez in (60, 100, 180, 100000):
+                        with self.subTest(geslo=geslo, izjema=ime, rez=rez):
+                            zakrito = viri_sink.zakrij_naslove(str(izjema)[:rez], napaka=True)       # brez znanih skrivnosti
+                            self._preveri(zakrito, "rez")
+
+    def test_navadna_sporocila_ostanejo_berljiva(self):
+        for sporocilo in ("HTTP Error 404: Not Found", "<urlopen error [Errno 111] Connection refused>", "Vir je prevelik.",
+                          "<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local "
+                          "issuer certificate (_ssl.c:1000)>", "Ponudnik ni vrnil seznama.", "The read operation timed out",
+                          "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"):
+            self.assertEqual(viri_sink.zakrij_naslove(sporocilo, napaka=True), sporocilo)
+
+
 class ControlTests(unittest.TestCase):
     def test_control_odgovori_na_lists_get(self):
         izidi = []
