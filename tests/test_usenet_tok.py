@@ -585,5 +585,70 @@ class Streznik(unittest.TestCase):
         self.assertTrue(s.zaprt and br.zaprt)
 
 
+# ---------------------------------------------------------------------- konec do konca (korak 2, del 6)
+
+try:
+    import test_usenet_nntp as TN
+except ImportError:  # pragma: no cover
+    TN = None
+
+
+@unittest.skipUnless(TN is not None and shutil.which("openssl"), "brez openssl ni laznega streznika NNTP")
+class KonecDoKonca(unittest.TestCase):
+    """NZB -> Bazen (TLS, lazni streznik iz test_usenet_nntp) -> bralnik -> streznik Range -> bajti kot izvirnik."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._mapa = tempfile.TemporaryDirectory()
+        TN.ustvari_potrdila(cls._mapa.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._mapa.cleanup()
+
+    def setUp(self):
+        N._ZAVRNJENI.clear()
+        self.addCleanup(N._ZAVRNJENI.clear)
+        if hasattr(N, "nastavi_shrambo_zapaha"):
+            N.nastavi_shrambo_zapaha(os.path.join(self._mapa.name, "zapah-%d" % id(self)))
+            self.addCleanup(N.nastavi_shrambo_zapaha, None)
+
+    def tek(self, objava):
+        with mock.patch.object(TN, "CLANKI", objava):
+            srv = TN.LazniStreznik(self._mapa.name)
+            self.addCleanup(srv.ustavi)
+            bazen = N.Bazen("127.0.0.1", srv.vrata, uporabnik=TN.UPORABNIK, geslo=TN.GESLO, povezav=4,
+                            kontekst=__import__("ssl").create_default_context(cafile=os.path.join(self._mapa.name, "ca.pem")),
+                            rok_povezave=5.0, rok=10.0)
+            self.addCleanup(bazen.zapri)
+            nzb = NZ.razcleni(objava.nzb())
+            self.assertEqual(B.preveri_izdajo(nzb, bazen.telo), R.OK)
+            vir, _ = B.pripravi(nzb, bazen.telo)
+            br = B.Bralnik(bazen.telo, vir, B.PROFILI["namizje"])
+            s = S.Streznik(br)
+            self.addCleanup(s.zapri)
+            film = objava.film
+            for delez in (0.0, 0.5, 0.9):
+                od = int(film.velikost * delez)
+                req = urllib.request.Request(s.url, headers={"Range": "bytes=%d-%d" % (od, od + 1_500_000)})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    self.assertEqual(r.status, 206)
+                    self.assertEqual(r.read(), film.beri(od, 1_500_001), delez)
+            s.zapri()
+            self.assertTrue(br.zaprt)
+            self.assertNotIn(TN.GESLO, s.url)
+
+    def test_gola_datoteka(self):
+        o = objavi(("Film.mkv", G.Leno(12 * MiB + 3, 31)))
+        o.film = o.datoteke[0][1]
+        self.tek(o)
+
+    def test_rar_store(self):
+        film = G.Leno(12 * MiB + 3, 32)
+        o = objavi(*[("Film.part%d.rar" % (i + 1), z) for i, z in enumerate(G.zvezki_leno(5, "Film.mkv", film, 5 * MiB))])
+        o.film = film
+        self.tek(o)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,7 @@ _log = logging.getLogger("safeer.usenet")
 
 GOSTITELJ = "127.0.0.1"
 KOS = 256 * 1024
+SNDBUF = 256 * 1024
 NEDEJAVNOST_S = 300.0
 _VRSTE = {".mkv": "video/x-matroska", ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
           ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".m2ts": "video/mp2t", ".mov": "video/quicktime",
@@ -157,6 +158,12 @@ class Streznik:
 
             def setup(self) -> None:
                 super().setup()
+                # Predvajalnik ima svoj predpomnilnik; velik medpomnilnik jedra (zanka na Windows: ~8 MiB vec
+                # postrezenega kot prebranega, meritev 26. 10. 2026) bi pogon silil brati vnaprej se zanj.
+                try:
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, SNDBUF)
+                except OSError:
+                    pass
                 with streznik._zaklep:
                     streznik._odprtih += 1
                     streznik._zadnja = time.monotonic()
