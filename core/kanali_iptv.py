@@ -236,13 +236,24 @@ def je_javni_seznam(url: str) -> bool:
 #: poverilnicami (Xtream .../live/<uporabnik>/<geslo>/..., get.php?username=, uporabnik:geslo@) imajo pogosto najvec 1-2
 #: hkratni povezavi in tisoc odprtij toka vodi v zaklep (pregled 30, J3: seznam Xtream s 5000 kanali je bil vsakih 6 h
 #: v celoti preverjen). Take sezname v ozadju NE preverjamo: kanal je viden, o delovanju odloci pravo predvajanje.
-#: Preverjamo samo javne brezplacne sezname (iptv-org in seznami na javnih gostiteljih kode).
-PROSTI_GOSTITELJI = ("raw.githubusercontent.com", "gist.githubusercontent.com", "gitlab.com", "codeberg.org")
+#:
+#: Pregled 39, I1 (odlocitev: ob dvomu ne): v ozadju preverjamo SAMO pozitivno znane javne brezplacne sezname
+#: (iptv-org - je_javni_seznam - in ZNANI_JAVNI_VIRI) in sezname, ki jih je uporabnik v Virih izrecno oznacil kot
+#: javne (vir["javni"]). Vse ostalo velja za racun: tudi gist, *.github.io, GitLab ali Codeberg brez zetona (tja si
+#: uporabniki shranijo seznam ponudnika, da ga imajo na vseh napravah) - prej se je tak seznam preverjal (do 200
+#: odprtij na gostitelja na dan, tudi med gledanjem na drugi napravi istega racuna).
+#: (gostitelj, zacetek odkodirane poti z malimi crkami) - enako kot Android IptvPravila.JAVNI_SEZNAMI in skupni primeri
+#: tests/skupni-primeri/iptv-racun.json. Free-TV/IPTV: »samo uradno brezplacni kanali« (github.com/Free-TV/IPTV,
+#: preverjeno 26. 10. 2026).
+ZNANI_JAVNI_VIRI = (("iptv-org.github.io", "/"), ("raw.githubusercontent.com", "/iptv-org/"),
+                    ("raw.githubusercontent.com", "/free-tv/iptv/"))
 _XTREAM_POT = re.compile(r"/(?:live|movie|movies|series|timeshift)/[^/]+/[^/]+/", re.IGNORECASE)
+#: Kratka oblika Xtream (get.php ... output=ts): /<uporabnik>/<geslo>/<id>[.ts] (pregled 39, I1).
+_XTREAM_KRATKA = re.compile(r"^/[^/]+/[^/]+/\d+(?:\.[a-z0-9]{1,5})?$", re.IGNORECASE)
 _XTREAM_DATOTEKE = ("/get.php", "/player_api.php", "/xmltv.php", "/panel_api.php")
-#: Imena parametrov, ki v naslovu nosijo racun. Za naslov seznama tudi zetoni (zasebni seznam), za naslov kanala ne:
-#: javni CDN pogosto podpise tok z zetonom, ki ni racun uporabnika.
-_RACUN_PARAMETRI = frozenset({"username", "password", "user", "pass", "passwd", "pwd", "login"})
+#: Imena parametrov, ki v naslovu nosijo racun (mac: portal Stalker/MAG). Za naslov seznama tudi zetoni (zasebni
+#: seznam), za naslov kanala ne: javni CDN pogosto podpise tok z zetonom, ki ni racun uporabnika.
+_RACUN_PARAMETRI = frozenset({"username", "password", "user", "pass", "passwd", "pwd", "login", "mac"})
 _ZETON_PARAMETRI = frozenset({"token", "access_token", "private_token", "auth", "key", "apikey", "api_key"})
 
 
@@ -256,28 +267,43 @@ def s_poverilnicami(url: str, seznam: bool = False) -> bool:
     except ValueError:
         return True
     pot = (deli.path or "").lower()
-    if _XTREAM_POT.search(pot) or pot.endswith(_XTREAM_DATOTEKE):
+    if _XTREAM_POT.search(pot) or _XTREAM_KRATKA.match(pot) or pot.endswith(_XTREAM_DATOTEKE):
         return True
     return bool(kljuci & (_RACUN_PARAMETRI | (_ZETON_PARAMETRI if seznam else frozenset())))
 
 
-def javni_brezplacni(url_seznama: str) -> bool:
-    """Seznam, ki ga smemo preverjati v ozadju: javni (iptv-org) ali na javnem gostitelju kode, brez racuna."""
-    if s_poverilnicami(url_seznama, seznam=True):
-        return False
-    if je_javni_seznam(url_seznama):
-        return True
+def znan_javni_vir(url_seznama: str) -> bool:
+    """Pozitivno znan javni brezplacni seznam (ZNANI_JAVNI_VIRI; pregled 39, I1). Pot odkodirana in brez ../ ali //
+    (kot Android): »/iptv-org/../moj/seznam« ni iptv-org."""
     try:
         deli = urllib.parse.urlsplit(str(url_seznama or ""))
     except ValueError:
         return False
+    if deli.scheme not in ("http", "https"):
+        return False
+    pot = urllib.parse.unquote(deli.path or "").lower()
+    if ".." in pot or "//" in pot:
+        return False
     gostitelj = (deli.hostname or "").lower()
-    return deli.scheme == "https" and (gostitelj in PROSTI_GOSTITELJI or gostitelj.endswith(".github.io"))
+    return any(gostitelj == g and pot.startswith(z) for g, z in ZNANI_JAVNI_VIRI)
 
 
-def preverba_dovoljena(url_seznama: str, url_kanala: str) -> bool:
+def javni_brezplacni(url_seznama: str, oznacen: bool = False) -> bool:
+    """Seznam, ki ga smemo preverjati v ozadju - ob dvomu ne (pregled 39, I1): v naslovu ni racuna IN je pozitivno
+    znan javni vir (znan_javni_vir) ali ga je uporabnik izrecno oznacil kot javnega (`oznacen`: vir["javni"] is True)."""
+    if s_poverilnicami(url_seznama, seznam=True):
+        return False
+    return znan_javni_vir(url_seznama) or oznacen is True
+
+
+def oznacljiv_javni(url_seznama: str) -> bool:
+    """Ali sme uporabnik seznam oznaciti kot javni brezplacni: ni znan javni vir in v naslovu ni racuna."""
+    return not znan_javni_vir(url_seznama) and not s_poverilnicami(url_seznama, seznam=True)
+
+
+def preverba_dovoljena(url_seznama: str, url_kanala: str, oznacen: bool = False) -> bool:
     """Kanal sme v preverbo v ozadju: javni brezplacni seznam in kanal brez racuna v naslovu."""
-    return javni_brezplacni(url_seznama) and not s_poverilnicami(url_kanala)
+    return javni_brezplacni(url_seznama, oznacen) and not s_poverilnicami(url_kanala)
 
 
 #: Lastnik, 25. 10. 2026 (»mojo drzavo in angleske«, »TV Uganda niti ne rabimo«): privzeta »anglescina« so kanali
@@ -902,6 +928,20 @@ class PreverbaKanalov:
     def v_teku(self) -> int:
         with self._lock:
             return len(self._cakajo)
+
+    def odstrani_iz_vrste(self, urlji: Iterable[str]) -> int:
+        """Kanali gredo iz vrste preverbe (uporabnik je seznamu umaknil oznako »javni«; pregled 39, I1): nov ne zacne,
+        kanal, ki se ta hip preverja, konca. Vrne stevilo odstranjenih."""
+        kljuci = {kljuc(u) for u in urlji if u}
+        with self._lock:
+            ostanejo = [x for x in self._vrsta if x[0] not in kljuci]
+            for x in self._vrsta:
+                if x[0] in kljuci:
+                    self._cakajo.discard(x[0])
+            odstranjeni = len(self._vrsta) - len(ostanejo)
+            self._vrsta[:] = ostanejo
+            self._lock.notify_all()
+        return odstranjeni
 
     def _naslednji(self) -> Optional[tuple]:
         """Prvi kanal v vrsti, katerega gostitelja ta hip nihce ne sprasuje in je njegov premor mimo (z zaklepom).

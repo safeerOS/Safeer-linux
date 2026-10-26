@@ -8600,6 +8600,21 @@
   }
 
   // ---- dodatki in viri (dodatek Stremio, osebni strežnik, spletni vir)
+  // Seznam IPTV, ki ni znan javni vir: uporabnik ga sme oznaciti kot javni brezplacni - v ozadju se preverja samo tak
+  // (zascita racuna pred zaklepom; core/kanali_iptv.javni_brezplacni, pregled 39, I1).
+  function gumbJavniSeznam(source, kanali) {
+    var gumb = el("button", "gumb kat-vir-vticniki kat-vir-javni", svg("kljukica") + "<span>" + ubezi(t("katKanaliJavni")) + "</span>");
+    gumb.type = "button";
+    gumb.setAttribute("aria-pressed", kanali.oznacen_javni ? "true" : "false");
+    gumb.onclick = function () {
+      klic("mediaJavniSeznam", [source.id, !kanali.oznacen_javni]).then(function (r) {
+        if (r && r.ok === false) { $("katVirSporocilo").textContent = t("katNapakaVira"); return; }
+        naloziKatViri(); naloziKatalog();
+      }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+    };
+    return gumb;
+  }
+
   function narisiKatViri() {
     var cilj = $("katViri"); if (!cilj) return; cilj.innerHTML = "";
     // Zasebni dodatki so skriti, dokler »Zasebno« ni vklopljeno: le diskretna vrstica s stevilom.
@@ -8619,7 +8634,10 @@
         t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
       info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
+      var oznacljiv = !source.napaka && kanali && kanali.oznacljiv;
+      if (oznacljiv && !kanali.oznacen_javni) info.appendChild(el("small", "", ubezi(t("katKanaliJavniNamig"))));
       row.appendChild(info);
+      if (oznacljiv) row.appendChild(gumbJavniSeznam(source, kanali));
       var plosca = null;
       if (kanali && kanali.javni) {
         plosca = el("div", "kat-tv-izbira"); plosca.id = "katTvIzbira-" + source.id; plosca.hidden = !kat.tvIzbiraOdprta;

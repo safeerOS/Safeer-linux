@@ -3249,7 +3249,8 @@ class MediaCenter:
                 zastareli.append(str(source.get("id") or ""))
                 continue
             javni = kanali_iptv.je_javni_seznam(source.get("url"))
-            seznam_preverljiv = kanali_iptv.javni_brezplacni(str(source.get("url") or ""))
+            # Samo znan javni vir ali seznam, ki ga je uporabnik oznacil kot javnega (pregled 39, I1).
+            seznam_preverljiv = kanali_iptv.javni_brezplacni(str(source.get("url") or ""), source.get("javni") is True)
             serije: dict[str, dict] = {}
             for item in source.get("vnosi") or []:
                 if not isinstance(item, dict) or not (kind in ("", "vse") or item.get("vrsta") == kind):
@@ -3363,12 +3364,43 @@ class MediaCenter:
         izbira = self.tv_izbira() if javni else None
         vidni = [x for x in kanali if izbira is None or kanali_iptv.v_izbiri(x, izbira)]
         stevci = self.kanali.povzetek(str(x.get("url") or "") for x in vidni)
-        # Seznam z racunom ne gre v preverbo (J3): stran pove, da kanale preveri sele predvajanje.
-        preverba = kanali_iptv.javni_brezplacni(str(source.get("url") or ""))
+        # Seznam z racunom ne gre v preverbo (J3): stran pove, da kanale preveri sele predvajanje. Seznam, ki ni znan
+        # javni vir in v naslovu nima racuna, sme uporabnik oznaciti kot javnega (pregled 39, I1).
+        url = str(source.get("url") or "")
+        oznacen = source.get("javni") is True
+        preverba = kanali_iptv.javni_brezplacni(url, oznacen)
         return {"skupaj": len(kanali), "izbranih": len(vidni), "deluje": stevci[kanali_iptv.DELUJE],
                 "zaklenjenih": stevci[kanali_iptv.ZAKLENJEN], "mrtvih": stevci[kanali_iptv.MRTEV],
                 "preverjam": stevci["neznano"] if preverba else 0, "preverba": preverba,
-                "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni}
+                "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni,
+                "oznacljiv": kanali_iptv.oznacljiv_javni(url), "oznacen_javni": oznacen}
+
+    def nastavi_javni_seznam(self, source_id: str, javni: bool) -> dict:
+        """Uporabnik je v Virih seznam oznacil kot javni brezplacni (brez racuna pri ponudniku) ali oznako umaknil.
+        V ozadju se preverja SAMO tak seznam in znani javni viri (pregled 39, I1); seznama z racunom v naslovu ni mogoce
+        oznaciti. Ob umiku oznake gredo njegovi kanali takoj iz vrste preverbe."""
+        javni = javni is True
+        with self._lock:
+            data = self._load()
+            source = next((x for x in data.get("viri", []) if isinstance(x, dict) and x.get("id") == str(source_id or "")),
+                          None)
+            if source is None:
+                return {"ok": False, "napaka": "ni_vira"}
+            if javni and not kanali_iptv.oznacljiv_javni(str(source.get("url") or "")):
+                return {"ok": False, "napaka": "racun"}
+            if javni:
+                source["javni"] = True
+            else:
+                source.pop("javni", None)
+            self._save(data)
+            kopija = dict(source)
+        if javni:
+            self._vnosi_virov({"viri": [kopija]}, "tv-v-zivo")       # neznani kanali gredo v vrsto preverbe
+        else:
+            self.kanali.odstrani_iz_vrste(str(x.get("url") or "") for x in kopija.get("vnosi") or []
+                                          if isinstance(x, dict) and x.get("iptv"))
+        self.ozastari_predpomnilnik()
+        return {"ok": True, "javni": javni}
 
     def ima_kodi(self) -> bool:
         return self._kodi_streznik() is not None

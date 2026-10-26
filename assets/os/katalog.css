@@ -417,4 +417,5 @@ html.kavc .kat-skladbe .kat-kartica:focus { transform: scale(1.02); }
 .kat-tv-cip { padding:4px 10px;border:1px solid var(--rob);border-radius:99px;background:transparent;color:var(--medlo);font-size:12px;cursor:pointer }
 .kat-tv-cip:hover { color:var(--besedilo);border-color:var(--rob-mocan) }
 .kat-tv-cip[aria-pressed="true"] { background:var(--izbrano);border-color:var(--zelena);color:var(--besedilo) }
+.kat-vir-javni[aria-pressed="true"] { background:var(--izbrano);border-color:var(--zelena);color:var(--besedilo) }
 .kat-tv-cip:focus-visible { outline:2px solid var(--fokus);outline-offset:2px }

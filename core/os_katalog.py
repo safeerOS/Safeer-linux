@@ -473,6 +473,8 @@ class Katalog:
         "mediaTvIzbira": "_tv_izbira",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
         "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdkrijDlna": "_odkrij_dlna",
+        # Seznam IPTV kot javni brezplacni: samo tak (in znani javni viri) se preverja v ozadju (kanali_iptv, pregled 39, I1).
+        "mediaJavniSeznam": "_javni_seznam",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
         "mediaYtRacun": "_yt_racun", "mediaYtSeznam": "_yt_seznam", "mediaYtShrani": "_yt_shrani",
         "mediaTwitchRacun": "_twitch_racun", "mediaTwitchPosnetki": "_twitch_posnetki", "mediaTwitchKakovost": "_twitch_kakovost",
@@ -698,6 +700,10 @@ class Katalog:
     def _osvezi_vir(self, a: list) -> Any:
         ident = self._niz(a, 0)
         return self.mc.refresh_source(ident) if ident else self.mc.refresh_all()
+
+    def _javni_seznam(self, a: list) -> Any:
+        """[id vira, true/false]: uporabnik oznaci seznam IPTV kot javni brezplacni (brez racuna) ali oznako umakne."""
+        return self.mc.nastavi_javni_seznam(self._niz(a, 0), len(a) > 1 and a[1] is True)
 
     def _odkrij_dlna(self, _a: list) -> Any:
         return media_servers.odkrij_dlna()

@@ -78,8 +78,9 @@ def main(argv=None) -> int:
     zacetek = time.monotonic()
     for vir in _seznami(nastavitve):
         stevci: dict = {}
-        if not kanali_iptv.javni_brezplacni(str(vir["url"])):
-            # Seznam z racunom (Xtream ...): tudi orodje ne odpira tokov - zaklep racuna (lastnik, 26. 10. 2026).
+        if not kanali_iptv.javni_brezplacni(str(vir["url"]), vir.get("javni") is True):
+            # Seznam z racunom (Xtream ...) ali ni znan javni vir in ga uporabnik ni oznacil kot javnega: tudi orodje ne
+            # odpira tokov - zaklep racuna (lastnik, 26. 10. 2026; pregled 39, I1).
             viri.append({"ime": vir.get("ime"), "preskocen": "racun"})
             continue
         try:

@@ -17,6 +17,8 @@ from unittest import mock
 from core import kanali_iptv, os_media, zakoniti_viri
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "iptv-m3u.json"
+#: Zascita racuna (pregled 39, I1): ista datoteka kot Android tests/skupni-primeri (IptvPravila).
+PRIMERI_RACUNA = PRIMERI.parent / "iptv-racun.json"
 
 
 def _razcleni(seznam, vrstice, stevci=None):
@@ -32,6 +34,16 @@ class SkupniPrimeri(unittest.TestCase):
         self.assertEqual(izbira, {"drzave": d["privzete_drzave"], "jeziki": []})
         self.assertEqual(kanali_iptv.privzeta_izbira("gb")["drzave"], ["GB", "US", "CA", "AU", "IE", "NZ"])
         self.assertEqual(kanali_iptv.privzeta_izbira("")["drzave"], ["US", "GB", "CA", "AU", "IE", "NZ"])
+
+    def test_primeri_racuna(self):
+        d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
+        self.assertGreaterEqual((len(d["seznami"]), len(d["kanali"])), (10, 8))
+        for p in d["seznami"]:
+            with self.subTest(p["url"]):
+                self.assertIs(kanali_iptv.javni_brezplacni(p["url"]), p["javni"])
+        for p in d["kanali"]:
+            with self.subTest(p["url"]):
+                self.assertIs(kanali_iptv.s_poverilnicami(p["url"]), p["racun"])
 
     def test_vsi_primeri(self):
         d = json.loads(PRIMERI.read_text(encoding="utf-8"))
@@ -693,7 +705,8 @@ class Vmesnik(unittest.TestCase):
         if not shutil.which("node"):
             raise unittest.SkipTest("node ni namescen")
         kljuci = ["katKanalSkrit", "katKanaliDeluje", "katKanaliPreverjam", "katKanaliZaklenjeni", "katKanaliIzbira",
-                  "katKanaliIzbiraNamig", "katKanaliDrzave", "katKanaliJeziki"]
+                  "katKanaliIzbiraNamig", "katKanaliDrzave", "katKanaliJeziki", "katKanaliBrezPreverbe", "katKanaliJavni",
+                  "katKanaliJavniNamig"]
         koda = self.besedila + "\nconsole.log(JSON.stringify(%s.map(function (k) { return ['sl','en','de','es','fr','it'].filter(function (j) { return !BESEDILA_OS[j][k]; }); })));" % json.dumps(kljuci)
         with tempfile.TemporaryDirectory() as td:
             datoteka = Path(td) / "besedila.js"
@@ -821,3 +834,95 @@ class ZascitaRacuna(unittest.TestCase):
             p.ne_gleda()
             self.assertTrue(p.pocakaj(5))
         self.assertEqual([u for u, _t in klici], ["https://c.test/1", "https://b.test/1", "https://a.test/1"])
+
+    # ---------------------------------------------------------------------------------- pregled 39, I1 (ob dvomu ne)
+    def _mc_z_viri(self, viri):
+        (Path(self.mapa.name) / "media.json").write_text(json.dumps({"viri": viri, "osebni_strezniki": []}),
+                                                        encoding="utf-8")
+        mc = os_media.MediaCenter(self.mapa.name, roots=[], secret_decryptor=lambda v: "")
+        mc._ima_embed_vir = lambda data=None: False
+        mc._zakoniti_viri.get = lambda *a, **k: []
+        mc._personal_items = lambda *a, **k: []
+        return mc
+
+    @staticmethod
+    def _vir(ident, url, kanali):
+        vrstice = []
+        for i, kanal in enumerate(kanali):
+            vrstice += ['#EXTINF:-1 tvg-id="%s%d.si" group-title="SI",Kanal %s %d' % (ident, i, ident, i), kanal]
+        vnosi = _razcleni(url, vrstice)
+        return {"id": ident, "url": url, "ime": ident, "posodobljeno": 1, "napaka": "", "stevilo": len(vnosi),
+                "vnosi": vnosi, "razclenitev": kanali_iptv.RAZCLENITEV}
+
+    def test_samo_znani_javni_ali_oznaceni_seznami(self):
+        """Gostitelj kode ni dokaz, da seznam ni placljiv: tja si uporabniki shranijo seznam ponudnika."""
+        j = kanali_iptv.javni_brezplacni
+        for url in ("https://gist.githubusercontent.com/uporabnik/0123abcd/raw/seznam.m3u",
+                    "https://uporabnik.github.io/tv/seznam.m3u", "https://gitlab.com/u/tv/-/raw/main/seznam.m3u",
+                    "https://codeberg.org/u/tv/raw/branch/main/seznam.m3u",
+                    "https://raw.githubusercontent.com/uporabnik/tv/main/ponudnik.m3u"):
+            self.assertFalse(j(url), url)
+            self.assertTrue(j(url, True), url)                       # uporabnik ga je oznacil kot javnega
+            self.assertTrue(kanali_iptv.oznacljiv_javni(url), url)
+        self.assertFalse(j(self.XTREAM, True), "seznam z racunom v naslovu ne postane javen z oznako")
+        self.assertFalse(kanali_iptv.oznacljiv_javni(self.XTREAM))
+        self.assertFalse(kanali_iptv.oznacljiv_javni("https://iptv-org.github.io/iptv/countries/si.m3u"))   # ze znan
+        s = kanali_iptv.s_poverilnicami
+        self.assertTrue(s("http://ponudnik.test:8080/uporabnik/geslo/123"))           # kratka oblika Xtream
+        self.assertTrue(s("http://ponudnik.test:8080/uporabnik/geslo/123.ts"))
+        self.assertTrue(s("http://portal.test/play/live.php?mac=00:1A:79:00:00:01&stream=5"))      # Stalker
+        self.assertFalse(s("https://cdn.test/hls/kanal/index.m3u8"))
+
+    def test_skrivni_gist_s_kratko_obliko_xtream_ne_odpre_povezave(self):
+        gist = "https://gist.githubusercontent.com/uporabnik/0123abcd/raw/moj-ponudnik.m3u"
+        mc = self._mc_z_viri([self._vir("gist", gist, ["http://ponudnik.test:8080/uporabnik/geslo/%d" % i
+                                                       for i in range(50)])])
+        preverjeni = []
+        mc.kanali._preveri = lambda url, *a: (preverjeni.append(url), (kanali_iptv.MRTEV, "rok"))[1]
+
+        def brez_omrezja(*a, **k):
+            raise OSError("brez omrezja v preizkusu")
+        with mock.patch.object(zakoniti_viri, "tv_v_zivo", lambda drzava="": []), \
+                mock.patch.object(kanali_iptv.socket, "create_connection", side_effect=brez_omrezja), \
+                mock.patch.object(kanali_iptv.socket, "getaddrinfo", side_effect=brez_omrezja):
+            izid = mc.catalog("", "tv-v-zivo")
+            self.assertTrue(mc.kanali.pocakaj(3))
+        self.assertEqual(preverjeni, [], "skrivni gist s seznamom ponudnika je sel v preverbo v ozadju")
+        self.assertTrue(izid["vnosi"], "kanal seznama, ki ni znan javni vir, mora biti viden")
+        self.assertFalse(any(x.get("preverjam") for x in izid["vnosi"]))
+        stat = next(v for v in mc.sources() if v.get("id") == "gist")["kanali"]
+        self.assertEqual((stat["preverba"], stat["oznacljiv"], stat["oznacen_javni"]), (False, True, False))
+
+    def test_uporabnik_oznaci_seznam_kot_javnega(self):
+        url = "https://uporabnik.github.io/tv/brezplacni.m3u"
+        kanali = ["https://tok%d.test/k.m3u8" % i for i in range(3)]
+        mc = self._mc_z_viri([self._vir("gh", url, kanali), self._vir("xt", self.XTREAM, ["https://tok9.test/k.m3u8"])])
+        v_vrsti, odstranjeni = [], []
+        mc.kanali.preveri_v_ozadju = lambda k: v_vrsti.extend(u for u, _g, _d in k) or 0
+        mc.kanali.odstrani_iz_vrste = lambda urlji: odstranjeni.extend(urlji) or 0
+        with mock.patch.object(zakoniti_viri, "tv_v_zivo", lambda drzava="": []):
+            mc.catalog("", "tv-v-zivo")
+            self.assertEqual(v_vrsti, [])
+            self.assertEqual(mc.nastavi_javni_seznam("gh", True), {"ok": True, "javni": True})
+            self.assertEqual(sorted(v_vrsti), kanali)
+            stat = next(v for v in mc.sources() if v.get("id") == "gh")["kanali"]
+            self.assertEqual((stat["preverba"], stat["oznacen_javni"]), (True, True))
+            self.assertTrue(all(x.get("preverjam") for x in mc.catalog("", "tv-v-zivo")["vnosi"]
+                                if x.get("url") in kanali))
+            self.assertEqual(mc.nastavi_javni_seznam("gh", False), {"ok": True, "javni": False})
+            self.assertEqual(sorted(odstranjeni), kanali, "kanali niso sli iz vrste preverbe")
+            self.assertIs(next(v for v in mc.sources() if v.get("id") == "gh")["kanali"]["preverba"], False)
+            self.assertEqual(mc.nastavi_javni_seznam("xt", True), {"ok": False, "napaka": "racun"})
+            self.assertIs(next(v for v in mc.sources() if v.get("id") == "xt")["kanali"]["preverba"], False)
+
+    def test_odstrani_iz_vrste(self):
+        klici = []
+        p = self._preverba(klici)
+        p.gleda(60)                                     # preverba stoji: oba ostaneta v vrsti
+        with mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.0):
+            p.preveri_v_ozadju([("https://a.test/1", {}, False), ("https://b.test/1", {}, False)])
+            self.assertEqual(p.odstrani_iz_vrste(["https://a.test/1"]), 1)
+            self.assertEqual(p.v_teku(), 1)
+            p.ne_gleda()
+            self.assertTrue(p.pocakaj(5))
+        self.assertEqual([u for u, _t in klici], ["https://b.test/1"])
