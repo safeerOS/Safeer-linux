@@ -6,10 +6,12 @@ ponudnikov. Uporabnik vir shrani in nanj pozabi; vprasa se ga samo ob resni spre
 - Geslo ni nikoli v nastavitvah, repr, izjemi ali dnevniku: samo v sistemski zbirki skrivnosti (skrivnosti.py) pod
   kljucem iz odtisa SHA-256 (gostitelj, uporabnik) - goli niz bi uporabnika pokazal v atributih zbirke.
 - Zaklep racuna je prednost lastnika: preverba uporablja vrata prijave in zapah iz usenet_nntp (Bazen._pred_prijavo,
-  _po_prijavi, _ustavi) - novih pravil tu ni. Zavrnjeno geslo gre k strezniku enkrat; nov poskus odklene samo nov
-  vpis poverilnic (shrani_ponudnika).
+  _po_prijavi, _ustavi) - novih pravil tu ni. Zavrnjeno geslo gre k strezniku enkrat; nov poskus odklene samo vpis
+  DRUGEGA gesla ali racuna (shrani_ponudnika). Ponovni vpis istega zavrnjenega gesla zapaha ne odklene in ne ponastavi
+  omejitve 1/min; ime in stevilo povezav se spremenita brez gesla (posodobi_nastavitve).
 - Brez omrezja na glavni niti in nic v ozadju: preverba je samo uporabnikov gumb, najvec 1 na minuto na racun.
 - Trda meja racuna je najvec_povezav (vpise jo uporabnik); naprava, ki predvaja, dobi vse, delitve po napravah ni.
+  Meja velja na RACUN: en zivi bazen na racun, preverba med predvajanjem ne odpre dodatne povezave.
 - TLS privzeto. Brez TLS samo z izrecnim nevarno_brez_tls=True in naslovom IP v domacem omrezju; usenet_nntp zna
   samo TLS, zato tak ponudnik ostane shranjen, povezava pa se jasno zavrne (brez omrezja).
 """
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -27,6 +30,7 @@ import ssl
 import tempfile
 import threading
 import time
+import weakref
 from typing import Optional
 
 from . import usenet_nntp as nntp
@@ -50,12 +54,17 @@ ZAKLENJEN = "ZAKLENJEN"
 NI_ODGOVORA = "NI_ODGOVORA"
 PREVEC_POVEZAV = "PREVEC_POVEZAV"
 PREPOGOSTO = "PREPOGOSTO"  # gumb znova pred iztekom minute: brez omrezja
+V_UPORABI = "V_UPORABI"  # racun ima zivi bazen: nova povezava bi presegla trdo mejo racuna, brez omrezja
 NEPREVERJEN = "NEPREVERJEN"  # samo stanje_za_vmesnik
 
 # Razlogi NapakaPonudnika (brez vrednosti).
 NI_GESLA = "ni_gesla"
 BREZ_TLS = "brez_tls_ni_podprt"
 RACUN_ZAKLENJEN = "racun_zaklenjen"
+GESLO_ZAVRNJENO = "geslo_ze_zavrnjeno"  # vpis gesla, ki ga je ponudnik ze zavrnil: nic se ne spremeni
+ZBIRKA_NAPAKA = "zbirka_ni_dosegljiva"  # sistemska zbirka je vrgla izjemo; njeno besedilo ne gre naprej
+NI_PONUDNIKA = "ni_ponudnika"  # posodobi_nastavitve brez veljavnega shranjenega ponudnika
+PREVERBA_TECE = "preverba_tece"  # meja racuna 1 in prav tece preverba: bazen bi jo presegel
 
 _POLJA = ("gostitelj", "uporabnik", "vrata", "tls", "najvec_povezav", "ime", "nevarno_brez_tls")
 _OZNAKA = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -234,7 +243,9 @@ def _beri_json(pot: str) -> Optional[dict]:
         return None
     try:
         d = json.loads(surovo.decode("utf-8"))
-    except (UnicodeError, ValueError):
+    except (UnicodeError, ValueError, RecursionError):
+        # RecursionError ni ValueError: globoko gnezden JSON (do 64 KiB) bi sicer podrl tudi shrani in pozabi,
+        # s katerima uporabnik pokvarjeno datoteko popravi (pregled 77 G2).
         _log.info("usenet ponudnik: nastavitve niso veljaven JSON")
         return None
     return d if isinstance(d, dict) and d.get("verzija") == _VERZIJA else None
@@ -271,23 +282,171 @@ def _ponudnik_iz(d: Optional[dict]) -> Optional[Ponudnik]:
         return None
 
 
+# Vse branje-sprememba-pisanje nastavitev (shrani, pozabi, posodobi, zapis izida) je pod enim zaklepom: brez njega
+# zapis izida z delovne niti povozi socasen nov vpis s starim ponudnikom (pregled 77 G5). RLock, ker se klici gnezdijo.
+_NASTAVITVE_ZAKLEP = threading.RLock()
+_KLJUC_ZBIRKE = re.compile(r"^" + re.escape(_PREDPONA_KLJUCA) + r"[0-9a-f]{64}$")
+
+
+def _pot_kljucev(pot_nastavitev: str) -> str:
+    return pot_nastavitev + ".kljuci"
+
+
+def _beri_kljuce(pot_nastavitev: str) -> set:
+    """Kljuci zbirke, pod katere je ta naprava kdaj zapisala geslo. Samo odtisi (gostitelj, uporabnik), nikoli geslo.
+
+    Locena datoteka zato, ker pokvarjena datoteka nastavitev ne sme izgubiti poti do gesla v zbirki (pregled 77 G6)."""
+    d = _beri_json(_pot_kljucev(pot_nastavitev))
+    kljuci = d.get("kljuci") if d is not None else None
+    if not isinstance(kljuci, list):
+        return set()
+    return {k for k in kljuci if isinstance(k, str) and _KLJUC_ZBIRKE.match(k)}
+
+
+def _pisi_kljuce(pot_nastavitev: str, kljuci: set) -> None:
+    _pisi_json(_pot_kljucev(pot_nastavitev), {"verzija": _VERZIJA, "kljuci": sorted(kljuci)})
+
+
+def _pozabi_kljuce(kljuci) -> set:
+    """Zbrise gesla pod kljuci. Vrne kljuce, ki jih zbirka ni zbrisala: ostanejo v seznamu za naslednji poskus."""
+    ostali = set()
+    for k in kljuci:
+        try:
+            _pozabi_geslo(k)
+        except Exception as e:  # zaklenjena zbirka ne sme ustaviti pospravljanja ostalih kljucev
+            _log.info("usenet ponudnik: gesla ni mogoce zbrisati (%s)", type(e).__name__)
+            ostali.add(k)
+    return ostali
+
+
+def _povrni_geslo(kljuc: str, prejsnje: Optional[str]) -> None:
+    """Po neuspelem zapisu JSON: zbirka mora spet ustrezati nastavitvam, ki so ostale na disku."""
+    try:
+        if prejsnje is not None:
+            _shrani_geslo(kljuc, prejsnje)
+        else:
+            _pozabi_geslo(kljuc)  # novo geslo brez nastavitev bi bila osirotela skrivnost
+    except Exception as e:
+        _log.info("usenet ponudnik: gesla ni mogoce povrniti (%s)", type(e).__name__)
+
+
+# ------------------------------------------------------------------ zavrnjena gesla (G1)
+
+# Odtisi gesel, ki jih je ponudnik v tem procesu zavrnil. HMAC s kljucem samo v pomnilniku: gesla ni in ga brez
+# kljuca ni mogoce preizkusati; nikoli na disk. Pokrije primere, ko zapah usenet_nntp tega gesla ne kaze vec
+# (vmesni vpis drugega gesla, »Pozabi«), streznik pa bi isto zavrnjeno geslo dobil znova.
+_ZAVRNJENA_KLJUC = os.urandom(32)
+_ZAVRNJENA: dict = {}
+_ZAVRNJENA_NAJVEC = 64
+_ZAVRNJENA_ZAKLEP = threading.Lock()
+
+
+def _odtis_gesla(p: "Ponudnik", geslo: str) -> str:
+    return hmac.new(_ZAVRNJENA_KLJUC, ("%s\x00%s" % (_kljuc_racuna(p), geslo)).encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
+def _zapomni_zavrnjeno(p: "Ponudnik", geslo: str) -> None:
+    o = _odtis_gesla(p, geslo)
+    with _ZAVRNJENA_ZAKLEP:
+        _ZAVRNJENA.pop(o, None)
+        _ZAVRNJENA[o] = None
+        while len(_ZAVRNJENA) > _ZAVRNJENA_NAJVEC:
+            del _ZAVRNJENA[next(iter(_ZAVRNJENA))]  # omejena velikost, najstarejsi prvi
+
+
+def _znano_zavrnjeno(p: "Ponudnik", geslo: str) -> bool:
+    o = _odtis_gesla(p, geslo)
+    with _ZAVRNJENA_ZAKLEP:
+        return o in _ZAVRNJENA
+
+
+def _geslo_ze_zavrnjeno(p: "Ponudnik", geslo: str, shranjeno: Optional[str]) -> bool:
+    """Ali bi vpis tega gesla pomenil, da streznik znova dobi geslo, ki ga je ze zavrnil."""
+    if _znano_zavrnjeno(p, geslo):
+        return True
+    if not nntp.prijava_zavrnjena(p.gostitelj, p.uporabnik, geslo):
+        return False
+    if shranjeno is None or shranjeno == geslo:
+        return True
+    # Zapah kaze za to geslo. Ce kaze tudi za drugo, shranjeno geslo, je zapah na racunu (ne na geslu) in vpis
+    # drugega gesla je prav sprememba, ki sme odkleniti; sicer je ponudnik zavrnil prav to geslo.
+    return not nntp.prijava_zavrnjena(p.gostitelj, p.uporabnik, shranjeno)
+
+
+# ------------------------------------------------------------------ javne funkcije nastavitev
+
 def shrani_ponudnika(ponudnik: Ponudnik, geslo: str, pot_nastavitev: str) -> bool:
     """Izrecni vpis uporabnika. Vrne True, ce je geslo v sistemski zbirki (False = samo do konca procesa).
 
-    Nov vpis (tudi enakih poverilnic) je edino, kar odklene zapah racuna: dovoli_prijavo_znova."""
+    Zapah racuna odklene samo vpis DRUGEGA gesla ali racuna (dovoli_prijavo_znova). Geslo, ki ga je ponudnik ze
+    zavrnil: NapakaPonudnika(GESLO_ZAVRNJENO), nic se ne spremeni. Enako geslo ne ponastavi omejitve 1/min.
+    Ime in stevilo povezav brez gesla: posodobi_nastavitve. Zbirka vrze: NapakaPonudnika(ZBIRKA_NAPAKA)."""
     if not isinstance(ponudnik, Ponudnik):
         raise ValueError("usenet ponudnik: pricakovan Ponudnik")
     if not nntp.varna_poverilnica(geslo):
         raise ValueError("usenet ponudnik: neveljavno geslo")  # brez vrednosti
-    star = _ponudnik_iz(_beri_json(pot_nastavitev))
-    _pisi_json(pot_nastavitev, {"verzija": _VERZIJA, "ponudnik": ponudnik.v_slovar(), "preverba": None})
-    if star is not None and star.kljuc_gesla != ponudnik.kljuc_gesla:
-        _pozabi_geslo(star.kljuc_gesla)  # zamenjan racun: staro geslo ne ostane v zbirki
-    trajno = _shrani_geslo(ponudnik.kljuc_gesla, geslo)
-    nntp.dovoli_prijavo_znova(ponudnik.gostitelj, ponudnik.uporabnik, geslo)
-    with _PREVERBE_ZAKLEP:
-        _PREVERBE.pop(_kljuc_racuna(ponudnik), None)  # nov vpis sme takoj na »Preveri«
+    with _NASTAVITVE_ZAKLEP:
+        star = _ponudnik_iz(_beri_json(pot_nastavitev))
+        nov_kljuc = ponudnik.kljuc_gesla
+        try:
+            shranjeno = _preberi_geslo(nov_kljuc)
+        except Exception:
+            raise NapakaPonudnika(ZBIRKA_NAPAKA) from None  # besedilo zbirke ne gre naprej
+        if _geslo_ze_zavrnjeno(ponudnik, geslo, shranjeno):
+            _log.info("usenet ponudnik: vpis zavrnjen, ponudnik je to geslo ze zavrnil")
+            raise NapakaPonudnika(GESLO_ZAVRNJENO)
+        # Samo dejanska sprememba gesla ali racuna sme odkleniti zapah in ponastaviti minuto (pregled 77 G1).
+        spremenjen = shranjeno != geslo or (star is not None and _kljuc_racuna(star) != _kljuc_racuna(ponudnik))
+        stari_kljuci = _beri_kljuce(pot_nastavitev)
+        if star is not None:
+            stari_kljuci.add(star.kljuc_gesla)
+        # Vrstni red: seznam kljucev, zbirka, JSON, sele nato brisanje starih gesel. Ob napaki na kateremkoli
+        # koraku ostane star ponudnik s svojim geslom, ob sesutju pa seznam pove, katero geslo pobrisati (G5, G6).
+        _pisi_kljuce(pot_nastavitev, stari_kljuci | {nov_kljuc})
+        try:
+            trajno = _shrani_geslo(nov_kljuc, geslo)
+        except Exception:
+            raise NapakaPonudnika(ZBIRKA_NAPAKA) from None
+        try:
+            _pisi_json(pot_nastavitev, {"verzija": _VERZIJA, "ponudnik": ponudnik.v_slovar(), "preverba": None})
+        except BaseException:
+            _povrni_geslo(nov_kljuc, shranjeno)
+            raise
+        # Zamenjan racun ali osirotela gesla iz pokvarjene datoteke: v zbirki ostane samo vpisano geslo.
+        ostali = _pozabi_kljuce(stari_kljuci - {nov_kljuc})
+        try:
+            _pisi_kljuce(pot_nastavitev, ostali | {nov_kljuc})
+        except OSError as e:
+            _log.info("usenet ponudnik: seznama kljucev ni mogoce shraniti (%s)", type(e).__name__)
+        if spremenjen:
+            nntp.dovoli_prijavo_znova(ponudnik.gostitelj, ponudnik.uporabnik, geslo)
+            with _PREVERBE_ZAKLEP:
+                _PREVERBE.pop(_kljuc_racuna(ponudnik), None)  # novo geslo sme takoj na »Preveri«
     return trajno
+
+
+def posodobi_nastavitve(pot_nastavitev: str, *, ime: Optional[str] = None,
+                        najvec_povezav: Optional[int] = None) -> Ponudnik:
+    """Spremeni ime ali stevilo povezav BREZ gesla. Zapaha, omejitve 1/min in zadnjega izida ne spremeni.
+
+    Brez tega bi vmesnik za vsako spremembo znova podal geslo, kar je zapah tiho odklenilo (pregled 77 G1).
+    Ni veljavnega ponudnika: NapakaPonudnika(NI_PONUDNIKA); neveljavna vrednost: ValueError brez vrednosti."""
+    spremembe = {}
+    if ime is not None:
+        spremembe["ime"] = ime
+    if najvec_povezav is not None:
+        spremembe["najvec_povezav"] = najvec_povezav
+    with _NASTAVITVE_ZAKLEP:
+        d = _beri_json(pot_nastavitev)
+        p = _ponudnik_iz(d)
+        if p is None:
+            raise NapakaPonudnika(NI_PONUDNIKA)
+        nov = dataclasses.replace(p, **spremembe)  # __post_init__ preveri nove vrednosti
+        d["ponudnik"] = nov.v_slovar()  # racun in geslo sta ista, zato izid preverbe ostane
+        _pisi_json(pot_nastavitev, d)
+    _nastavi_mejo_racuna(nov)  # zivi bazen takoj upostevaj novo trdo mejo
+    return nov
 
 
 def preberi_ponudnika(pot_nastavitev: str) -> Optional[Ponudnik]:
@@ -296,30 +455,45 @@ def preberi_ponudnika(pot_nastavitev: str) -> Optional[Ponudnik]:
 
 
 def pozabi_ponudnika(pot_nastavitev: str) -> None:
-    """Zbrise nastavitev, geslo in trajni zapah racuna (uporabnik je racun odstranil)."""
-    p = preberi_ponudnika(pot_nastavitev)
-    if p is not None:
-        geslo = _preberi_geslo(p.kljuc_gesla)
-        nntp.dovoli_prijavo_znova(p.gostitelj, p.uporabnik, geslo)  # zapah v procesu in na disku
-        _pozabi_geslo(p.kljuc_gesla)
-        with _PREVERBE_ZAKLEP:
-            _PREVERBE.pop(_kljuc_racuna(p), None)
-    try:
-        os.unlink(pot_nastavitev)
-    except FileNotFoundError:
-        pass
+    """Zbrise nastavitev, geslo in trajni zapah racuna (uporabnik je racun odstranil).
+
+    Gesla zbrise tudi, ce je datoteka nastavitev pokvarjena ali tuja: kljuce pozna seznam kljucev (pregled 77 G6)."""
+    with _NASTAVITVE_ZAKLEP:
+        p = preberi_ponudnika(pot_nastavitev)
+        kljuci = _beri_kljuce(pot_nastavitev)
+        if p is not None:
+            kljuci.add(p.kljuc_gesla)
+            geslo = _preberi_geslo(p.kljuc_gesla)
+            nntp.dovoli_prijavo_znova(p.gostitelj, p.uporabnik, geslo)  # zapah v procesu in na disku
+            with _PREVERBE_ZAKLEP:
+                _PREVERBE.pop(_kljuc_racuna(p), None)
+        ostali = _pozabi_kljuce(kljuci)
+        with _POMNILNIK_ZAKLEP:
+            _V_POMNILNIKU.clear()  # gesla samo v pomnilniku ne smejo preziveti »Pozabi«, tudi brez kljuca
+        try:
+            os.unlink(pot_nastavitev)
+        except FileNotFoundError:
+            pass
+        if ostali:
+            _pisi_kljuce(pot_nastavitev, ostali)  # zbirka ni zbrisala: naslednji »Pozabi« poskusi znova
+        else:
+            try:
+                os.unlink(_pot_kljucev(pot_nastavitev))
+            except FileNotFoundError:
+                pass
 
 
 def _zapisi_preverbo(pot_nastavitev: str, ponudnik: Ponudnik, izid: str) -> None:
-    d = _beri_json(pot_nastavitev)
-    p = _ponudnik_iz(d)
-    if d is None or p is None or p.kljuc_gesla != ponudnik.kljuc_gesla:
-        return  # medtem zamenjan ponudnik: izid ne velja zanj
-    d["preverba"] = {"izid": izid, "cas": int(time.time())}
-    try:
-        _pisi_json(pot_nastavitev, d)
-    except OSError as e:
-        _log.info("usenet ponudnik: izida ni mogoce shraniti (%s)", type(e).__name__)
+    with _NASTAVITVE_ZAKLEP:  # branje in pisanje skupaj: socasen nov vpis ne sme biti povozen (G5)
+        d = _beri_json(pot_nastavitev)
+        p = _ponudnik_iz(d)
+        if d is None or p is None or p.kljuc_gesla != ponudnik.kljuc_gesla:
+            return  # medtem zamenjan ponudnik: izid ne velja zanj
+        d["preverba"] = {"izid": izid, "cas": int(time.time())}
+        try:
+            _pisi_json(pot_nastavitev, d)
+        except OSError as e:
+            _log.info("usenet ponudnik: izida ni mogoce shraniti (%s)", type(e).__name__)
 
 
 # ------------------------------------------------------------------ preverba (gumb »Preveri«)
@@ -371,12 +545,21 @@ def preveri_ponudnika(ponudnik: Ponudnik, geslo: str, *, pot_nastavitev: Optiona
     _ne_na_glavni_niti()
     _samo_tls(ponudnik)
     kontekst = nntp.varen_kontekst(kontekst)  # brez preverbe potrdila: ValueError pred omrezjem
-    if nntp.prijava_zavrnjena(ponudnik.gostitelj, ponudnik.uporabnik, geslo):
+    if (nntp.prijava_zavrnjena(ponudnik.gostitelj, ponudnik.uporabnik, geslo)
+            or _znano_zavrnjeno(ponudnik, geslo)):  # tudi ko zapah usenet_nntp vmes izgine (»Pozabi«), G1
         izid = ZAKLENJEN
-    elif not _rezerviraj_preverbo(ponudnik):
-        return PREPOGOSTO
+    elif not _zacni_preverbo(ponudnik):
+        # Zivi bazen racuna ima lahko vse povezave do trde meje; preverba bi odprla eno cez (pregled 77 G4).
+        # Minuta se ne porabi, ker gesla nismo poslali.
+        _log.info("usenet ponudnik: preverba %s", V_UPORABI)
+        return V_UPORABI
     else:
-        izid = _preveri_z_omrezjem(ponudnik, geslo, kontekst)
+        try:
+            if not _rezerviraj_preverbo(ponudnik):
+                return PREPOGOSTO
+            izid = _preveri_z_omrezjem(ponudnik, geslo, kontekst)
+        finally:
+            _koncaj_preverbo(ponudnik)
     _log.info("usenet ponudnik: preverba %s", izid)  # samo izid
     if pot_nastavitev is not None and izid in (VELJA, NE_VELJA, ZAKLENJEN):
         _zapisi_preverbo(pot_nastavitev, ponudnik, izid)
@@ -405,6 +588,8 @@ def _izid_napake(bazen: "nntp.Bazen", p: Ponudnik, geslo: str, e: "nntp.NapakaNn
     if faza == nntp.FAZA_PRIJAVA:
         # _po_prijavi je izid ze zapisal (zapah ali stevec neznanih prijav) pred sprostitvijo vrat prijave.
         if nntp.prijava_zavrnjena(p.gostitelj, p.uporabnik, geslo):
+            if e.izid == nntp.PRIJAVA:
+                _zapomni_zavrnjeno(p, geslo)  # streznik je to geslo zavrnil: ponovni vpis ga ne sme odkleniti (G1)
             bazen._ustavi(nntp.PRIJAVA, racun=True)  # ustavi tudi zive bazene istega racuna (Grok 43 C3)
             return NE_VELJA if e.izid == nntp.PRIJAVA else ZAKLENJEN
         return NI_ODGOVORA  # geslo je morda prislo do streznika, odgovora ni (prvic: brez zapaha)
@@ -415,31 +600,129 @@ def _izid_napake(bazen: "nntp.Bazen", p: Ponudnik, geslo: str, e: "nntp.NapakaNn
 
 # ------------------------------------------------------------------ bazen za predvajanje
 
+# Trda meja povezav velja na RACUN (lastnik), zato en zivi bazen na racun: drugi ustvari_bazen dobi istega, preverba
+# pa med predvajanjem ne odpre dodatne povezave (pregled 77 G4). Sibka referenca: bazena, ki ga nihce vec ne drzi,
+# register ne ohranja pri zivljenju.
+_RACUNI: dict = {}  # kljuc racuna -> {"bazen": weakref ali None, "preverbe": stevilo tekocih preverb}
+_RACUNI_ZAKLEP = threading.RLock()  # RLock: zapri() starega bazena se odjavi pod istim zaklepom
+
+
+def _racun(k: str) -> dict:
+    return _RACUNI.setdefault(k, {"bazen": None, "preverbe": 0})
+
+
+def _zivi_bazen(r: Optional[dict]):
+    b = r["bazen"]() if r is not None and r["bazen"] is not None else None
+    return b if b is not None and not b._zaprt else None
+
+
+def _pospravi(k: str) -> None:
+    r = _RACUNI.get(k)
+    if r is not None and r["preverbe"] <= 0 and _zivi_bazen(r) is None:
+        del _RACUNI[k]  # omejena velikost
+
+
+def _zacni_preverbo(p: Ponudnik) -> bool:
+    """Preverba zasede eno povezavo racuna. False: racun ima zivi bazen, ki ima lahko ze vse povezave."""
+    k = _kljuc_racuna(p)
+    with _RACUNI_ZAKLEP:
+        r = _racun(k)
+        if _zivi_bazen(r) is not None:
+            return False
+        r["preverbe"] += 1
+        return True
+
+
+def _koncaj_preverbo(p: Ponudnik) -> None:
+    k = _kljuc_racuna(p)
+    with _RACUNI_ZAKLEP:
+        r = _RACUNI.get(k)
+        if r is None:
+            return
+        r["preverbe"] = max(0, r["preverbe"] - 1)
+        b = _zivi_bazen(r)
+        if b is not None:
+            b._nastavi_mejo(b._meja_polna - r["preverbe"])  # bazen, ustvarjen med preverbo, dobi povezavo nazaj
+        _pospravi(k)
+
+
+def _nastavi_mejo_racuna(p: Ponudnik) -> None:
+    with _RACUNI_ZAKLEP:
+        r = _RACUNI.get(_kljuc_racuna(p))
+        b = _zivi_bazen(r)
+        if b is not None:
+            b._meja_polna = min(p.najvec_povezav, nntp.NAJVEC_POVEZAV)
+            b._nastavi_mejo(b._meja_polna - r["preverbe"])
+
+
 class _BazenRacuna(nntp.Bazen):
     """Bazen s trdo mejo racuna: tudi nastavi_najvec od zunaj ne gre cez uporabnikovo stevilo povezav."""
 
-    def __init__(self, *a, meja_racuna: int, **k):
+    def __init__(self, *a, meja_racuna: int, meja_polna: Optional[int] = None, kljuc_racuna: str = "",
+                 podpis: str = "", **k):
         self._meja_racuna = max(1, int(meja_racuna))
+        self._meja_polna = max(self._meja_racuna, int(meja_polna or meja_racuna))
+        self._kljuc_racuna = kljuc_racuna
+        self._podpis = podpis  # HMAC (streznik, vrata, geslo): primerjava brez hranjenja gesla tu
+        self._zaprt = False
         super().__init__(*a, **k)
 
     def nastavi_najvec(self, povezav: int) -> None:
         super().nastavi_najvec(min(int(povezav), self._meja_racuna))
 
+    def _nastavi_mejo(self, meja: int) -> None:
+        self._meja_racuna = max(1, int(meja))
+        super().nastavi_najvec(self._meja_racuna)
+
+    def zapri(self, *a, **k):
+        try:
+            return super().zapri(*a, **k)
+        finally:
+            self._zaprt = True  # zaprt bazen ne zaseda vec racuna
+            with _RACUNI_ZAKLEP:
+                r = _RACUNI.get(self._kljuc_racuna)
+                if r is not None and r["bazen"] is not None and r["bazen"]() is self:
+                    r["bazen"] = None
+                _pospravi(self._kljuc_racuna)
+
 
 def ustvari_bazen(ponudnik: Ponudnik, *, kontekst: Optional[ssl.SSLContext] = None) -> "nntp.Bazen":
     """Bazen za predvajanje (povezave odpira sele zahteva). Geslo iz zbirke sele tu; brez gesla ali z zapahom
-    NapakaPonudnika brez omrezja - Bazen bi sicer obstajal, a vsaka zahteva bi koncala z napako."""
+    NapakaPonudnika brez omrezja - Bazen bi sicer obstajal, a vsaka zahteva bi koncala z napako.
+
+    Za isti racun vrne obstojeci zivi bazen (trda meja na racun); kdor ga zapre, ga zapre za vse. Med tekoco
+    preverbo dobi bazen eno povezavo manj in jo dobi nazaj, ko se preverba konca."""
     if not isinstance(ponudnik, Ponudnik):
         raise ValueError("usenet ponudnik: pricakovan Ponudnik")
     _samo_tls(ponudnik)
+    # Kot pri preverbi: CERT_NONE ali brez preverbe imena je ValueError pred zbirko in omrezjem (pregled 77 G3).
+    kontekst = nntp.varen_kontekst(kontekst)
     geslo = _preberi_geslo(ponudnik.kljuc_gesla)
     if geslo is None:
         raise NapakaPonudnika(NI_GESLA)
     if nntp.prijava_zavrnjena(ponudnik.gostitelj, ponudnik.uporabnik, geslo):
         raise NapakaPonudnika(RACUN_ZAKLENJEN)
     meja = min(ponudnik.najvec_povezav, nntp.NAJVEC_POVEZAV)
-    return _BazenRacuna(ponudnik.gostitelj, ponudnik.vrata, ponudnik.uporabnik, geslo, povezav=meja,
-                        kontekst=kontekst, meja_racuna=meja)
+    k = _kljuc_racuna(ponudnik)
+    podpis = _odtis_gesla(ponudnik, "%s\x00%d\x00%s" % (ponudnik.gostitelj.lower(), ponudnik.vrata, geslo))
+    with _RACUNI_ZAKLEP:
+        b = _zivi_bazen(_racun(k))
+        if b is not None and b._podpis == podpis:
+            b._meja_polna = meja
+            b._nastavi_mejo(meja - _racun(k)["preverbe"])
+            return b
+        if b is not None:
+            _racun(k)["bazen"] = None
+            b.zapri()  # drugo geslo ali streznik istega racuna: stari bazen ne sme teci poleg novega
+        r = _racun(k)  # zapri() je lahko pospravil vnos
+        prosto = meja - r["preverbe"]
+        if prosto < 1:
+            _pospravi(k)
+            raise NapakaPonudnika(PREVERBA_TECE)
+        novi = _BazenRacuna(ponudnik.gostitelj, ponudnik.vrata, ponudnik.uporabnik, geslo, povezav=prosto,
+                            kontekst=kontekst, meja_racuna=prosto, meja_polna=meja, kljuc_racuna=k, podpis=podpis)
+        r["bazen"] = weakref.ref(novi)
+        return novi
 
 
 # ------------------------------------------------------------------ vmesnik
@@ -453,6 +736,18 @@ _BESEDILA = {
               "do takrat Safeer gesla ne pošilja (zaščita pred zaklepom računa).",
     ZAKLENJEN: "Prijava je bila zavrnjena, zato Safeer gesla ne pošilja več. Ko poverilnice preveriš pri "
                "ponudniku, jih vpiši znova.",
+}
+
+
+#: Besedila za izide in razloge ob kliku (niso trajno stanje). Brez gesla, uporabnika in gostitelja.
+BESEDILA_IZIDOV = {
+    GESLO_ZAVRNJENO: "Ponudnik je to geslo že zavrnil. Vpiši drugo geslo - Safeer istega gesla ne pošlje znova "
+                     "(zaščita pred zaklepom računa).",
+    V_UPORABI: "Račun se trenutno uporablja za predvajanje. Preveri znova, ko se predvajanje konča - dodatna "
+               "povezava bi presegla mejo povezav računa.",
+    PREVERBA_TECE: "Preverba prijave še teče. Poskusi znova čez nekaj sekund.",
+    ZBIRKA_NAPAKA: "Sistemska zbirka gesel ni dosegljiva. Odkleni jo in vpiši ponudnika znova.",
+    NI_PONUDNIKA: _BESEDILA[None],
 }
 
 
