@@ -181,6 +181,11 @@ class _Streznik(http.server.BaseHTTPRequestHandler):
             return self._poslji(int(pot[1:]))
         if pot == "/preusmeri":
             return self._poslji(302, glave={"Location": "/ts"})
+        if pot == "/preusmeri-glave":
+            return self._poslji(302, glave={"Location": "http://drug.test:%d/glave" % self.server.server_address[1]})
+        if pot == "/glave":
+            return self._poslji(200, TS) if self.headers.get("Referer") and not self.headers.get("Cookie") \
+                else self._poslji(403)
         if pot == "/preusmeri-drugam":
             return self._poslji(302, glave={"Location": "http://127.0.0.2:%d/ts" % self.server.server_address[1]})
         if pot == "/ua":
@@ -288,6 +293,12 @@ class PreverbaToka(unittest.TestCase):
         izid = kanali_iptv.preveri_tok("http://kanal.test:%d/ts" % self.vrata, domace=True, razresi=razresi)
         self.assertEqual(izid, (kanali_iptv.DELUJE, "ts"))
         self.assertEqual(_Streznik.zahteve[-1][1], "kanal.test:%d" % self.vrata)
+
+    def test_piskotek_seznama_samo_izvornemu_gostitelju(self):
+        razresi = lambda gost, vrata, **k: [(2, 1, 6, "", ("127.0.0.1", vrata))]  # noqa: E731
+        izid = kanali_iptv.preveri_tok("http://izvor.test:%d/preusmeri-glave" % self.vrata, domace=True, razresi=razresi,
+                                       glave={"Cookie": "seja=SKRIVNO", "Referer": "https://seznam.test/"})
+        self.assertEqual(izid, (kanali_iptv.DELUJE, "ts"), "piskotek seznama je sel drugemu gostitelju")
 
     def test_glave_seznama(self):
         self.assertEqual(self.preveri("/ua")[0], kanali_iptv.ZAKLENJEN)

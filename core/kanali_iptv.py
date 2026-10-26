@@ -509,11 +509,19 @@ def _tls() -> ssl.SSLContext:
 def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obseg: str = "",
              razresi=socket.getaddrinfo) -> tuple:
     """GET z rokom `konec` (time.monotonic) in rocnimi preusmeritvami: VSAK skok preverimo (shema, dovoljen IP).
-    Vrne (status, koncni naslov, vrsta vsebine, prvih `najvec` bajtov)."""
+    Vrne (status, koncni naslov, vrsta vsebine, prvih `najvec` bajtov).
+
+    Glave seznama kot brskalnik (pregled 30, J8): Cookie samo izvornemu gostitelju, po preusmeritvi s https na http
+    nobene (Referer, Origin, Cookie)."""
+    izvor, znizano, prej_https = None, False, False
     for _ in range(NAJVEC_PREUSMERITEV + 1):
         deli = urllib.parse.urlsplit(url)
         if deli.scheme not in ("http", "https") or not deli.hostname or deli.username or deli.password:
             raise _Napaka(MRTEV, "naslov")
+        gostitelj = deli.hostname.lower()
+        izvor = gostitelj if izvor is None else izvor
+        znizano = znizano or (prej_https and deli.scheme == "http")
+        prej_https = deli.scheme == "https"
         try:
             vrata = deli.port or (443 if deli.scheme == "https" else 80)
         except ValueError:
@@ -530,7 +538,9 @@ def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obs
         zaglavje = {"User-Agent": glave.get("User-Agent") or PRIVZETI_ODJEMALEC, "Accept": "*/*",
                     "Accept-Encoding": "identity", "Connection": "close"}
         for ime, vrednost in glave.items():
-            if ime.lower() in ("referer", "origin", "cookie") and vrednost:
+            nizko = ime.lower()
+            if nizko in ("referer", "origin", "cookie") and vrednost and not znizano \
+                    and (nizko != "cookie" or gostitelj == izvor):
                 zaglavje[ime] = vrednost
         if obseg:
             zaglavje["Range"] = obseg
