@@ -353,7 +353,7 @@ class Viri(unittest.TestCase):
             "ozji": True}                  # pregled 51, Ê3: brez kljuca ozji (starejsa naprava) bi sel naprej samo znan javen vir
         osvezitve = []
         self.mc.ob_virih = lambda: osvezitve.append(1)
-        self.assertTrue(self.mc.viri_uskladi(kazalo))
+        self.assertTrue(self.mc.viri_uskladi(kazalo, "telefon"))       # posiljatelj v ozjem krogu te naprave (pregled 68, Ą3)
         self.assertEqual(osvezitve, [1])
         data = self.mc._load()
         self.assertEqual([(s["ime"], s["zaseben"], s["dodan"], s["link_naslov"]) for s in data["osebni_strezniki"]],
@@ -364,15 +364,15 @@ class Viri(unittest.TestCase):
         self.assertEqual(self._viri(), {})
         # Drugi krog: nic novega, zavrnjenih ne preverja znova (ne sprasuje omrezja ob vsakem usklajevanju).
         with mock.patch.object(self.mc, "_prevzemi_vir", lambda v: self.fail("ne znova: " + v["naslov"])):
-            self.assertFalse(self.mc.viri_uskladi(kazalo))
+            self.assertFalse(self.mc.viri_uskladi(kazalo, "telefon"))
         # Nedosegljiv dodatek poskusimo spet po 10 minutah, zavrnjenega po enem dnevu.
         klici = []
         with mock.patch.object(self.mc, "_prevzemi_vir", lambda v: klici.append(v["naslov"]) or (False, viri_sink.ZAVRNJEN_VELJA_MS)):
             self.ura[0] += viri_sink.NEDOSEGLJIV_VELJA_MS + 1
-            self.mc.viri_uskladi(kazalo)
+            self.mc.viri_uskladi(kazalo, "telefon")
             self.assertEqual(klici, ["https://mrtev.primer.si/manifest.json"])
             self.ura[0] += viri_sink.ZAVRNJEN_VELJA_MS + 1
-            self.mc.viri_uskladi(kazalo)
+            self.mc.viri_uskladi(kazalo, "telefon")
             self.assertEqual(len(klici), 4)
         # Spletne strani (na Androidu bliznjica v brskalnik), streznika PeerTube in vira API racunalnik ne prevzema.
         self.assertFalse(any("stran.primer" in k or "peertube" in k or "api.primer" in k for k in klici))
@@ -395,7 +395,7 @@ class Viri(unittest.TestCase):
         # Izbrisan vir se z naprave, ki ga se ima (dodan prej), ne vrne; dodan pozneje se.
         self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan}]}))
         self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}],
-                                                  "ozji": True}))
+                                                  "ozji": True}, "telefon"))
         self.assertEqual([s["link_naslov"] for s in self.mc._load()["osebni_strezniki"]],
                          ["https://javen.primer.si/manifest.json"])          # prevzet; naprej ga ne izvazamo (Ê4)
         self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
@@ -416,6 +416,7 @@ class Viri(unittest.TestCase):
             vprasanja.append(dict(parametri or {}))
             return {"lists": [], "deleted": {}, "sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": 3}],
                     "sources_deleted": {}, "ozji": True} if not parametri else None
+        vprasaj.id_naprave = "telefon"          # kot safeer_os._seznami_z_naprav: posiljatelj v ozjem krogu te naprave
         self.assertTrue(self.mc.seznami_uskladi(vprasaj))
         self.assertEqual(vprasanja, [{}])                                           # eno vprasanje za sezname in vire
         self.assertEqual([s["link_naslov"] for s in self.mc._load()["osebni_strezniki"]],

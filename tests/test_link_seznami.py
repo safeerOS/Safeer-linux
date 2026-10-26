@@ -7,7 +7,10 @@ import unittest
 import urllib.error
 from unittest import mock
 
-from core import link_daljinec, link_seznami, os_media, seznami_sink, viri_sink
+import pytest
+
+from core import link_daljinec, link_dostop, link_seznami, os_media, seznami_sink, viri_sink
+from tests.test_link_dostop import A, B, _Osnova
 
 SKLADBE = [{"naslov": "Pesem %d" % i, "izvajalec": "Pevka", "youtube": "59o4m222aV%s" % "wxyz"[i % 4], "sekund": 200 + i,
             "slika": "https://i.ytimg.com/vi/x/hq.jpg", "interno": "ne gre naprej"} for i in range(230)]
@@ -460,12 +463,14 @@ class ZeRazposlaneKopije(unittest.TestCase):
         with tempfile.TemporaryDirectory() as prazna:
             mc = os_media.MediaCenter(prazna, roots=[])
             viri = [{"tip": "seznam", "ime": "", "naslov": n, "cas": 9} for n in (XTREAM, POT, JAVNI)]
-            for ozji, pricakovano in ((None, [JAVNI]), (False, [JAVNI]), (True, [XTREAM, POT, JAVNI])):    # Ê3: None kot false
+            # Ê3: None kot false. Pregled 68, Ą3: »ozji« true brez dokaza (posiljatelj ni v ozjem krogu te naprave) kot false.
+            for ozji, posiljatelj, pricakovano in ((None, "telefon", [JAVNI]), (False, "telefon", [JAVNI]),
+                                                   (True, "", [JAVNI]), (True, "telefon", [XTREAM, POT, JAVNI])):
                 klici = []
                 kazalo = dict({"sources": viri, "sources_deleted": {}}, **({} if ozji is None else {"ozji": ozji}))
                 with mock.patch.object(mc, "_prevzemi_vir", lambda v: klici.append(v["naslov"]) or (False, 0)):
-                    mc.viri_uskladi(kazalo)
-                self.assertEqual(klici, pricakovano, ozji)
+                    mc.viri_uskladi(kazalo, posiljatelj)
+                self.assertEqual(klici, pricakovano, (ozji, posiljatelj))
 
     def test_odgovor_pove_ozji_krog(self):
         mc = self._mc()
@@ -553,10 +558,11 @@ class _PrejetOsnova(unittest.TestCase):
         zaplata.start()
         self.addCleanup(zaplata.stop)
 
-    def _prejmi(self, *viri, ozji=True):
+    def _prejmi(self, *viri, ozji=True, posiljatelj="telefon"):
+        """`posiljatelj`: id naprave, ki odgovarja; preizkusi (conftest) imajo vsako izmisljeno napravo v ozjem krogu."""
         kazalo = {"sources": [{"tip": t, "ime": "TV", "naslov": n, "cas": 9} for t, n in viri], "sources_deleted": {},
                   "ozji": ozji}
-        self.assertTrue(self.mc.viri_uskladi(kazalo))
+        self.assertTrue(self.mc.viri_uskladi(kazalo, posiljatelj))
 
     def _prejmi_neznan(self, *viri):
         """Vir brez dokaza o ozjem krogu (add_source brez ozji_krog): fail-closed, caka uporabnikovo osvezitev."""
@@ -649,7 +655,7 @@ class PrejetSeznamZRacunom(_PrejetOsnova):
         # Naslednja usklajevanja ne podvojijo in ne prenesejo znova.
         self.povezave.clear()
         self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "seznam", "ime": "", "naslov": XTREAM_B, "cas": 9}],
-                                               "sources_deleted": {}, "ozji": True}))
+                                               "sources_deleted": {}, "ozji": True}, "telefon"))
         self.assertEqual(self.povezave, [])
 
     def test_osvezitev_ki_ponudnik_zavrne_ima_premor(self):
@@ -776,14 +782,36 @@ class VirIzOzjegaKroga(_PrejetOsnova):
         postari(zadnja_zahteva=int(zdaj) - 61)                       # minuta mine: uporabnikova osvezitev velja
         self.assertTrue(self.mc.refresh_source(ident)["ok"])
         self.assertEqual(len(self._prenosi()), 2)
+        # Pregled 68, Ą1: 24 h je meja, ne sprozilec - po prvi uporabi se vir v ozadju NE osvezuje nikoli.
         postari(zadnja_zahteva=int(zdaj) - 61, posodobljeno=int(zdaj) - 7 * 3600)       # starejse od 6 h, mlajse od 24 h
-        self.mc.refresh_stale()
-        self.assertEqual(len(self._prenosi()), 2)                    # 24-urni predpomnilnik: ozadje ne osvezi
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 2)                    # 24-urni predpomnilnik: odprtje ne osvezi
         postari(posodobljeno=int(zdaj) - 25 * 3600)
         self.mc.refresh_stale()
-        self.assertEqual(len(self._prenosi()), 3)                    # starejse od 24 h: ena osvezitev
-        self.mc.refresh_stale()
+        self.mc.refresh_stale(max_age=60)
+        self.assertEqual(len(self._prenosi()), 2)                    # ozadje ne osvezi niti starejsega od 24 h
+        self.mc.__dict__.get("_prvo_poskusi", {}).clear()            # (meja 1/min je ze preizkusena zgoraj)
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 3)                    # uporabnikovo odprtje: ena osvezitev
+        self._odpri_katalog()
         self.assertEqual(len(self._prenosi()), 3)                    # takoj za tem je spet predpomnilnik
+
+    def test_po_prvi_uporabi_ozadje_vira_ne_osvezuje_nikoli(self):
+        """Pregled 68, Ą1: lastnik »v ozadju se ne osvezuje«; sicer bi N naprav, ki so seznam enkrat odprle, vsaka prijavila
+        racun enkrat na dan z razlicnih naslovov IP (zaklep zaradi deljenja)."""
+        self._prejmi(("seznam", XTREAM_B), ozji=True)
+        self._odpri_katalog()
+        self.assertEqual(len(self._prenosi()), 1)
+        podatki = self.mc._load()
+        podatki["viri"][0].update(posodobljeno=int(__import__("time").time()) - 30 * 24 * 3600, zadnja_zahteva=1)
+        self.mc._save(podatki)
+        for _ in range(3):
+            self.mc.refresh_stale()
+            self.mc.refresh_stale(max_age=60)
+            self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo", preveri=False)
+            self.mc._vnosi_virov(self.mc._load(), "vse", preveri=False)
+        self._pocakaj_niti()
+        self.assertEqual(len(self._prenosi()), 1)                    # mesec star seznam: ozadje se ga ne dotakne
 
     def test_premor_po_napaki_ostane_tudi_ob_odpiranju_seznama(self):
         self._prejmi(("seznam", XTREAM_B), ozji=True)
@@ -887,6 +915,110 @@ class VirIzOzjegaKroga(_PrejetOsnova):
         self.assertIn("source.prvo_uporaba", js)
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{\"katVirPrvo\": \"[^\"]{40,}\"" % jezik)
+
+
+class PosiljateljMoraBitiVOzjemKrogu(_PrejetOsnova):
+    """Pregled 68, Ą3 (AGENTS.md: nic iz dohodnega sporocila ne sme podeliti dostopa): odgovor »ozji« je izjava posiljatelja,
+    da ima NAS v svojem krogu. Dokaz je sele, da je posiljatelj v ozjem krogu TE naprave (core/link_dostop)."""
+
+    def _kazalo(self, ozji=True):
+        return {"sources": [{"tip": "seznam", "ime": "TV", "naslov": XTREAM_B, "cas": 9}], "sources_deleted": {}, "ozji": ozji}
+
+    def test_posiljatelj_zunaj_kroga_z_ozji_true_ne_podeli_dostopa(self):
+        for posiljatelj in ("", "neznana-naprava"):
+            with self.subTest(posiljatelj=posiljatelj):
+                self.setUp()
+                with mock.patch("core.link_dostop.v_ozjem_krogu", lambda i: i == "domaca-naprava"):
+                    self.assertFalse(self.mc.viri_uskladi(self._kazalo(True), posiljatelj))
+                self.assertEqual(self.mc._load().get("viri", []), [])        # vira z racunom ne prevzamemo
+                self.mc.refresh_stale()
+                self._odpri_katalog_prazen()
+                self.assertEqual(self.povezave, [])
+
+    def test_posiljatelj_v_krogu_in_ozji_true_je_dokaz(self):
+        with mock.patch("core.link_dostop.v_ozjem_krogu", lambda i: i == "domaca-naprava"):
+            self.assertTrue(self.mc.viri_uskladi(self._kazalo(True), "domaca-naprava"))
+        vir = self.mc._load()["viri"][0]
+        self.assertTrue(vir.get("prvo_uporaba") and vir.get("ozji_krog"))
+        self.assertEqual(self.povezave, [])
+
+    def test_posiljatelj_v_krogu_brez_ozji_ni_dokaz(self):
+        with mock.patch("core.link_dostop.v_ozjem_krogu", lambda i: True):
+            for ozji in (False, None):
+                self.assertFalse(self.mc.viri_uskladi(self._kazalo(ozji), "domaca-naprava"))
+        self.assertEqual(self.mc._load().get("viri", []), [])
+
+    def test_napaka_pri_preverbi_kroga_je_ne(self):
+        def pade(_i):
+            raise OSError("preizkus: zapis dovoljenj nedosegljiv")
+        with mock.patch("core.link_dostop.v_ozjem_krogu", pade):
+            self.assertFalse(self.mc.viri_uskladi(self._kazalo(True), "domaca-naprava"))
+        self.assertEqual(self.mc._load().get("viri", []), [])
+
+    def test_javni_vir_ne_potrebuje_dokaza(self):
+        kazalo = {"sources": [{"tip": "seznam", "ime": "TV", "naslov": JAVNI, "cas": 9}], "sources_deleted": {}, "ozji": True}
+        with mock.patch("core.link_dostop.v_ozjem_krogu", lambda i: False):
+            self.assertTrue(self.mc.viri_uskladi(kazalo, ""))
+        self.assertEqual([p[0] for p in self.povezave if p[0] == "prenos"], ["prenos"])
+
+    def test_usklajevanje_nese_id_posiljatelja(self):
+        """seznami_uskladi vzame id iz vprasaja (safeer_os._seznami_z_naprav ga pripne); brez njega dokaza ni."""
+        def odgovor(parametri):
+            return {"lists": [], "deleted": {}, "sources": self._kazalo(True)["sources"], "sources_deleted": {},
+                    "ozji": True} if not parametri else None
+        with mock.patch("core.link_dostop.v_ozjem_krogu", lambda i: i == "domaca-naprava"):
+            self.assertFalse(self.mc.seznami_uskladi(odgovor))              # brez id: zunaj kroga
+            self.assertEqual(self.mc._load().get("viri", []), [])
+            odgovor.id_naprave = "tuja"
+            self.assertFalse(self.mc.seznami_uskladi(odgovor))
+            self.assertEqual(self.mc._load().get("viri", []), [])
+            odgovor.id_naprave = "domaca-naprava"
+            self.assertTrue(self.mc.seznami_uskladi(odgovor))
+        self.assertTrue(self.mc._load()["viri"][0].get("prvo_uporaba"))
+
+    def test_safeer_os_pripne_id_naprave_vprasaju(self):
+        import safeer_os
+        naprave = {"ok": True, "naprave": [{"id": "domaca-naprava", "zmoznosti": ["remote", "lists"]}]}
+        ids = []
+
+        def uskladi(vprasaj):
+            ids.append(getattr(vprasaj, "id_naprave", None))
+            return False
+        with mock.patch.object(safeer_os, "_control_na_vodilu", return_value=True), \
+                mock.patch.object(safeer_os.Gio, "bus_get_sync", return_value=object()), \
+                mock.patch.object(safeer_os, "_control_naprave", return_value=naprave):
+            safeer_os._seznami_z_naprav(uskladi)
+        self.assertEqual(ids, ["domaca-naprava"])
+
+    def _odpri_katalog_prazen(self):
+        self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+        for nit in threading.enumerate():
+            if nit.name in ("media-razclenitev", "media-prva-uporaba"):
+                nit.join(5)
+
+
+@pytest.mark.pravi_dostop
+class PosiljateljPoPravihDostopa(_Osnova):
+    """Isto s pravimi pravili core/link_dostop (zacasni zapis dovoljenj): v ozjem krogu je samo naprava z izrecno privolitvijo."""
+
+    def setUp(self):
+        super().setUp()
+        self.mapa2 = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa2.cleanup)
+        self.mc = os_media.MediaCenter(self.mapa2.name, roots=[])
+        self.mc._download = lambda url: (b'#EXTM3U\n#EXTINF:-1,K\nhttp://p.test:8080/live/u/g/1.ts\n', "audio/x-mpegurl", url)
+        self.mc._izmeri_ping = lambda url: None
+        self.mc._kanali_spremenjeni = lambda viri=False: None
+        self.kazalo = {"sources": [{"tip": "seznam", "ime": "TV", "naslov": XTREAM_B, "cas": 9}], "sources_deleted": {}, "ozji": True}
+
+    def test_samo_naprava_z_izrecno_privolitvijo_je_dokaz(self):
+        self.assertTrue(link_dostop.nastavi(B, "dv"))                      # B ima nekaj dovoljenj, a ni v ozjem krogu
+        self.assertFalse(self.mc.viri_uskladi(self.kazalo, B))             # ni v ozjem krogu (stikalo ga ni dalo)
+        self.assertFalse(self.mc.viri_uskladi(self.kazalo, ""))
+        self.assertEqual(self.mc._load().get("viri", []), [])
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, "p"))             # izrecna privolitev uporabnika na tej napravi
+        self.assertTrue(self.mc.viri_uskladi(self.kazalo, A))
+        self.assertTrue(self.mc._load()["viri"][0].get("prvo_uporaba"))
 
 
 class GesloNiVPodatkihStrani(unittest.TestCase):

@@ -806,6 +806,8 @@ def _seznami_z_naprav(uskladi: Callable[[Callable[[dict], Optional[dict]]], bool
         def vprasaj(parametri: dict, _id: str = str(n["id"])) -> Optional[dict]:
             r = _control_naprave("Ukaz", _id, "lists.get", json.dumps(parametri or {}))
             return r.get("data") if r.get("ok") and isinstance(r.get("data"), dict) else None
+        # Id posiljatelja za MediaCenter.seznami_uskladi: dokaz ozjega kroga je, da je v krogu TE naprave (pregled 68, Ą3).
+        vprasaj.id_naprave = str(n["id"])
         try:
             if uskladi(vprasaj):
                 spremenjeno = True

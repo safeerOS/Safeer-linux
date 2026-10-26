@@ -245,15 +245,19 @@ STANJE_PRVA_UPORABA = "prvo_uporaba"    # vir z racunom ali neznane oblike iz oz
 STANJE_NI_PREVZET = "ni_prevzet"        # brez dokaza o ozjem krogu vira z racunom ne prevzamemo (prevzem_dovoljen)
 
 
-def stanje_prejetega(naslov: object, ozji_odgovor: object) -> str:
+def stanje_prejetega(naslov: object, ozji_odgovor: object, posiljatelj_v_krogu: bool = False) -> str:
     """Kaj naredimo z virom z druge naprave (lastnik, 26. 10. 2026: vse naprave pripadajo uporabniku). Naprava, ki nas ima
     v ozjem krogu (`ozji` true), vir z racunom ali neznane oblike pokaze takoj, a ga ne osvezuje v ozadju: prva
     povezava je ob prvi uporabi na tej napravi. Odgovor false ali brez zastavice (starejsa razlicica, neznan izvor) ostane
     fail-closed: vira z racunom sploh ne prevzamemo. Vir, ki ga kdo vseeno doda brez dokaza o ozjem krogu (add_source brez
-    ozji_krog), caka uporabnikovo osvezitev (skupni primeri, razdelek caka)."""
+    ozji_krog), caka uporabnikovo osvezitev (skupni primeri, razdelek caka).
+
+    Pregled 68, Ą3 (verzija 6 skupnih primerov): odgovor »ozji« je samo izjava posiljatelja, da ima NAS v svojem krogu.
+    Dokaz je sele to, da je posiljatelj v ozjem krogu TE naprave (`posiljatelj_v_krogu`, core/link_dostop); brez
+    obojega vira z racunom ne prevzamemo (nobeno sporocilo druge naprave ne podeli dostopa)."""
     if znan_javen(naslov):
         return STANJE_JAVEN
-    return STANJE_PRVA_UPORABA if ozji_odgovor is True else STANJE_NI_PREVZET
+    return STANJE_PRVA_UPORABA if (ozji_odgovor is True and posiljatelj_v_krogu is True) else STANJE_NI_PREVZET
 
 
 def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = False) -> bool:

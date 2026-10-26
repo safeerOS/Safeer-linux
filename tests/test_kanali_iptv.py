@@ -92,14 +92,16 @@ class SkupniPrimeri(unittest.TestCase):
         """Verzija 5 skupnih primerov (lastnik, 26. 10. 2026: vse naprave pripadajo uporabniku; enako Android): vir z racunom
         ali neznane oblike iz ozjega kroga je viden takoj in se prvic poveze ob prvi uporabi; brez dokaza ga ne prevzamemo."""
         d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
-        self.assertGreaterEqual(d["verzija"], 5)
-        self.assertGreaterEqual(len(d["ozji_krog"]), 10)
+        self.assertGreaterEqual(d["verzija"], 6)
+        self.assertGreaterEqual(len(d["ozji_krog"]), 16)
         self.assertEqual({p["stanje"] for p in d["ozji_krog"]}, {"javen", "prvo_uporaba", "ni_prevzet"})
         for p in d["ozji_krog"]:
             with self.subTest(p["naslov"], ozji=p["ozji"]):
-                self.assertEqual(viri_sink.stanje_prejetega(p["naslov"], p["ozji"]), p["stanje"])
+                v_krogu = p.get("v_krogu", True)          # verzija 6: posiljatelj je v ozjem krogu TE naprave
+                self.assertEqual(viri_sink.stanje_prejetega(p["naslov"], p["ozji"], v_krogu), p["stanje"])
                 # Skladno z ostalimi razdelki: kar ni prevzeto, ne pride; kar je prvo_uporaba, ni znan javen.
-                self.assertIs(viri_sink.prevzem_dovoljen(p["naslov"], p["ozji"]), p["stanje"] != "ni_prevzet")
+                ucinkovit = p["ozji"] is True and v_krogu is True       # kot MediaCenter.viri_uskladi
+                self.assertIs(viri_sink.prevzem_dovoljen(p["naslov"], ucinkovit), p["stanje"] != "ni_prevzet")
                 self.assertIs(os_media.MediaCenter._caka_uporabnika(p["naslov"]), p["stanje"] != "javen")
 
     def test_vsi_primeri(self):

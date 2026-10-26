@@ -2315,7 +2315,8 @@ class MediaCenter:
             self._viri_zapisi_izvoz()       # za Safeer Control (Linux), ki napravam odgovarja namesto Safeer OS
         spremenjeno = self._seznami_uskladi(vprasaj_in_zajemi)
         try:
-            if self.viri_uskladi(zajeto.get("kazalo")):
+            # Id posiljatelja (safeer_os._seznami_z_naprav ga pripne vprasaju): brez njega dokaza o ozjem krogu ni.
+            if self.viri_uskladi(zajeto.get("kazalo"), str(getattr(vprasaj, "id_naprave", "") or "")):
                 spremenjeno = True
         except Exception as e:  # noqa: BLE001 - viri ne smejo ustaviti usklajevanja seznamov
             print("[SafeerMedia] viri z naprave:", type(e).__name__, flush=True)
@@ -3258,9 +3259,11 @@ class MediaCenter:
     ZAVRNJENE_KODE = frozenset({401, 402, 403, 429})
     #: Vir z racunom, pri katerem tolikokrat zapored ni bilo povezave (koda 0), dobi isti rastoci premor (Ê1).
     NI_POVEZAVE_ZAPORED = 3
-    #: Vir iz ozjega kroga (lastnik, 26. 10. 2026): po prvi uporabi velja prebran seznam 24 h (samodejna osvezitev v
-    #: ozadju ni pogostejsa) in vsaka osvezitev, tudi uporabnikova, je najvec ena na minuto - ponudnik racuna ne
-    #: zaklene, ker uporabnik pritiska »Osvezi« ali ker ga odpira vec naprav.
+    #: Vir iz ozjega kroga (lastnik, 26. 10. 2026: »v ozadju se ne osvezuje«): po prvi uporabi velja prebran seznam 24 h.
+    #: To je MEJA, ne sprozilec (pregled 68, Ą1): osvezitev sprozi samo uporabnik - odprtje seznama (katalog), ko je
+    #: seznam starejsi od 24 h, ali »Osvezi«; refresh_stale in refresh_all vira ne kazeta nikoli. Vsaka osvezitev, tudi
+    #: uporabnikova, je najvec ena na minuto. Meje veljajo na napravo: usklajevanja med napravami ni, zato dnevne
+    #: osvezitve v ozadju na vsaki napravi ne bi smeli imeti (N naprav = N prijav na dan z razlicnih naslovov IP).
     OZJI_KROG_PREDPOMNILNIK_S = 24 * 3600.0
     OZJI_KROG_OSVEZITEV_S = 60.0
 
@@ -3276,9 +3279,10 @@ class MediaCenter:
         return ob + self.ZAVRNJEN_PREMORI_S[min(max(n, 1), len(self.ZAVRNJEN_PREMORI_S)) - 1]
 
     def _prvo_uporaba_v_ozadju(self, viri: list) -> None:
-        """Prva povezava vira iz ozjega kroga: uporabnik je odprl seznam (katalog), to je namera (lastnik, 26. 10. 2026).
-        Ena zahteva na vir; ne med premorom po napaki (_zavrnjen_do), ne ce teče ze ena in ne pogosteje kot na minuto.
-        Uspeh odstrani oznako, napaka jo pusti (premor se daljsa v refresh_source)."""
+        """Povezava vira iz ozjega kroga ob uporabnikovem odprtju seznama (katalog; lastnik, 26. 10. 2026): prva, nato
+        sele ko je prebrani seznam starejsi od 24 h (pregled 68, Ą1: nikoli iz ozadja). Ena zahteva na vir; ne med
+        premorom po napaki (_zavrnjen_do), ne ce ze tece ena in ne pogosteje kot na minuto. Uspeh odstrani oznako
+        prvo_uporaba, napaka jo pusti (premor se daljsa v refresh_source)."""
         with self._lock:
             poskusi = self.__dict__.setdefault("_prvo_poskusi", {})
             v_teku = self.__dict__.setdefault("_prvo_v_teku", set())
@@ -3358,6 +3362,9 @@ class MediaCenter:
                 continue
             if not isinstance(source, dict) or source.get("caka_uporabnika"):
                 continue                    # prejet vir z racunom ima prazen seznam do uporabnikove osvezitve (Ñ2)
+            if (preveri and source.get("ozji_krog")
+                    and time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S):
+                prvi.append(source)         # prebran seznam je starejsi od 24 h: osvezi ga uporabnikovo odprtje (Ą1)
             if self._zastarela_razclenitev(source):
                 if time.time() >= self._zavrnjen_do(source):
                     zastareli.append(str(source.get("id") or ""))
@@ -4280,7 +4287,19 @@ class MediaCenter:
     #: Najvec toliko novih virov poskusimo prevzeti ob enem usklajevanju (vsak prevzem je omrezno preverjanje).
     NAJVEC_PREVZEMOV = 6
 
-    def viri_uskladi(self, kazalo: object) -> bool:
+    @staticmethod
+    def _posiljatelj_v_ozjem_krogu(posiljatelj: str) -> bool:
+        """Ali je posiljatelj v ozjem krogu TE naprave (core/link_dostop.v_ozjem_krogu: izrecna privolitev uporabnika na
+        tem racunalniku). Napaka ali prazen id: ne (pregled 68, Ą3)."""
+        if not posiljatelj:
+            return False
+        try:
+            from . import link_dostop
+            return bool(link_dostop.v_ozjem_krogu(posiljatelj))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def viri_uskladi(self, kazalo: object, posiljatelj: str = "") -> bool:
         """Moji viri z ene naprave v Linku (kazalo odgovora `lists.get {}`): izbrisi, nato novi viri. Racunalnik
         prevzame samo, kar zna predvajati; zasebnega dodatka nikoli. Klic iz delovne niti (omrezje). Vrne True, ce
         se je tukaj kaj spremenilo."""
@@ -4289,6 +4308,11 @@ class MediaCenter:
         tuji_izbrisi = viri_sink.cisti_izbrisi(kazalo.get("sources_deleted"))
         # Ali nas ima naprava v ozjem krogu (true/false); None: starejsa razlicica (pregled 46, Ö3).
         ozji_odgovor = kazalo.get("ozji") if isinstance(kazalo.get("ozji"), bool) else None
+        # Pregled 68, Ą3 (AGENTS.md: nic iz dohodnega sporocila ne sme podeliti dostopa): »ozji« v odgovoru je izjava
+        # posiljatelja, da ima NAS v svojem krogu. Dokaz je sele to, da je posiljatelj v ozjem krogu TE naprave (izrecna
+        # privolitev tukaj, core/link_dostop); sicer velja kot naprava zunaj kroga: vira z racunom ne prevzamemo.
+        if ozji_odgovor is True and not self._posiljatelj_v_ozjem_krogu(posiljatelj):
+            ozji_odgovor = False
         surovi = kazalo.get("sources") if isinstance(kazalo.get("sources"), list) else []
         tuji = [c for c in (viri_sink.cist_vir(o) for o in surovi[:viri_sink.NAJVEC_VIROV]) if c]
         if not tuji_izbrisi and not tuji:
@@ -4555,13 +4579,11 @@ class MediaCenter:
         """V ozadju osveži le vire, katerih uspešni podatki so že zastareli."""
         zdaj = int(time.time())
         cutoff = zdaj - max(60, int(max_age))
-        # Vir iz ozjega kroga: 24-urni predpomnilnik (OZJI_KROG_PREDPOMNILNIK_S), ne 6 h.
-        cutoff_ozji = min(cutoff, zdaj - int(self.OZJI_KROG_PREDPOMNILNIK_S))
         ids = [source.get("id", "") for source in self.sources()
                if not source.get("caka_uporabnika")             # prejet vir z racunom: sele ob uporabnikovi osvezitvi (Ñ2)
-               and not source.get("prvo_uporaba")               # vir iz ozjega kroga: prva povezava ob odprtju seznama
+               and not source.get("ozji_krog")                  # vir iz ozjega kroga: nikoli v ozadju (pregled 68, Ą1)
                and zdaj >= self._zavrnjen_do(source)            # premor po napaki velja tudi za samodejno pot
-               and (int(source.get("posodobljeno") or 0) < (cutoff_ozji if source.get("ozji_krog") else cutoff)
+               and (int(source.get("posodobljeno") or 0) < cutoff
                     or (_je_predvajalni_vir(str(source.get("url") or ""))
                         and source.get("tip") != "predvajalni_vir"))]
         results = [self.refresh_source(source_id) for source_id in ids]
