@@ -885,16 +885,43 @@ class Debrid:
             return
         zs = d.get("zapore")
         if not isinstance(zs, dict):
+            if zs is not None:
+                Debrid._zapri_druge(d, p)          # pokvarjen razdelek zapor (U2)
             zs = d["zapore"] = {}
         zs[p] = P.z_zaporo(P.zapore_iz_zapisa(zs.get(p)) or {}, odtis, s)
+
+    @staticmethod
+    def _ima_kljuc(d: dict, q: str) -> bool:
+        if q == P.INDEKSATOR:
+            u = d.get("usenet")
+            return isinstance(u, dict) and bool(u.get("url")) and bool(u.get("kljuc"))
+        k = d.get("kljuci")
+        return isinstance(k, dict) and bool(k.get(q))
+
+    @staticmethod
+    def _zapri_druge(d: dict, p: str) -> None:
+        """Grokov pregled 47, U2: razdelek stanj ali zapor, ki ni slovar (pokvarjena datoteka, druga razlicica), je do
+        zapisa zaprl vse kljuce (S3), prvi zapis stanja katere koli storitve pa ga je zamenjal s praznim - zapore DRUGIH
+        storitev so izginile in njihovi kljuci so spet sli storitvam (odpove odprto). Zdaj vsaka druga storitev s
+        shranjenim kljucem brez dokoncnega stanja dobi zapis »ne velja« brez odtisa (P.stanje_iz_zapisa: velja za kateri
+        koli kljuc) - nazaj ga vrne samo »Preveri« ali vpis, ki ga storitev potrdi."""
+        st = d.get("stanja")
+        st = d["stanja"] = dict(st) if isinstance(st, dict) else {}
+        for q in P.VSI + (P.INDEKSATOR,):
+            z = st.get(q)
+            dokoncno = (isinstance(z, dict) and bool(z.get("odtis"))
+                        and z.get("s") in (P.STANJE_VELJA, P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN))
+            if q != p and Debrid._ima_kljuc(d, q) and not dokoncno:
+                st[q] = {"s": P.STANJE_NE_VELJA, "ob": time.time()}
+        _log.warning("stanja kljucev ni mogoce prebrati - druge storitve ostanejo zaprte do »Preveri«")
 
     @staticmethod
     def _postavi_stanje(d: dict, p: str, zapis: Optional[dict]) -> None:
         """Stanje kljuca na mestu storitve [p] in zapora po kljucu (U1). [zapis] None (»Odstrani«) pobrise samo mesto
         storitve - zapora kljuca ostane."""
-        st = d.get("stanja")
-        if not isinstance(st, dict):
-            st = d["stanja"] = {}                  # pokvarjen razdelek (ni slovar) - do zapisa so vsi kljuci zaprti (S3)
+        if d.get("stanja") is not None and not isinstance(d.get("stanja"), dict):
+            Debrid._zapri_druge(d, p)              # pokvarjen razdelek stanj ne odpre drugih storitev (U2)
+        st = d.setdefault("stanja", {})
         if zapis is None:
             st.pop(p, None)
         else:
@@ -922,9 +949,11 @@ class Debrid:
             else:
                 pak[p] = int(paket)
             # Grokov pregled 40, S3: ISTI kljuc brez stanja (uvoz, selitev, uskladitev) ohrani svoje stanje - prej je tiho
-            # pobrisal »zaklenjen« in kljuc je spet sel storitvi.
-            if stanje is not None or self._stanje_v(d, p, odtis) is None:
-                self._postavi_stanje(d, p, self._zapis_stanja(stanje, odtis))
+            # pobrisal »zaklenjen« in kljuc je spet sel storitvi. Grokov pregled 47, U2: zapis na mestu storitve je vedno
+            # zapis SHRANJENEGA kljuca (tudi zapora po kljucu gre nanj) - prej je ostal zapis prejsnjega kljuca in
+            # popravilo pokvarjenega razdelka zapor (_zapri_druge) bi ga vzelo za dokoncno stanje.
+            s = stanje if stanje is not None else self._stanje_v(d, p, odtis)
+            self._postavi_stanje(d, p, self._zapis_stanja(s, odtis))
         self._spomni_zaporo(p, odtis, stanje)
         self._spremeni(f)
         self._pozabi(*[x for x in staro if x != enc])
@@ -978,8 +1007,9 @@ class Debrid:
         na_mestu = (P.STANJE_NE_VELJA if st is not None and not isinstance(st, dict)    # pokvarjen razdelek stanj (S3)
                     else P.stanje_iz_zapisa((st or {}).get(p), odtis))
         zs = d.get("zapore")
-        zapore = (P.zapore_iz_zapisa(zs.get(p)) if isinstance(zs, dict) else None) or {}
-        return P.stanje_z_zaporo(self._zaprti.get((p, odtis)), na_mestu, zapore.get(odtis))
+        zapore = P.zapore_iz_zapisa(zs.get(p) if isinstance(zs, dict) else zs)
+        zapora = P.STANJE_NE_VELJA if zapore is None else zapore.get(odtis)    # pokvarjen razdelek zapor: zaprto (U2)
+        return P.stanje_z_zaporo(self._zaprti.get((p, odtis)), na_mestu, zapora)
 
     def _spomni_zaporo(self, p: str, odtis: Optional[str], s: Optional[str]) -> None:
         """Grokov pregled 40, S3: »ne velja« in »zaklenjen« v pomnilnik pred zapisom; potrjeno stanje zaporo odpravi."""
@@ -1177,9 +1207,13 @@ class Debrid:
                 d.pop("usenet", None)
             else:
                 d["usenet"] = nov
-            # Grokov pregled 40, S3: isti naslov in kljuc brez stanja ohrani svoje stanje (kot nastavi_kljuc).
-            if nov is None or stanje is not None or self._stanje_v(d, P.INDEKSATOR, odtis) is None:
-                self._postavi_stanje(d, P.INDEKSATOR, stanje if nov is not None else None)
+            # Grokov pregled 40, S3: isti naslov in kljuc brez stanja ohrani svoje stanje; U2: zapis na mestu je vedno
+            # zapis shranjenega indeksatorja (kot nastavi_kljuc).
+            if nov is None:
+                self._postavi_stanje(d, P.INDEKSATOR, None)
+            else:
+                self._postavi_stanje(d, P.INDEKSATOR, stanje if stanje is not None
+                                     else self._zapis_stanja(self._stanje_v(d, P.INDEKSATOR, odtis), odtis))
         if nov is None:
             for z in [z for z in self._zaprti if z[0] == P.INDEKSATOR]:
                 self._zaprti.pop(z, None)

@@ -916,6 +916,63 @@ class StanjeKljuca(unittest.TestCase):
                                                           (None, P.STANJE_NEPREVERJEN, None))],
                          [P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NEPREVERJEN])
 
+    def test_pokvarjen_razdelek_ne_odpre_drugih_storitev(self):
+        """Grokov pregled 47, U2: razdelek stanj (ali zapor), ki ni slovar, je do zapisa zaprl vse kljuce (S3), prvi zapis
+        stanja katere koli storitve pa ga je zamenjal s praznim - zapore drugih storitev so izginile (odpove odprto)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        tb_velja = mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO))
+        for razdelek in ("stanja", "zapore"):
+            for dejanje in ("vpis", "preveri", "odstrani"):
+                pot = razdelek + " " + dejanje
+                d, nast, _z = _debrid()
+                with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+                    d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)                     # nepreverjen
+                with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+                    d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)
+                nast["d"][razdelek] = ["pokvarjeno"]
+                self.assertEqual([d.stanje_kljuca(p) for p in (P.REAL_DEBRID, P.TORBOX, P.INDEKSATOR)],
+                                 [P.STANJE_NE_VELJA] * 3, pot)
+                _minuta_kasneje(d)
+                if dejanje == "vpis":
+                    with tb_velja:
+                        self.assertEqual(d.vpisi_kljuc(P.TORBOX, KLJUC_TB)["stanje"], P.STANJE_VELJA, pot)
+                elif dejanje == "preveri":
+                    with tb_velja:
+                        self.assertEqual(d.preveri_izrecno(P.TORBOX)["stanje"], P.STANJE_VELJA, pot)
+                else:
+                    d.pozabi_kljuc(P.TORBOX)
+                    self.assertIsNone(d.stanje_kljuca(P.TORBOX), pot)
+                if razdelek == "stanja" or dejanje != "odstrani":
+                    self.assertIsInstance(nast["d"][razdelek], dict, pot)     # razdelek je popravljen
+                # Druge storitve ostanejo zaprte: brez klica do »Preveri«.
+                self.assertEqual((d.stanje_kljuca(P.REAL_DEBRID), d.stanje_kljuca(P.INDEKSATOR)),
+                                 (P.STANJE_NE_VELJA, P.STANJE_NE_VELJA), pot)
+                with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")), \
+                        mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")):
+                    d._zadnja_preverba.clear()
+                    debrid.most(d, ["preveri"])
+                self.assertFalse(d.sme_klicati(P.REAL_DEBRID) or d.sme_klicati(P.INDEKSATOR), pot)
+                self.assertNotIn(KLJUC_RD, json.dumps(nast["d"]))
+        # »Preveri« jih vrne.
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            self.assertEqual(d.preveri_izrecno(P.REAL_DEBRID)["stanje"], P.STANJE_VELJA)
+        # Zapis na mestu je vedno zapis shranjenega kljuca: uvoz prej zaklenjenega kljuca (nastavi_kljuc brez stanja) ne
+        # pusti zapisa prejsnjega kljuca - popravilo pokvarjenega razdelka zapor ga ne vzame za dokoncno stanje.
+        d, nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD[::-1])
+        d._zaprti.clear()                                        # npr. po ponovnem zagonu
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD))
+        self.assertEqual(nast["d"]["stanja"][P.REAL_DEBRID]["odtis"], P.odtis_stanja(KLJUC_RD))
+        nast["d"]["zapore"] = "pokvarjeno"
+        with tb_velja:
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
+
     def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
         """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
         »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""
