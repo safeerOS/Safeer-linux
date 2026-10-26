@@ -272,7 +272,18 @@ class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
         koren = Path(__file__).resolve().parent.parent
         datoteke = list((koren / "core").rglob("*.py")) + list(koren.glob("*.py"))
         vzorec = re.compile(r"[\"'](user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
-        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        # Izrecna izjema (datoteka, ime spremenljivke, niz): core/link_datoteke.py _IMENA_PROFILA je ZASCITA - izloci datoteko
+        # »Cookies« profila brskalnika iz deljenja med napravami. To ni lastnost souphttpsrc; vsak drug zadetek (druga
+        # datoteka, druga spremenljivka ali drug niz) preizkus se vedno ustavi.
+        izjeme = {("core/link_datoteke.py", "_IMENA_PROFILA", "cookies")}
+        najdeno = []
+        for p in datoteke:
+            rel = str(p.relative_to(koren))
+            for vrstica in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                for m in vzorec.finditer(vrstica):
+                    ime = vrstica.split("=", 1)[0].strip() if "=" in vrstica else ""
+                    if (rel, ime, m.group(1)) not in izjeme:
+                        najdeno.append("%s: %s" % (rel, vrstica.strip()[:80]))
         self.assertEqual(najdeno, [])
         # extra-headers samo za javne glave toka (Referer ...), ki jih zahteva dodatek - 15. 10. 2026: brez glave Referer
         # streznik toka vrne 429. V njih nikoli prijave ali piskotkov (te bi sle ob preusmeritvi naprej).
