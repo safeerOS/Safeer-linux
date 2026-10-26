@@ -728,6 +728,23 @@ class GesloNiVPodatkihStrani(unittest.TestCase):
         # Predvajanje in osvezitev imata naslov v Medijskem centru.
         self.assertIn(XTREAM, [v.get("url") for v in self.mc.sources()])
 
+    def test_dodaj_vir_ne_vrne_gesla_strani(self):
+        """Pregled 57 (V7): odgovor »Dodaj vir« je nosil cel naslov z geslom (vir.url) nazaj strani."""
+        from core import os_katalog
+        k = os_katalog.Katalog(self.mapa.name, lambda *a: None, lambda f: f(), lambda *a, **kw: True, lambda u: True,
+                               lambda *a: True, lambda u: True)
+        k._mc = self.mc
+        self.mc._izmeri_ping = lambda u: None
+        self.mc._download = lambda u: (b"#EXTM3U\n#EXTINF:-1 tvg-id=\"K1.si\",Kanal 1\nhttp://ponudnik.test:8080/live/u/g/1.ts\n",
+                                      "audio/x-mpegurl", u)
+        for naslov in ("http://ponudnik.test:8080/get.php?username=novi&password=novo-geslo&type=m3u_plus", XTREAM):
+            with self.subTest(naslov=naslov):                         # nov vir in podvojen vir
+                r = k._dodaj_vir([naslov, "Ime"])
+                self.assertIsInstance(r.get("vir"), dict)
+                self.assertEqual(r["vir"]["url_prikaz"], "ponudnik.test:8080")
+                for skrivnost in ("novo-geslo", "skrito-geslo"):
+                    self.assertNotIn(skrivnost, json.dumps(r))
+
     def test_napaka_brez_naslova(self):
         self.mc._download = lambda url: (_ for _ in ()).throw(ValueError("unknown url type: %r" % url))
         self.assertFalse(self.mc.refresh_source("xt")["ok"])

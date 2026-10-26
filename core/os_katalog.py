@@ -683,7 +683,9 @@ class Katalog:
         return je
 
     def _dodaj_vir(self, a: list) -> Any:
-        return self.mc.add_source(self._niz(a, 0), self._niz(a, 1))
+        r = self.mc.add_source(self._niz(a, 0), self._niz(a, 1))
+        # Cel naslov (geslo) ne gre nazaj strani (pregled 57, V7; enako kot sources()): vir_za_stran pusti samo prikaz.
+        return dict(r, vir=os_media.vir_za_stran(r["vir"])) if isinstance(r, dict) and isinstance(r.get("vir"), dict) else r
 
     def _dodaj_streznik(self, a: list) -> Any:
         vrednosti = [str(v or "") for v in a[:5]] + [""] * 5
