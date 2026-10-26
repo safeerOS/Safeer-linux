@@ -372,6 +372,54 @@ class Nntp(unittest.TestCase):
         self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.ROK)
         self.assertLess(time.monotonic() - zacetek, 3.0)
 
+    def _zapri_med(self, b, cakaj=0.4):
+        izid, t = [], None
+
+        def delo():
+            try:
+                b.telo(ID_OK)
+                izid.append("ok")
+            except N.NapakaNntp as e:
+                izid.append(e.izid)
+        t = threading.Thread(target=delo)
+        t.start()
+        time.sleep(cakaj)
+        zacetek = time.monotonic()
+        b.zapri()
+        t.join(8)
+        self.assertFalse(t.is_alive())
+        return izid, time.monotonic() - zacetek
+
+    def test_zapiranje_prekine_rokovanje_tls(self):
+        # Grok 37 C3: streznik sprejme TCP in na TLS ne odgovori - zapri() mora koncati rokovanje takoj, ne po roku.
+        tih = socket.create_server(("127.0.0.1", 0))
+        self.addCleanup(tih.close)
+        b = N.Bazen("127.0.0.1", tih.getsockname()[1], kontekst=self.kontekst(), rok_povezave=10.0, rok=10.0)
+        self.addCleanup(b.zapri)
+        izid, trajanje = self._zapri_med(b)
+        self.assertEqual(izid, [N.ZAPRTO])
+        self.assertLess(trajanje, 2.0, "zapiranje ne caka na rok rokovanja (10 s)")
+
+    def test_zapiranje_prekine_tcp_connect(self):
+        # Polna vrsta sprejema (backlog 0, nihce ne sprejema): SYN ostane brez odgovora, connect caka.
+        poln = socket.create_server(("127.0.0.1", 0), backlog=0)
+        self.addCleanup(poln.close)
+        vrata = poln.getsockname()[1]
+        for _ in range(4):
+            c = socket.socket()
+            c.setblocking(False)
+            self.addCleanup(c.close)
+            try:
+                c.connect(("127.0.0.1", vrata))
+            except BlockingIOError:
+                pass
+        time.sleep(0.2)
+        b = N.Bazen("127.0.0.1", vrata, kontekst=self.kontekst(), rok_povezave=10.0, rok=10.0)
+        self.addCleanup(b.zapri)
+        izid, trajanje = self._zapri_med(b)
+        self.assertEqual(izid, [N.ZAPRTO])
+        self.assertLess(trajanje, 2.0, "zapiranje ne caka na rok connect (10 s)")
+
     def test_napacno_ime_v_potrdilu(self):
         s = self.streznik(potrdilo="napacno")
         e = self.napaka(lambda: self.bazen(s).telo(ID_OK))

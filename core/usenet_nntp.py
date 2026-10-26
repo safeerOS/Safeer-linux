@@ -292,7 +292,7 @@ class Povezava:
         self._rok_povezave = float(rok_povezave)
         self._rok = float(rok)
         self._sock: Optional[ssl.SSLSocket] = None
-        self._surov: Optional[socket.socket] = None  # med rokovanjem TLS (da ga prekini() lahko zbudi)
+        self._surov: Optional[socket.socket] = None  # med vzpostavljanjem TCP (da ga prekini() lahko zbudi)
         self._prekinjeno = False
         self._medpomnilnik = bytearray()
         self.prijavljen = False
@@ -386,22 +386,58 @@ class Povezava:
 
     # -------------------------------------------------------------- povezava in prijava
 
+    def _povezi(self, konec: float) -> socket.socket:
+        """TCP v roku [konec]. Vticnik je v self._surov PRED connect: prekini() ga zbudi s shutdown (izmerjeno 26. 10.
+        2026 na prenosniku: shutdown konca cakajoci connect v 0,5 s, close ga ne - caka do roka). DNS (getaddrinfo)
+        ostane brez lastnega roka in neprekinljiv."""
+        try:
+            naslovi = socket.getaddrinfo(self.gostitelj, self.vrata, type=socket.SOCK_STREAM)
+        except (OSError, UnicodeError) as e:
+            raise self._napaka(OMREZJE, vzrok=e) from None
+        zadnja: tuple = (OMREZJE, None)
+        for i, (druzina, vrsta, proto, _, naslov) in enumerate(naslovi):
+            ostane = konec - time.monotonic()
+            if ostane <= 0:
+                raise self._napaka(ROK)
+            s = socket.socket(druzina, vrsta, proto)
+            self._surov = s
+            try:
+                if self._prekinjeno:
+                    raise self._napaka(ZAPRTO)
+                s.settimeout(max(1.0, ostane / (len(naslovi) - i)) if i < len(naslovi) - 1 else ostane)
+                s.connect(naslov)
+                return s
+            except NapakaNntp:
+                s.close()
+                raise
+            except socket.timeout as e:
+                s.close()
+                zadnja = (ROK, e)
+            except OSError as e:
+                s.close()
+                zadnja = (ZAPRTO if self._prekinjeno else OMREZJE, e)
+            finally:
+                self._surov = None
+        raise self._napaka(zadnja[0], vzrok=zadnja[1])
+
     def odpri(self) -> None:
-        """TCP + TLS (preverba potrdila in imena) + pozdrav + prijava, vse v roku povezave."""
+        """TCP + TLS (preverba potrdila in imena) + pozdrav + prijava, vse v roku povezave. prekini() iz druge niti
+        zbudi vsak korak razen DNS (pregled Grok 37 C3: prej je rokovanje TLS cakalo do roka)."""
         self.zapri()
         self.faza = FAZA_POVEZAVA
         konec = time.monotonic() + self._rok_povezave
-        try:
-            surov = socket.create_connection((self.gostitelj, self.vrata), timeout=self._rok_povezave)
-        except socket.timeout as e:
-            raise self._napaka(ROK, vzrok=e) from None
-        except OSError as e:
-            raise self._napaka(OMREZJE, vzrok=e) from None
-        self._surov = surov
+        surov = self._povezi(konec)
         try:
             if self._prekinjeno:
                 raise self._napaka(ZAPRTO)
-            self._sock = self._kontekst.wrap_socket(surov, server_hostname=self.gostitelj)
+            # do_handshake_on_connect=False: SSLSocket je v self._sock PRED rokovanjem, zato ga prekini() zbudi
+            # (wrap_socket surovi vticnik odklopi - shutdown nanj bi bil EBADF).
+            s = self._kontekst.wrap_socket(surov, server_hostname=self.gostitelj, do_handshake_on_connect=False)
+            self._sock = s
+            if self._prekinjeno:
+                raise self._napaka(ZAPRTO)
+            s.settimeout(max(0.001, konec - time.monotonic()))
+            s.do_handshake()
         except NapakaNntp:
             surov.close()
             raise
@@ -410,12 +446,10 @@ class Povezava:
             raise self._napaka(POTRDILO, vzrok=e) from None
         except socket.timeout as e:
             surov.close()
-            raise self._napaka(ROK, vzrok=e) from None
+            raise self._napaka(ZAPRTO if self._prekinjeno else ROK, vzrok=e) from None
         except OSError as e:
             surov.close()
             raise self._napaka(ZAPRTO if self._prekinjeno else OMREZJE, vzrok=e) from None
-        finally:
-            self._surov = None
         izid, koda = self._odgovor("POZDRAV", konec)
         if izid != OK:
             raise self._napaka(izid, koda)
