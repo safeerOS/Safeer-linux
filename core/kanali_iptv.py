@@ -343,19 +343,32 @@ class _Napaka(Exception):
         self.izid, self.koda = izid, koda
 
 
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
 def dovoljen_ip(naslov: str, domace: bool) -> bool:
-    """Javni naslov vedno; zasebni, loopback in link-local samo, ce je seznam sam v domacem omrezju (AGENTS: brez
-    zasebnih IP razen domacega omrezja). Multicast, nedoloceni in rezervirani nikoli."""
+    """Javni naslov vedno; zasebni in link-local samo, ce je seznam sam v domacem omrezju (AGENTS: brez zasebnih IP
+    razen domacega omrezja). Loopback (ta racunalnik) nikoli: kanal s seznama ne sme do storitev tega racunalnika
+    (pregled 30, J2). IPv4 v IPv6 (::ffff:, NAT64 64:ff9b::, 6to4 2002::) se preveri kot vgrajeni IPv4 (J10).
+    Multicast, nedoloceni in rezervirani nikoli.
+
+    Od 26. 10. 2026 (J3) gre v preverbo samo javni brezplacni seznam (domace=False): zasebnih naslovov preverba sploh ne
+    odpira; `domace` ostane za orodja in preizkuse."""
     try:
         a = ipaddress.ip_address(str(naslov).split("%", 1)[0])
     except ValueError:
         return False
     a = getattr(a, "ipv4_mapped", None) or a
-    if a.is_multicast or a.is_unspecified or a.is_reserved:
+    if a.version == 6:
+        if any(a in mreza for mreza in _NAT64):
+            a = ipaddress.IPv4Address(int(a) & 0xFFFFFFFF)
+        elif a.sixtofour is not None:
+            a = a.sixtofour
+    if a.is_multicast or a.is_unspecified or a.is_reserved or a.is_loopback:
         return False
     if a.is_global:
         return True
-    return domace and (a.is_private or a.is_loopback or a.is_link_local)
+    return domace and (a.is_private or a.is_link_local)
 
 
 def _razresi_v_roku(razresi, gostitelj: str, vrata: int, konec: Optional[float]) -> list:

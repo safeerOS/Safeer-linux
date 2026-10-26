@@ -126,6 +126,7 @@ class Razclenitev(unittest.TestCase):
 # ---------------------------------------------------------------------------------------------- preverba toka
 
 TS = (b"\x47" + b"\x00" * 187) * 12
+_IZVIRNI_DOVOLJEN_IP = kanali_iptv.dovoljen_ip
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 64
 MKV = b"\x1a\x45\xdf\xa3" + b"\x00" * 64
 
@@ -221,6 +222,14 @@ class PreverbaToka(unittest.TestCase):
         cls.streznik.shutdown()
         cls.streznik.server_close()
 
+    def setUp(self):
+        # Preizkusni streznik je na 127.0.0.1; v izdelku loopback ni dovoljen nikoli (pregled 30, J2).
+        izvirni = kanali_iptv.dovoljen_ip
+        p = mock.patch.object(kanali_iptv, "dovoljen_ip",
+                              lambda naslov, domace: (domace and naslov == "127.0.0.1") or izvirni(naslov, domace))
+        p.start()
+        self.addCleanup(p.stop)
+
     def preveri(self, pot, domace=True, **k):
         return kanali_iptv.preveri_tok("http://127.0.0.1:%d%s" % (self.vrata, pot), domace=domace, **k)
 
@@ -243,6 +252,17 @@ class PreverbaToka(unittest.TestCase):
         for status, izid in ((401, kanali_iptv.ZAKLENJEN), (403, kanali_iptv.ZAKLENJEN), (451, kanali_iptv.ZAKLENJEN),
                              (404, kanali_iptv.MRTEV), (410, kanali_iptv.MRTEV), (500, kanali_iptv.MRTEV)):
             self.assertEqual(self.preveri("/%d" % status), (izid, "http-%d" % status))
+
+    def test_loopback_nikoli_nat64_in_6to4_kot_ipv4(self):
+        izvirni = _IZVIRNI_DOVOLJEN_IP                                 # setUp zamenja dovoljen_ip za 127.0.0.1
+        for naslov in ("127.0.0.1", "127.1.2.3", "::1", "::ffff:127.0.0.1"):
+            self.assertFalse(izvirni(naslov, True), naslov)
+        self.assertTrue(izvirni("192.168.1.5", True))
+        self.assertFalse(izvirni("192.168.1.5", False))
+        self.assertTrue(izvirni("8.8.8.8", False))
+        self.assertFalse(izvirni("64:ff9b::c0a8:101", False))         # NAT64 -> 192.168.1.1
+        self.assertFalse(izvirni("2002:c0a8:101::1", False))           # 6to4 -> 192.168.1.1
+        self.assertTrue(izvirni("64:ff9b::808:808", False))            # NAT64 -> 8.8.8.8
 
     def test_zasebni_naslov_samo_za_domaci_seznam(self):
         # Javni seznam ne sme preveriti naslova v lokalnem omrezju ali na tem racunalniku (SSRF).
