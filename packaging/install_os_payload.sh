@@ -60,6 +60,8 @@ sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-magnet.desktop" > "$PREFIX
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-stremio.desktop" > "$PREFIX/share/applications/$ID.Stremio.desktop"
 # Safeer Player (Medijski center v svojem oknu, `safeer-os --predvajalnik`) je v meniju svoj program s svojo ikono.
 # Ime z ID-jem spredaj: Flatpak izvozi samo vnose in ikone, ki se zacnejo z ID-jem programa.
+# Paket safeer-player (packaging/safeer_player_deb.py) iz safeer-os-app obdrzi samo ta vnos in ga isce po imenu
+# safeer-os.Player.desktop: ce ime spremenis, popravi tudi tam (tests/test_safeer_player_paket.py), sicer gradnja pade.
 sed "s/^Icon=.*/Icon=$ID.Player/" "$ROOT/packaging/safeer-player.desktop" > "$PREFIX/share/applications/$ID.Player.desktop"
 install -Dm644 "$ROOT/assets/os/predvajalnik.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.Player.svg"
 # Vsako okno Safeer OS ima v pultu in docku svoj vnos in ikono (safeer_os.OKNA_V_PULTU; lastnik, 16. 10. 2026: Splet in

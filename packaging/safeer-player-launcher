@@ -1,0 +1,4 @@
+#!/bin/sh
+# Safeer Player iz terminala (paket safeer-player). Isti zagon kot vnos v meniju (packaging/safeer-player.desktop:
+# Exec=safeer-os --predvajalnik), da ni druge poti zagona, ki bi se lahko razsla od menija.
+exec /usr/bin/safeer-os --predvajalnik "$@"

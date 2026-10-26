@@ -808,12 +808,73 @@ jobs:
           for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-cinnamon /usr/lib/safeer-webkit /usr/bin/safeer-control /usr/bin/safeer-cinnamon; do
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }
           done
+      - name: Safeer Player package (safeer-player from the safeer-os-app payload, Player menu entry only)
+        # Naloga 103 (lastnik): Safeer Player kot samostojen prenos. Paket nastane iz safeer-os-app tega teka (isti tovor
+        # bajt za bajtom, brez tretje gradnje); v meniju ostane samo Safeer Player, brez seje in samodejnega zagona.
+        # Conflicts + Replaces s safeer-os in safeer-os-app: isti /usr/lib/safeer-os, oba Player ze imata.
+        run: |
+          WEBKIT="./build/safeer-webkit/safeer-webkit_$(cat packaging/VERSION)_amd64.deb"
+          APP="./safeer-os-app_$(cat packaging/VERSION_OS)_amd64.deb"
+          OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
+          PLAYER="./safeer-player_$(cat packaging/VERSION_OS)_amd64.deb"
+          python3 packaging/safeer_player_deb.py zgradi "$APP" "$PLAYER"
+          # Utrjena gradnja: vsaka datoteka (tudi vsak ELF) je bajt za bajtom ista kot v safeer-os-app, zato veljajo
+          # preverbe readelf aplikacije tudi za Player; preveri pade ob vsaki razliki ali dodanem ELF.
+          python3 packaging/safeer_player_deb.py preveri "$APP" "$PLAYER"
+          dpkg-deb -f "$PLAYER" Package Version Architecture Depends Provides Conflicts Replaces
+          dpkg-deb -f "$PLAYER" Package | grep -Fx safeer-player
+          dpkg-deb -f "$PLAYER" Version | grep -Fx "$(dpkg-deb -f "$APP" Version)"
+          for p in safeer-os safeer-os-app; do
+            dpkg-deb -f "$PLAYER" Conflicts | grep -E "(^|, )$p(,|$)"
+            dpkg-deb -f "$PLAYER" Replaces | grep -E "(^|, )$p(,|$)"
+          done
+          # Isti vgrajeni WebKit kot aplikacija (ne loceni paket safeer-webkit).
+          if dpkg-deb -f "$PLAYER" Depends | grep -E '(^|, )safeer-webkit\b'; then echo "::error::Player zahteva loceni safeer-webkit"; exit 1; fi
+          dpkg-deb -f "$PLAYER" Provides | grep -F "safeer-webkit (= $(dpkg-deb -f "$WEBKIT" Version)+vgrajen)"
+          # Vsebina: en sam vnos v meniju (Player), brez seje namizja in samodejnega zagona; tovor in ukaz safeer-player sta.
+          SAFEER_PLAYER_DEB="$PLAYER" python3 -m pytest -q tests/test_safeer_player_paket.py
+          dpkg-deb -c "$PLAYER" | grep -E '\./usr/lib/safeer-os/safeer_os\.py$'
+          dpkg-deb -c "$PLAYER" | grep -E '^-rwxr-xr-x .* \./usr/bin/safeer-player$'
+          if dpkg-deb -c "$PLAYER" | grep -F 'safeer-cinnamon'; then echo "::error::Player ima Safeer Cinnamon"; exit 1; fi
+          echo "::notice::$(stat -c '%n %s B' "$PLAYER") | namesceno $(dpkg-deb -f "$PLAYER" Installed-Size) KiB"
+          # Namestitev na cist sistem (prejsnji korak je safeer-os-app odstranil) in smoke: okno Player se odpre.
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$PLAYER" 2>&1 | tee player.log
+          dpkg-query -W -f '${db:Status-Abbrev}' safeer-player | grep -q '^ii'
+          desktop-file-validate /usr/share/applications/safeer-os.Player.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/safeer-os.Player.svg
+          [ "$(ls /usr/share/applications | grep -E '^safeer' | tr '\n' ' ')" = 'safeer-os.Player.desktop ' ]
+          [ ! -e /usr/share/xsessions/safeer-os.desktop ] && [ ! -e /etc/xdg/autostart/safeer-os.desktop ]
+          test -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess
+          xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-os
+          xvfb-run -a dbus-run-session -- bash packaging/smoke_player.sh player-smoke.log
+          # Menjava v obe smeri brez okvare: namizno okolje zamenja Player (in ima vnos Player), Player zamenja namizje.
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$OS"
+          dpkg-query -W -f '${db:Status-Abbrev}' safeer-os | grep -q '^ii'
+          if dpkg-query -W -f '${db:Status-Abbrev}' safeer-player 2>/dev/null | grep -q '^ii'; then echo "::error::Player je ostal ob namizju"; exit 1; fi
+          test -f /usr/share/applications/safeer-os.Player.desktop
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$PLAYER"
+          dpkg-query -W -f '${db:Status-Abbrev}' safeer-player | grep -q '^ii'
+          if dpkg-query -W -f '${db:Status-Abbrev}' safeer-os 2>/dev/null | grep -q '^ii'; then echo "::error::namizje je ostalo ob Playerju"; exit 1; fi
+          [ ! -e /usr/lib/safeer-cinnamon ]
+          test -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess
+          xvfb-run -a dbus-run-session -- bash packaging/smoke_player.sh player-smoke-2.log
+          sudo apt-get remove -y safeer-player
+          for ostanek in /usr/lib/safeer-os /usr/lib/safeer-webkit /usr/bin/safeer-os /usr/bin/safeer-player /usr/share/applications/safeer-os.Player.desktop; do
+            [ ! -e "$ostanek" ] || { echo "po odstranitvi Playerja je ostalo $ostanek"; exit 1; }
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: safeer-os
           path: |
             safeer-os_*.deb
             safeer-os-app_*.deb
+      # Svoj artefakt: na safeer.si je Safeer Player svoj gumb (lastnik), zato svoja datoteka za prenos.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: safeer-player
+          path: safeer-player_*.deb
+          if-no-files-found: error
   qt-xcb:
     # Vticnik Qt xcb lupine QML (PySide6 iz paketa) nalozi libxcb-* neposredno. Posel safeer-os pred tem namesti cel
     # seznam razvojnih knjiznic, zato tam manjkajoca odvisnost paketa ne bi padla. Tu: cist vsebnik ubuntu:24.04 (osnova
