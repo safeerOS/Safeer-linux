@@ -69,6 +69,20 @@ class SkupniPrimeri(unittest.TestCase):
             with self.subTest(p["naslov"], ozji=p["ozji"]):
                 self.assertIs(viri_sink.prevzem_dovoljen(p["naslov"], p["ozji"]), p["prevzem"])
 
+    def test_primeri_caka_in_racun_vira(self):
+        """Pregled 57, Ş1 in Ş2 (verzija 4 skupnih primerov - enako Android): prejet vir, ki ni pozitivno znan javen,
+        caka uporabnika (nobene povezave ob prejemu), in vsak tak vir je pred prvim branjem vir z racunom (premor)."""
+        d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(d["verzija"], 4)
+        self.assertGreaterEqual((len(d["caka"]), len(d["racun_vira"])), (10, 8))
+        for p in d["caka"]:
+            with self.subTest(p["tip"], naslov=p["naslov"]):
+                self.assertIs(os_media.MediaCenter._caka_uporabnika(p["naslov"]), p["caka"])
+        for p in d["racun_vira"]:
+            with self.subTest(p["naslov"], oznacen=p.get("oznacen", False)):
+                vir = {"url": p["naslov"], "javni": True} if p.get("oznacen") else {"url": p["naslov"]}
+                self.assertIs(os_media.MediaCenter._racun_vira(vir), p["racun"])
+
     def test_vsi_primeri(self):
         d = json.loads(PRIMERI.read_text(encoding="utf-8"))
         primeri = d["primeri"]
