@@ -465,5 +465,125 @@ class Bralnik(unittest.TestCase):
         self.assertNotIn("primer.invalid", repr(b) + repr(b.vir))
 
 
+# ---------------------------------------------------------------------- streznik HTTP Range (korak 2, del 4)
+
+import http.client  # noqa: E402
+import io  # noqa: E402
+import logging  # noqa: E402
+import shutil  # noqa: E402
+import socket  # noqa: E402
+import tempfile  # noqa: E402
+import urllib.request  # noqa: E402
+from contextlib import redirect_stderr  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from core import usenet_nntp as N, usenet_streznik as S  # noqa: E402
+
+
+class Obseg(unittest.TestCase):
+    def test_obseg(self):
+        n = 1000
+        self.assertEqual(S.obseg(None, n), None)
+        self.assertEqual(S.obseg("bytes=0-99", n), (0, 99))
+        self.assertEqual(S.obseg("bytes=500-", n), (500, 999))
+        self.assertEqual(S.obseg("bytes=-100", n), (900, 999))
+        self.assertEqual(S.obseg("bytes=-5000", n), (0, 999))
+        self.assertEqual(S.obseg("bytes=990-5000", n), (990, 999))
+        self.assertEqual(S.obseg("bytes=1000-", n), S.NI_OBSEGA)
+        self.assertEqual(S.obseg("bytes=-0", n), S.NI_OBSEGA)
+        for prezri in ("bytes=0-1,5-6", "items=0-1", "bytes=5-1", "bytes=-", "bytes=a-b", "bytes=0-1\r\nX: y"):
+            self.assertIsNone(S.obseg(prezri, n), prezri)
+
+    def test_ime_poti(self):
+        self.assertEqual(S.ime_poti("Film.2026.1080p.mkv"), "video.mkv")
+        self.assertEqual(S.ime_poti("a.MP4"), "video.mp4")
+        self.assertEqual(S.ime_poti("kljuc=abc123.exe"), "video.bin")
+        self.assertEqual(S.ime_poti(None), "video.bin")
+
+
+class Streznik(unittest.TestCase):
+    def setUp(self):
+        self.film = G.Leno(3 * MiB + 17, 21)
+        self.o = objavi(("Film.Tajno.Ime.mkv", self.film))
+        vir, _ = B.pripravi(NZ.razcleni(self.o.nzb()), self.o.telo)
+        self.br = B.Bralnik(self.o.telo, vir)
+        self.s = S.Streznik(self.br)
+        self.addCleanup(self.s.zapri)
+
+    def zahteva(self, metoda="GET", pot=None, glave=None):
+        c = http.client.HTTPConnection("127.0.0.1", self.s.vrata, timeout=10)
+        self.addCleanup(c.close)
+        c.request(metoda, pot or self.s.url.split(str(self.s.vrata), 1)[1], headers=glave or {})
+        r = c.getresponse()
+        return r, r.read()
+
+    def test_naslov_brez_skrivnosti(self):
+        self.assertTrue(self.s.url.startswith("http://127.0.0.1:%d/" % self.s.vrata))
+        self.assertGreaterEqual(len(self.s.zeton), 40)
+        for zasebno in ("primer.invalid", "Tajno", "apikey", "nzb"):
+            self.assertNotIn(zasebno, self.s.url)
+        self.assertNotIn(self.s.zeton, repr(self.s))
+        self.assertEqual(self.s._srv.socket.getsockname()[0], "127.0.0.1")
+        with self.assertRaises(ValueError):
+            S.Streznik(self.br, gostitelj="0.0.0.0")
+
+    def test_range_head_416(self):
+        r, b = self.zahteva(glave={"Range": "bytes=100-199"})
+        self.assertEqual((r.status, r.getheader("Content-Range"), r.getheader("Content-Length")),
+                         (206, "bytes 100-199/%d" % self.film.velikost, "100"))
+        self.assertEqual(b, self.film.beri(100, 100))
+        r, b = self.zahteva(glave={"Range": "bytes=-10"})
+        self.assertEqual((r.status, b), (206, self.film.beri(self.film.velikost - 10, 10)))
+        r, b = self.zahteva()
+        self.assertEqual((r.status, r.getheader("Accept-Ranges"), b), (200, "bytes", self.film.beri(0, 10 ** 9)))
+        r, b = self.zahteva("HEAD", glave={"Range": "bytes=0-"})
+        self.assertEqual((r.status, r.getheader("Content-Length"), b), (206, str(self.film.velikost), b""))
+        r, b = self.zahteva(glave={"Range": "bytes=%d-" % self.film.velikost})
+        self.assertEqual((r.status, r.getheader("Content-Range")), (416, "bytes */%d" % self.film.velikost))
+        r, _ = self.zahteva(glave={"Range": "bytes=0-1,4-5"})
+        self.assertEqual(r.status, 200)
+
+    def test_zavrnjeno(self):
+        pravi = self.s.url.split(str(self.s.vrata), 1)[1]
+        drug = "/" + "A" * len(self.s.zeton) + "/" + self.s.pot
+        for pot in (drug, "/", pravi + "/x", "/" + self.s.zeton, pravi.replace("video.mkv", "video.mp4")):
+            self.assertEqual(self.zahteva(pot=pot)[0].status, 404, pot)
+        self.assertEqual(self.zahteva(glave={"Host": "zlo.example:%d" % self.s.vrata})[0].status, 404)
+        self.assertEqual(self.zahteva("POST")[0].status, 405)
+
+    def test_brez_dnevnika_zetona(self):
+        napaka, zajem = io.StringIO(), []
+        h = logging.Handler()
+        h.emit = lambda z: zajem.append(z.getMessage())
+        logging.getLogger("safeer.usenet").addHandler(h)
+        self.addCleanup(logging.getLogger("safeer.usenet").removeHandler, h)
+        with redirect_stderr(napaka):
+            self.zahteva(glave={"Range": "bytes=0-9"})
+            self.zahteva(pot="/napacno")
+        self.assertNotIn(self.s.zeton, napaka.getvalue() + " ".join(zajem))
+
+    def test_prekinjen_odjemalec_in_zapiranje(self):
+        sock = socket.create_connection(("127.0.0.1", self.s.vrata))
+        sock.sendall(("GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n"
+                      % (self.s.url.split(str(self.s.vrata), 1)[1], self.s.vrata)).encode())
+        sock.recv(1000)
+        sock.close()  # predvajalnik zapre sredi telesa
+        r, b = self.zahteva(glave={"Range": "bytes=0-9"})
+        self.assertEqual(b, self.film.beri(0, 10))
+        self.s.zapri()
+        self.assertTrue(self.br.zaprt, "konec predvajanja zapre tudi bralnik")
+        with self.assertRaises(OSError):
+            urllib.request.urlopen(self.s.url, timeout=2)
+
+    def test_samodejno_zapiranje_ob_nedejavnosti(self):
+        konec = threading.Event()
+        vir, _ = B.pripravi(NZ.razcleni(self.o.nzb()), self.o.telo)
+        br = B.Bralnik(self.o.telo, vir)
+        s = S.Streznik(br, nedejavnost_s=0.3, ob_koncu=konec.set)
+        self.addCleanup(s.zapri)
+        self.assertTrue(konec.wait(5))
+        self.assertTrue(s.zaprt and br.zaprt)
+
+
 if __name__ == "__main__":
     unittest.main()
