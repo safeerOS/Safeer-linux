@@ -467,6 +467,35 @@ class ZeRazposlaneKopije(unittest.TestCase):
             self.assertRegex(besedila, r"BESEDILA_OS\.%s, \{[^\n]*\"katVirGesloDeljenoIzbrisan\": \"[^\"]{40,}\"" % jezik)
 
 
+class PrejetiViriNeGredoNaprej(unittest.TestCase):
+    """Pregled 51, Ê4: ozji krog je dolocen na vsako napravo posebej (core/link_dostop.py). Vir z geslom, ki ga je ta
+    naprava dobila od druge naprave, ne sme iti naprej v NJEN ozji krog - tam je lahko naprava, ki je lastnik vira ne
+    pozna (skupni TV pri prenosniku). Naprej gre samo lastni vir in pozitivno znan javen."""
+
+    def test_prejet_vir_z_geslom_ne_gre_v_izvoz(self):
+        with tempfile.TemporaryDirectory() as mapa:
+            def vir(ident, url, **x):
+                return dict({"id": ident, "url": url, "ime": ident, "stevilo": 3, "napaka": "", "dodan": 5, "vnosi": []}, **x)
+            viri = [vir("lastni", XTREAM), vir("prejet", XTREAM_B, link_naslov=XTREAM_B, link_tip="seznam"),
+                    vir("prejet-javni", JAVNI, link_naslov=JAVNI, link_tip="seznam")]
+            strezniki = [{"id": "dodatek-lastni", "vrsta": "streznik", "ponudnik": "stremio", "ime": "L", "zaseben": False,
+                          "url": "https://lastni.primer.test", "dodan": 5},
+                         {"id": "dodatek-prejet", "vrsta": "streznik", "ponudnik": "stremio", "ime": "P", "zaseben": False,
+                          "url": "https://prejet.primer.test/realdebrid=skrito-geslo", "dodan": 5,
+                          "link_naslov": "https://prejet.primer.test/realdebrid=skrito-geslo/manifest.json"}]
+            with open(os.path.join(mapa, "media.json"), "w", encoding="utf-8") as f:
+                json.dump({"viri": viri, "osebni_strezniki": strezniki, "racuni_preseljeni": 1}, f)
+            mc = os_media.MediaCenter(mapa, roots=[])
+            naslovi = sorted(v["naslov"] for v in mc.viri_izvoz(ozji=True)["sources"])
+            self.assertEqual(naslovi, sorted([XTREAM, JAVNI, "https://lastni.primer.test/manifest.json"]))
+            mc._viri_zapisi_izvoz()                                  # zapis za Control je enak
+            with open(os.path.join(mapa, "viri_za_naprave.json"), encoding="utf-8") as f:
+                zapis = f.read()
+            for tuje in ("username=gost", "realdebrid"):
+                self.assertNotIn(tuje, zapis)
+                self.assertNotIn(tuje, json.dumps(mc.viri_izvoz(ozji=True)))
+
+
 class GesloNiVPodatkihStrani(unittest.TestCase):
     """Pregled 46, Ö8: popravek VISOKE je naslov zakril samo v vrstici Virov - cel naslov z geslom je bil se vedno v
     podatkih strani (sources(): url, link_naslov; napaka z naslovom). Pregled 46, Ö4: viri_za_naprave.json (del

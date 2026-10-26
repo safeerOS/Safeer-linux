@@ -3983,11 +3983,15 @@ class MediaCenter:
             if zaseben is not False:
                 continue
             tip, naslov = self._vir_kljuc(s)
+            if s.get("link_naslov") and viri_sink.za_ozji_krog(naslov):
+                continue                # prejet z druge naprave: ne naprej v NAS ozji krog (pregled 51, Ê4)
             viri.append({"tip": tip, "ime": str(s.get("ime") or "")[:200], "naslov": naslov, "cas": int(s.get("dodan") or 0)})
         for v in data.get("viri", []):
             if not isinstance(v, dict) or not v.get("url") or not (v.get("link_tip") or self._vir_za_naprave(v)):
                 continue
             tip, naslov = self._vir_kljuc(v)
+            if v.get("link_naslov") and viri_sink.za_ozji_krog(naslov, v.get("javni") is True):
+                continue                # Ê4: ozji krog je na vsaki napravi poseben; vir z geslom ne sme tranzitivno naprej
             viri.append(dict({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)},
                              # oznaka uporabnika »javni« (viri_sink.znan_javen); napravam ne gre (cist_vir)
                              **({"javni": True} if v.get("javni") is True else {})))
