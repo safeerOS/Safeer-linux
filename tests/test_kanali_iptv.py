@@ -74,7 +74,7 @@ class SkupniPrimeri(unittest.TestCase):
         caka uporabnika (nobene povezave ob prejemu), in vsak tak vir je pred prvim branjem vir z racunom (premor)."""
         d = json.loads(PRIMERI_RACUNA.read_text(encoding="utf-8"))
         self.assertGreaterEqual(d["verzija"], 4)
-        self.assertGreaterEqual((len(d["caka"]), len(d["racun_vira"])), (10, 8))
+        self.assertGreaterEqual((len(d["caka"]), len(d["racun_vira"])), (10, 14))
         for p in d["caka"]:
             with self.subTest(p["tip"], naslov=p["naslov"]):
                 self.assertIs(os_media.MediaCenter._caka_uporabnika(p["naslov"]), p["caka"])
@@ -82,6 +82,11 @@ class SkupniPrimeri(unittest.TestCase):
             with self.subTest(p["naslov"], oznacen=p.get("oznacen", False)):
                 vir = {"url": p["naslov"], "javni": True} if p.get("oznacen") else {"url": p["naslov"]}
                 self.assertIs(os_media.MediaCenter._racun_vira(vir), p["racun"])
+                if "vdelava" in p:         # lastna stran HTML brez poverilnice dobi vdelavo, prejeta ali s poverilnico ne
+                    if p.get("prejet"):
+                        vir.update(link_naslov=p["naslov"], link_tip="url")
+                    self.assertIs(os_media.MediaCenter._vdelava_strani(vir, "text/html", b"<html>x</html>", p["naslov"]),
+                                  p["vdelava"])
 
     def test_vsi_primeri(self):
         d = json.loads(PRIMERI.read_text(encoding="utf-8"))
@@ -850,6 +855,39 @@ class ZavrnjenSeznam(unittest.TestCase):
             self.assertFalse(self.mc.refresh_source("xt")["ok"])
         self.assertEqual(klici, [javni])
         self.assertNotIn("zavrnjen", self._vir())
+
+    def test_lastna_stran_html_brez_poverilnice_dobi_vdelavo(self):
+        """Lastnik: uporabnik lahko vdela katero koli stran. Vir, ki ga uporabnik SAM doda na tej napravi in je stran HTML
+        brez predvajljive vsebine, dobi vnos »Vdelana vsebina«, ce naslov nima znakov poverilnice (pregled 57, Ş2);
+        z znaki poverilnice, prejet z druge naprave, ali brez HTML (prazno telo) ostane zavrnitev."""
+        html = b"<html><body><h1>Moja stran</h1></body></html>"
+        stran = "https://stran.primer.test/film"
+        primeri = [(stran, {}, html, "text/html; charset=utf-8", True),
+                   ("https://stran.primer.test/watch?id=5", {}, html, "text/html", True),
+                   ("https://stran.primer.test/get.php?username=u&password=g", {}, html, "text/html", False),   # poverilnica
+                   ("https://u:g@stran.primer.test/film", {}, html, "text/html", False),
+                   ("https://stran.primer.test/film?token=abc", {}, html, "text/html", False),
+                   ("http://stran.primer.test/live/u/g/1", {}, html, "text/html", False),
+                   (stran, {"link_naslov": stran, "link_tip": "url"}, html, "text/html", False),              # prejet
+                   (stran, {}, b"", "text/html", False),                                                      # prazno telo
+                   (stran, {}, html, "text/plain", False)]
+        for url, dodatno, telo, vrsta, pricakovano in primeri:
+            with self.subTest(url=url, dodatno=dodatno, vrsta=vrsta, telo=len(telo)):
+                with self.mc._lock:
+                    data = self.mc._load()
+                    data["viri"][0].update(url=url, vnosi=[], zavrnjen=None, **dodatno)
+                    data["viri"][0].pop("zavrnjen")
+                    self.mc._save(data)
+                self.prenosi.clear()
+                self.mc._download = lambda u, t=telo, v=vrsta: (self.prenosi.append(u), (t, v, u))[1]
+                r = self.mc.refresh_source("xt")
+                self.assertEqual(self.prenosi, [url])                   # vedno ena zahteva
+                self.assertIs(r["ok"], pricakovano)
+                if pricakovano:
+                    self.assertEqual([x["url"] for x in self._vir()["vnosi"]], [url])
+                    self.assertNotIn("zavrnjen", self._vir())
+                else:
+                    self.assertEqual(self._vir()["zavrnjen"]["n"], 1)
 
     def test_znana_platforma_brez_racuna_ohrani_rezervno_pot(self):
         """Pregled 57, Ş2: »neznano je racun« ne sme vzeti vdelave YouTube, SoundCloud in Bandcamp (nobena nima racuna

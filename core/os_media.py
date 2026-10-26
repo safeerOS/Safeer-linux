@@ -4338,6 +4338,20 @@ class MediaCenter:
         url = source.get("url")
         return viri_sink.za_ozji_krog(url, source.get("javni") is True) and not _platforma_brez_racuna(url)
 
+    @staticmethod
+    def _vdelava_strani(source: dict, content_type: str, payload: bytes, final_url: str) -> bool:
+        """Stran HTML brez predvajljive vsebine dobi vnos »Vdelana vsebina« (lastnik: uporabnik lahko vdela katero koli
+        stran; pregled 57, Ş2), ce je uporabnik vir SAM dodal na tej napravi (ni prejet z druge: brez link_naslov in
+        link_tip) in naslov (tudi po preusmeritvi) NIMA znakov poverilnice (user:pass@, username=, password=, token=,
+        /live/<u>/<g>/, get.php ...: viri_sink.verjetno_racun_seznama). Prazno telo ali drugo vrsto vsebine to ni."""
+        if source.get("link_naslov") or source.get("link_tip"):
+            return False
+        if str(content_type or "").split(";")[0].strip().casefold() != "text/html" or not (payload or b"").strip():
+            return False
+        oznacen = source.get("javni") is True
+        return not (viri_sink.verjetno_racun_seznama(source.get("url"), oznacen)
+                    or viri_sink.verjetno_racun_seznama(final_url, oznacen))
+
     def refresh_source(self, source_id: str) -> dict:
         if source_id.startswith("streznik-"):
             with self._lock:
@@ -4377,7 +4391,7 @@ class MediaCenter:
                 items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
                 source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
-                    if self._racun_vira(source):
+                    if self._racun_vira(source) and not self._vdelava_strani(source, content_type, payload, final_url):
                         # Odgovor brez seznama na naslov z geslom: brez se ene zahteve z geslom (vdelani predvajalnik)
                         # in samodejno vse redkeje (pregled 46, Ö5).
                         raise _PrazenOdgovor("Ponudnik ni vrnil seznama.")
