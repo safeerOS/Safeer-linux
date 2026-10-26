@@ -38,6 +38,7 @@ import ssl
 import tempfile
 import threading
 import time
+import weakref
 from typing import Callable, Optional
 
 from .usenet_nzb import id_clanka
@@ -680,8 +681,22 @@ _PRIJAVE: dict = {}
 _NEZNANE: dict = {}
 
 
-def _ponudnik(gostitelj: str) -> str:
-    return str(gostitelj).strip().lower().rstrip(".")
+#: Drugi nivo pod drzavno domeno, ki se ni ponudnik (news.x.co.uk -> x.co.uk) - brez seznama javnih pripon.
+_DRUGI_NIVO = ("co", "com", "net", "org", "ac", "or", "ne", "gov", "edu")
+#: Zivi bazeni (zapah racuna ustavi vse bazene istega racuna - pregled Grok 43 C3).
+_BAZENI: "weakref.WeakSet" = weakref.WeakSet()
+
+
+def ponudnik(gostitelj: str) -> str:
+    """Ponudnik iz imena streznika (skupni primeri nntp_ponudnik): zadnji dve oznaki (news.x.com, eu.news.x.com. ->
+    x.com), pri drzavni domeni z drugim nivojem tri (news.x.co.uk -> x.co.uk); naslov IP ostane cel. Zapah in vrata
+    prijave veljajo za racun pri ponudniku, ne za ime streznika (Grok 43 C3: vsako ime je dobilo svoj poskus)."""
+    g = str(gostitelj).strip().lower().rstrip(".")
+    if not g or ":" in g or all(c in "0123456789." for c in g):
+        return g
+    d = g.split(".")
+    n = 3 if len(d) >= 3 and len(d[-1]) == 2 and d[-2] in _DRUGI_NIVO else 2
+    return ".".join(d[-n:])
 
 
 def _zgosti(*polja: str) -> bytes:
@@ -695,7 +710,7 @@ def _zgosti(*polja: str) -> bytes:
 def _odtis_racuna(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> Optional[bytes]:
     if uporabnik is None:
         return None
-    return _zgosti(_ponudnik(gostitelj), uporabnik, geslo or "")
+    return _zgosti(ponudnik(gostitelj), uporabnik, geslo or "")
 
 
 def _polja(*polja: str) -> bytes:
@@ -814,7 +829,7 @@ def _pozabi_zapahe(ponudnik: str, uporabnik: str) -> None:
 
 def _vrata_prijave(gostitelj: str, uporabnik: str) -> threading.Lock:
     """Zaklep prijave racuna (ponudnik, uporabnik) - en za vse bazene in gesla tega racuna v procesu."""
-    kljuc = _zgosti("prijava", _ponudnik(gostitelj), uporabnik)
+    kljuc = _zgosti("prijava", ponudnik(gostitelj), uporabnik)
     with _ZAVRNJENI_ZAKLEP:
         return _PRIJAVE.setdefault(kljuc, threading.Lock())
 
@@ -828,7 +843,7 @@ def prijava_zavrnjena(gostitelj: str, uporabnik: Optional[str], geslo: Optional[
     with _ZAVRNJENI_ZAKLEP:
         if o in _ZAVRNJENI:
             return True
-    if not _trajno_zavrnjen(_ponudnik(gostitelj), str(uporabnik), geslo or ""):
+    if not _trajno_zavrnjen(ponudnik(gostitelj), str(uporabnik), geslo or ""):
         return False
     with _ZAVRNJENI_ZAKLEP:
         _ZAVRNJENI.add(o)
@@ -844,7 +859,7 @@ def dovoli_prijavo_znova(gostitelj: str, uporabnik: Optional[str], geslo: Option
         _ZAVRNJENI.discard(o)
         _NEZNANE.pop(o, None)
     if uporabnik is not None:
-        _pozabi_zapahe(_ponudnik(gostitelj), uporabnik)
+        _pozabi_zapahe(ponudnik(gostitelj), uporabnik)
 
 
 class Bazen:
@@ -868,7 +883,7 @@ class Bazen:
         self.najvec = self._zgornja
         self._rok = float(rok)
         self._racun = _odtis_racuna(self.gostitelj, uporabnik, geslo)
-        self.__poverilnice = (_ponudnik(self.gostitelj), uporabnik, geslo)  # trajni zapah in »Preveri« (nikoli v repr)
+        self.__poverilnice = (ponudnik(self.gostitelj), uporabnik, geslo)  # trajni zapah in »Preveri« (nikoli v repr)
         self._vrata = _vrata_prijave(self.gostitelj, uporabnik) if uporabnik is not None else None
         self.proracun = Proracun(proracun_bajtov)  # najmanj ena osnova in rast
         self.__nova: Callable[[], Povezava] = lambda: Povezava(
@@ -884,6 +899,8 @@ class Bazen:
         self._premor_do = 0.0
         self._premor_izid = ZASEDEN
         self._zadnja_meja = 0.0
+        with _ZAVRNJENI_ZAKLEP:
+            _BAZENI.add(self)
 
     def __repr__(self) -> str:
         return "Bazen(%s:%d, %d povezav)" % (self.gostitelj, self.vrata, self.najvec)
@@ -918,6 +935,8 @@ class Bazen:
             if time.monotonic() >= konec:
                 return ROK  # faza je se povezava: geslo ni bilo poslano
         with self._pogoj:
+            if self._ustavljen is None and self._racun in _ZAVRNJENI:
+                self._ustavljen = PRIJAVA  # zapah je postavil drug bazen istega racuna (Grok 43 C3)
             ovira = ZAPRTO if self._zaprt else self._ustavljen
         if ovira is not None:
             v.release()
@@ -993,6 +1012,10 @@ class Bazen:
             while True:
                 if self._zaprt:
                     raise NapakaNntp(ZAPRTO)
+                if self._ustavljen is None and self._racun is not None and self._racun in _ZAVRNJENI:
+                    self._ustavljen = PRIJAVA  # zapah drugega bazena istega racuna: tudi stare seje ne (Grok 43 C3)
+                    zavrzi.extend(self._proste)
+                    self._proste = []
                 if self._ustavljen is not None:
                     raise NapakaNntp(self._ustavljen)
                 zdaj = time.monotonic()
@@ -1075,6 +1098,12 @@ class Bazen:
             x.zapri(vljudno=True)
         for x in v_rabi:
             x.prekini()
+        if racun and self._racun is not None:
+            # Zavrnjena prijava ustavi vse povezave racuna - tudi drugih zivih bazenov (Grok 43 C3).
+            with _ZAVRNJENI_ZAKLEP:
+                drugi = [b for b in _BAZENI if b is not self and b._racun == self._racun]
+            for b in drugi:
+                b._ustavi(PRIJAVA)
 
     def _premor(self, zmanjsaj: bool, izid: str) -> None:
         with self._pogoj:
@@ -1152,8 +1181,7 @@ class Bazen:
         odklene samo nov vpis poverilnic ali uporabnikov »Preveri«) - en nov poskus prijave; nikoli samodejno.
         Napaka: NapakaNntp."""
         if odkleni and self._racun is not None:
-            ponudnik, uporabnik, geslo = self.__poverilnice
-            dovoli_prijavo_znova(ponudnik, uporabnik, geslo)
+            dovoli_prijavo_znova(self.gostitelj, *self.__poverilnice[1:])
             with self._pogoj:
                 if self._ustavljen == PRIJAVA:
                     self._ustavljen = None

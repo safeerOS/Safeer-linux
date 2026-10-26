@@ -610,6 +610,32 @@ class Nntp(unittest.TestCase):
         self.assertEqual(self.napaka(lambda: self.bazen(s, geslo="napacno-geslo-p").telo(ID_OK)).izid, N.PRIJAVA)
         self.assertTrue(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, "napacno-geslo-p"))
 
+    def test_zapah_ustavi_vse_bazene_racuna(self):
+        # Grok 43 C3: zapah se je v bazenu prebral samo ob nastanku - drug ziv bazen istega racuna je nadaljeval na
+        # starih sejah in odpiral nove. Zdaj zavrnjena prijava ustavi vse povezave racuna.
+        s = self.streznik()
+        b1 = self.bazen(s, povezav=2)
+        self.assertEqual(b1.telo(ID_OK), CLANKI[ID_OK])
+        s.zamenjaj_geslo("geslo-zamenjano-pri-ponudniku")
+        b2 = self.bazen(s)
+        self.assertEqual(self.napaka(b2.preveri).izid, N.PRIJAVA)
+        pred = (s.sprejete, self._gesel(s))
+        self.assertEqual(self.napaka(lambda: b1.telo(ID_OK)).izid, N.PRIJAVA, "zapah ustavi tudi drug bazen racuna")
+        self.assertEqual((s.sprejete, self._gesel(s)), pred, "brez nove povezave in gesla")
+        self.assertEqual(len(b1._proste), 0, "seje drugega bazena zaprte")
+
+    def test_zapah_po_ponudniku_ne_po_imenu_streznika(self):
+        # Grok 43 C3: news.x, eu.news.x in news.x. so isti racun - vsako ime je prej dobilo svoj poskus z napacnim
+        # geslom.
+        o = N._odtis_racuna("news.primer.invalid", UPORABNIK, "napacno")
+        self.assertEqual(o, N._odtis_racuna("EU.News.Primer.Invalid.", UPORABNIK, "napacno"))
+        self.assertNotEqual(o, N._odtis_racuna("news.drugi.invalid", UPORABNIK, "napacno"))
+        self.assertIs(N._vrata_prijave("news.primer.invalid", UPORABNIK),
+                      N._vrata_prijave("ssl.primer.invalid", UPORABNIK))
+        N._ZAVRNJENI.add(o)
+        self.assertTrue(N.prijava_zavrnjena("ssl.primer.invalid", UPORABNIK, "napacno"))
+        self.assertFalse(N.prijava_zavrnjena("ssl.primer.invalid", UPORABNIK, "drugo"))
+
     def test_481_za_to_povezavo_je_prijava(self):
         s = self.streznik(napacno="481 Authentication failed for this connection")
         b = self.bazen(s, geslo="napacno-geslo-2", povezav=3)

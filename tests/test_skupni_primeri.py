@@ -93,6 +93,8 @@ def _usenet(f, v):
         return NN.varna_poverilnica(v["vrednost"])
     if f == "nntp_id_odgovora":
         return NN.id_odgovora_ustreza(v["vrstica"], v["id"])
+    if f == "nntp_ponudnik":
+        return NN.ponudnik(v["gostitelj"])
     if f == "nntp_zapah_odtis":
         r, g = NN.zapah_odtis(bytes.fromhex(v["sol_hex"]), v["ponudnik"], v["uporabnik"], v["geslo"])
         return {"racun": r, "geslo": g}
@@ -123,7 +125,7 @@ def _usenet(f, v):
 
 USENET_POGON = {"yenc_dekodiraj", "nntp_telo", "yenc_iz_nntp", "nntp_izid", "nntp_id", "varno_ime", "nzb_ime",
                 "nzb_razcleni", "usenet_meje", "nntp_ukrep", "nntp_sme_odpreti", "nntp_premor", "nntp_poverilnica",
-                "nntp_id_odgovora", "nntp_zapah_odtis"}
+                "nntp_id_odgovora", "nntp_zapah_odtis", "nntp_ponudnik"}
 
 
 def izracunaj(f, v):
