@@ -58,16 +58,65 @@ def _je_lokalni_gostitelj(h: str) -> bool:
     return ip.is_private or ip.is_loopback
 
 
+#: Grokov pregled 31, H1 (26. 10. 2026, kot Android bed1134): kljuc, prilepljen v polje za naslov, ne sme postati
+#: gostitelj https://<kljuc> - ime gostitelja gre pred povezavo necifrirano v DNS (tudi s pripono omrezja, <kljuc>.home).
+#: Kljuci: Newznab 32 heks, TorBox UUID, Real-Debrid 52 znakov, AllDebrid ~20 znakov - nobeden nima pike.
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_HEKS_DOLG = re.compile(r"[0-9a-f]{24,}")
+_ZNAKI_KLJUCA = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-_")
+
+#: Izid vnosa indeksatorja (most ["usenet", ...]): v polju za naslov je kljuc - ni shranjen in ni poslan nikamor.
+PREVERBA_NASLOV_JE_KLJUC = "naslov_kljuc"
+
+
+def _oznaka_je_kljuc(oznaka: str) -> bool:
+    """Del imena, ki je kljuc in ne ime: UUID ali vsaj 24 heks znakov."""
+    o = oznaka.lower()
+    return bool(_UUID.fullmatch(o) or _HEKS_DOLG.fullmatch(o))
+
+
+def _je_ime_gostitelja(gost: str) -> bool:
+    """Gostitelj indeksatorja je ime s piko brez oznake, ki je kljuc (javni CA za ime brez pike ne izda potrdila, zato
+    tako ime tudi s https ne bi delalo), ali localhost oziroma naslov IP (IPv6 v oklepajih - urlsplit jih odstrani)."""
+    g = (gost or "").lower().rstrip(".")
+    if g == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(g)
+        return True
+    except ValueError:
+        pass
+    return "." in g and not any(not d or _oznaka_je_kljuc(d) for d in g.split("."))
+
+
+def naslov_je_kljuc(vnos: object) -> bool:
+    """Ali je v polju za naslov videti kljuc (sporocilo »prilepi ga v polje za kljuc«; Android naslovJeKljuc): gostitelj
+    brez pike, dolg vsaj 16 znakov s stevko (32 heks, UUID, zeton), ali oznaka imena, ki je kljuc (_oznaka_je_kljuc)."""
+    v = str(vnos or "").strip().split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    gost = v.split("://", 1)[-1].split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0].lower()
+    if "." in gost:
+        return any(_oznaka_je_kljuc(d) for d in gost.split("."))
+    return bool(_UUID.fullmatch(gost)) or (len(gost) >= 16 and any(c.isdigit() for c in gost)
+                                          and all(c in _ZNAKI_KLJUCA for c in gost))
+
+
 def osnova(vnos: object) -> Optional[str]:
     """Naslov indeksatorja, kot ga uporabnik vpise (»https://api.indeksator.example/api?«): osnova brez `/api`, poizvedbe
     in koncne posevnice. Samo https - kljuc gre v naslovu; http samo do naprave v domacem omrezju (NZBHydra, Prowlarr).
-    Brez uporabniskega imena v naslovu. None = ni veljaven."""
+    Brez uporabniskega imena v naslovu. None = ni veljaven.
+    Lastnik 25. 10. 2026 (kot Android): uporabnik vpise kar ime (»nzbfinder.ws«) - gola domena brez sheme dobi https://
+    sama (http:// na internet ostane zavrnjen). Grokov pregled 31, H1: gostitelj mora biti ime s piko brez oznake, ki je
+    kljuc (_je_ime_gostitelja) - kljuc v polju za naslov in tipkarske napake (»http//x«, »https:/x«, »nzbfinder«) so
+    zavrnjeni, preden gre karkoli v DNS. Velja tudi za shranjen naslov (Debrid.indeksator)."""
     v = str(vnos or "").strip().split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    if v and "://" not in v:
+        v = "https://" + v
     try:
         u = urllib.parse.urlsplit(v)
+        u.port                                  # neveljavna vrata (»:abc«, nad 65535) -> ValueError
     except ValueError:
         return None
-    if not u.hostname or "@" in u.netloc or any(c.isspace() for c in v):
+    if not u.hostname or "@" in u.netloc or any(c.isspace() for c in v) or not _je_ime_gostitelja(u.hostname):
         return None
     shema = (u.scheme or "").lower()
     if shema != "https" and not (shema == "http" and _je_lokalni_gostitelj(u.hostname)):

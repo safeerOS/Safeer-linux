@@ -305,6 +305,26 @@ class Indeksator(unittest.TestCase):
         self.assertEqual(s["preverba"], P.PREVERBA_NI_ODGOVORA)
         self.assertEqual([p.split("?", 1)[0] for p in _Indeksator.zahteve], ["/api"])
 
+    def test_kljuc_v_polju_za_naslov_ne_gre_nikamor(self):
+        """Grokov pregled 31, H1: kljuc, prilepljen v polje za naslov, se ne shrani in ne gre v DNS ali do storitve;
+        gola domena (»nzbfinder.ws«) dobi https:// sama (lastnik 25. 10. 2026, kot Android)."""
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")), \
+                mock.patch("socket.getaddrinfo", side_effect=AssertionError("brez DNS")):
+            for naslov in (KLJUC_IX, " %s " % KLJUC_TB, "https://%s/api" % KLJUC_IX, KLJUC_RD):
+                s = debrid.most(d, ["usenet", naslov, KLJUC_IX])
+                self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, U.PREVERBA_NASLOV_JE_KLJUC, {}), naslov)
+                self.assertNotIn(KLJUC_IX, json.dumps(s))
+        self.assertIsNone(nast["d"].get("usenet"))
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN) as pv:
+            s = debrid.most(d, ["usenet", " nzbfinder.ws ", KLJUC_IX])
+        self.assertEqual(pv.call_args[0], ("https://nzbfinder.ws", KLJUC_IX))
+        self.assertEqual((s["ok"], s["usenet"]["gostitelj"]), (True, "nzbfinder.ws"))
+        # Kljuc kot gostitelj, ki ga je shranila prejsnja razlicica: indeksatorja ni (nic ne gre v DNS).
+        d2, nast2, z2 = _debrid()
+        nast2["d"] = {"usenet": {"url": z2.skrij("https://" + KLJUC_IX), "kljuc": z2.skrij(KLJUC_IX)}}
+        self.assertIsNone(d2.indeksator())
+
     def test_http_na_javni_naslov_zavrnjen_brez_klica(self):
         d, _nast, z = _debrid()
         with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")):

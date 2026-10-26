@@ -174,6 +174,10 @@ def izracunaj(f, v):
         return IZID_ANDROID[P.ad_preverba(v["http"], v["telo"])]
     if f == "preverba_indeksatorja":
         return IZID_ANDROID[U.preverba_indeksatorja(v["http"], v["telo"])]
+    if f == "osnova_indeksatorja":
+        return U.osnova(v["vnos"])
+    if f == "naslov_je_kljuc":
+        return U.naslov_je_kljuc(v["vnos"])
     if f == "naslov_preverbe_indeksatorja":
         return U.naslov_preverbe(v["osnova"], v["kljuc"])
     if f == "preverba_iz_napake":

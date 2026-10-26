@@ -1038,7 +1038,10 @@ class Debrid:
 
     def vpisi_indeksator(self, naslov: str, kljuc: str, preveri: Optional[Callable[[str, str], str]] = None) -> dict:
         """Vnos indeksatorja (npr. NZBFinder: kljuc s strani profila): oblika in vzorec (P.kljuc_iz_vnosa), preverba z
-        enim iskanjem, shranjevanje s stanjem. {"ok", "preverba": P.PREVERBA_*, "stanje"}. Zavrnjen kljuc se ne shrani."""
+        enim iskanjem, shranjevanje s stanjem. {"ok", "preverba": P.PREVERBA_*, "stanje"}. Zavrnjen kljuc se ne shrani.
+        Grokov pregled 31, H1: kljuc v polju za naslov (U.naslov_je_kljuc) se ne shrani in ne gre nikamor - tudi ne v DNS."""
+        if U.naslov_je_kljuc(naslov):
+            return {"ok": False, "preverba": U.PREVERBA_NASLOV_JE_KLJUC, "stanje": None}
         osn, k = U.osnova(naslov), P.kljuc_iz_vnosa(kljuc, P.INDEKSATOR)
         if not osn or not k:
             return {"ok": False, "preverba": P.PREVERBA_OBLIKA, "stanje": None}

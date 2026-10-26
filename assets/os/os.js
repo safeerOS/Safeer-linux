@@ -6099,7 +6099,8 @@
     var p = (o && o.preverba) || "";
     if (usenet) {
       if (o && o.ok) return t(p === "veljaven" ? "usenetPotrjen" : p ? "usenetNiPreverjen" : "usenetShranjen");
-      return t(p === "neveljaven" ? "usenetZavrnjen" : "usenetNiVeljaven");
+      // Grokov pregled 31, H1: kljuc v polju za naslov - jedro ga ni shranilo in ni poslalo nikamor.
+      return t(p === "neveljaven" ? "usenetZavrnjen" : p === "naslov_kljuc" ? "usenetNaslovKljuc" : "usenetNiVeljaven");
     }
     if (o && o.ok) {
       if (p === "veljaven") {
@@ -6127,7 +6128,8 @@
       narisiDebridOkno(o);
       var vrstica = '#debridSeznam [data-id="' + (usenet ? "usenet" : x.id) + '"] ';
       var polje = document.querySelector(vrstica + 'input[type="url"]');
-      if (polje && !(o && o.ok)) polje.value = naslov;          // zavrnjen kljuc: naslova ni treba tipkati znova
+      // Zavrnjen kljuc: naslova ni treba tipkati znova - razen ce je bil v polju za naslov kljuc (ne ostane viden).
+      if (polje && !(o && o.ok) && (o && o.preverba) !== "naslov_kljuc") polje.value = naslov;
       var cilj = document.querySelector(vrstica + (o && o.ok ? "input" : 'input[type="password"]'));
       if (cilj) cilj.focus();
     }).catch(function () {
