@@ -358,11 +358,39 @@ def dovoljen_ip(naslov: str, domace: bool) -> bool:
     return domace and (a.is_private or a.is_loopback or a.is_link_local)
 
 
-def _razresi_ip(gostitelj: str, vrata: int, domace: bool, razresi=socket.getaddrinfo) -> list:
+def _razresi_v_roku(razresi, gostitelj: str, vrata: int, konec: Optional[float]) -> list:
+    """getaddrinfo z rokom: sistemski razresevalnik lahko caka 5-30 s in ga ni mogoce prekiniti, zato tece v svoji
+    niti - ce do `konec` ne odgovori, je izid »rok« (pregled 30, J1). Naslov IP se razresi takoj, brez niti."""
+    try:
+        ipaddress.ip_address(str(gostitelj).split("%", 1)[0])
+        je_ip = True
+    except ValueError:
+        je_ip = False
+    if je_ip or konec is None:
+        return razresi(gostitelj, vrata, type=socket.SOCK_STREAM)
+    izid: dict = {}
+
+    def delo() -> None:
+        try:
+            izid["naslovi"] = razresi(gostitelj, vrata, type=socket.SOCK_STREAM)
+        except BaseException as napaka:  # noqa: BLE001 - napako dobi klicatelj
+            izid["napaka"] = napaka
+    nit = threading.Thread(target=delo, name="safeer-kanali-dns", daemon=True)
+    nit.start()
+    nit.join(max(0.0, konec - time.monotonic()))
+    if nit.is_alive():
+        raise _Napaka(MRTEV, "rok")
+    if "napaka" in izid:
+        raise izid["napaka"]
+    return izid["naslovi"]
+
+
+def _razresi_ip(gostitelj: str, vrata: int, domace: bool, razresi=socket.getaddrinfo,
+                konec: Optional[float] = None) -> list:
     """Dovoljeni naslovi gostitelja (vrstni red razresevalnika). Povezemo se na TE naslove (ne znova po imenu): DNS med
     preverbo in povezavo ne more podtakniti zasebnega naslova."""
     try:
-        naslovi = list(dict.fromkeys(info[4][0] for info in razresi(gostitelj, vrata, type=socket.SOCK_STREAM)))
+        naslovi = list(dict.fromkeys(info[4][0] for info in _razresi_v_roku(razresi, gostitelj, vrata, konec)))
     except (OSError, UnicodeError):
         raise _Napaka(MRTEV, "dns") from None
     dovoljeni = [n for n in naslovi if dovoljen_ip(n, domace)]
@@ -386,23 +414,73 @@ def _vticnica(naslovi: list, vrata: int, cas: float) -> socket.socket:
     raise zadnja or socket.timeout("rok")
 
 
+class _Straza:
+    """Skupni rok ene zahteve (pregled 30, J1): ob `konec` zapre vticnico (shutdown), ne glede na to, kje zahteva caka -
+    rokovanje TLS, vrstica statusa, glave ali telo po kapljicah. Rok posamezne operacije vticnice tega ne naredi:
+    streznik, ki poslje bajt vsake 3 s, ga ne sprozi nikoli, in stirje taki gostitelji so ustavili vso preverbo."""
+
+    def __init__(self, konec: float):
+        self._zaklep = threading.Lock()
+        self._vticnice: list = []
+        self._ustavljena = False
+        self.potekel = False
+        self._casovnik = threading.Timer(max(0.0, konec - time.monotonic()), self._potece)
+        self._casovnik.daemon = True
+        self._casovnik.name = "safeer-kanali-rok"
+        self._casovnik.start()
+
+    @staticmethod
+    def _zapri(vticnica) -> None:
+        try:
+            # Osnovni shutdown tudi za SSLSocket: njegov shutdown bi med branjem v drugi niti izbrisal _sslobj.
+            socket.socket.shutdown(vticnica, socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def dodaj(self, vticnica) -> None:
+        with self._zaklep:
+            self._vticnice.append(vticnica)
+            if self.potekel:
+                self._zapri(vticnica)
+
+    def _potece(self) -> None:
+        with self._zaklep:
+            if self._ustavljena:
+                return
+            self.potekel = True
+            for vticnica in self._vticnice:
+                self._zapri(vticnica)
+
+    def ustavi(self) -> None:
+        """Pred zaprtjem vticnice: casovnik ne sme zapreti stevilke datoteke, ki jo je medtem dobila druga vticnica."""
+        self._casovnik.cancel()
+        with self._zaklep:
+            self._ustavljena = True
+
+
 class _Povezava(http.client.HTTPConnection):
-    def __init__(self, gostitelj: str, vrata: int, naslovi: list, cas: float):
+    def __init__(self, gostitelj: str, vrata: int, naslovi: list, cas: float, straza: _Straza):
         super().__init__(gostitelj, vrata, timeout=cas)
-        self._naslovi = naslovi
+        self._naslovi, self._straza = naslovi, straza
 
     def connect(self) -> None:
         self.sock = _vticnica(self._naslovi, self.port, self.timeout)
+        self._straza.dodaj(self.sock)
 
 
 class _PovezavaTLS(http.client.HTTPSConnection):
-    def __init__(self, gostitelj: str, vrata: int, naslovi: list, cas: float, kontekst: ssl.SSLContext):
+    def __init__(self, gostitelj: str, vrata: int, naslovi: list, cas: float, kontekst: ssl.SSLContext,
+                 straza: _Straza):
         super().__init__(gostitelj, vrata, timeout=cas, context=kontekst)
-        self._naslovi = naslovi
+        self._naslovi, self._straza = naslovi, straza
 
     def connect(self) -> None:
         sock = _vticnica(self._naslovi, self.port, self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        self._straza.dodaj(sock)
+        tls = self._context.wrap_socket(sock, server_hostname=self.host, do_handshake_on_connect=False)
+        self._straza.dodaj(tls)                 # rokovanje TLS je pod skupnim rokom
+        self.sock = tls
+        tls.do_handshake()
 
 
 _TLS = None
@@ -430,9 +508,11 @@ def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obs
         ostane = konec - time.monotonic()
         if ostane <= 0.05:
             raise _Napaka(MRTEV, "rok")
-        naslovi = _razresi_ip(deli.hostname, vrata, domace, razresi)
-        povezava = (_PovezavaTLS(deli.hostname, vrata, naslovi, ostane, _tls()) if deli.scheme == "https"
-                    else _Povezava(deli.hostname, vrata, naslovi, ostane))
+        naslovi = _razresi_ip(deli.hostname, vrata, domace, razresi, konec)
+        ostane = max(0.05, konec - time.monotonic())
+        straza = _Straza(konec)
+        povezava = (_PovezavaTLS(deli.hostname, vrata, naslovi, ostane, _tls(), straza) if deli.scheme == "https"
+                    else _Povezava(deli.hostname, vrata, naslovi, ostane, straza))
         pot = (deli.path or "/") + ("?" + deli.query if deli.query else "")
         zaglavje = {"User-Agent": glave.get("User-Agent") or PRIVZETI_ODJEMALEC, "Accept": "*/*",
                     "Accept-Encoding": "identity", "Connection": "close"}
@@ -466,16 +546,23 @@ def _zahteva(url: str, glave: dict, konec: float, domace: bool, najvec: int, obs
                 # Tok v zivo (TS) je neskoncen: za dokaz je dovolj zacetek; do `najvec` beremo samo seznam HLS.
                 if len(vsebina) >= ZACETEK_TOKA and not _je_hls(bytes(vsebina[:64]), vrsta):
                     break
+            if straza.potekel and not vsebina and 200 <= status < 300:
+                raise _Napaka(MRTEV, "rok")
             return status, url, vrsta, bytes(vsebina)
         except _Napaka:
             raise
-        except ssl.SSLError:
-            raise _Napaka(MRTEV, "tls") from None
-        except (socket.timeout, TimeoutError):
-            raise _Napaka(MRTEV, "rok") from None
-        except (OSError, http.client.HTTPException):
-            raise _Napaka(MRTEV, "povezava") from None
+        except Exception as napaka:  # noqa: BLE001 - razvrstitev spodaj, neznano naprej
+            if straza.potekel:
+                raise _Napaka(MRTEV, "rok") from None      # skupni rok je zaprl vticnico
+            if isinstance(napaka, ssl.SSLError):
+                raise _Napaka(MRTEV, "tls") from None
+            if isinstance(napaka, (socket.timeout, TimeoutError)):
+                raise _Napaka(MRTEV, "rok") from None
+            if isinstance(napaka, (OSError, http.client.HTTPException)):
+                raise _Napaka(MRTEV, "povezava") from None
+            raise
         finally:
+            straza.ustavi()
             povezava.close()
     raise _Napaka(MRTEV, "preusmeritve")
 

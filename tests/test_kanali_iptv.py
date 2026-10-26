@@ -181,6 +181,19 @@ class _Streznik(http.server.BaseHTTPRequestHandler):
         if pot == "/pocasi":
             time.sleep(2.5)
             return self._poslji(200, TS)
+        if pot in ("/kaplja-glave", "/kaplja-telo"):
+            # Streznik po kapljicah (pregled 30, J1): vsak bajt pred rokom vticnice, vsega skupaj pa ~18 s.
+            self.close_connection = True
+            try:
+                self.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\n")
+                if pot == "/kaplja-telo":
+                    self.wfile.write(b"\r\n")
+                for i in range(60):
+                    time.sleep(0.3)
+                    self.wfile.write(b"G" if pot == "/kaplja-telo" else b"X-K%d: a\r\n" % i)
+            except OSError:
+                pass
+            return None
         if pot == "/neskoncno":
             self.send_response(200)
             self.send_header("Content-Type", "video/mp2t")
@@ -258,6 +271,38 @@ class PreverbaToka(unittest.TestCase):
         zacetek = time.monotonic()
         self.assertEqual(self.preveri("/pocasi", rok=1.0), (kanali_iptv.MRTEV, "rok"))
         self.assertLess(time.monotonic() - zacetek, 2.0)
+
+    def test_skupni_rok_glave_in_telo_po_kapljicah(self):
+        for pot in ("/kaplja-glave", "/kaplja-telo"):
+            with self.subTest(pot):
+                zacetek = time.monotonic()
+                izid = self.preveri(pot, rok=1.0)
+                self.assertEqual(izid[0], kanali_iptv.MRTEV)
+                self.assertLess(time.monotonic() - zacetek, 2.5, "rok vticnice ni skupni rok")
+        self.assertEqual(self.preveri("/kaplja-glave", rok=1.0), (kanali_iptv.MRTEV, "rok"))
+
+    def test_dns_z_rokom(self):
+        def pocasen(gost, vrata, **k):
+            time.sleep(4)
+            return [(2, 1, 6, "", ("127.0.0.1", vrata))]
+        zacetek = time.monotonic()
+        izid = kanali_iptv.preveri_tok("http://pocasen.test:%d/ts" % self.vrata, rok=1.0, domace=True, razresi=pocasen)
+        self.assertEqual(izid, (kanali_iptv.MRTEV, "rok"))
+        self.assertLess(time.monotonic() - zacetek, 2.0)
+
+    def test_stirje_pocasni_gostitelji_ne_ustavijo_preverbe(self):
+        razresi = lambda gost, vrata, **k: [(2, 1, 6, "", ("127.0.0.1", vrata))]  # noqa: E731
+        mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(mapa.cleanup)
+        p = kanali_iptv.PreverbaKanalov(
+            Path(mapa.name) / "p.json",
+            preveri=lambda url, glave, rok, domace: kanali_iptv.preveri_tok(url, glave, rok, True, razresi=razresi))
+        kanali = [("http://p%d.test:%d/kaplja-glave" % (i, self.vrata), {}, False) for i in range(4)]
+        kanali.append(("http://dober.test:%d/ts" % self.vrata, {}, False))
+        with mock.patch.object(kanali_iptv, "ROK_S", 1.0), mock.patch.object(kanali_iptv, "PREMOR_GOSTITELJA_S", 0.0):
+            p.preveri_v_ozadju(kanali)
+            self.assertTrue(p.pocakaj(6), "stirje pocasni gostitelji so ustavili preverbo")
+        self.assertTrue(p.deluje("http://dober.test:%d/ts" % self.vrata))
 
     def test_neskoncen_tok_prebere_samo_zacetek(self):
         zacetek = time.monotonic()
