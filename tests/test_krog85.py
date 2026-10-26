@@ -265,7 +265,7 @@ class Viri(unittest.TestCase):
         def preveri(base):
             return "" if "stream" in manifest(base)["resources"] else "Samo seznam naslovov."
 
-        def osvezi(source_id):
+        def osvezi(source_id, **_k):
             with self.mc._lock:
                 data = self.mc._load()
                 vir = next(v for v in data["viri"] if v["id"] == source_id)
@@ -284,7 +284,8 @@ class Viri(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def _viri(self):
-        return {(v["tip"], v["naslov"]): v["cas"] for v in self.mc.viri_izvoz()["sources"]}
+        # Kaj ta racunalnik pove napravam v ozjem krogu (svojim napravam; pregled 46: drugim samo znani javni viri).
+        return {(v["tip"], v["naslov"]): v["cas"] for v in self.mc.viri_izvoz(ozji=True)["sources"]}
 
     def test_cista_pravila(self):
         self.assertEqual(viri_sink.stremio_osnova("stremio://d.primer.si/x/manifest.json"), "https://d.primer.si/x")
@@ -321,7 +322,7 @@ class Viri(unittest.TestCase):
             self.mc._save(data)
         with mock.patch.object(self.mc, "_spoznaj_dodatke", lambda idji: None):
             self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): self.ura[0]})
-            kazalo = self.mc.seznami_izvoz({})
+            kazalo = self.mc.seznami_izvoz({}, ozji=True)
         self.assertEqual([v["naslov"] for v in kazalo["sources"]], ["https://javen.primer.si/manifest.json"])
         self.assertEqual(kazalo["sources_deleted"], {})
         self.assertNotIn("zaseben", json.dumps(kazalo))
@@ -333,7 +334,11 @@ class Viri(unittest.TestCase):
         self.assertEqual(self._viri(), {("url", "https://podkast.primer.si/feed.xml"): self.ura[0]})
         # Izvoz za Safeer Control (Linux) je zapisan in enak.
         with open(os.path.join(self.tmp, "viri_za_naprave.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f), self.mc.viri_izvoz())
+            zapis = json.load(f)
+        self.assertEqual(viri_sink.viri_za(zapis, True), self.mc.viri_izvoz(ozji=True))     # razdeljen zapis (ozji krog)
+        # Pregled 46, Ö1: podkast ni pozitivno znan javen - napravi zunaj ozjega kroga ne gre.
+        self.assertEqual(viri_sink.viri_za(zapis), self.mc.viri_izvoz())
+        self.assertEqual(self.mc.viri_izvoz()["sources"], [])
 
     def test_prevzame_dodatek_z_naprave_zasebnega_in_nepredvajljivega_ne(self):
         kazalo = {"sources": [
@@ -344,29 +349,30 @@ class Viri(unittest.TestCase):
             {"tip": "podkast", "ime": "Moj podkast", "naslov": "https://podkast.primer.si/feed.xml", "cas": 0},
             {"tip": "splet", "ime": "Stran", "naslov": "https://stran.primer.si/", "cas": 7},
             {"tip": "peertube", "ime": "pt", "naslov": "peertube.primer.si", "cas": 7},
-            {"tip": "api", "ime": "api", "naslov": "https://api.primer.si|x", "cas": 7}], "sources_deleted": {}}
+            {"tip": "api", "ime": "api", "naslov": "https://api.primer.si|x", "cas": 7}], "sources_deleted": {},
+            "ozji": True}                  # pregled 51, Ê3: brez kljuca ozji (starejsa naprava) bi sel naprej samo znan javen vir
         osvezitve = []
         self.mc.ob_virih = lambda: osvezitve.append(1)
-        self.assertTrue(self.mc.viri_uskladi(kazalo))
+        self.assertTrue(self.mc.viri_uskladi(kazalo, "telefon"))       # posiljatelj v ozjem krogu te naprave (pregled 68, Ą3)
         self.assertEqual(osvezitve, [1])
         data = self.mc._load()
         self.assertEqual([(s["ime"], s["zaseben"], s["dodan"], s["link_naslov"]) for s in data["osebni_strezniki"]],
                          [("Javni dodatek", False, 500, "https://javen.primer.si/manifest.json")])
         self.assertEqual([(v["url"], v["link_tip"], v["dodan"]) for v in data["viri"]], [("https://podkast.primer.si/feed.xml", "podkast", 1)])
-        # Naprava dobi svoje vire nazaj z istim kljucem (ne podvoji jih).
-        self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): 500,
-                                        ("podkast", "https://podkast.primer.si/feed.xml"): 1})
+        # Pregled 51, Ê4: prejet vir, ki ni pozitivno znan javen, ne gre naprej v nas ozji krog (ozji krog je na vsaki
+        # napravi poseben, geslo bi sel tranzitivno do naprave, ki lastnika vira ne pozna).
+        self.assertEqual(self._viri(), {})
         # Drugi krog: nic novega, zavrnjenih ne preverja znova (ne sprasuje omrezja ob vsakem usklajevanju).
         with mock.patch.object(self.mc, "_prevzemi_vir", lambda v: self.fail("ne znova: " + v["naslov"])):
-            self.assertFalse(self.mc.viri_uskladi(kazalo))
+            self.assertFalse(self.mc.viri_uskladi(kazalo, "telefon"))
         # Nedosegljiv dodatek poskusimo spet po 10 minutah, zavrnjenega po enem dnevu.
         klici = []
         with mock.patch.object(self.mc, "_prevzemi_vir", lambda v: klici.append(v["naslov"]) or (False, viri_sink.ZAVRNJEN_VELJA_MS)):
             self.ura[0] += viri_sink.NEDOSEGLJIV_VELJA_MS + 1
-            self.mc.viri_uskladi(kazalo)
+            self.mc.viri_uskladi(kazalo, "telefon")
             self.assertEqual(klici, ["https://mrtev.primer.si/manifest.json"])
             self.ura[0] += viri_sink.ZAVRNJEN_VELJA_MS + 1
-            self.mc.viri_uskladi(kazalo)
+            self.mc.viri_uskladi(kazalo, "telefon")
             self.assertEqual(len(klici), 4)
         # Spletne strani (na Androidu bliznjica v brskalnik), streznika PeerTube in vira API racunalnik ne prevzema.
         self.assertFalse(any("stran.primer" in k or "peertube" in k or "api.primer" in k for k in klici))
@@ -383,23 +389,25 @@ class Viri(unittest.TestCase):
                                                                    "podkast|https://podkast.primer.si/feed.xml": dodan + 6,
                                                                    "tok|https://neznan.primer.si/a.mp3": 9}}))
         self.assertEqual(self._viri(), {})
-        izbrisani = self.mc.viri_izvoz()["sources_deleted"]
+        izbrisani = self.mc.viri_izvoz(ozji=True)["sources_deleted"]
         self.assertEqual(izbrisani, {"stremio|https://javen.primer.si/manifest.json": dodan + 5,
                                      "podkast|https://podkast.primer.si/feed.xml": dodan + 6, "tok|https://neznan.primer.si/a.mp3": 9})
         # Izbrisan vir se z naprave, ki ga se ima (dodan prej), ne vrne; dodan pozneje se.
         self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan}]}))
-        self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}]}))
-        self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 9})
-        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz()["sources_deleted"])
+        self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}],
+                                                  "ozji": True}, "telefon"))
+        self.assertEqual([s["link_naslov"] for s in self.mc._load()["osebni_strezniki"]],
+                         ["https://javen.primer.si/manifest.json"])          # prevzet; naprej ga ne izvazamo (Ê4)
+        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
         # Izbris tukaj: druge naprave ga dobijo s casom, ki ni starejsi od dodajanja (ure naprav niso enake).
         self.ura[0] = 5
         vir = self.mc._load()["osebni_strezniki"][0]
         self.assertTrue(self.mc.remove_source(vir["id"]))
-        self.assertEqual(self.mc.viri_izvoz()["sources_deleted"]["stremio|https://javen.primer.si/manifest.json"], dodan + 10)
+        self.assertEqual(self.mc.viri_izvoz(ozji=True)["sources_deleted"]["stremio|https://javen.primer.si/manifest.json"], dodan + 10)
         # Uporabnik ga doda znova: izbris je pozabljen, cas dodajanja je po izbrisu.
         self.mc.add_server("stremio", "", "https://javen.primer.si", "", "")
-        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz()["sources_deleted"])
-        self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 11})
+        self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
+        self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 11})   # lastni vir gre naprej
 
     def test_usklajevanje_seznamov_prevzame_tudi_vire_iz_istega_kazala(self):
         vprasanja = []
@@ -407,10 +415,12 @@ class Viri(unittest.TestCase):
         def vprasaj(parametri):
             vprasanja.append(dict(parametri or {}))
             return {"lists": [], "deleted": {}, "sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": 3}],
-                    "sources_deleted": {}} if not parametri else None
+                    "sources_deleted": {}, "ozji": True} if not parametri else None
+        vprasaj.id_naprave = "telefon"          # kot safeer_os._seznami_z_naprav: posiljatelj v ozjem krogu te naprave
         self.assertTrue(self.mc.seznami_uskladi(vprasaj))
         self.assertEqual(vprasanja, [{}])                                           # eno vprasanje za sezname in vire
-        self.assertEqual(list(self._viri()), [("stremio", "https://javen.primer.si/manifest.json")])
+        self.assertEqual([s["link_naslov"] for s in self.mc._load()["osebni_strezniki"]],
+                         ["https://javen.primer.si/manifest.json"])
         # Naprava brez virov (starejsa razlicica ali racunalnik brez njih): nic se ne zgodi.
         self.assertFalse(self.mc.seznami_uskladi(lambda p: {"lists": [], "deleted": {}} if not p else None))
         self.assertFalse(self.mc.seznami_uskladi(lambda p: None))

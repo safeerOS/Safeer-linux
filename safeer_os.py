@@ -806,6 +806,8 @@ def _seznami_z_naprav(uskladi: Callable[[Callable[[dict], Optional[dict]]], bool
         def vprasaj(parametri: dict, _id: str = str(n["id"])) -> Optional[dict]:
             r = _control_naprave("Ukaz", _id, "lists.get", json.dumps(parametri or {}))
             return r.get("data") if r.get("ok") and isinstance(r.get("data"), dict) else None
+        # Id posiljatelja za MediaCenter.seznami_uskladi: dokaz ozjega kroga je, da je v krogu TE naprave (pregled 68, Ą3).
+        vprasaj.id_naprave = str(n["id"])
         try:
             if uskladi(vprasaj):
                 spremenjeno = True
@@ -6161,6 +6163,21 @@ class SafeerOS(Gtk.Application):
             GLib.idle_add(lambda: (self._medijski_spusti_premik(self._medijski_drsnik, dogodek), False)[1])
         return False
 
+    def _preverba_kanalov_ob_predvajanju(self) -> None:
+        """Med predvajanjem preverba kanalov IPTV v ozadju stoji, ob koncu se nadaljuje (core/kanali_iptv: racun z 1-2
+        hkratnima povezavama preverba med gledanjem prekine ali zaklene - lastnik, 26. 10. 2026)."""
+        mc = getattr(self._katalog, "_mc", None) if self._katalog is not None else None
+        kanali = getattr(mc, "kanali", None)
+        if kanali is None:
+            return
+        predvaja = bool(self._medijski_predvajalnik and self._medijski_predvajalnik.stanje in ("predvaja", "premor"))
+        if predvaja:
+            kanali.gleda(30)
+            self._kanali_gleda = True
+        elif getattr(self, "_kanali_gleda", False):
+            kanali.ne_gleda()
+            self._kanali_gleda = False
+
     def _ustavi_neposredni_medij(self) -> None:
         if self._medijski_predvajalnik is not None:
             try:
@@ -6902,6 +6919,7 @@ class SafeerOS(Gtk.Application):
         if self._koncano:
             return False
         self._budnost_predvajanja()
+        self._preverba_kanalov_ob_predvajanju()
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "premor":
             self._medijski_predvajalnik.poskusi_nadaljevati()     # obnovljen ustavljen: skok na shranjeni polozaj
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja":

@@ -47,6 +47,7 @@ from . import spotify_racun
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
+from . import kanali_iptv
 from core import shramba_json
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
@@ -57,6 +58,9 @@ MAX_FILES = 500
 #: ID posnetka YouTube (11 znakov).
 YOUTUBE_ID_VZOREC = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MAX_SOURCE_ITEMS = 1500
+#: Seznam kanalov IPTV ima lahko vec vnosov kot splosen vir (iptv-org »languages/eng«: 3004 kanalov 25. 10. 2026);
+#: prej je meja 1500 odrezala pol seznama po abecedi.
+MAX_KANALOV_SEZNAMA = 5000
 MAX_DOWNLOAD = 6 * 1024 * 1024
 TRACKING_QUERY = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref", "source"}
 TMDB_API_KEY = os.environ.get("SAFEER_TMDB_API_KEY", "844dba0bfd8f3a4f3799f6130ef9e335")
@@ -269,7 +273,10 @@ def _kind(value: Any, url: str = "", title: str = "", season: int = 0, episode: 
         return "glasba"
     if ext in IMAGES or any(x in hint for x in ("image", "slika", "photo", "fotografija")):
         return "slika"
-    if any(x in hint for x in ("series", "episode", "season", "show", "tv", "serija", "epizoda", "/tv/", "/series/")):
+    # Serija samo po besedi za serijo, sezono ali epizodo ali po poti /tv/, /series/ (lastnik, 25. 10. 2026: podniz »tv«
+    # v imenu kanala - »Exodus TV« - ali v naslovu toka je kanale v zivo poslal v Serije).
+    if (re.search(r"\b(?:series|episodes?|seasons?|serija|serije|epizod[ae]?|sezon[ae]?|tv[ -]?show)\b", hint)
+            or any(x in hint for x in ("/tv/", "/series/"))):
         return "serija"
     return "film"
 
@@ -760,6 +767,21 @@ def _je_predvajalni_vir(url: str) -> bool:
     return _je_predloga_predvajalnika(url) or _je_korenski_predvajalni_vir(url)
 
 
+#: Platforme, ki jih Medijski center bere samo prek uradnih vdelav (_official_music_embed, _resolve_embed_or_direct_source):
+#: nobena nima racuna pri ponudniku IPTV, zato zanje ne velja pravilo »neznano je racun« (MediaCenter._racun_vira).
+_PLATFORME_BREZ_RACUNA = ("youtube.com", "youtu.be", "soundcloud.com", "bandcamp.com")
+
+
+def _platforma_brez_racuna(url: object) -> bool:
+    besedilo = str(url or "")
+    try:
+        gostitelj = (urllib.parse.urlsplit(besedilo).hostname or "").casefold()
+    except ValueError:
+        return False
+    return (any(gostitelj == d or gostitelj.endswith("." + d) for d in _PLATFORME_BREZ_RACUNA)
+            or _je_predvajalni_vir(besedilo))
+
+
 def _je_neposredni_medijski_tok(url: str) -> bool:
     """Prepozna neposreden medijski URL, ki ga ne smemo prenesti kot katalog."""
     path = urllib.parse.urlsplit(url).path.lower()
@@ -857,30 +879,72 @@ def _resolve_embed_or_direct_source(url: str, source_id: str, source_name: str) 
     return [it] if it else []
 
 
-def _parse_m3u(text: str, base: str, source_id: str, source_name: str) -> list[dict]:
+def _parse_m3u(text: str, base: str, source_id: str, source_name: str, stevci: Optional[dict] = None) -> list[dict]:
     # HLS manifest je en prilagodljiv tok, ne katalog segmentov. LibVLC sam izbere
     # najboljšo različico glede na povezavo in zmogljivost naprave.
     if "#EXT-X-TARGETDURATION" in text or "#EXT-X-STREAM-INF" in text:
         found = _item(source_name, base, base=base, source_id=source_id,
                       source_name=source_name, kind=_kind("", base, source_name), quality="adaptive")
         return [found] if found else []
-    out, pending = [], {}
-    for raw in text.splitlines():
+    # Seznam vnosov (#EXTINF): ime je za vejico ZUNAJ narekovajev, atributi so vsi pred njo (core/kanali_iptv.py).
+    # Lastnik, 25. 10. 2026: razrez pri prvi vejici je iz http-user-agent »(KHTML, like Gecko)« naredil naslov in
+    # izgubil group-title in tvg-logo; kanali so pristali v Serijah.
+    drzava_seznama, jezik_seznama = kanali_iptv.iz_naslova_seznama(base)
+    stevci = stevci if stevci is not None else {}
+    out: list[dict] = []
+    extinf, vlc, skupina = None, {}, ""
+    # Samo CR/LF locita vrstici: str.splitlines deli tudi na U+2028, U+0085, \x0b ... v imenu kanala - drugi del je
+    # postal lazen naslov, pravi naslov pa vnos brez atributov (pregled 30, J7).
+    for raw in re.split(r"\r\n|\r|\n", text):
         line = raw.strip()
-        if line.startswith("#EXTINF:"):
-            attrs, _, title = line.partition(",")
-            pending = {"title": title.strip() or source_name}
-            for key, value in re.findall(r'([\w-]+)="([^"]*)"', attrs):
-                pending[key.lower()] = value
-        elif line and not line.startswith("#"):
-            title = pending.get("title") or Path(urllib.parse.urlsplit(line).path).stem or source_name
-            found = _item(title, line, base=base, source_id=source_id, source_name=source_name,
-                          kind=pending.get("group-title", ""), image=pending.get("tvg-logo", ""),
-                          quality=pending.get("quality", ""))
-            if found:
-                out.append(found)
-            pending = {}
-        if len(out) >= MAX_SOURCE_ITEMS:
+        if not line:
+            continue
+        glava = line[:12].upper()
+        if glava.startswith("#EXTINF:"):
+            extinf, vlc, skupina = kanali_iptv.razcleni_extinf(line), {}, ""
+            continue
+        if glava.startswith("#EXTVLCOPT:"):
+            ime_opcije, _, vrednost = line[11:].partition("=")
+            vlc[ime_opcije.strip().lower()] = vrednost.strip()
+            continue
+        if glava.startswith("#EXTGRP:"):
+            skupina = line[8:].strip()
+            continue
+        if line.startswith("#"):
+            continue
+        trajanje, atributi, ime = extinf if extinf else (None, {}, "")
+        extinf = None
+        if skupina and "group-title" not in atributi:
+            atributi = dict(atributi, **{"group-title": skupina})
+        if kanali_iptv.ni_24_7(ime, atributi):
+            # Lastnik, 25. 10. 2026: kanali »[Not 24/7]« se izlocijo povsod (ne prikaz, ne preverba).
+            stevci["ne_24_7"] = stevci.get("ne_24_7", 0) + 1
+            vlc = {}
+            continue
+        media_url = _absolute(base, line)
+        vrsta = kanali_iptv.vrsta_vnosa(atributi, media_url or line, ime, trajanje)
+        sezona, epizoda = kanali_iptv.sezona_epizoda(ime) if vrsta == "serija" else (0, 0)
+        naslov = (kanali_iptv.cisto_ime(ime) if vrsta == "tv-v-zivo" else ime) \
+            or Path(urllib.parse.urlsplit(line).path).stem or source_name
+        odjemalec = vlc.get("http-user-agent") or atributi.get("http-user-agent", "")
+        napotitelj = (vlc.get("http-referrer") or vlc.get("http-referer")
+                      or atributi.get("http-referrer") or atributi.get("http-referer", ""))
+        glave = {k: v for k, v in (("User-Agent", odjemalec), ("Referer", napotitelj)) if v}
+        vlc = {}
+        found = _item(naslov, line, base=base, source_id=source_id, source_name=source_name,
+                      kind=vrsta, image=atributi.get("tvg-logo", ""),
+                      quality=atributi.get("quality", "") or ime, headers=glave, referer=napotitelj,
+                      season=sezona, episode=epizoda)
+        if not found:
+            continue
+        # Vrsto je dolocil seznam (kanal, datoteka, epizoda); _kind je ugibal po besedah v imenu (»Radio Ga Ga TV«).
+        found.update(vrsta=vrsta, sezona=sezona, epizoda=epizoda, iz_seznama=True)
+        if vrsta == "tv-v-zivo":
+            drzava, jezik = kanali_iptv.drzava_in_jezik(atributi, drzava_seznama, jezik_seznama)
+            found.update(iptv=True, drzava=drzava, jezik=jezik,
+                         kategorija_kanala=_text(atributi.get("group-title"), 60))
+        out.append(found)
+        if len(out) >= MAX_KANALOV_SEZNAMA:
             break
     return out
 
@@ -951,7 +1015,7 @@ def _parse_xml(text: str, base: str, source_id: str, source_name: str) -> list[d
 
 
 def parse_payload(payload: bytes, content_type: str, source_url: str,
-                  source_id: str = "vir", source_name: str = "Vir") -> list[dict]:
+                  source_id: str = "vir", source_name: str = "Vir", stevci: Optional[dict] = None) -> list[dict]:
     """Razbere medijske vnose iz enega prenesenega odgovora brez izvajanja tuje kode."""
     text = payload.decode("utf-8", "replace")
     content = (content_type or "").lower()
@@ -959,7 +1023,9 @@ def parse_payload(payload: bytes, content_type: str, source_url: str,
     if "scpls" in content or "playlist" in content and stripped.lower().startswith("[playlist]") or source_url.lower().endswith(".pls"):
         return _parse_pls(text, source_url, source_id, source_name)
     if "mpegurl" in content or source_url.lower().endswith((".m3u", ".m3u8")) or stripped.startswith("#EXTM3U"):
-        return _parse_m3u(text, source_url, source_id, source_name)
+        if stevci is not None:
+            stevci["m3u"] = True
+        return _parse_m3u(text, source_url, source_id, source_name, stevci)
     if "json" in content or stripped.startswith(("{", "[")):
         try:
             return _items_from_json(json.loads(text), source_url, source_id, source_name)
@@ -1172,10 +1238,13 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
         best["id"] = hashlib.sha256(identity.encode()).hexdigest()[:20]
         best["razlicice"] = [dict({k: value for k, value in item.items()
                                    if k in ("url", "vir", "vir_id", "kakovost", "locljivost", "bitrate",
-                                            "glave", "referer", "imdb_id", "tmdb_id")},
+                                            "glave", "referer", "imdb_id", "tmdb_id", "iptv")},
                                   **({"lastni": True} if lastni_vir(item) else {}))
                              for item in variants]
         best["stevilo_razlicic"] = len(variants)
+        if any(item.get("preverjam") for item in variants):
+            # »Preverjam« samo, ce nobena razlicica (znano) ne oddaja (core/kanali_iptv, J3).
+            best["preverjam"] = all(item.get("preverjam") for item in variants)
         best["viri"] = list(dict.fromkeys(item.get("vir", "") for item in variants if item.get("vir")))
         result.append(best)
     return sorted(result, key=lambda item: (item.get("vrsta", ""), item.get("naslov", "").casefold()))
@@ -1283,6 +1352,28 @@ def _ujemanje_naslova(naslov: str, iskano: str) -> int:
     return 1 if n.startswith(q + " ") else 2
 
 
+def vir_za_stran(vir: dict) -> dict:
+    """Vir za podatke strani (pregled 46, Ö8): naslov in link_naslov samo, ce je naslov pozitivno znan javen, sicer samo
+    prikaz (gostitelj[:vrata]); napaka brez naslovov. Geslo ali kljuc v naslovu (Xtream, dodatek s kljucem debrid v
+    poti) tako ni v pomnilniku strani (razsiritve, orodja za razvijalce, posnetek stanja). Predvajanje in osvezitev
+    naslov dobita v Medijskem centru (sources())."""
+    url = str(vir.get("url") or "")
+    prikaz = vir["url_prikaz"] if isinstance(vir.get("url_prikaz"), str) else viri_sink.prikaz_naslova(url)
+    izid = dict(vir, url_prikaz=prikaz)
+    if url != prikaz:
+        izid.pop("url", None)
+    if izid.get("link_naslov") and not viri_sink.znan_javen(izid["link_naslov"], vir.get("javni") is True):
+        izid.pop("link_naslov", None)
+    if isinstance(izid.get("napaka"), str):
+        izid["napaka"] = viri_sink.sporocilo_napake(izid["napaka"], url, vir.get("javni") is True, 300)   # Ê5, Ş5
+    return izid
+
+
+class _PrazenOdgovor(ValueError):
+    """Ponudnik je na naslov vira z racunom odgovoril brez seznama (prazno telo, stran HTML - racun potekel ali
+    zaklenjen; pregled 46, Ö5)."""
+
+
 class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
 
@@ -1300,6 +1391,8 @@ class MediaCenter:
         self._zasebni_koreni: dict[str, bool] = {}
         #: Moji viri so se z usklajevanjem v Linku spremenili (core/viri_sink.py): klicatelj osvezi zaslon.
         self.ob_virih: Optional[Callable[[], None]] = None
+        #: Preverba kanalov IPTV je spremenila, kateri kanali delujejo (core/kanali_iptv.py): klicatelj obvesti stran.
+        self.ob_kanalih: Optional[Callable[[], None]] = None
         self._spoznavam_dodatke = False
         self._dodatki_vprasani: dict[str, float] = {}
         self._izvoz_virov_zapisan = False
@@ -1322,6 +1415,13 @@ class MediaCenter:
         self._predpomnilnik_lock = threading.RLock()
         self._predpomnilnik_casovnik: Optional[threading.Timer] = None
         self._osvezujem: set[str] = set()
+        # Kanali seznamov IPTV: prikazemo samo tiste, ki oddajajo (core/kanali_iptv.py; lastnik, 25. 10. 2026).
+        self.kanali = kanali_iptv.PreverbaKanalov(self.config_dir / "kanali-preverba.json")
+        self.kanali.ob_spremembi = self._kanali_spremenjeni
+        self._zastareli_viri: set[str] = set()
+        # Enkratna selitev po pregledu 46 (Ö3) - pred vsakim drugim zapisom media.json in viri_za_naprave.json.
+        self._racuni_preseljeni = False
+        self._preseli_racune()
 
     # --- prijava osebnih streznikov ob predvajanju ------------------------------
     #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
@@ -1384,7 +1484,8 @@ class MediaCenter:
 
     #: Razlicica pravil kataloga: ob spremembi (11. 10. 2026: PeerTube in Internet Archive nista vec vgrajena, glasbeni
     #: dodatki gredo pod Glasbo) shranjen katalog ne velja vec - sicer bi stara vsebina ob zagonu se enkrat zasvetila.
-    RAZLICICA_KATALOGA = 5      # 5: 15. 10. 2026 brez dvojnikov Jellyfin/Stremio (lastni strežnik prvi, kanali po imenu
+    RAZLICICA_KATALOGA = 6      # 6: 25. 10. 2026 kanali IPTV samo v TV v zivo in samo delujoci
+    #                             5: 15. 10. 2026 brez dvojnikov Jellyfin/Stremio (lastni strežnik prvi, kanali po imenu
     #                             in drzavi, epizode s strežnika v kartici serije); 4: programi RTV 365 po kanalih
 
     @property
@@ -1622,8 +1723,9 @@ class MediaCenter:
                     kandidati.extend(x for x in (rezultat.get("vnosi") or []) if isinstance(x, dict))
         # Uporabnikovi uvoženi viri so že na disku in zato prav tako ne povzročijo omrežnega klica.
         with self._lock:
-            for vir in self._load().get("viri", []):
-                kandidati.extend(x for x in (vir.get("vnosi") or []) if isinstance(x, dict))
+            data = self._load()
+        # Isti izbor kot katalog: brez mrtvih, zaklenjenih in »Not 24/7« kanalov ter brez stare razclenitve.
+        kandidati.extend(self._vnosi_virov(data, "vse", preveri=False))
 
         # Predlogi iskanja nikoli ne pokazejo zasebne vsebine (tudi iz shranjenih pogledov kategorije »Zasebno«).
         kandidati = self.brez_zasebnih(kandidati)
@@ -1634,6 +1736,8 @@ class MediaCenter:
                 continue
             if not lastni_vir(item) and self.znano_ni_na_voljo(item):
                 continue                          # noben vir ga ne predvaja (kot brez_nerazpolozljivih)
+            if self.kanal_skrit(item):
+                continue                          # kanal IPTV, ki ne oddaja (tudi iz shranjenih pogledov)
             kljuc = str(item.get("id") or (item.get("naslov"), item.get("vrsta")))
             if kljuc in videni:
                 continue
@@ -1766,6 +1870,8 @@ class MediaCenter:
         return None
 
     def _save(self, data: dict) -> None:
+        if self._racuni_preseljeni:
+            data["racuni_preseljeni"] = self.PRESELITEV_RACUNOV      # zapis te razlicice: selitev ni vec potrebna
         self.config_dir.mkdir(parents=True, exist_ok=True)
         shramba_json.zapisi_atomsko(self.store_path, data, indent=2)
         # Viri so se spremenili: shranjeni pogledi se ob naslednjem odprtju osvezijo v ozadju.
@@ -2061,6 +2167,7 @@ class MediaCenter:
         if isinstance(rezultat, dict) and isinstance(rezultat.get("vnosi"), list):
             vnosi = [v for v in rezultat["vnosi"] if not (isinstance(v, dict) and (
                 (self.znano_ni_na_voljo(v) and not lastni_vir(v))      # na lastnem strežniku je vedno na voljo
+                or self.kanal_skrit(v)                                  # kanal IPTV, ki ne oddaja (core/kanali_iptv.py)
                 or str(v.get("url") or "").startswith("kodi-dodatek:")))]
             if len(vnosi) != len(rezultat["vnosi"]):
                 novo = dict(rezultat, vnosi=vnosi)
@@ -2167,16 +2274,18 @@ class MediaCenter:
             izbrisani[ime] = cas
         self._izbrisani_pisi(izbrisani)
 
-    def seznami_izvoz(self, parametri: Optional[dict] = None) -> dict:
-        """Odgovor na `lists.get` druge naprave v Safeer Linku: kazalo seznamov ali ena stran skladb seznama."""
+    def seznami_izvoz(self, parametri: Optional[dict] = None, ozji: bool = False) -> dict:
+        """Odgovor na `lists.get` druge naprave v Safeer Linku: kazalo seznamov ali ena stran skladb seznama. `ozji`:
+        naprava v ozjem krogu - samo ta dobi vire in tokove z racunom ponudnika (viri_sink.za_ozji_krog)."""
         parametri = parametri if isinstance(parametri, dict) else {}
         ime = str(parametri.get("ime") or "")
         with self._lock:
             vsi = [x for x in self._seznami_beri() if not x.get("zaseben")]   # seznami racuna YouTube ostanejo tukaj
             if not ime:
-                return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
-                                        "stevilo": len(x["skladbe"])} for x in vsi],
-                             "deleted": self._izbrisani_beri()}, **self.viri_izvoz())
+                # Vir seznama z naslovom (geslom) samo ozjemu krogu (pregled 46, Ö2; enako core/link_seznami.py).
+                return dict({"lists": [{"ime": x["ime"], "vir": viri_sink.vir_seznama_za(x.get("vir"), ozji),
+                                        "cas": int(x.get("cas") or 0), "stevilo": len(x["skladbe"])} for x in vsi],
+                             "deleted": self._izbrisani_beri(), "ozji": ozji is True}, **self.viri_izvoz(ozji))
             sz = next((x for x in vsi if x["ime"] == ime), None)
         if not sz:
             return {"ime": ime, "stevilo": 0, "skladbe": []}
@@ -2187,9 +2296,9 @@ class MediaCenter:
         polja = ("naslov", "izvajalec", "youtube", "sekund", "slika", "url", "video", "android")
         # Prijava streznika ne gre na druge naprave (enako core/link_seznami.py, skladba_za_napravo).
         skladbe = [{k: c[k] for k in polja if k in c} for c in
-                   (viri_sink.cista_skladba(s) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
-        return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
-                "od": od, "skladbe": skladbe}
+                   (viri_sink.skladba_za(s, ozji) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
+        return {"ime": sz["ime"], "vir": viri_sink.vir_seznama_za(sz.get("vir"), ozji), "cas": int(sz.get("cas") or 0),
+                "stevilo": len(sz["skladbe"]), "od": od, "skladbe": skladbe}
 
     def seznami_uskladi(self, vprasaj) -> bool:
         """Prevzame novejse sezname, izbrise in Moje vire ene naprave v Linku (vprasaj(parametri) -> data ukaza
@@ -2206,7 +2315,8 @@ class MediaCenter:
             self._viri_zapisi_izvoz()       # za Safeer Control (Linux), ki napravam odgovarja namesto Safeer OS
         spremenjeno = self._seznami_uskladi(vprasaj_in_zajemi)
         try:
-            if self.viri_uskladi(zajeto.get("kazalo")):
+            # Id posiljatelja (safeer_os._seznami_z_naprav ga pripne vprasaju): brez njega dokaza o ozjem krogu ni.
+            if self.viri_uskladi(zajeto.get("kazalo"), str(getattr(vprasaj, "id_naprave", "") or "")):
                 spremenjeno = True
         except Exception as e:  # noqa: BLE001 - viri ne smejo ustaviti usklajevanja seznamov
             print("[SafeerMedia] viri z naprave:", type(e).__name__, flush=True)
@@ -2740,8 +2850,29 @@ class MediaCenter:
     def sources(self) -> list[dict]:
         with self._lock:
             data = self._load()
-            regular = [{k: value for k, value in source.items() if k != "vnosi"}
-                       for source in data.get("viri", []) if isinstance(source, dict)]
+            regular = []
+            for source in data.get("viri", []):
+                if not isinstance(source, dict):
+                    continue
+                vir = {k: value for k, value in source.items() if k != "vnosi"}
+                # Na zaslonu cel naslov samo pozitivno znanega javnega vira, drugo samo gostitelj (pregled 46, Ö1).
+                vir["url_prikaz"] = viri_sink.prikaz_naslova(source.get("url"), source.get("javni") is True)
+                if self._racun_vira(source):
+                    ostane = self._zavrnjen_do(source) - time.time()
+                    if ostane > 0:
+                        vir["premor_s"] = int(ostane) + 1       # vrstica pove, cez koliko casa je nov poskus mogoc (Ą5)
+                if (source.get("ozji_krog") and not source.get("caka_uporabnika") and "premor_s" not in vir
+                        and (source.get("prvo_uporaba")
+                             or time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S)):
+                    vir["odpri"] = True                         # gumb »Odpri«: povezava samo za ta vir (Ą4)
+                kanali = self._statistika_kanalov(source)
+                if kanali is not None:
+                    # Lastnik, 25. 10. 2026: mrtvih kanalov ni niti v stevcu Virov. Steje, kar je vidno: delujoci in
+                    # neznani (J3: viden z oznako »preverjam« oziroma kanal seznama z racunom, ki ga ne preverjamo).
+                    vir["kanali"] = kanali
+                    vir["stevilo"] = kanali["izbranih"] - kanali["mrtvih"] - kanali["zaklenjenih"] + sum(
+                        1 for x in source.get("vnosi") or [] if isinstance(x, dict) and not x.get("iptv"))
+                regular.append(vir)
             personal = [{k: value for k, value in source.items() if k not in ("secret_enc", "uporabnik")}
                         for source in data.get("osebni_strezniki", []) if isinstance(source, dict)]
             return regular + personal
@@ -2749,7 +2880,7 @@ class MediaCenter:
     def vidni_viri(self) -> list[dict]:
         """Viri za prikaz v medijskem centru: brez tistih, iz katerih ni nic predvajljivega (in brez zasebnih dodatkov,
         dokler kategorija »Zasebno« ni vklopljena)."""
-        return [vir for vir in self.sources()
+        return [vir_za_stran(vir) for vir in self.sources()
                 if (vir.get("vrsta") == "streznik" or int(vir.get("stevilo") or 0) > 0
                     or (vir.get("tip") == "predvajalni_vir" and not vir.get("napaka")))
                 and (self.zasebno or not self.zaseben_streznik(vir))]
@@ -3022,9 +3153,432 @@ class MediaCenter:
 
     def tv_drzave(self) -> list[dict]:
         with self._lock:
+            data = self._load()
             moji = any(x.get("ponudnik") in ("tvheadend", "dlna", "kodi")
-                       for x in self._load().get("osebni_strezniki", []))
-        return zakoniti_viri.tv_drzave(self._drzava_uporabnika(), moji)
+                       for x in data.get("osebni_strezniki", []))
+        drzava = self._drzava_uporabnika()
+        izid = zakoniti_viri.tv_drzave(drzava, moji)
+        # Drzave delujocih kanalov iz seznamov IPTV (izbira v Virih) kot gumbi: drzava uporabnika, nato tiste z najvec
+        # kanali (najvec TV_DRZAV_GUMBOV, vsaj TV_DRZAVA_KANALOV kanalov - eng.m3u ima kanale iz ~100 drzav, vrsta gumbov
+        # bi zakrila mrezo). »Moji kanali« ostanejo zadnji.
+        znane = {d["id"] for d in izid}
+        stevilo: dict[str, int] = {}
+        for x in self._vnosi_virov(data, "tv-v-zivo", preveri=False):
+            d = str(x.get("drzava") or "").upper()
+            if d not in znane and re.fullmatch(r"[A-Z]{2}", d):
+                stevilo[d] = stevilo.get(d, 0) + 1
+        dodatne = sorted((d for d, n in stevilo.items() if n >= self.TV_DRZAVA_KANALOV or d == drzava.upper()),
+                         key=lambda d: (d != drzava.upper(), -stevilo[d], d))[:self.TV_DRZAV_GUMBOV]
+        if dodatne:
+            konec = [d for d in izid if d["id"] == "moji"]
+            izid = [d for d in izid if d["id"] != "moji"] + [{"id": d, "ime": zakoniti_viri.DRZAVE.get(d, d)} for d in dodatne] + konec
+        return izid
+
+    # --- kanali seznamov IPTV (core/kanali_iptv.py) -------------------------------------------------------------
+    TV_DRZAV_GUMBOV = 24
+    TV_DRZAVA_KANALOV = 3
+
+    def _kanali_spremenjeni(self, viri: bool = False) -> None:
+        """Preverba v ozadju je nasla nov delujoc kanal ali kanal ne deluje vec: pogledi se ob naslednjem odprtju osvezijo,
+        stran dobi dogodek (mediaKanaliPreverjeni - stevci v Virih brez ponovnega nalaganja mreze, po kateri uporabnik
+        morda ravno drsi). `viri`: vir je bil prebran znova - stran osvezi vire in katalog (mediaViriUsklajeni)."""
+        self.ozastari_predpomnilnik()
+        povratni = self.ob_virih if viri else self.ob_kanalih
+        if povratni is not None:
+            try:
+                povratni()
+            except Exception:  # noqa: BLE001, S110 - obvestilo strani ne sme ustaviti preverbe
+                pass
+
+    def _drzava_tv(self) -> str:
+        """Drzava uporabnika za kanale: izbrana v Medijskem centru ali iz regije sistema (brez omrezja)."""
+        izbrana = str(getattr(self, "izbrana_drzava", "") or "auto").upper()
+        if re.fullmatch(r"[A-Z]{2}", izbrana):
+            return izbrana
+        try:
+            return watch_providers.detect_country("sl")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @property
+    def pot_tv_izbire(self) -> Path:
+        return self.config_dir / "tv-izbira.json"
+
+    def tv_izbira(self) -> dict:
+        """Drzave in jeziki kanalov javnih seznamov (iptv-org). Privzeto drzava uporabnika in drzave z anglescino."""
+        try:
+            d = json.loads(self.pot_tv_izbire.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            d = None
+        if not isinstance(d, dict):
+            return kanali_iptv.privzeta_izbira(self._drzava_tv())
+        return {"drzave": [x for x in d.get("drzave") or [] if isinstance(x, str) and re.fullmatch(r"[A-Z]{2}", x)][:300],
+                "jeziki": [x for x in d.get("jeziki") or [] if isinstance(x, str) and re.fullmatch(r"[a-z]{2}", x)][:200]}
+
+    def nastavi_tv_izbiro(self, drzave: Iterable[str], jeziki: Iterable[str]) -> dict:
+        izbira = {"drzave": sorted({str(x).upper() for x in drzave or [] if re.fullmatch(r"[A-Za-z]{2}", str(x))})[:300],
+                  "jeziki": sorted({str(x).lower() for x in jeziki or [] if re.fullmatch(r"[A-Za-z]{2}", str(x))})[:200]}
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            shramba_json.zapisi_atomsko(self.pot_tv_izbire, izbira, indent=None)
+        except OSError:
+            pass
+        self.ozastari_predpomnilnik()
+        return izbira
+
+    def tv_izbira_na_voljo(self) -> dict:
+        """Drzave in jeziki kanalov javnih seznamov (za izbiro v Virih) s stevilom kanalov."""
+        with self._lock:
+            data = self._load()
+        drzave: dict[str, int] = {}
+        jeziki: dict[str, int] = {}
+        for source in data.get("viri", []):
+            if not isinstance(source, dict) or not kanali_iptv.je_javni_seznam(source.get("url")):
+                continue
+            for item in source.get("vnosi") or []:
+                if isinstance(item, dict) and item.get("iptv"):
+                    if item.get("drzava"):
+                        drzave[item["drzava"]] = drzave.get(item["drzava"], 0) + 1
+                    if item.get("jezik"):
+                        jeziki[item["jezik"]] = jeziki.get(item["jezik"], 0) + 1
+        return {"drzave": [{"id": k, "n": v} for k, v in sorted(drzave.items(), key=lambda p: -p[1])],
+                "jeziki": [{"id": k, "n": v} for k, v in sorted(jeziki.items(), key=lambda p: -p[1])],
+                "uporabnik": self._drzava_tv(), "izbrano": self.tv_izbira()}
+
+    @staticmethod
+    def _zastarela_razclenitev(source: dict) -> bool:
+        """Seznam M3U, razclenjen pred kanali_iptv.RAZCLENITEV (napacni naslovi in vrste): ne kazemo ga, dokler ga v
+        ozadju ne preberemo znova."""
+        if source.get("razclenitev") == kanali_iptv.RAZCLENITEV:
+            return False
+        pot = urllib.parse.urlsplit(str(source.get("url") or "")).path.lower()
+        if pot.endswith((".m3u", ".m3u8")) or "type=m3u" in str(source.get("url") or "").lower():
+            return True
+        return any(isinstance(x, dict) and urllib.parse.urlsplit(str(x.get("url") or "")).path.lower().endswith((".m3u8", ".ts"))
+                   for x in (source.get("vnosi") or [])[:50])
+
+    #: Vir, ki ga ni bilo mogoce prebrati znova (brez povezave, VPN), poskusimo spet ob odprtju kataloga po tem casu -
+    #: prej je ostal skrit do ponovnega zagona (pregled 30, J9).
+    ZASTARELI_ZNOVA_S = 600.0
+    #: Ponudnik je seznam zavrnil (401/402/403/429: racun potekel ali zaklenjen, prevec zahtev): samodejno ga prenesemo
+    #: znova sele po teh premorih, zapisanih v viru (velja tudi po ponovnem zagonu). Prej vsakih 10 min - vsaka zahteva
+    #: na racun, ki je ze v tezavah, steje (pregled 39, I5). Rocna osvezitev (gumb v Virih) velja takoj.
+    ZAVRNJEN_PREMORI_S = (600.0, 3600.0, 6 * 3600.0, 24 * 3600.0)
+    ZAVRNJENE_KODE = frozenset({401, 402, 403, 429})
+    #: Vir z racunom, pri katerem tolikokrat zapored ni bilo povezave (koda 0), dobi isti rastoci premor (Ê1).
+    NI_POVEZAVE_ZAPORED = 3
+    #: Vir iz ozjega kroga (lastnik, 26. 10. 2026: »v ozadju se ne osvezuje«): po prvi uporabi velja prebran seznam 24 h.
+    #: To je MEJA, ne sprozilec (pregled 68, Ą1): osvezitev sprozi samo uporabnik - odprtje TEGA vira (odpri_vir; ne
+    #: katalog, Ą4), ko je seznam starejsi od 24 h, ali »Osvezi«; refresh_stale vira ne kazeta nikoli. Vsaka osvezitev, tudi
+    #: uporabnikova, je najvec ena na minuto. Meje veljajo na napravo: usklajevanja med napravami ni, zato dnevne
+    #: osvezitve v ozadju na vsaki napravi ne bi smeli imeti (N naprav = N prijav na dan z razlicnih naslovov IP).
+    OZJI_KROG_PREDPOMNILNIK_S = 24 * 3600.0
+    OZJI_KROG_OSVEZITEV_S = 60.0
+
+    def _zavrnjen_do(self, source: dict) -> float:
+        """Do kdaj (unix) vira, ki ga je ponudnik zavrnil, samodejno ne prenasamo znova (0: ni zavrnjen)."""
+        zavrnjen = source.get("zavrnjen")
+        if not isinstance(zavrnjen, dict):
+            return 0.0
+        try:
+            n, ob = int(zavrnjen.get("n") or 1), float(zavrnjen.get("ob") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return ob + self.ZAVRNJEN_PREMORI_S[min(max(n, 1), len(self.ZAVRNJEN_PREMORI_S)) - 1]
+
+    def odpri_vir(self, source_id: str) -> dict:
+        """Uporabnik je odprl TA vir (vrstica v Virih; pregled 68, Ą4). Vir iz ozjega kroga, ki se se ni prebral ali je
+        prebran pred vec kot 24 h, dobi eno povezavo v ozadju (premor, 1/min in »ena naenkrat« veljajo); drug vir ali vir
+        v predpomnilniku ne naredi nic. Vrne {"ok": True, "zacet": bool}."""
+        with self._lock:
+            source = next((s.copy() for s in self._load().get("viri", []) if s.get("id") == source_id), None)
+        if source is None:
+            return {"ok": False, "napaka": "ni_vira", "zacet": False}
+        if not source.get("ozji_krog") or source.get("caka_uporabnika"):
+            return {"ok": True, "zacet": False}
+        stara = time.time() - float(source.get("posodobljeno") or 0) >= self.OZJI_KROG_PREDPOMNILNIK_S
+        if not (source.get("prvo_uporaba") or stara):
+            return {"ok": True, "zacet": False}
+        return {"ok": True, "zacet": bool(self._prvo_uporaba_v_ozadju([source]))}
+
+    @staticmethod
+    def _kategorije_vira(source: dict) -> set:
+        """Kategorije Medijskega centra (vrste kataloga), kamor spada vir iz ozjega kroga: prebran vir po vrstah vnosov,
+        se neprebran po vrsti, ki jo je navedla druga naprava (link_tip; vrsti ne zaupamo za nic drugega kot za to, v
+        kateri kategoriji uporabnik vir pricakuje): podkast - Glasba, tok - TV v zivo in Radio, drugo (seznam IPTV,
+        neznana oblika) - TV v zivo."""
+        izid = set()
+        for x in source.get("vnosi") or []:
+            if not isinstance(x, dict):
+                continue
+            vrsta = "tv-v-zivo" if x.get("iptv") else str(x.get("vrsta") or "")
+            izid.add("glasba" if vrsta in ("podcast", "podkast") else vrsta)
+        izid.discard("")
+        if izid:
+            return izid
+        tip = str(source.get("link_tip") or "")
+        if tip == "podkast":
+            return {"glasba"}
+        if tip in ("tok", "tok-hls"):
+            return {"tv-v-zivo", "radio"}
+        return {"tv-v-zivo"}
+
+    def odpri_kategorijo(self, vrsta: str) -> dict:
+        """Uporabnik je odprl KATEGORIJO Medijskega centra (klik na zavihek, npr. TV v zivo; pregled 68, Ą4). Vsak vir iz
+        ozjega kroga, ki pripada tej kategoriji in ga je treba prebrati (prvic ali po 24 h), dobi eno povezavo v ozadju;
+        viri drugih kategorij ne. Klic samo iz uporabnikovega klika - ne iz obnove zaslona ob zagonu, predgrevanja
+        ali samodejnega osvezevanja kataloga. Premor, 1/min in ena naenkrat veljajo (_prvo_uporaba_v_ozadju)."""
+        vrsta = str(vrsta or "")
+        if not vrsta or vrsta == "vse":
+            return {"ok": True, "zacetih": 0}
+        pred = time.time() - self.OZJI_KROG_PREDPOMNILNIK_S
+        with self._lock:
+            viri = [s.copy() for s in self._load().get("viri", []) if isinstance(s, dict)
+                    and s.get("ozji_krog") and not s.get("caka_uporabnika")
+                    and (s.get("prvo_uporaba") or float(s.get("posodobljeno") or 0) <= pred)]
+        viri = [s for s in viri if vrsta in self._kategorije_vira(s)]
+        return {"ok": True, "zacetih": len(self._prvo_uporaba_v_ozadju(viri)) if viri else 0}
+
+    def _prvo_uporaba_v_ozadju(self, viri: list) -> list:
+        """Povezava vira iz ozjega kroga ob uporabnikovem odprtju tega vira (odpri_vir; lastnik, 26. 10. 2026): prva, nato
+        sele ko je prebrani seznam starejsi od 24 h (pregled 68, Ą1: nikoli iz ozadja). Ena zahteva na vir; ne med
+        premorom po napaki (_zavrnjen_do), ne ce ze tece ena in ne pogosteje kot na minuto. Uspeh odstrani oznako
+        prvo_uporaba, napaka jo pusti (premor se daljsa v refresh_source)."""
+        with self._lock:
+            poskusi = self.__dict__.setdefault("_prvo_poskusi", {})
+            v_teku = self.__dict__.setdefault("_prvo_v_teku", set())
+            zdaj = time.monotonic()
+            novi = []
+            for source in viri:
+                ident = str(source.get("id") or "")
+                if (not ident or ident in v_teku or time.time() < self._zavrnjen_do(source)
+                        or zdaj - poskusi.get(ident, -self.OZJI_KROG_OSVEZITEV_S) < self.OZJI_KROG_OSVEZITEV_S):
+                    continue
+                novi.append(ident)
+                poskusi[ident] = zdaj
+            v_teku.update(novi)
+        if not novi:
+            return []
+
+        def delo() -> None:
+            for ident in novi:
+                try:
+                    self.refresh_source(ident)
+                except Exception:  # noqa: BLE001
+                    pass
+                finally:
+                    with self._lock:
+                        v_teku.discard(ident)
+            self._kanali_spremenjeni(viri=True)
+
+        threading.Thread(target=delo, name="media-prva-uporaba", daemon=True).start()
+        return novi
+
+    def _osvezi_zastarele_v_ozadju(self, idji: list) -> None:
+        with self._lock:
+            neuspeli = self.__dict__.setdefault("_zastareli_neuspeh", {})
+            zdaj = time.monotonic()
+            novi = [i for i in idji if i not in self._zastareli_viri
+                    and zdaj - neuspeli.get(i, -self.ZASTARELI_ZNOVA_S) >= self.ZASTARELI_ZNOVA_S]
+            self._zastareli_viri.update(novi)
+        if not novi:
+            return
+
+        def delo() -> None:
+            for ident in novi:
+                try:
+                    odgovor = self.refresh_source(ident)
+                    uspeh = bool(odgovor.get("ok")) and not odgovor.get("predpomnjeno") and not odgovor.get("ze_tece")
+                except Exception:  # noqa: BLE001
+                    uspeh = False
+                if not uspeh:
+                    # Tudi napaka brez izjeme (refresh_source jo zapise v vir): znova ob odprtju kataloga po
+                    # ZASTARELI_ZNOVA_S, zavrnitev ponudnika sele po ZAVRNJEN_PREMORI_S (_vnosi_virov; pregled 39, I5).
+                    with self._lock:
+                        self._zastareli_viri.discard(ident)
+                        neuspeli[ident] = time.monotonic()
+            self._kanali_spremenjeni(viri=True)
+
+        threading.Thread(target=delo, name="media-razclenitev", daemon=True).start()
+
+    def _vnosi_virov(self, data: dict, kind: str = "vse", preveri: bool = True) -> list[dict]:
+        """Vnosi uporabnikovih spletnih virov za katalog; seznam s staro razclenitvijo se prebere znova. Kanali seznamov
+        IPTV: iz javnih seznamov samo izbranih drzav in jezikov; kanal, za katerega vemo, da ne oddaja, ni viden.
+
+        Pregled 30, J3 (lastnik, 26. 10. 2026: nevarnost zaklepa racuna je prioriteta): v ozadju preverjamo samo javne
+        brezplacne sezname (kanali_iptv.preverba_dovoljena) - neznan kanal je do izida viden z oznako »preverjam«, v
+        vrsto gre v vrstnem redu prikaza (najprej, kar je na zaslonu). Seznamov z racunom (Xtream, uporabnik:geslo@)
+        ne preverjamo: kanal je viden, o njem odloci pravo predvajanje. Prej je bil neznan kanal skrit, dokler preverba
+        - pri ponudniku ure - ni koncala, in vsak kanal ponudnika se je odprl vsakih 6 h."""
+        izid: list[dict] = []
+        za_preverbo: list[tuple] = []
+        zastareli: list[str] = []
+        izbira: Optional[dict] = None
+        for source in data.get("viri", []):
+            if isinstance(source, dict) and source.get("prvo_uporaba"):
+                # Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden, a prazen do prve uporabe. Povezavo sprozi samo
+                # uporabnikovo odprtje njegove KATEGORIJE (odpri_kategorijo) ali TEGA vira (odpri_vir; pregled 68, Ą4),
+                # nikoli klic kataloga: ta pride tudi ob obnovi zaslona, predgrevanju in osvezevanju ter bi prijavil vse.
+                continue
+            if not isinstance(source, dict) or source.get("caka_uporabnika"):
+                continue                    # prejet vir z racunom ima prazen seznam do uporabnikove osvezitve (Ñ2)
+            if self._zastarela_razclenitev(source):
+                if time.time() >= self._zavrnjen_do(source):
+                    zastareli.append(str(source.get("id") or ""))
+                continue
+            javni = kanali_iptv.je_javni_seznam(source.get("url"))
+            # Samo znan javni vir ali seznam, ki ga je uporabnik oznacil kot javnega (pregled 39, I1).
+            seznam_preverljiv = kanali_iptv.javni_brezplacni(str(source.get("url") or ""), source.get("javni") is True)
+            serije: dict[str, dict] = {}
+            for item in source.get("vnosi") or []:
+                if not isinstance(item, dict) or not (kind in ("", "vse") or item.get("vrsta") == kind):
+                    continue
+                if item.get("iptv"):
+                    if javni:
+                        izbira = izbira if izbira is not None else self.tv_izbira()
+                        if not kanali_iptv.v_izbiri(item, izbira):
+                            continue
+                    url = str(item.get("url") or "")
+                    preverljiv = seznam_preverljiv and not kanali_iptv.s_poverilnicami(url)   # preverba_dovoljena
+                    potrebuje = self.kanali.potrebuje_preverbo(url)
+                    if preveri and preverljiv and potrebuje:
+                        za_preverbo.append((_text(item.get("naslov"), 200).casefold(), url, item.get("glave") or {}))
+                    izid_kanala = self.kanali.izid(url)
+                    if izid_kanala in (kanali_iptv.MRTEV, kanali_iptv.ZAKLENJEN) and (preverljiv or not potrebuje):
+                        continue                    # vemo, da ne oddaja (izid seznama brez preverbe velja do izteka)
+                    if izid_kanala != kanali_iptv.DELUJE and preverljiv:
+                        item = dict(item, preverjam=True)
+                elif item.get("iz_seznama") and item.get("vrsta") == "serija" and int(item.get("epizoda") or 0):
+                    # Epizode s seznama so ena kartica serije s sezonami in epizodami (ne kartica na epizodo).
+                    self._dodaj_epizodo(serije, item)
+                    continue
+                izid.append(item)
+            izid.extend(serije.values())
+        if zastareli and preveri:
+            self._osvezi_zastarele_v_ozadju([z for z in zastareli if z])
+        if za_preverbo:
+            # Prva stran mreze TV v zivo je abecedna (_merge_variants): v tem redu tudi preverba.
+            za_preverbo.sort(key=lambda x: x[0])
+            self.kanali.preveri_v_ozadju((url, glave, False) for _ime, url, glave in za_preverbo)
+        return izid
+
+    NAJVEC_EPIZOD_SERIJE = 2000
+
+    @staticmethod
+    def _dodaj_epizodo(serije: dict, item: dict) -> None:
+        naslov = re.sub(r"\s*[-–—:|]?\s*(?:[Ss]\d{1,2}\s*[Ee]\d{1,3}|\d{1,2}x\d{2,3})\b.*$", "", _text(item.get("naslov"), 200)).strip() \
+            or _text(item.get("naslov"), 200)
+        kljuc_serije = re.sub(r"[^a-z0-9]+", " ", unicodedata.normalize("NFKD", naslov).encode("ascii", "ignore").decode().lower()).strip()
+        kartica = serije.get(kljuc_serije)
+        if kartica is None:
+            kartica = dict(item, naslov=naslov, sezona=0, epizoda=0, epizode_seznama=[])
+            kartica["id"] = "seznam-serija:" + hashlib.sha256(
+                (str(item.get("vir_id") or "") + "|" + kljuc_serije).encode()).hexdigest()[:20]
+            serije[kljuc_serije] = kartica
+        if len(kartica["epizode_seznama"]) < MediaCenter.NAJVEC_EPIZOD_SERIJE:
+            kartica["epizode_seznama"].append({k: item.get(k) for k in ("naslov", "url", "sezona", "epizoda", "glave", "referer",
+                                                                         "slika", "kakovost", "locljivost")})
+
+    def season_seznama(self, item_id: str, sezona: int) -> dict:
+        """Epizode sezone serije s seznama (brez TMDB) za podrobnosti."""
+        kartica = self._dynamic_items.get(str(item_id or "")) or {}
+        epizode = sorted((e for e in kartica.get("epizode_seznama") or [] if int(e.get("sezona") or 0) == int(sezona)),
+                         key=lambda e: int(e.get("epizoda") or 0))
+        return {"sezona": int(sezona), "epizode": [{"stevilka": int(e.get("epizoda") or 0), "sezona": int(sezona),
+                                                    "naslov": _text(e.get("naslov"), 200), "opis": "", "trajanje": 0,
+                                                    "ocena": 0, "datum": "", "slika": ""} for e in epizode]}
+
+    def epizoda_seznama(self, item_id: str, sezona: int, epizoda: int) -> Optional[dict]:
+        """Predvajalni vnos epizode serije s seznama."""
+        kartica = self._dynamic_items.get(str(item_id or "")) or {}
+        e = next((e for e in kartica.get("epizode_seznama") or []
+                  if int(e.get("sezona") or 0) == int(sezona) and int(e.get("epizoda") or 0) == int(epizoda)), None)
+        if not e:
+            return None
+        vnos = _item(e.get("naslov") or kartica.get("naslov"), e.get("url"), base=str(e.get("url") or ""),
+                     source_id=str(kartica.get("vir_id") or ""), source_name=str(kartica.get("vir") or ""),
+                     kind="serija", season=int(sezona), episode=int(epizoda), headers=e.get("glave"),
+                     referer=e.get("referer") or "", image=e.get("slika") or kartica.get("slika") or "")
+        if not vnos:
+            return None
+        vnos["id"] = hashlib.sha256(("seznam-epizoda|" + str(e.get("url"))).encode()).hexdigest()[:20]
+        self._dynamic_items[vnos["id"]] = vnos
+        return vnos
+
+    def kanal_skrit(self, item: Any) -> bool:
+        """Kartica kanala IPTV, za katere vse kanale seznama vemo, da ne oddajajo (in nima vira, ki ni seznam IPTV).
+        Neznan kanal ni skrit (pregled 30, J3); izid kanala z racunom (ki ga ne preverjamo) velja do izteka."""
+        if not isinstance(item, dict) or item.get("vrsta") != "tv-v-zivo":
+            return False
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)] or [item]
+        if not all(r.get("iptv") for r in razlicice):
+            return False
+
+        def ne_oddaja(url: str) -> bool:
+            if self.kanali.izid(url) not in (kanali_iptv.MRTEV, kanali_iptv.ZAKLENJEN):
+                return False
+            return not (kanali_iptv.s_poverilnicami(url) and self.kanali.potrebuje_preverbo(url))
+        return all(ne_oddaja(str(r.get("url") or "")) for r in razlicice)
+
+    def skrij_kanal(self, item: Any, url: str = "") -> bool:
+        """Kanal ob kliku ni zaigral z nobeno razlicico: vsi njegovi kanali seznama so mrtvi (takoj skriti, do ponovne
+        preverbe). Vrne True, ce je bil kanal s seznama IPTV."""
+        if not isinstance(item, dict) or item.get("vrsta") != "tv-v-zivo":
+            return False
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)] or [item]
+        urlji = [str(r.get("url") or "") for r in razlicice if r.get("iptv") and r.get("url")]
+        if not urlji:
+            return False
+        for u in urlji:
+            self.kanali.oznaci_mrtev(u)
+        self.ozastari_predpomnilnik()
+        return True
+
+    def _statistika_kanalov(self, source: dict) -> Optional[dict]:
+        kanali = [x for x in source.get("vnosi") or [] if isinstance(x, dict) and x.get("iptv")]
+        if not kanali:
+            return None
+        javni = kanali_iptv.je_javni_seznam(source.get("url"))
+        izbira = self.tv_izbira() if javni else None
+        vidni = [x for x in kanali if izbira is None or kanali_iptv.v_izbiri(x, izbira)]
+        stevci = self.kanali.povzetek(str(x.get("url") or "") for x in vidni)
+        # Seznam z racunom ne gre v preverbo (J3): stran pove, da kanale preveri sele predvajanje. Seznam, ki ni znan
+        # javni vir in v naslovu nima racuna, sme uporabnik oznaciti kot javnega (pregled 39, I1).
+        url = str(source.get("url") or "")
+        oznacen = source.get("javni") is True
+        preverba = kanali_iptv.javni_brezplacni(url, oznacen)
+        return {"skupaj": len(kanali), "izbranih": len(vidni), "deluje": stevci[kanali_iptv.DELUJE],
+                "zaklenjenih": stevci[kanali_iptv.ZAKLENJEN], "mrtvih": stevci[kanali_iptv.MRTEV],
+                "preverjam": stevci["neznano"] if preverba else 0, "preverba": preverba,
+                "ne_24_7": int(source.get("ne_24_7") or 0), "javni": javni,
+                "oznacljiv": kanali_iptv.oznacljiv_javni(url), "oznacen_javni": oznacen}
+
+    def nastavi_javni_seznam(self, source_id: str, javni: bool) -> dict:
+        """Uporabnik je v Virih seznam oznacil kot javni brezplacni (brez racuna pri ponudniku) ali oznako umaknil.
+        V ozadju se preverja SAMO tak seznam in znani javni viri (pregled 39, I1); seznama z racunom v naslovu ni mogoce
+        oznaciti. Ob umiku oznake gredo njegovi kanali takoj iz vrste preverbe."""
+        javni = javni is True
+        with self._lock:
+            data = self._load()
+            source = next((x for x in data.get("viri", []) if isinstance(x, dict) and x.get("id") == str(source_id or "")),
+                          None)
+            if source is None:
+                return {"ok": False, "napaka": "ni_vira"}
+            if javni and not kanali_iptv.oznacljiv_javni(str(source.get("url") or "")):
+                return {"ok": False, "napaka": "racun"}
+            if javni:
+                source["javni"] = True
+            else:
+                source.pop("javni", None)
+            self._save(data)
+            kopija = dict(source)
+        if javni:
+            self._vnosi_virov({"viri": [kopija]}, "tv-v-zivo")       # neznani kanali gredo v vrsto preverbe
+        else:
+            self.kanali.odstrani_iz_vrste(str(x.get("url") or "") for x in kopija.get("vnosi") or []
+                                          if isinstance(x, dict) and x.get("iptv"))
+        self.ozastari_predpomnilnik()
+        return {"ok": True, "javni": javni}
 
     def ima_kodi(self) -> bool:
         return self._kodi_streznik() is not None
@@ -3254,8 +3808,10 @@ class MediaCenter:
         self._pocisti_predpomnilnika()
         return vrstice_c
 
-    def add_source(self, url: str, name: str = "", prevzet: Optional[dict] = None) -> dict:
-        """`prevzet`: vir je prisel z druge naprave v Linku ({"tip", "naslov", "cas"}, core/viri_sink.py)."""
+    def add_source(self, url: str, name: str = "", prevzet: Optional[dict] = None, ozji_krog: bool = False) -> dict:
+        """`prevzet`: vir je prisel z druge naprave v Linku ({"tip", "naslov", "cas"}, core/viri_sink.py). `ozji_krog`:
+        ta naprava nas ima v ozjem krogu (odgovor `lists.get`: "ozji" true); brez dokaza (privzeto) je prejet vir z
+        racunom ali neznane oblike fail-closed."""
         canonical = canonical_url(url)
         with self._lock:
             data = self._load()
@@ -3275,12 +3831,36 @@ class MediaCenter:
             if _je_predvajalni_vir(canonical):
                 source["tip"] = "predvajalni_vir"
             self._vir_dodan(source, viri_sink.URL, canonical, prevzet)
+            neprenesen = bool(prevzet) and self._caka_uporabnika(canonical)
+            prvo = neprenesen and ozji_krog is True
+            caka = neprenesen and not prvo
+            if prvo:
+                # Lastnik, 26. 10. 2026 (vse naprave pripadajo uporabniku): vir iz ozjega kroga je viden takoj, a se ne
+                # prenese ob prejemu in ne v ozadju - prva povezava (ena) je ob odprtju seznama na tej napravi, nato velja
+                # 24-urni predpomnilnik in najvec ena osvezitev na minuto (refresh_source). Nikoli ne dvakrat naenkrat.
+                source["prvo_uporaba"] = int(time.time())
+                source["ozji_krog"] = True
+                source["razclenitev"] = kanali_iptv.RAZCLENITEV
+            elif caka:
+                # Pregled 51, Ñ2: vir z racunom, prejet z druge naprave, se ne prenese ob prejemu (vsaka naprava v krogu
+                # bi ob prvem usklajevanju poslala ponudniku zahtevo z geslom). Prenese ga naprava, kjer je bil dodan; ta
+                # ga prenese, ko uporabnik osvezi vir (refresh_source); samodejna pota ga preskocijo. Pregled 57, Ş1:
+                # velja za vsak prejet vir, ki ni pozitivno znan javen, ne le za prepoznano obliko racuna.
+                source["caka_uporabnika"] = int(time.time())
+                source["razclenitev"] = kanali_iptv.RAZCLENITEV       # ni »zastarel«: katalog ga ne bere v ozadju
             data.setdefault("viri", []).append(source)
             self._save(data)
+        if neprenesen:
+            self._vir_potrjen(viri_sink.URL, canonical)
+            if prevzet.get("naslov"):
+                self._vir_potrjen(str(prevzet.get("tip") or viri_sink.URL), str(prevzet["naslov"]))
+            return {"ok": True, "napaka": "", "caka": caka, "prvo_uporaba": prvo,
+                    "vir": {k: v for k, v in source.items() if k != "vnosi"}}
         # Odziv vira začnemo meriti takoj ob dodajanju, da je meritev navadno
         # že na voljo, ko uporabnik prvič izbere film ali epizodo.
         threading.Thread(target=self._izmeri_ping, args=(canonical,), daemon=True).start()
-        rezultat = self.refresh_source(source["id"])
+        # Vdelava strani HTML samo ob prvem dodajanju, ko je uporabnik prisoten (pregled 63, Ŷ1); prejet vir je ne dobi.
+        rezultat = self.refresh_source(source["id"], dovoli_vdelavo=not prevzet)
         vir = rezultat.get("vir") or {}
         # Vir predvajalnika (TMDB katalog + vdelani predvajalnik) nima lastnih vnosov, a je predvajljiv.
         if rezultat.get("ok") and (int(vir.get("stevilo") or 0) > 0 or source.get("tip") == "predvajalni_vir"
@@ -3298,6 +3878,16 @@ class MediaCenter:
         sporocilo = ("Safeer v tem viru ni našel ničesar, kar bi lahko predvajal, zato ga nismo dodali."
                      + (" (" + razlog + ")" if razlog and razlog != "ni_vira" else ""))
         return {"ok": False, "napaka": razlog or "nepredvajljiv", "nepredvajljiv": True, "sporocilo": sporocilo}
+
+    @staticmethod
+    def _caka_uporabnika(naslov: str) -> bool:
+        """Vir, prejet z druge naprave, ki ga ob prejemu ne prenesemo (pregled 51, Ñ2): vsak, ki ni POZITIVNO znan javen
+        (viri_sink.za_ozji_krog, enako kot pri izvozu in prikazu). Pregled 57, Ş1: prej je odlocala hevristika oblike
+        naslova ali vrsta, ki jo je navedla druga naprava (»seznam«), zato se je kratka povezava, zeton v poti ali
+        .../x.m3u vrste »url« ob prejemu takoj prenesla na vsaki napravi v ozjem krogu (lastnikov racun, zaklep pri
+        ponudniku). Vrsti ne zaupamo (doloci jo druga naprava), obliki naslova tudi ne: ob dvomu vir caka, dokler
+        uporabnik na tej napravi izrecno ne pritisne »Osvezi« (refresh_source)."""
+        return viri_sink.za_ozji_krog(naslov)
 
     def remove_source(self, source_id: str, cas: int = 0, kljuc: str = "") -> bool:
         """`cas`, `kljuc`: izbris je prisel z druge naprave v Linku (njen cas in njen kljuc vira, core/viri_sink.py)."""
@@ -3535,9 +4125,14 @@ class MediaCenter:
             return False
         return int(source.get("stevilo") or 0) > 0
 
-    def viri_izvoz(self) -> dict:
-        """Moji viri za druge naprave v Linku (del odgovora `lists.get {}`): brez omrezja. Zasebnega dodatka in
-        dodatka, za katerega se ne vemo, ali je zaseben, ne povemo (tega spoznamo v ozadju)."""
+    def viri_izvoz(self, ozji: bool = False) -> dict:
+        """Moji viri za druge naprave v Linku (del odgovora `lists.get {}`): brez omrezja. Vir z racunom ponudnika in
+        njegov izbris samo napravi v ozjem krogu (`ozji`; viri_sink.za_ozji_krog - z Androida, VISOKO, 26. 10. 2026)."""
+        return viri_sink.viri_za(self._viri_izvoz_razdeljen(), ozji)
+
+    def _viri_izvoz_razdeljen(self) -> dict:
+        """Viri za naprave, razdeljeni na vire brez racuna in z racunom (viri_sink.razdeli_izvoz). Zasebnega dodatka in
+        dodatka, za katerega se ne vemo, ali je zaseben, ni (tega spoznamo v ozadju)."""
         with self._lock:
             data = self._load()
             stanje = self._viri_stanje()
@@ -3551,22 +4146,149 @@ class MediaCenter:
             if zaseben is not False:
                 continue
             tip, naslov = self._vir_kljuc(s)
+            if s.get("link_naslov") and viri_sink.za_ozji_krog(naslov):
+                continue                # prejet z druge naprave: ne naprej v NAS ozji krog (pregled 51, Ê4)
             viri.append({"tip": tip, "ime": str(s.get("ime") or "")[:200], "naslov": naslov, "cas": int(s.get("dodan") or 0)})
         for v in data.get("viri", []):
             if not isinstance(v, dict) or not v.get("url") or not (v.get("link_tip") or self._vir_za_naprave(v)):
                 continue
             tip, naslov = self._vir_kljuc(v)
-            viri.append({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)})
+            if v.get("link_naslov") and viri_sink.za_ozji_krog(naslov, v.get("javni") is True):
+                continue                # Ê4: ozji krog je na vsaki napravi poseben; vir z geslom ne sme tranzitivno naprej
+            viri.append(dict({"tip": tip, "ime": str(v.get("ime") or "")[:200], "naslov": naslov, "cas": int(v.get("dodan") or 0)},
+                             # oznaka uporabnika »javni« (viri_sink.znan_javen); napravam ne gre (cist_vir)
+                             **({"javni": True} if v.get("javni") is True else {})))
         if neznani:
             self._spoznaj_dodatke(neznani)
-        return {"sources": [v for v in viri if viri_sink.cist_vir(v)][:viri_sink.NAJVEC_VIROV],
-                "sources_deleted": stanje["izbrisani"]}
+        return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]))
+
+    #: Enkratna selitev virov z racunom (pregled 46, Ö3); zapis "racuni_preseljeni" v media.json.
+    PRESELITEV_RACUNOV = 1
+
+    def _preseli_racune(self) -> None:
+        """Enkrat po posodobitvi (pregled 46, Ö3). Starejse razlicice so vir z racunom (seznam Xtream z geslom) dale
+        vsem napravam z dovoljenjem Predvajalnik; izbris ga zunaj ozjega kroga ne doseze.
+        1) Vir, prejet z druge naprave (link_naslov), ki ni pozitivno znan javen, gre s te naprave - BREZ zapisa izbrisa
+           (izbris bi se razsiril nazaj in vir izbrisal lastniku). Naprava v ozjem krogu ga ob naslednjem usklajevanju
+           dobi znova (odgovor z "ozji": true; viri_sink.prevzem_dovoljen).
+        2) Opozorilo za menjavo gesla (pregled 51, Ê2; lastnik: opozorilo je neskodljivo, zato ob dvomu da). Dobi ga
+           vsak lastni vir z racunom (viri_sink.verjetno_geslo), razen ce je DOKAZANO, da nikoli ni sel zunaj ozjega
+           kroga: zapisa za naprave (viri_za_naprave.json, edini vir za Control, core/link_seznami.py) sploh ni bilo ali
+           vira nikoli nismo uspesno prebrali. Ne zavisi od javnega dela starega zapisa (razlicica 0f3f368 je vir pisala
+           v »ozji«, zapis se prepisuje ob spremembah), ne od trenutnih naprav v Linku (gost je lahko ze odstranjen) in ne
+           od tega, da vir se obstaja: za izbrisane vire z geslom (viri_sink.json) je eno splosno opozorilo.
+
+        Robustnost (pregled 51, Ê7): pokvarjen zapis ali nepricakovana vrsta polja selitve ne sme ustaviti Medijskega
+        centra; oznaka "racuni_preseljeni" se zapise sele, ko je selitev stekla (ali ko je ni cesa seliti)."""
+        if self._racuni_preseljeni:
+            return
+        try:
+            self._preseli_racune_delo()
+        except Exception as exc:  # noqa: BLE001 - selitev ne sme ustaviti Medijskega centra
+            print("[SafeerMedia] selitev racunov ni uspela (%s), poskusimo ob naslednjem zagonu" % type(exc).__name__,
+                  flush=True)
+
+    @staticmethod
+    def _celo(vrednost: object) -> int:
+        """Vrednost zapisa kot celo stevilo; kar to ni, je 0."""
+        try:
+            return int(vrednost or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _preseli_racune_delo(self) -> None:
+        try:
+            data = json.loads(self.store_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            self._racuni_preseljeni = True      # nova namestitev: nic za preseliti, prvi _save zapise oznako
+            return
+        except ValueError:
+            self._racuni_preseljeni = True      # pokvarjen zapis nima kopij, ki bi jih odstranili; _save ga zamenja
+            return
+        except OSError:
+            return                              # zapis je, a ga zdaj ne moremo prebrati: poskusimo ob naslednjem zagonu
+        if not isinstance(data, dict) or self._celo(data.get("racuni_preseljeni")) >= self.PRESELITEV_RACUNOV:
+            self._racuni_preseljeni = True
+            return
+        try:
+            (self.config_dir / "viri_za_naprave.json").read_text(encoding="utf-8")
+            zapis_je = True
+        except FileNotFoundError:
+            zapis_je = False            # Control ni imel kaj ponuditi: nobena naprava ni dobila gesla
+        except (OSError, ValueError):
+            zapis_je = True             # zapis je, a ga ne moremo prebrati: ne dokazuje nic
+        zdaj = self._zdaj_ms()
+
+        def prejet(s: object) -> bool:
+            return isinstance(s, dict) and bool(s.get("link_naslov")) and viri_sink.za_ozji_krog(str(s["link_naslov"]))
+        with self._lock:
+            data = self._load()
+            if self._celo(data.get("racuni_preseljeni")) >= self.PRESELITEV_RACUNOV:
+                self._racuni_preseljeni = True
+                return
+            strezniki = data.get("osebni_strezniki") if isinstance(data.get("osebni_strezniki"), list) else []
+            odstranjeni = [str(s.get("id") or "") for s in strezniki if prejet(s)]
+            data["osebni_strezniki"] = [s for s in strezniki if not prejet(s)]
+            pred = len(data["viri"])
+            data["viri"] = [v for v in data["viri"] if not prejet(v)]
+            for v in data["viri"]:
+                if (zapis_je and isinstance(v, dict) and not v.get("link_naslov") and not v.get("deljeno_potrjeno")
+                        and not self._nikoli_prebran(v)
+                        and viri_sink.verjetno_geslo(v.get("url"), any(isinstance(x, dict) and x.get("iptv")
+                                                                      for x in (v["vnosi"] if isinstance(v.get("vnosi"), list) else [])),
+                                                     v.get("javni") is True)):
+                    v["deljeno_zunaj"] = zdaj
+            if (zapis_je and not data.get("deljeno_izbrisani_potrjeno")
+                    and any(viri_sink.verjetno_racun_seznama(k.partition("|")[2], siroko=True)
+                            for k in self._viri_stanje()["izbrisani"])):
+                data["deljeno_izbrisani"] = zdaj
+            self._racuni_preseljeni = True              # oznako zapise _save: selitev je stekla
+            self._save(data)
+            self._server_cache = {k: c for k, c in self._server_cache.items()
+                                  if not any(k.startswith(i + ":") for i in odstranjeni if i)}
+        if odstranjeni or len(data["viri"]) != pred:
+            print("[SafeerMedia] selitev: prejeti viri z racunom odstranjeni: %d" % (len(odstranjeni) + pred - len(data["viri"])),
+                  flush=True)
+        if zapis_je:
+            self._viri_zapisi_izvoz()   # stari zapis (vir z geslom v javnem delu) takoj zamenjamo - Control bere tega
+
+    @staticmethod
+    def _nikoli_prebran(vir: dict) -> bool:
+        """Vira nikoli nismo uspesno prebrali (posodobljeno in stevilo 0, brez vnosov): ponujen ni bil nikoli
+        (`_vir_za_naprave` zahteva stevilo > 0)."""
+        return (not vir.get("vnosi") and not MediaCenter._celo(vir.get("posodobljeno"))
+                and not MediaCenter._celo(vir.get("stevilo")))
+
+    def opozorila_virov(self) -> dict:
+        """Splosna opozorila Virov, ki niso vezana na en vir: `izbrisani` - geslo vira, ki ga je lastnik ze izbrisal, je
+        bilo morda deljeno zunaj ozjega kroga (pregled 51, Ê2)."""
+        with self._lock:
+            return {"izbrisani": bool(self._load().get("deljeno_izbrisani"))}
+
+    def potrdi_opozorilo_deljeno(self, source_id: str) -> dict:
+        """Lastnik je prebral opozorilo, da je bilo geslo vira deljeno zunaj ozjega kroga (pregled 46, Ö3): ne pokazemo
+        ga vec. `*`: splosno opozorilo za izbrisane vire (pregled 51, Ê2)."""
+        with self._lock:
+            data = self._load()
+            if source_id == "*":
+                if data.pop("deljeno_izbrisani", None) is not None:
+                    data["deljeno_izbrisani_potrjeno"] = self._zdaj_ms()
+                    self._save(data)
+                return {"ok": True}
+            source = next((x for x in data.get("viri", []) if isinstance(x, dict) and x.get("id") == str(source_id or "")),
+                          None)
+            if source is None:
+                return {"ok": False, "napaka": "ni_vira"}
+            if source.pop("deljeno_zunaj", None) is not None:
+                source["deljeno_potrjeno"] = self._zdaj_ms()
+                self._save(data)
+        return {"ok": True}
 
     def _viri_zapisi_izvoz(self) -> None:
         """Na Linuxu drugim napravam odgovarja Safeer Control (tudi ko Safeer OS ni odprt, core/link_seznami.py): vire
         zanj zapisemo v datoteko ob seznamih. Zapis je ze prefiltriran - zasebnih dodatkov v njem ni."""
         try:
-            izvoz = self.viri_izvoz()
+            izvoz = self._viri_izvoz_razdeljen()        # Control vire z racunom da samo ozjemu krogu (link_seznami)
             self.config_dir.mkdir(parents=True, exist_ok=True)
             shramba_json.zapisi_atomsko(self.config_dir / "viri_za_naprave.json", izvoz, indent=None)
         except Exception:  # noqa: BLE001 - izvoz za naprave ne sme ustaviti Medijskega centra
@@ -3620,13 +4342,32 @@ class MediaCenter:
     #: Najvec toliko novih virov poskusimo prevzeti ob enem usklajevanju (vsak prevzem je omrezno preverjanje).
     NAJVEC_PREVZEMOV = 6
 
-    def viri_uskladi(self, kazalo: object) -> bool:
+    @staticmethod
+    def _posiljatelj_v_ozjem_krogu(posiljatelj: str) -> bool:
+        """Ali je posiljatelj v ozjem krogu TE naprave (core/link_dostop.v_ozjem_krogu: izrecna privolitev uporabnika na
+        tem racunalniku). Napaka ali prazen id: ne (pregled 68, Ą3)."""
+        if not posiljatelj:
+            return False
+        try:
+            from . import link_dostop
+            return bool(link_dostop.v_ozjem_krogu(posiljatelj))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def viri_uskladi(self, kazalo: object, posiljatelj: str = "") -> bool:
         """Moji viri z ene naprave v Linku (kazalo odgovora `lists.get {}`): izbrisi, nato novi viri. Racunalnik
         prevzame samo, kar zna predvajati; zasebnega dodatka nikoli. Klic iz delovne niti (omrezje). Vrne True, ce
         se je tukaj kaj spremenilo."""
         if not isinstance(kazalo, dict):
             return False
         tuji_izbrisi = viri_sink.cisti_izbrisi(kazalo.get("sources_deleted"))
+        # Ali nas ima naprava v ozjem krogu (true/false); None: starejsa razlicica (pregled 46, Ö3).
+        ozji_odgovor = kazalo.get("ozji") if isinstance(kazalo.get("ozji"), bool) else None
+        # Pregled 68, Ą3 (AGENTS.md: nic iz dohodnega sporocila ne sme podeliti dostopa): »ozji« v odgovoru je izjava
+        # posiljatelja, da ima NAS v svojem krogu. Dokaz je sele to, da je posiljatelj v ozjem krogu TE naprave (izrecna
+        # privolitev tukaj, core/link_dostop); sicer velja kot naprava zunaj kroga: vira z racunom ne prevzamemo.
+        if ozji_odgovor is True and not self._posiljatelj_v_ozjem_krogu(posiljatelj):
+            ozji_odgovor = False
         surovi = kazalo.get("sources") if isinstance(kazalo.get("sources"), list) else []
         tuji = [c for c in (viri_sink.cist_vir(o) for o in surovi[:viri_sink.NAJVEC_VIROV]) if c]
         if not tuji_izbrisi and not tuji:
@@ -3657,6 +4398,8 @@ class MediaCenter:
         for v in tuji:
             if v["tip"] not in viri_sink.PREVZEMLJIVE or poskusov >= self.NAJVEC_PREVZEMOV:
                 continue
+            if not viri_sink.prevzem_dovoljen(v["naslov"], ozji_odgovor):
+                continue                # vir z racunom samo od naprave, ki nas ima v ozjem krogu (pregled 46, Ö3)
             i = viri_sink.istovetnost(v["tip"], v["naslov"])
             zdaj = self._zdaj_ms()
             with self._lock:
@@ -3669,7 +4412,8 @@ class MediaCenter:
                 if zavrnjen and zdaj - zavrnjen[0] < zavrnjen[1]:
                     continue
             poskusov += 1
-            ok, velja = self._prevzemi_vir(v)
+            # "ozji": odgovor naprave pove, da nas ima v ozjem krogu; cist_vir tega polja nikoli ne postavi, zato ga ne more ponarediti vir.
+            ok, velja = self._prevzemi_vir(dict(v, ozji=ozji_odgovor is True))
             if ok:
                 spremenjeno = True
             elif velja:
@@ -3700,7 +4444,7 @@ class MediaCenter:
                 self._zasebni_koreni[media_servers._stremio_koren(v["naslov"])] = False
                 r = self.add_server("stremio", _text(manifest.get("name"), 80) or v["ime"], v["naslov"], "", "", prevzet=v)
             else:
-                r = self.add_source(v["naslov"], v["ime"], prevzet=v)
+                r = self.add_source(v["naslov"], v["ime"], prevzet=v, ozji_krog=v.get("ozji") is True)
         except Exception:  # noqa: BLE001 - neveljaven naslov, omrezje ...
             return False, viri_sink.ZAVRNJEN_VELJA_MS
         if isinstance(r, dict) and r.get("ok"):
@@ -3724,7 +4468,49 @@ class MediaCenter:
             final_url = canonical_url(response.geturl())
             return payload, response.headers.get_content_type(), final_url
 
-    def refresh_source(self, source_id: str) -> dict:
+    @staticmethod
+    def _racun_vira(source: dict) -> bool:
+        """Ali vir velja za vir z racunom pri ponudniku: premor ob vsakem odgovoru brez seznama, ena zahteva, nikoli
+        rezervna pot. Velja za VSAK vir, ki ni pozitivno znan javen (viri_sink.za_ozji_krog), ne glede na obliko naslova
+        (pregled 57, Ş2; enako Android, pregled 52, I5). Pregled 51, Ê1 je odlocal zaznan_racun in zastavico iptv v vnosih:
+        kratka povezava ali zeton v poti sta pred prvim uspesnim branjem veljala za »ni racun« in 404, 5xx ali prazen 200
+        sta pomenila dve zahtevi z geslom brez premora. Izjema so znane platforme, ki jih beremo samo prek uradnih vdelav
+        in nimajo racuna pri ponudniku IPTV (_platforma_brez_racuna)."""
+        url = source.get("url")
+        return viri_sink.za_ozji_krog(url, source.get("javni") is True) and not _platforma_brez_racuna(url)
+
+    @staticmethod
+    def _vdelava_strani(source: dict, content_type: str, payload: bytes, final_url: str) -> bool:
+        """Stran HTML brez predvajljive vsebine dobi vnos »Vdelana vsebina« (lastnik: uporabnik lahko vdela katero koli
+        stran; pregled 57, Ş2), ce je uporabnik vir SAM dodal na tej napravi (ni prejet z druge: brez link_naslov in
+        link_tip) in naslov (tudi po preusmeritvi) NIMA znakov poverilnice (user:pass@, username=, password=, token=,
+        /live/<u>/<g>/, get.php ...: viri_sink.verjetno_racun_seznama). Prazno telo ali drugo vrsto vsebine to ni.
+        Klice jo samo prvo dodajanje (add_source), nikoli osvezitev (pregled 63, Ŷ1: odgovor HTML poteklega racuna bi
+        sicer pobrisal premor in zamenjal ze prebrane kanale IPTV). Oznake »javni« ne upoštevamo: poverilnica v naslovu
+        izklopi vdelavo tudi za oznacen vir."""
+        if source.get("link_naslov") or source.get("link_tip"):
+            return False
+        if str(content_type or "").split(";")[0].strip().casefold() != "text/html" or not (payload or b"").strip():
+            return False
+        return not (viri_sink.verjetno_racun_seznama(source.get("url")) or viri_sink.verjetno_racun_seznama(final_url))
+
+    def refresh_source(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
+        """Osvezi vir. Najvec ena osvezitev istega vira naenkrat (pregled 68, Ą5): sociasen »Osvezi« in prva uporaba ali
+        osvezitev v ozadju bi sicer poslala ponudniku dve prijavi z geslom - drugi klic vrne {"ze_tece": True} brez zahteve."""
+        if source_id.startswith("streznik-"):
+            return self._refresh_source_ena(source_id, dovoli_vdelavo)
+        with self._lock:
+            tece = self.__dict__.setdefault("_osvezuje_vire", set())
+            if source_id in tece:
+                return {"ok": False, "napaka": "", "ze_tece": True}
+            tece.add(source_id)
+        try:
+            return self._refresh_source_ena(source_id, dovoli_vdelavo)
+        finally:
+            with self._lock:
+                tece.discard(source_id)
+
+    def _refresh_source_ena(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
         if source_id.startswith("streznik-"):
             with self._lock:
                 self._server_cache = {key: value for key, value in self._server_cache.items()
@@ -3735,6 +4521,24 @@ class MediaCenter:
                            if item.get("id") == source_id), None)
         if source is None:
             return {"ok": False, "napaka": "ni_vira"}
+        if self._racun_vira(source):
+            # Pregled 68, Ą5 (lastnikova prednost: nikoli zaklep racuna): premor po zavrnitvi velja tudi za uporabnikov
+            # »Osvezi«. Prej je rocna osvezitev premor obsla (10 klikov = 10 prijav na racun, ki ga je ponudnik ze zavrnil).
+            ostane = self._zavrnjen_do(source) - time.time()
+            if ostane > 0:
+                return {"ok": False, "napaka": "premor", "premor_s": int(ostane) + 1,
+                        "vir": {k: v for k, v in source.items() if k != "vnosi"}}
+        if source.get("ozji_krog"):
+            # Vir iz ozjega kroga: najvec ena zahteva na minuto, ne glede na to, kdo jo sprozi (uporabnik, katalog, ozadje).
+            try:
+                zadnja = float(source.get("zadnja_zahteva") or 0)
+            except (TypeError, ValueError):
+                zadnja = 0.0
+            if 0 <= time.time() - zadnja < self.OZJI_KROG_OSVEZITEV_S:
+                napaka = str(source.get("napaka") or "")
+                return {"ok": not napaka and not source.get("prvo_uporaba"), "napaka": napaka, "predpomnjeno": True,
+                        "vir": {k: v for k, v in source.items() if k != "vnosi"}}
+            source["zadnja_zahteva"] = int(time.time())
         try:
             music_embed, embed_error = _official_music_embed(source["url"], source["id"], source["ime"])
             if embed_error:
@@ -3757,22 +4561,66 @@ class MediaCenter:
                 if not items:
                     raise ValueError("Neposrednega medijskega toka ni mogoče dodati.")
                 source["tip"] = "neposredni_medijski_tok"
+            elif source.get("tip") == "vdelana_stran":
+                # Stran, vdelana ob dodajanju: ne spreminja se, ponovni prenos ni potreben (brez zahteve na naslov).
+                items = _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
+                if not items:
+                    raise ValueError("Strani ni mogoče vdelati.")
             else:
                 payload, content_type, final_url = self._download(source["url"])
-                items = parse_payload(payload, content_type, final_url, source["id"], source["ime"])
+                stevci: dict = {}
+                items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
+                source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
+                    vdelava = (dovoli_vdelavo and self._racun_vira(source)
+                               and self._vdelava_strani(source, content_type, payload, final_url))
+                    if self._racun_vira(source) and not vdelava:
+                        # Odgovor brez seznama na naslov z geslom: brez se ene zahteve z geslom (vdelani predvajalnik)
+                        # in samodejno vse redkeje (pregled 46, Ö5). Osvezitev nikoli ne vdela strani (pregled 63, Ŷ1).
+                        raise _PrazenOdgovor("Ponudnik ni vrnil seznama.")
+                    if vdelava:
+                        source["tip"] = "vdelana_stran"
                     items = _resolve_embed_or_direct_source(final_url, source["id"], source["ime"])
-            source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": ""})
+            source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
+                           "razclenitev": kanali_iptv.RAZCLENITEV})
             ok, error = True, ""
         except Exception as exc:
             host = (urllib.parse.urlsplit(source["url"]).hostname or "").casefold()
             restricted = host == "bandcamp.com" or host.endswith(".bandcamp.com")
-            items = [] if restricted else _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
+            koda = exc.code if isinstance(exc, urllib.error.HTTPError) else 0
+            # Vir z racunom (pregled 46, Ö5): vsak odgovor ponudnika brez seznama (404, 5xx, lastne kode, prazen 200) je
+            # zavrnitev z vse daljsim premorom; brez povezave (koda 0) ostane ponovitev po 10 min. Nikoli druge zahteve
+            # na naslov z geslom.
+            racun = self._racun_vira(source)
+            ni_povezave = 0
+            if racun and koda == 0 and not isinstance(exc, _PrazenOdgovor):
+                # Prekinjena povezava, TLS, rok: nekateri paneli zaklenjen racun ali IP odrezejo ze na ravni povezave,
+                # zato tretjic zapored tudi to vse redkeje (pregled 51, Ê1); rocna osvezitev velja takoj.
+                try:
+                    ni_povezave = int(source.get("ni_povezave") or 0) + 1
+                except (TypeError, ValueError):
+                    ni_povezave = 1
+                source["ni_povezave"] = ni_povezave
+            if (koda in self.ZAVRNJENE_KODE or (racun and (koda > 0 or isinstance(exc, _PrazenOdgovor)))
+                    or ni_povezave >= self.NI_POVEZAVE_ZAPORED):
+                # Ponudnik je seznam zavrnil: brez se ene zahteve na isti naslov (vdelani predvajalnik) in samodejno
+                # znova sele po vse daljsem premoru (ZAVRNJEN_PREMORI_S; pregled 39, I5).
+                prej = source.get("zavrnjen") if isinstance(source.get("zavrnjen"), dict) else {}
+                try:
+                    n = int(prej.get("n") or 0)
+                except (TypeError, ValueError):
+                    n = 0
+                source["zavrnjen"] = {"koda": koda, "ob": int(time.time()), "n": min(n + 1, len(self.ZAVRNJEN_PREMORI_S))}
+            items = [] if restricted or racun or koda in self.ZAVRNJENE_KODE else \
+                _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
             if items:
-                source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": ""})
+                source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
+                               "razclenitev": kanali_iptv.RAZCLENITEV})
                 ok, error = True, ""
             else:
-                error = _text(exc, 180) or "Vira ni bilo mogoče prebrati."
+                # Pregled 57, Ş5: najprej zakrij, sele nato skrajsaj (rez pred zakrivanjem je odrezal zakljucno navednico).
+                error = (viri_sink.sporocilo_napake(exc, source.get("url"), source.get("javni") is True)
+                         or "Vira ni bilo mogoče prebrati.")
                 source["napaka"] = error
                 ok = False
         with self._lock:
@@ -3780,23 +4628,42 @@ class MediaCenter:
             saved = next((item for item in data.get("viri", []) if item.get("id") == source_id), None)
             if saved is None:
                 return {"ok": False, "napaka": "ni_vira"}
+            if ok:
+                # Ponudnik seznam spet da; uporabnik je vir osvezil: ne caka vec (Ñ2). Samo ob uspehu (pregled 57, Ş6):
+                # po neuspeli osvezitvi (racun zaklenjen, brez povezave) bi sicer refresh_stale vir sam ponavljal in
+                # naprava, ki racuna se nikoli ni prebrala, bi postala samodejni odjemalec racuna v tezavah.
+                for oznaka in ("zavrnjen", "ni_povezave", "caka_uporabnika", "prvo_uporaba"):
+                    source.pop(oznaka, None)
+                    saved.pop(oznaka, None)
             saved.update(source)
             self._save(data)
+        if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):
+            # Zaklenjene kanale vira preverimo znova (morda je uporabnik pravkar placal naroznino), vse neznane takoj,
+            # da TV v zivo ob prvem ogledu ne caka (samo izbrane drzave in jeziki javnih seznamov).
+            self.kanali.pozabi(str(x.get("url") or "") for x in items if isinstance(x, dict) and x.get("iptv"))
+            self._vnosi_virov({"viri": [source]}, "tv-v-zivo")
         public = {k: value for k, value in source.items() if k != "vnosi"}
         return {"ok": ok, "napaka": error, "vir": public}
 
     def refresh_all(self) -> dict:
-        ids = [source.get("id", "") for source in self.sources()]
+        # Cakajoci vir (Ñ2, Ş1) osvezi samo uporabnikov pritisk na NJEGOVO vrstico: skupna osvezitev bi na enkrat
+        # poslala zahteve z gesli vsem virom, ki jih uporabnik se ni potrdil.
+        ids = [source.get("id", "") for source in self.sources()
+               if not source.get("caka_uporabnika") and not source.get("prvo_uporaba")]    # prvo_uporaba: ob odprtju seznama
         results = [self.refresh_source(source_id) for source_id in ids]
         return {"ok": all(item.get("ok") for item in results), "rezultati": results}
 
     def refresh_stale(self, max_age: int = 6 * 60 * 60) -> dict:
         """V ozadju osveži le vire, katerih uspešni podatki so že zastareli."""
-        cutoff = int(time.time()) - max(60, int(max_age))
+        zdaj = int(time.time())
+        cutoff = zdaj - max(60, int(max_age))
         ids = [source.get("id", "") for source in self.sources()
-               if int(source.get("posodobljeno") or 0) < cutoff
-               or (_je_predvajalni_vir(str(source.get("url") or ""))
-                   and source.get("tip") != "predvajalni_vir")]
+               if not source.get("caka_uporabnika")             # prejet vir z racunom: sele ob uporabnikovi osvezitvi (Ñ2)
+               and not source.get("ozji_krog")                  # vir iz ozjega kroga: nikoli v ozadju (pregled 68, Ą1)
+               and zdaj >= self._zavrnjen_do(source)            # premor po napaki velja tudi za samodejno pot
+               and (int(source.get("posodobljeno") or 0) < cutoff
+                    or (_je_predvajalni_vir(str(source.get("url") or ""))
+                        and source.get("tip") != "predvajalni_vir"))]
         results = [self.refresh_source(source_id) for source_id in ids]
         return {"ok": all(item.get("ok") for item in results), "osvezenih": len(results),
                 "rezultati": results}
@@ -4336,8 +5203,7 @@ class MediaCenter:
             data = self._load()
         page_num = max(1, int(page or 1))
         local = [item for item in self._local_items() if (kind in ("", "vse") or item.get("vrsta") == kind)] if page_num == 1 else []
-        remote = [_series_catalog_card(item) for source in data.get("viri", []) for item in source.get("vnosi", [])
-                  if isinstance(item, dict) and (kind in ("", "vse") or item.get("vrsta") == kind)] if page_num == 1 else []
+        remote = [_series_catalog_card(item) for item in self._vnosi_virov(data, kind)] if page_num == 1 else []
         glasbena = kind in ("glasba", "radio") and _text(genre, 20) in zakoniti_viri.GLASBENE_ZVRSTI
         embed_ids = {str(provider.get("id") or host) for provider, _parsed, host in self._embed_viri(data)}
         tmdb_izklopljen = bool(embed_ids) and embed_ids <= izklopljeni
@@ -4386,9 +5252,11 @@ class MediaCenter:
             if izbrana == "moji":
                 lawful, dynamic, remote = [], [], []
             elif izbrana:
-                # TV v zivo po drzavah (kot zanri pri filmih); osebni kanali so pod "Moji kanali".
+                # TV v zivo po drzavah (kot zanri pri filmih); osebni kanali so pod "Moji kanali". Delujoci kanali
+                # seznamov IPTV iz izbrane drzave ostanejo.
                 lawful = [item for item in lawful if str(item.get("drzava") or "").upper() == izbrana.upper()]
-                dynamic, remote, local = [], [], []
+                remote = [item for item in remote if item.get("iptv") and str(item.get("drzava") or "").upper() == izbrana.upper()]
+                dynamic, local = [], []
         if kind not in ("", "vse"):
             lawful = [item for item in lawful if item.get("vrsta") == kind]
         personal = _osebni_vnosi
@@ -4513,6 +5381,13 @@ class MediaCenter:
     def details(self, item_id: str, country: str = "auto", language: str = "sl") -> dict:
         # Odprte podrobnosti niso predvajanje: torrenta zaradi njih ne zacnemo prenasati.
         item = self.resolve(item_id, pripravi_torrent=False)
+        if item and not item.get("tmdb_id") and item.get("epizode_seznama"):
+            # Serija s seznama M3U: sezone so tiste, ki jih seznam ima (nikoli prazna stran »Sezone niso na voljo«).
+            stevilo: dict[int, int] = {}
+            for e in item["epizode_seznama"]:
+                stevilo[int(e.get("sezona") or 0)] = stevilo.get(int(e.get("sezona") or 0), 0) + 1
+            return dict(item, sezone=[{"stevilka": s, "ime": "", "epizod": n} for s, n in sorted(stevilo.items()) if s > 0],
+                        media_type="tv", iz_seznama=True)
         if not item or not item.get("tmdb_id"):
             return item or {}
         media_type = "tv" if item.get("vrsta") == "serija" else "movie"

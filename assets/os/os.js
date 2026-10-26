@@ -1416,7 +1416,7 @@
     if (omejeno) {
       var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
       vse.type = "button";
-      vse.addEventListener("click", function () { izberiMedijskoKategorijo("glasba"); naloziMedije(); });
+      vse.addEventListener("click", function () { izberiMedijskoKategorijo("glasba"); naloziMedije(); odpriKategorijoViri("glasba"); });
       seznamSkladb.appendChild(vse);
     }
     c.appendChild(seznamSkladb);
@@ -1554,6 +1554,13 @@
     // Klik na zavihek med iskanjem: iskanje se konca, pokaze se zavihek (ne mesanica vseh vrst).
     if (S.mediaFilter === "vse") { S.mediaIskanje = ""; $("mediaIskanje").value = ""; }
     izberiMedijskoKategorijo(k); naloziMedije();
+    odpriKategorijoViri(k);
+  }
+  // Uporabnik je s klikom odprl kategorijo: viri iz ozjega kroga te kategorije se prvic povezejo (core/os_media.
+  // odpri_kategorijo; pregled 68, Ą4). Samo iz klika na zavihek - nikoli iz obnove zaslona, predgrevanja ali osvezevanja.
+  function odpriKategorijoViri(k) {
+    var vrsta = KAT_VRSTE[k]; if (!vrsta || vrsta === "vse") return;
+    klic("mediaOdpriKategorijo", [vrsta]).then(function () {}, function () {});
   }
   // ---- leva navigacija: gumb na vrhu jo skrci na ikone in razsiri nazaj (ime v namigu). Lastnik 18. 10. 2026: samo ena
   // moznost (»Skrij meni« in rocaj odstranjena, brez podvajanja). Tipke: v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska
@@ -6147,7 +6154,8 @@
               // (Nazadnje predvajano); zivi: id skladb, ki so prenos v zivo; vrstaSamodejno: do skladbe je prisel samodejni prehod.
               vrstaRed: null, vrstaIzvor: null, vrstaSpremenjena: false, vrstaSamodejno: false, vrstaIzSafeerja: false,
               vrstaZeton: 0, zivi: {},
-              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
+              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0,
+              tvIzbiraOdprta: false };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
@@ -6337,6 +6345,8 @@
         metaOznaka += " · S" + String(x.sezona || 1).padStart(2, "0") + "E" + String(x.epizoda || 1).padStart(2, "0");
       }
       if (x.leto) metaOznaka += " · " + x.leto;
+      // Kanal javnega seznama, ki ga preverba se ni preverila: viden, z oznako (core/kanali_iptv, J3).
+      if (x.preverjam) metaOznaka += " · " + t("katKanalPreverjam");
       metaOznaka = metaOznaka.replace(/^ · /, "");
       // Skladba: pod naslovom izvajalec (koga pričakovati), ne splošna oznaka »Glasba«.
       if ((izSeznama || x.vrsta === "glasba") && x.izvajalec) metaOznaka = x.izvajalec;
@@ -6453,9 +6463,15 @@
     });
     opazovalecKnjiznice.observe(vrsta);
   }
+  // V Serijah samo serije, v Filmih samo filmi (lastnik, 25. 10. 2026: preizkusni film »Preizkus« z druge naprave je
+  // bil prvi v vrsti Serij).
+  function knjiznicaZaFilter(vnosi) {
+    if (kat.filter !== "serija" && kat.filter !== "film") return vnosi;
+    return vnosi.filter(function (x) { return (x.vrsta === "serija" ? "serija" : "film") === kat.filter; });
+  }
   function narisiKnjiznico() {
     var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
-    var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
+    var vnosi = knjiznicaVidna() ? knjiznicaZaFilter(kat.knjiznica || []) : [];
     c.hidden = !vnosi.length;
     if (!vnosi.length) return;
     var glava = el("div", "kat-knjiznica-glava"); glava.appendChild(el("h3", "", ubezi(t("knjiznicaNaslov"))));
@@ -8180,7 +8196,10 @@
     }
     klic("mediaZvrsti", [skupina]).then(function (zvrsti) {
       if (kat.zanri !== skupina + "|" + jezik) return;
-      (zvrsti || []).forEach(function (z) { gumb(z.id, z.ime, false); });
+      // TV v zivo: drzave v jeziku vmesnika (jedro pozna slovenska imena le za nekaj drzav).
+      (zvrsti || []).forEach(function (z) {
+        gumb(z.id, skupina === "tv-v-zivo" && /^[A-Z]{2}$/.test(z.id || "") ? imeDrzave(z.id, z.ime) : z.ime, false);
+      });
     }).catch(function () {});
   }
 
@@ -8410,7 +8429,7 @@
     $("mediaSezone").querySelectorAll("button").forEach(function (b) { b.classList.toggle("izbran", b === button); });
     var cilj = $("mediaEpizode"); cilj.innerHTML = "";
     cilj.appendChild(el("div", "prazno", ubezi(t("katNalagamEpizode"))));
-    klic("mediaSezona", [item.tmdb_id, season]).then(function (response) {
+    klic("mediaSezona", [item.tmdb_id, season, item.id]).then(function (response) {
       cilj.innerHTML = "";
       var episodes = (response && response.epizode) || [];
       $("mediaEpizodeNaslov").textContent = t("katEpizode") + " · " + (button ? button.textContent : t("katSezona", { n: season }));
@@ -8426,7 +8445,7 @@
         if (item.tmdb_id) row.appendChild(gumbOgledanoEpizode(item, season, ep, row));
         var play = el("button", "gumb glavni", ubezi(t("katPredvajaj"))); play.type = "button";
         play.onclick = function () {
-          klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov]).then(function (entry) {
+          klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov, item.id]).then(function (entry) {
             // Epizode noben vir ne predvaja: tiho (lastnik 18. 10. 2026; sled v sled.log, os_katalog._epizoda).
             if (entry && entry.id) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(entry.id); }
           }, function () {});
@@ -8441,7 +8460,7 @@
         viri.onclick = function () {
           if (viri.getAttribute("aria-expanded") === "true") { viri.setAttribute("aria-expanded", "false"); seznamEp.hidden = true; return; }
           viri.setAttribute("aria-expanded", "true");
-          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov])
+          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov, item.id])
             .then(function (entry) { return entry && entry.id ? entry.id : ""; });
           narisiRazlicice(seznamEp, vnosEp, item, season, ep.stevilka, function (vnosId) {
             zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
@@ -8588,25 +8607,109 @@
   }
 
   // ---- dodatki in viri (dodatek Stremio, osebni strežnik, spletni vir)
+  // Seznam IPTV, ki ni znan javni vir: uporabnik ga sme oznaciti kot javni brezplacni - v ozadju se preverja samo tak
+  // (zascita racuna pred zaklepom; core/kanali_iptv.javni_brezplacni, pregled 39, I1).
+  function gumbJavniSeznam(source, kanali) {
+    var gumb = el("button", "gumb kat-vir-vticniki kat-vir-javni", svg("kljukica") + "<span>" + ubezi(t("katKanaliJavni")) + "</span>");
+    gumb.type = "button";
+    gumb.setAttribute("aria-pressed", kanali.oznacen_javni ? "true" : "false");
+    gumb.onclick = function () {
+      klic("mediaJavniSeznam", [source.id, !kanali.oznacen_javni]).then(function (r) {
+        if (r && r.ok === false) { $("katVirSporocilo").textContent = t("katNapakaVira"); return; }
+        naloziKatViri(); naloziKatalog();
+      }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+    };
+    return gumb;
+  }
+
   function narisiKatViri() {
     var cilj = $("katViri"); if (!cilj) return; cilj.innerHTML = "";
     // Zasebni dodatki so skriti, dokler »Zasebno« ni vklopljeno: le diskretna vrstica s stevilom.
     var skriti = !S.mediaZasebno.vklopljeno && S.mediaZasebno.skriti ? el("p", "drobno kat-zasebni-skriti",
       ubezi(t("katZasebniSkriti", { n: S.mediaZasebno.skriti }))) : null;
+    // Geslo izbrisanega vira je bilo morda deljeno zunaj ozjega kroga (core/os_media._preseli_racune, pregled 51, Ê2).
+    if (kat.opozoriloIzbrisani) {
+      var splosno = el("div", "kat-vir");
+      var besedilo = el("div"); besedilo.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljenoIzbrisan"))));
+      var splosnoRazumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
+      splosnoRazumem.type = "button";
+      splosnoRazumem.onclick = function () {
+        klic("mediaPotrdiOpozorilo", ["*"]).then(function () { kat.opozoriloIzbrisani = false; narisiKatViri(); },
+          function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+      };
+      besedilo.appendChild(splosnoRazumem); splosno.appendChild(besedilo); cilj.appendChild(splosno);
+    }
     if (!kat.viri.length) { cilj.appendChild(skriti || el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
-      var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
-      var status = source.napaka ? source.napaka : (source.vrsta === "streznik"
+      // Naslov vira z racunom (Xtream z geslom) samo kot gostitelj (core/viri_sink.prikaz_naslova).
+      var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;
+      var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || prikaz)));
+      // Ponudnik je seznam zavrnil (401/403 ...): prevedeno sporocilo, samodejno vse redkeje (core/os_media, pregled 39, I5).
+      // Brez kode (odgovor brez seznama, pregled 46, Ö5) pove napaka sama.
+      var status = source.napaka ? (source.zavrnjen && source.zavrnjen.koda ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda) }) : source.napaka)
+        : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
-      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + " · " + source.url)));
+      // Seznam kanalov IPTV: steje samo, kar deluje (core/kanali_iptv.py); zaklenjene odklene naročnina pri ponudniku.
+      var kanali = source.kanali;
+      // Seznam z racunom (Xtream ...) v ozadju ne preverjamo - zascita pred zaklepom racuna (core/kanali_iptv, J3).
+      if (!source.napaka && kanali) status = kanali.preverba === false ? t("katKanaliBrezPreverbe", { n: kanali.izbranih || 0 }) :
+        t("katKanaliDeluje", { n: kanali.deluje || 0 }) + (kanali.preverjam ? " · " + t("katKanaliPreverjam", { n: kanali.preverjam }) : "");
+      // Prejet vir, ki ni znan javen, caka na osvezitev: ponudniku ga ne poslje vsaka naprava (core/os_media.add_source, Ñ2, Ş1).
+      if (!source.napaka && source.caka_uporabnika) status = t("katVirCaka");
+      // Vir iz ozjega kroga (lastnik, 26. 10. 2026): viden takoj, prva povezava ob odprtju seznama (core/os_media, prvo_uporaba).
+      else if (!source.napaka && source.prvo_uporaba) status = t("katVirPrvo");
+      // Premor po zavrnitvi velja tudi za »Osvezi«: vrstica pove, cez koliko casa je nov poskus mogoc (pregled 68, Ą5).
+      if (source.premor_s) status += " · " + t("katVirPremor", { t: trajanjeBesedilo(Math.max(60, source.premor_s)) });
+      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
+      if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
+      // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
+      // (core/os_media._preseli_racune, pregled 46, Ö3).
+      if (source.deljeno_zunaj) {
+        info.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljeno"))));
+        var razumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
+        razumem.type = "button";
+        razumem.onclick = function () {
+          klic("mediaPotrdiOpozorilo", [source.id]).then(function () { naloziKatViri(); },
+            function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        };
+        info.appendChild(razumem);
+      }
+      var oznacljiv = !source.napaka && kanali && kanali.oznacljiv;
+      if (oznacljiv && !kanali.oznacen_javni) info.appendChild(el("small", "", ubezi(t("katKanaliJavniNamig"))));
       row.appendChild(info);
+      if (oznacljiv) row.appendChild(gumbJavniSeznam(source, kanali));
+      var plosca = null;
+      if (kanali && kanali.javni) {
+        plosca = el("div", "kat-tv-izbira"); plosca.id = "katTvIzbira-" + source.id; plosca.hidden = !kat.tvIzbiraOdprta;
+        var izbira = el("button", "gumb kat-vir-vticniki", svg("drsniki") + "<span>" + ubezi(t("katKanaliIzbira")) + "</span>");
+        izbira.type = "button"; izbira.setAttribute("aria-controls", plosca.id);
+        izbira.setAttribute("aria-expanded", kat.tvIzbiraOdprta ? "true" : "false");
+        izbira.onclick = function () { preklopiTvIzbiro(izbira, plosca); };
+        row.appendChild(izbira);
+        if (kat.tvIzbiraOdprta) naloziTvIzbiro(plosca);
+      }
+      // Vir iz ozjega kroga se poveze samo, ko uporabnik odpre TA vir (core/os_media.odpri_vir; pregled 68, Ą4).
+      if (source.odpri) {
+        var odpri = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirOdpri")) + "</span>"); odpri.type = "button";
+        odpri.onclick = function () {
+          klic("mediaOdpriVir", [source.id]).then(function () {
+            $("katVirSporocilo").textContent = t("katOsvezi") + " …";
+            setTimeout(function () { naloziKatViri(); naloziKatalog(); }, 2500);
+          }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        };
+        row.appendChild(odpri);
+      }
       var refresh = el("button", "gumb-ikona", svg("ponovno")); refresh.type = "button"; refresh.title = t("katOsvezi");
       refresh.onclick = function () {
         $("katVirSporocilo").textContent = t("katOsvezi") + " …";
-        klic("mediaOsveziVir", [source.id]).then(function () { $("katVirSporocilo").textContent = t("katOsvezeno"); naloziKatViri(); naloziKatalog(); },
-                                                function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
+        klic("mediaOsveziVir", [source.id]).then(function (r) {
+          // Premor po zavrnitvi: brez zahteve, sporocilo pove, cez koliko casa je poskus mogoc (Ą5).
+          $("katVirSporocilo").textContent = r && r.premor_s
+            ? t("katVirPremor", { t: trajanjeBesedilo(Math.max(60, r.premor_s)) }) : t("katOsvezeno");
+          naloziKatViri(); naloziKatalog();
+        }, function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
       };
       row.appendChild(refresh);
       // Vticniki strežnika Jellyfin (samo, ce most to zna - core/os_katalog.py doda oznako »vticniki«).
@@ -8627,11 +8730,53 @@
       row.onmouseleave = function () { if (potrjeno) { potrjeno = false; remove.classList.remove("potrdi"); remove.innerHTML = svg("x"); } };
       row.appendChild(remove);
       cilj.appendChild(row);
+      if (plosca) cilj.appendChild(plosca);
     });
     if (skriti) cilj.appendChild(skriti);
   }
+  // ---- države in jeziki kanalov javnih seznamov IPTV (lastnik, 25. 10. 2026: privzeto država uporabnika in
+  // angleščina, sosednjih držav ne; ostale vklopi uporabnik tu)
+  function preklopiTvIzbiro(gumb, plosca) {
+    kat.tvIzbiraOdprta = gumb.getAttribute("aria-expanded") !== "true";
+    gumb.setAttribute("aria-expanded", kat.tvIzbiraOdprta ? "true" : "false");
+    plosca.hidden = !kat.tvIzbiraOdprta;
+    if (kat.tvIzbiraOdprta) naloziTvIzbiro(plosca);
+  }
+  function naloziTvIzbiro(plosca) {
+    klic("mediaTvIzbira").then(function (s) { narisiTvIzbiro(plosca, s); }, function () {});
+  }
+  function narisiTvIzbiro(plosca, s, fokus) {
+    plosca.innerHTML = "";
+    if (!s || !s.izbrano) return;
+    plosca.appendChild(el("p", "drobno", ubezi(t("katKanaliIzbiraNamig"))));
+    var izbrano = { drzave: (s.izbrano.drzave || []).slice(), jeziki: (s.izbrano.jeziki || []).slice() };
+    [["drzave", "katKanaliDrzave", function (id) { return imeDrzave(id, id); }], ["jeziki", "katKanaliJeziki", function (id) { return imeJezika(id); }]].forEach(function (d) {
+      var seznam = s[d[0]] || [];
+      if (!seznam.length) return;
+      var skupina = el("div", "kat-tv-skupina"); skupina.setAttribute("role", "group"); skupina.setAttribute("aria-label", t(d[1]));
+      skupina.appendChild(el("b", "", ubezi(t(d[1]))));
+      seznam.forEach(function (x) {
+        var vklop = izbrano[d[0]].indexOf(x.id) >= 0;
+        var b = el("button", "kat-tv-cip", ubezi(d[2](x.id) + " · " + x.n)); b.type = "button";
+        b.setAttribute("aria-pressed", vklop ? "true" : "false"); b.setAttribute("data-id", d[0] + ":" + x.id);
+        b.onclick = function () {
+          var poslji = { drzave: izbrano.drzave.slice(), jeziki: izbrano.jeziki.slice() };
+          poslji[d[0]] = poslji[d[0]].filter(function (y) { return y !== x.id; });
+          if (!vklop) poslji[d[0]].push(x.id);
+          klic("mediaTvIzbira", [poslji.drzave, poslji.jeziki]).then(function (s2) {
+            narisiTvIzbiro(plosca, s2, d[0] + ":" + x.id); naloziKatalog();
+          }, function () {});
+        };
+        skupina.appendChild(b);
+      });
+      plosca.appendChild(skupina);
+    });
+    // Tipkovnica: fokus ostane na gumbu, ki ga je uporabnik pravkar preklopil.
+    if (fokus) { var f = plosca.querySelector('[data-id="' + fokus + '"]'); if (f) f.focus(); }
+  }
   function naloziKatViri() {
     klic("mediaZasebno").then(function (z) { nastaviZasebno(z); narisiKatViri(); }, function () {});
+    klic("mediaOpozorilaViri").then(function (o) { kat.opozoriloIzbrisani = !!(o && o.izbrisani); narisiKatViri(); }, function () {});
     return klic("mediaViri").then(function (viri) { kat.viri = Array.isArray(viri) ? viri : []; narisiKatViri(); }, function () {});
   }
   function preklopiZasebno() {
@@ -9219,6 +9364,7 @@
     if (vrsta === "mediaOdkrivanje" && podatki) prevzemiOdkrivanje(podatki);
     if (vrsta === "mediaKatalogOsvezen" && podatki && katVidno() && podatki.kljuc &&
         kat.strani.some(function (s) { return s.kljuc === podatki.kljuc; })) prevzemiKatalog(podatki, true);
+    if (vrsta === "mediaNiNaVoljo" && podatki && podatki.kanal) obvesti(t("katKanalSkrit", { ime: podatki.kanal }));
     if (vrsta === "mediaNiNaVoljo" && podatki && podatki.idji && kat.katalog) {
       var prejKartic = kat.katalog.length;
       kat.katalog = kat.katalog.filter(function (x) { return podatki.idji.indexOf(x.id) < 0; });
@@ -9242,6 +9388,14 @@
     if (vrsta === "mediaKnjiznicaSpremenjena" && katVidno()) naloziKnjiznico();
     // Moji viri so se uskladili z drugo napravo v Linku (dodan ali izbrisan dodatek, podkast ...): viri in katalog se osvežijo.
     if (vrsta === "mediaViriUsklajeni" && katVidno()) { naloziKatViri(); naloziKatalog(); }
+    // Preverba kanalov IPTV v ozadju (core/kanali_iptv.py): stevci v Virih (ce uporabnik tam ravno ne izbira) in mreza
+    // TV v zivo, dokler ni polna prva stran - mreze, po kateri uporabnik drsi, ne nalagamo znova.
+    if (vrsta === "mediaKanaliPreverjeni" && katVidno()) {
+      var viriKanalov = $("katViri");
+      if (viriKanalov && !viriKanalov.contains(document.activeElement)) naloziKatViri();
+      if ((kat.filter === "tv-v-zivo" || kat.filter === "vse") && !kat.query.trim() && (kat.skupaj_strani || 1) <= 1 &&
+          kat.katalog.length < 24) naloziKatalog();
+    }
     // Meritev vgrajenega vira se je spremenila (spet dosegljiv ali ne vec): seznam, ploscice in gumbi se osvezijo.
     if (vrsta === "mediaVgrajeniMeritve") naloziVgrajene();
     var zaAktivno = kat.aktivni && podatki && podatki.id === kat.aktivni.id;
