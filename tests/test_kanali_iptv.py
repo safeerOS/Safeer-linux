@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -603,6 +604,81 @@ class ZastareliVirZnova(unittest.TestCase):
         self.assertEqual(klici, ["vir1", "vir1"])
 
 
+class ZavrnjenSeznam(unittest.TestCase):
+    """Pregled 39, I5: seznam, ki ga ponudnik zavrne (401/403 - racun potekel ali zaklenjen), se je ob odprtju kataloga
+    prenesel znova vsakih 10 min; neuspeh brez izjeme (refresh_source napako zapise v vir) pa je vir skril do
+    ponovnega zagona (J9 ni deloval)."""
+    XTREAM = "http://ponudnik.test:8080/get.php?username=uporabnik&password=geslo&type=m3u_plus"
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        vir = {"id": "xt", "url": self.XTREAM, "ime": "Ponudnik", "posodobljeno": 1, "napaka": "", "stevilo": 0,
+               "vnosi": []}                     # brez »razclenitev«: stara razclenitev, katalog ga prebere znova
+        (Path(self.mapa.name) / "media.json").write_text(json.dumps({"viri": [vir], "osebni_strezniki": []}),
+                                                        encoding="utf-8")
+        self.mc = os_media.MediaCenter(self.mapa.name, roots=[], secret_decryptor=lambda v: "")
+        self.mc._kanali_spremenjeni = lambda viri=False: None
+        self.prenosi = []
+
+        def prenesi(url):
+            self.prenosi.append(url)
+            raise urllib.error.HTTPError(url, 403, "Forbidden", None, None)
+        self.mc._download = prenesi
+
+    def _odpri_katalog(self):
+        self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+        for nit in threading.enumerate():
+            if nit.name == "media-razclenitev":
+                nit.join(5)
+
+    def _vir(self):
+        return next(v for v in self.mc._load()["viri"] if v["id"] == "xt")
+
+    def _postaraj(self, sekund):
+        with self.mc._lock:
+            data = self.mc._load()
+            data["viri"][0]["zavrnjen"]["ob"] -= sekund
+            self.mc._save(data)
+
+    def test_zavrnjen_seznam_vse_redkeje(self):
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                               side_effect=AssertionError("se ena zahteva na naslov, ki ga je ponudnik zavrnil")), \
+                mock.patch.object(os_media.MediaCenter, "ZASTARELI_ZNOVA_S", 0.0):
+            self._odpri_katalog()
+            self.assertEqual(len(self.prenosi), 1)
+            self.assertEqual((self._vir()["zavrnjen"]["koda"], self._vir()["zavrnjen"]["n"]), (403, 1))
+            # (sekund od zadnje zavrnitve, skupno stevilo prenosov): premori 10 min, 1 h, 6 h, nato 24 h
+            for sekund, prenosov in ((0, 1), (601, 2), (601, 2), (3601, 3), (6 * 3600 + 1, 4), (24 * 3600 + 1, 5),
+                                     (6 * 3600 + 1, 5), (24 * 3600 + 1, 6)):
+                if sekund:
+                    self._postaraj(sekund)
+                self._odpri_katalog()
+                self.assertEqual(len(self.prenosi), prenosov, (sekund, self._vir().get("zavrnjen")))
+        vir = next(v for v in self.mc.sources() if v["id"] == "xt")
+        self.assertEqual(vir["zavrnjen"]["koda"], 403)          # stran pokaze katVirZavrnjen (6 jezikov)
+        self.assertTrue(vir["napaka"])
+        # Rocna osvezitev velja takoj; ko ponudnik seznam spet da, oznake ni vec.
+        self.mc._download = lambda url: (b"#EXTM3U\n#EXTINF:-1 tvg-id=\"K1.si\",Kanal 1\n"
+                                         b"http://ponudnik.test:8080/live/u/g/1.ts\n", "audio/x-mpegurl", url)
+        self.assertTrue(self.mc.refresh_source("xt")["ok"])
+        self.assertNotIn("zavrnjen", self._vir())
+
+    def test_neuspeh_brez_izjeme_se_ponovi(self):
+        def prenesi(url):
+            self.prenosi.append(url)
+            raise OSError("brez povezave")
+        self.mc._download = prenesi
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source", lambda *a, **k: []):
+            self._odpri_katalog()
+            self._odpri_katalog()                                # takoj: ne znova (ZASTARELI_ZNOVA_S)
+            self.assertEqual(len(self.prenosi), 1)
+            with mock.patch.object(os_media.MediaCenter, "ZASTARELI_ZNOVA_S", 0.0):
+                self._odpri_katalog()
+            self.assertEqual(len(self.prenosi), 2, "vir je ostal skrit do ponovnega zagona")
+        self.assertNotIn("zavrnjen", self._vir())
+
+
 def _seznam_eng():
     return ["#EXTINF:-1 tvg-id=\"3ABNTVUganda.ug@SD\" group-title=\"Religious\",3ABN TV Uganda (720p)",
             "https://tok.primer.test/ug.m3u8",
@@ -706,7 +782,7 @@ class Vmesnik(unittest.TestCase):
             raise unittest.SkipTest("node ni namescen")
         kljuci = ["katKanalSkrit", "katKanaliDeluje", "katKanaliPreverjam", "katKanaliZaklenjeni", "katKanaliIzbira",
                   "katKanaliIzbiraNamig", "katKanaliDrzave", "katKanaliJeziki", "katKanaliBrezPreverbe", "katKanaliJavni",
-                  "katKanaliJavniNamig"]
+                  "katKanaliJavniNamig", "katVirZavrnjen"]
         koda = self.besedila + "\nconsole.log(JSON.stringify(%s.map(function (k) { return ['sl','en','de','es','fr','it'].filter(function (j) { return !BESEDILA_OS[j][k]; }); })));" % json.dumps(kljuci)
         with tempfile.TemporaryDirectory() as td:
             datoteka = Path(td) / "besedila.js"

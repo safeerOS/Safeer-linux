@@ -3205,6 +3205,22 @@ class MediaCenter:
     #: Vir, ki ga ni bilo mogoce prebrati znova (brez povezave, VPN), poskusimo spet ob odprtju kataloga po tem casu -
     #: prej je ostal skrit do ponovnega zagona (pregled 30, J9).
     ZASTARELI_ZNOVA_S = 600.0
+    #: Ponudnik je seznam zavrnil (401/402/403/429: racun potekel ali zaklenjen, prevec zahtev): samodejno ga prenesemo
+    #: znova sele po teh premorih, zapisanih v viru (velja tudi po ponovnem zagonu). Prej vsakih 10 min - vsaka zahteva
+    #: na racun, ki je ze v tezavah, steje (pregled 39, I5). Rocna osvezitev (gumb v Virih) velja takoj.
+    ZAVRNJEN_PREMORI_S = (600.0, 3600.0, 6 * 3600.0, 24 * 3600.0)
+    ZAVRNJENE_KODE = frozenset({401, 402, 403, 429})
+
+    def _zavrnjen_do(self, source: dict) -> float:
+        """Do kdaj (unix) vira, ki ga je ponudnik zavrnil, samodejno ne prenasamo znova (0: ni zavrnjen)."""
+        zavrnjen = source.get("zavrnjen")
+        if not isinstance(zavrnjen, dict):
+            return 0.0
+        try:
+            n, ob = int(zavrnjen.get("n") or 1), float(zavrnjen.get("ob") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return ob + self.ZAVRNJEN_PREMORI_S[min(max(n, 1), len(self.ZAVRNJEN_PREMORI_S)) - 1]
 
     def _osvezi_zastarele_v_ozadju(self, idji: list) -> None:
         with self._lock:
@@ -3219,12 +3235,15 @@ class MediaCenter:
         def delo() -> None:
             for ident in novi:
                 try:
-                    self.refresh_source(ident)
+                    uspeh = bool(self.refresh_source(ident).get("ok"))
                 except Exception:  # noqa: BLE001
+                    uspeh = False
+                if not uspeh:
+                    # Tudi napaka brez izjeme (refresh_source jo zapise v vir): znova ob odprtju kataloga po
+                    # ZASTARELI_ZNOVA_S, zavrnitev ponudnika sele po ZAVRNJEN_PREMORI_S (_vnosi_virov; pregled 39, I5).
                     with self._lock:
                         self._zastareli_viri.discard(ident)
                         neuspeli[ident] = time.monotonic()
-                    continue
             self._kanali_spremenjeni(viri=True)
 
         threading.Thread(target=delo, name="media-razclenitev", daemon=True).start()
@@ -3246,7 +3265,8 @@ class MediaCenter:
             if not isinstance(source, dict):
                 continue
             if self._zastarela_razclenitev(source):
-                zastareli.append(str(source.get("id") or ""))
+                if time.time() >= self._zavrnjen_do(source):
+                    zastareli.append(str(source.get("id") or ""))
                 continue
             javni = kanali_iptv.je_javni_seznam(source.get("url"))
             # Samo znan javni vir ali seznam, ki ga je uporabnik oznacil kot javnega (pregled 39, I1).
@@ -4146,7 +4166,18 @@ class MediaCenter:
         except Exception as exc:
             host = (urllib.parse.urlsplit(source["url"]).hostname or "").casefold()
             restricted = host == "bandcamp.com" or host.endswith(".bandcamp.com")
-            items = [] if restricted else _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
+            koda = exc.code if isinstance(exc, urllib.error.HTTPError) else 0
+            if koda in self.ZAVRNJENE_KODE:
+                # Ponudnik je seznam zavrnil: brez se ene zahteve na isti naslov (vdelani predvajalnik) in samodejno
+                # znova sele po vse daljsem premoru (ZAVRNJEN_PREMORI_S; pregled 39, I5).
+                prej = source.get("zavrnjen") if isinstance(source.get("zavrnjen"), dict) else {}
+                try:
+                    n = int(prej.get("n") or 0)
+                except (TypeError, ValueError):
+                    n = 0
+                source["zavrnjen"] = {"koda": koda, "ob": int(time.time()), "n": min(n + 1, len(self.ZAVRNJEN_PREMORI_S))}
+            items = [] if restricted or koda in self.ZAVRNJENE_KODE else \
+                _resolve_embed_or_direct_source(source["url"], source["id"], source["ime"])
             if items:
                 source.update({"vnosi": items, "stevilo": len(items), "posodobljeno": int(time.time()), "napaka": "",
                                "razclenitev": kanali_iptv.RAZCLENITEV})
@@ -4160,6 +4191,9 @@ class MediaCenter:
             saved = next((item for item in data.get("viri", []) if item.get("id") == source_id), None)
             if saved is None:
                 return {"ok": False, "napaka": "ni_vira"}
+            if ok:
+                source.pop("zavrnjen", None)
+                saved.pop("zavrnjen", None)        # ponudnik seznam spet da
             saved.update(source)
             self._save(data)
         if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):

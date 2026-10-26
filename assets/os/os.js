@@ -8624,7 +8624,9 @@
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
-      var status = source.napaka ? source.napaka : (source.vrsta === "streznik"
+      // Ponudnik je seznam zavrnil (401/403 ...): prevedeno sporocilo, samodejno vse redkeje (core/os_media, pregled 39, I5).
+      var status = source.napaka ? (source.zavrnjen ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda || "") }) : source.napaka)
+        : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
       // Seznam kanalov IPTV: steje samo, kar deluje (core/kanali_iptv.py); zaklenjene odklene naročnina pri ponudniku.
