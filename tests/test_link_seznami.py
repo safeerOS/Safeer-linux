@@ -494,7 +494,9 @@ class ZeRazposlaneKopije(unittest.TestCase):
         with open(os.path.join(koren, "core", "os_katalog.py"), encoding="utf-8") as f:
             katalog = f.read()
         self.assertIn('klic("mediaPotrdiOpozorilo", [source.id])', js)
-        self.assertIn('if (source.deljeno_zunaj) {', js)
+        # Lastnik, 26. 10. 2026: opozorila »geslo je bilo deljeno« ne kazemo (prestrasi uporabnika).
+        self.assertIn('if (OPOZORILO_GESLA_DELJENO && source.deljeno_zunaj) {', js)
+        self.assertIn('var OPOZORILO_GESLA_DELJENO = false;', js)
         self.assertIn('"mediaPotrdiOpozorilo": "_potrdi_opozorilo"', katalog)
         self.assertIn('"mediaOpozorilaViri": "_opozorila_virov"', katalog)           # splosno opozorilo za izbrisane (Ê2)
         self.assertIn('klic("mediaOpozorilaViri")', js)

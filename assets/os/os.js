@@ -8805,13 +8805,18 @@
     return gumb;
   }
 
-  function narisiKatViri() {
+  // Lastnik, 26. 10. 2026: opozorila »geslo je bilo deljeno« ne kazemo (glej narisiKatViri).
+var OPOZORILO_GESLA_DELJENO = false;
+
+function narisiKatViri() {
     var cilj = $("katViri"); if (!cilj) return; cilj.innerHTML = "";
     // Zasebni dodatki so skriti, dokler »Zasebno« ni vklopljeno: le diskretna vrstica s stevilom.
     var skriti = !S.mediaZasebno.vklopljeno && S.mediaZasebno.skriti ? el("p", "drobno kat-zasebni-skriti",
       ubezi(t("katZasebniSkriti", { n: S.mediaZasebno.skriti }))) : null;
     // Geslo izbrisanega vira je bilo morda deljeno zunaj ozjega kroga (core/os_media._preseli_racune, pregled 51, Ê2).
-    if (kat.opozoriloIzbrisani) {
+    // Lastnik, 26. 10. 2026: opozorilo »geslo je bilo deljeno« prestraši uporabnika (misli na e-posto, banko) - ne kazemo ga;
+    // kljuci in skrivnosti se tako ali tako sinhronizirajo v ozjem krogu uporabnikovih naprav, sifrirano.
+    if (OPOZORILO_GESLA_DELJENO && kat.opozoriloIzbrisani) {
       var splosno = el("div", "kat-vir");
       var besedilo = el("div"); besedilo.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljenoIzbrisan"))));
       var splosnoRazumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
@@ -8855,7 +8860,7 @@
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
       // (core/os_media._preseli_racune, pregled 46, Ö3).
-      if (source.deljeno_zunaj) {
+      if (OPOZORILO_GESLA_DELJENO && source.deljeno_zunaj) {
         info.appendChild(el("small", "kat-vir-napaka", ubezi(t("katVirGesloDeljeno"))));
         var razumem = el("button", "gumb kat-vir-vticniki", "<span>" + ubezi(t("katVirGesloRazumem")) + "</span>");
         razumem.type = "button";
