@@ -3241,6 +3241,8 @@ class MediaCenter:
     #: na racun, ki je ze v tezavah, steje (pregled 39, I5). Rocna osvezitev (gumb v Virih) velja takoj.
     ZAVRNJEN_PREMORI_S = (600.0, 3600.0, 6 * 3600.0, 24 * 3600.0)
     ZAVRNJENE_KODE = frozenset({401, 402, 403, 429})
+    #: Vir z racunom, pri katerem tolikokrat zapored ni bilo povezave (koda 0), dobi isti rastoci premor (Ê1).
+    NI_POVEZAVE_ZAPORED = 3
 
     def _zavrnjen_do(self, source: dict) -> float:
         """Do kdaj (unix) vira, ki ga je ponudnik zavrnil, samodejno ne prenasamo znova (0: ni zavrnjen)."""
@@ -4050,7 +4052,8 @@ class MediaCenter:
                                                                       for x in v.get("vnosi") or []), v.get("javni") is True)):
                     v["deljeno_zunaj"] = zdaj
             if (zapis_je and not data.get("deljeno_izbrisani_potrjeno")
-                    and any(viri_sink.verjetno_racun_seznama(k.partition("|")[2]) for k in self._viri_stanje()["izbrisani"])):
+                    and any(viri_sink.verjetno_racun_seznama(k.partition("|")[2], siroko=True)
+                            for k in self._viri_stanje()["izbrisani"])):
                 data["deljeno_izbrisani"] = zdaj
             self._save(data)
             self._server_cache = {k: c for k, c in self._server_cache.items()
@@ -4258,6 +4261,16 @@ class MediaCenter:
             final_url = canonical_url(response.geturl())
             return payload, response.headers.get_content_type(), final_url
 
+    @staticmethod
+    def _racun_vira(source: dict) -> bool:
+        """Ali ima vir verjetno racun pri ponudniku (pregled 51, Ê1: zaznan_racun je heuristika, ki oblik …/playlist/<u>/<g>/
+        m3u_plus, zetona v poti in kratke povezave ne pozna): prepoznan racun ali oblika seznama z racunom, ali pa je
+        to seznam kanalov IPTV, ki ni znan javen. Podkast, stran ali navaden seznam brez racuna: ne (zanje je
+        rezervna pot - vdelani predvajalnik)."""
+        url, oznacen = source.get("url"), source.get("javni") is True
+        iptv = any(isinstance(x, dict) and x.get("iptv") for x in source.get("vnosi") or [])
+        return viri_sink.verjetno_racun_seznama(url, oznacen) or viri_sink.verjetno_geslo(url, iptv, oznacen)
+
     def refresh_source(self, source_id: str) -> dict:
         if source_id.startswith("streznik-"):
             with self._lock:
@@ -4297,7 +4310,7 @@ class MediaCenter:
                 items = parse_payload(payload, content_type, final_url, source["id"], source["ime"], stevci=stevci)
                 source["ne_24_7"] = int(stevci.get("ne_24_7") or 0)
                 if not items:
-                    if viri_sink.zaznan_racun(source["url"]):
+                    if self._racun_vira(source):
                         # Odgovor brez seznama na naslov z geslom: brez se ene zahteve z geslom (vdelani predvajalnik)
                         # in samodejno vse redkeje (pregled 46, Ö5).
                         raise _PrazenOdgovor("Ponudnik ni vrnil seznama.")
@@ -4312,8 +4325,18 @@ class MediaCenter:
             # Vir z racunom (pregled 46, Ö5): vsak odgovor ponudnika brez seznama (404, 5xx, lastne kode, prazen 200) je
             # zavrnitev z vse daljsim premorom; brez povezave (koda 0) ostane ponovitev po 10 min. Nikoli druge zahteve
             # na naslov z geslom.
-            racun = viri_sink.zaznan_racun(source["url"])
-            if koda in self.ZAVRNJENE_KODE or (racun and (koda > 0 or isinstance(exc, _PrazenOdgovor))):
+            racun = self._racun_vira(source)
+            ni_povezave = 0
+            if racun and koda == 0 and not isinstance(exc, _PrazenOdgovor):
+                # Prekinjena povezava, TLS, rok: nekateri paneli zaklenjen racun ali IP odrezejo ze na ravni povezave,
+                # zato tretjic zapored tudi to vse redkeje (pregled 51, Ê1); rocna osvezitev velja takoj.
+                try:
+                    ni_povezave = int(source.get("ni_povezave") or 0) + 1
+                except (TypeError, ValueError):
+                    ni_povezave = 1
+                source["ni_povezave"] = ni_povezave
+            if (koda in self.ZAVRNJENE_KODE or (racun and (koda > 0 or isinstance(exc, _PrazenOdgovor)))
+                    or ni_povezave >= self.NI_POVEZAVE_ZAPORED):
                 # Ponudnik je seznam zavrnil: brez se ene zahteve na isti naslov (vdelani predvajalnik) in samodejno
                 # znova sele po vse daljsem premoru (ZAVRNJEN_PREMORI_S; pregled 39, I5).
                 prej = source.get("zavrnjen") if isinstance(source.get("zavrnjen"), dict) else {}
@@ -4338,8 +4361,9 @@ class MediaCenter:
             if saved is None:
                 return {"ok": False, "napaka": "ni_vira"}
             if ok:
-                source.pop("zavrnjen", None)
-                saved.pop("zavrnjen", None)        # ponudnik seznam spet da
+                for oznaka in ("zavrnjen", "ni_povezave"):
+                    source.pop(oznaka, None)
+                    saved.pop(oznaka, None)        # ponudnik seznam spet da
             saved.update(source)
             self._save(data)
         if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):

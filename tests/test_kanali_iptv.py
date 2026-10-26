@@ -729,6 +729,73 @@ class ZavrnjenSeznam(unittest.TestCase):
                 self._postaraj(7 * 3600)
         self.assertEqual(self._vir()["napaka"], "Ponudnik ni vrnil seznama.")
 
+    def test_racun_neprepoznane_oblike_je_enako_zavarovan(self):
+        """Pregled 51, Ê1: premor in odsotnost druge zahteve je odlocala heuristika zaznan_racun, ki oblik
+        …/playlist/<u>/<g>/m3u_plus, zetona v poti in kratke povezave ne pozna: 404 in prazen 200 sta pomenila dve zahtevi
+        z geslom na poskus (rezervna gre pri praznem odgovoru celo na naslov po preusmeritvi)."""
+        kanal = [{"id": "k", "iptv": True, "url": "http://ponudnik.primer.test:8080/live/uporabnik/geslo/1.ts", "naslov": "K"}]
+        primeri = [("http://ponudnik.primer.test:8080/playlist/uporabnik/geslo/m3u_plus", []),     # oblika seznama z racunom
+                   ("http://ponudnik.primer.test:8080/get/uporabnik/geslo/m3u8_plus", []),
+                   ("http://kratka.primer.test/abc", kanal)]                                      # ze brani kanali IPTV
+        for url, vnosi in primeri:
+            for odgovor in ("404", "prazen"):
+                with self.subTest(url=url, odgovor=odgovor):
+                    with self.mc._lock:
+                        data = self.mc._load()
+                        data["viri"][0].update(url=url, vnosi=vnosi, zavrnjen=None)
+                        data["viri"][0].pop("zavrnjen")
+                        self.mc._save(data)
+                    self.prenosi.clear()
+
+                    def prenesi(u):
+                        self.prenosi.append(u)
+                        if odgovor == "prazen":
+                            return b"", "text/plain", "http://preusmerjeno.primer.test/get.php?username=u&password=g"
+                        raise urllib.error.HTTPError(u, 404, "Not Found", None, None)
+                    self.mc._download = prenesi
+                    with mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                                           side_effect=AssertionError("druga zahteva na naslov z geslom")):
+                        self.assertFalse(self.mc.refresh_source("xt")["ok"])
+                    self.assertEqual(self.prenosi, [url])
+                    self.assertEqual(self._vir()["zavrnjen"]["n"], 1)
+                    self.assertEqual(self._vir()["zavrnjen"]["koda"], 404 if odgovor == "404" else 0)
+
+    def test_brez_povezave_tretjic_zapored_vse_redkeje(self):
+        """Ê1: koda 0 (prekinjena povezava, TLS, rok) je za vir z racunom ostala vsakih 10 min brez rasti."""
+        def prenesi(url):
+            self.prenosi.append(url)
+            raise OSError("brez povezave")
+        self.mc._download = prenesi
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                               side_effect=AssertionError("druga zahteva na naslov z geslom")):
+            for poskus in (1, 2):
+                self.assertFalse(self.mc.refresh_source("xt")["ok"])
+                self.assertNotIn("zavrnjen", self._vir(), poskus)
+            for poskus, n in ((3, 1), (4, 2), (5, 3), (6, 4), (7, 4)):
+                self.assertFalse(self.mc.refresh_source("xt")["ok"])
+                self.assertEqual((self._vir()["zavrnjen"]["koda"], self._vir()["zavrnjen"]["n"]), (0, n), poskus)
+        self.assertGreater(self.mc._zavrnjen_do(self._vir()), time.time())          # samodejno ne prej
+        # Ponudnik spet da seznam: oznaki sta pozabljeni.
+        self.mc._download = lambda url: (b"#EXTM3U\n#EXTINF:-1 tvg-id=\"K1.si\",Kanal 1\nhttp://ponudnik.test:8080/live/u/g/1.ts\n",
+                                         "audio/x-mpegurl", url)
+        self.assertTrue(self.mc.refresh_source("xt")["ok"])
+        self.assertTrue(set(self._vir()).isdisjoint({"zavrnjen", "ni_povezave"}))
+
+    def test_javni_znan_seznam_brez_racuna_ni_zavarovan_kot_racun(self):
+        """Isti kanali IPTV v znanem javnem seznamu: rezervna pot ostane (Ê1 ne sme zajeti vsega)."""
+        javni = "https://iptv-org.github.io/iptv/countries/si.m3u"
+        kanal = [{"id": "k", "iptv": True, "url": "https://tok.primer.test/1.m3u8", "naslov": "K"}]
+        with self.mc._lock:
+            data = self.mc._load()
+            data["viri"][0].update(url=javni, vnosi=kanal)
+            self.mc._save(data)
+        self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 404, "Not Found", None, None))
+        klici = []
+        with mock.patch.object(os_media, "_resolve_embed_or_direct_source", lambda *a, **k: klici.append(a[0]) or []):
+            self.assertFalse(self.mc.refresh_source("xt")["ok"])
+        self.assertEqual(klici, [javni])
+        self.assertNotIn("zavrnjen", self._vir())
+
     def test_brez_racuna_ostane_rezervna_pot(self):
         javni = "https://seznam.primer.test/tv.m3u"
         with self.mc._lock:

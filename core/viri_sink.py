@@ -245,15 +245,20 @@ def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = Fa
     return za_ozji_krog(naslov, oznacen) and (zaznan_racun(naslov) or seznam_iptv is True)
 
 
-#: Oblika naslova seznama IPTV, ki ga zaznan_racun ne prepozna (…/playlist/<u>/<g>/m3u_plus, get.php, m3u8).
-_OBLIKA_SEZNAMA = re.compile(r"m3u|/playlist/|/get\.php|/player_api\.php", re.IGNORECASE)
+#: Oblika naslova seznama IPTV z racunom, ki ga zaznan_racun ne prepozna: …/playlist/<u>/<g>/…, …/get/<u>/<g>/…, m3u_plus.
+_OBLIKA_SEZNAMA = re.compile(r"/playlist/[^/?#]+/[^/?#]+/|/get/[^/?#]+/[^/?#]+/|m3u8?_plus|/get\.php|/player_api\.php|"
+                             r"/xmltv\.php", re.IGNORECASE)
+#: Pri izbrisanem viru (opozorilo, ob dvomu da) zadostuje vsaka sled seznama.
+_SLED_SEZNAMA = re.compile(r"m3u|/playlist|iptv", re.IGNORECASE)
 
 
-def verjetno_racun_seznama(naslov: object, oznacen: bool = False) -> bool:
-    """Naslov, ki ni znan javen in ima prepoznan racun ali obliko seznama IPTV (pregled 51, Ê2: izbrisan vir ima samo
-    se naslov, zato seznama kanalov ne moremo pogledati). Podkast ali stran brez racuna: ne."""
+def verjetno_racun_seznama(naslov: object, oznacen: bool = False, siroko: bool = False) -> bool:
+    """Naslov, ki ni znan javen in ima prepoznan racun ali obliko seznama IPTV z racunom (pregled 51, Ê1: premor in
+    odsotnost rezervne zahteve; Ê2: izbrisan vir ima samo se naslov, zato seznama kanalov ne moremo pogledati - tam
+    `siroko`, ker je opozorilo neskodljivo). Podkast ali stran brez racuna ter navaden seznam .m3u: ne."""
     besedilo = str(naslov or "")
-    return za_ozji_krog(besedilo, oznacen) and (zaznan_racun(besedilo) or bool(_OBLIKA_SEZNAMA.search(besedilo)))
+    return za_ozji_krog(besedilo, oznacen) and (zaznan_racun(besedilo) or bool(_OBLIKA_SEZNAMA.search(besedilo))
+                                               or (siroko and bool(_SLED_SEZNAMA.search(besedilo))))
 
 
 def _oznacen(v: object) -> bool:
