@@ -145,6 +145,13 @@ class DebridVnos(unittest.TestCase):
                    vloga: document.getElementById('debridStanjeVnosa').getAttribute('role') };
         })()""" % (vrstica, json.dumps(vrednosti), vrstica))
 
+    def _klikni(self, vrstica, besedilo):
+        """Klik gumba z [besedilo] v vrstici (kot uporabnik)."""
+        return self._js("""(function () {
+          var g = Array.prototype.filter.call(document.querySelectorAll('#debridSeznam [data-id="%s"] button'),
+                                              function (b) { return b.textContent === %s; })[0];
+          if (!g) return 0; g.click(); return 1; })()""" % (vrstica, json.dumps(besedilo)))
+
     def _po(self, vrstica):
         return self._js("""(function () {
           var a = document.activeElement, v = document.querySelector('#debridSeznam [data-id="%s"]');
@@ -226,8 +233,41 @@ class DebridVnos(unittest.TestCase):
         self._odpri()
         with mock.patch.object(debrid, "torbox_preveri", side_effect=AssertionError("ne velja se ne preverja znova")):
             self._streži()
-        self.assertEqual(self._po("torbox")["opis"], "ključ ne velja – vpiši znova")
-        self.assertNotIn(KLJUC_TB, self._po("torbox")["html"])
+        po = self._po("torbox")
+        self.assertEqual(po["opis"], "ključ ne velja – Safeer ga ne uporablja; vpiši novega ali pritisni »Preveri«")
+        self.assertNotIn(KLJUC_TB, po["html"])
+        # Lastnik 26. 10. 2026 (zaklep racuna): zavrnjen kljuc se znova preveri SAMO ob gumbu »Preveri«.
+        self.assertIn(["Preveri", "Preveri – TorBox", False], po["gumbi"])
+        self._klikni("torbox", "Preveri")
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)) as tb:
+            self.assertEqual(self._postrezi_cakajoce(), [["preveri", "torbox"]])
+        self.assertEqual(tb.call_count, 1)
+        _cakaj(lambda: False, 0.2)
+        po = self._po("torbox")
+        self.assertEqual((po["opis"], po["stanje"]), ("ključ velja ✓ · paket Pro", "TorBox: ključ velja ✓"))
+        self.assertNotIn("Preveri", [g[0] for g in po["gumbi"]])
+
+    def test_zaklenjen_racun_vrstica_pove_kaj_narediti(self):
+        """Lastnik 26. 10. 2026: RD 14 »account locked« - kljuc shranjen, vrstica pove »odkleni na real-debrid.com«,
+        Safeer RD ne klice do »Preveri«."""
+        self._vpisi("realdebrid", [KLJUC_RD])
+        with (mock.MagicMock() if ZIVO else mock.patch.object(
+                debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}'))):
+            self._streži()
+        if ZIVO:
+            self.skipTest("pravi Real-Debrid izmisljen kljuc zavrne - zaklenjen racun tu ni mogoc")
+        po = self._po("realdebrid")
+        self.assertTrue(po["opis"].startswith("Real-Debrid je račun zaklenil ali ne dovoli tega naslova IP – odkleni ga na "
+                                              "real-debrid.com"), po["opis"])
+        self.assertEqual(po["stanje"], po["opis"])
+        self.assertIn(["Preveri", "Preveri – Real-Debrid", False], po["gumbi"])
+        self.assertNotIn(KLJUC_RD, po["html"])
+        self._klikni("realdebrid", "Preveri")
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 7, "username": "u"}')) as k:
+            self.assertEqual(self._postrezi_cakajoce(), [["preveri", "realdebrid"]])
+        self.assertEqual(k.call_count, 1)
+        _cakaj(lambda: False, 0.2)
+        self.assertEqual(self._po("realdebrid")["opis"], "ključ velja ✓")
 
     def test_nepreverjen_preverjen_po_odprtju_vrstica_na_mestu(self):
         """Kljuc iz prejsnje razlicice (brez stanja): okno ga preveri; vrstica se osvezi, polje drugega kljuca ostane."""
@@ -246,7 +286,7 @@ class DebridVnos(unittest.TestCase):
         self.assertEqual((tb.call_count, ix.call_count), (1, 1))
         _cakaj(lambda: False, 0.2)
         self.assertEqual(self._po("torbox")["opis"], "ključ velja ✓ · paket Pro")
-        self.assertEqual(self._po("usenet")["opis"], "Indeksator: nzbfinder.ws · ključ ne velja – vpiši znova")
+        self.assertEqual(self._po("usenet")["opis"], "Indeksator: nzbfinder.ws · ključ ne velja – Safeer ga ne uporablja; vpiši novega ali pritisni »Preveri«")
         rd = self._po("realdebrid")
         self.assertEqual((rd["vrednosti"], rd["fokus_v_vrstici"]), (["tipkam"], True))
         self.assertEqual(self._js("window.__zahteve.length"), 0)
