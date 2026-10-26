@@ -317,3 +317,56 @@ class OknoLinkDomacaMapa(unittest.TestCase):
         self.assertIn('dovoliDomacoMapo: function (id) { poslji("dovoliDomacoMapo", [id]); }', vir)
         self.assertIn('"dovoliDomacoMapo": lambda: self._dovoli_domaco_mapo(*argumenti[:1])', vir)
         self.assertIn('"dom": bool(link_dostop.sme_domaco_mapo(id_naprave))', vir)
+
+
+# ---------------------------------------------------------------------------------------------- pregled 29 (Grok)
+
+def _zapis_prejsnje(naprave, oznaka=True):
+    """Zapis dostop.json prejsnje razlicice (brez polj dom in dano_ob); `oznaka`: migracija je ze opravljena."""
+    pot = link_dostop._pot()
+    with open(pot, "w", encoding="utf-8") as d:
+        json.dump({"v": 1, "podedovano_ob": MEJA + 100, "naprave": naprave}, d)
+    if oznaka:
+        with open(pot + ".podedovano", "w", encoding="utf-8") as d:
+            d.write("{}")
+    link_dostop._za_preizkus(pot)
+    return pot
+
+
+class G2IzrecnaMedCakajocoMigracijo(_Osnova):
+    """Pregled 29, G2: med cakajoco migracijo je naprava z vsemi stirimi izgubila ozji krog, tudi z izrecno novo
+    privolitvijo, okno pa je javilo »Shranjeno«; ko je migracija stekla, je vzela se domaco mapo."""
+    clani = ({"id": "jaz", "kljuc": "KJAZ", "dodano": MEJA - 9000}, {"id": "a", "kljuc": "KA", "dodano": MEJA - 100})
+
+    def _na_disku(self, pot):
+        with open(pot, encoding="utf-8") as d:
+            return json.load(d)["naprave"]
+
+    def test_izrecna_privolitev_velja_in_je_migracija_ne_vzame(self):
+        pot = _zapis_prejsnje({A: "dpvz"}, oznaka=False)
+        with mock.patch.object(link_dostop, "_lastni_kljuc", lambda: None):      # migracija caka
+            self.assertEqual(link_dostop.zmoznosti(A), {"p", "v"})
+            self.assertTrue(link_dostop.nastavi_ozji_krog(A, "dpvz"))
+            self.assertEqual(link_dostop.zmoznosti(A), set("dpvz"), "»Shranjeno«, a brez upravljanja")
+            self.assertTrue(link_dostop.sme_domaco_mapo(A))
+        with mock.patch.object(link_dostop, "UMIK_PONOVI_S", 0.0):
+            self.assertEqual(link_dostop.zmoznosti(A), set("dpvz"), "migracija je vzela izrecno privolitev")
+            self.assertTrue(link_dostop.sme_domaco_mapo(A))
+        self.assertEqual(self._na_disku(pot)[A], "dpvz")
+        self.assertTrue(os.path.exists(pot + ".podedovano"))
+
+    def test_prazen_krog_z_izrecno_privolitvijo_ne_caka(self):
+        self.clani = ()
+        pot = _zapis_prejsnje({A: "dpvz"}, oznaka=False)
+        self.assertEqual(link_dostop.zmoznosti(A), {"p", "v"})
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, "dpvz"))
+        self.assertEqual(link_dostop.zmoznosti(A), set("dpvz"))
+        with mock.patch.object(link_dostop, "UMIK_PONOVI_S", 0.0):
+            self.assertEqual(link_dostop.zmoznosti(A), set("dpvz"))
+        self.assertTrue(os.path.exists(pot + ".podedovano"), "migracija pri praznem krogu caka trajno")
+
+    def test_shranjeno_samo_ce_v_programu_velja(self):
+        _zapis_prejsnje({A: "dpvz"}, oznaka=False)
+        with mock.patch.object(link_dostop, "_lastni_kljuc", lambda: None), \
+                mock.patch.object(link_dostop, "_izrecna", lambda ostalo: set()):
+            self.assertFalse(link_dostop.nastavi_ozji_krog(A, "dpvz"), "»Shranjeno«, ceprav v programu ne velja")

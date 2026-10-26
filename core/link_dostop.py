@@ -481,11 +481,13 @@ def _podedovana_jedra() -> Set[str]:
         return set()
 
 
-def _podedovana_jedra_ali_none(naprave: Dict[str, Set[str]]) -> Optional[Set[str]]:
+def _podedovana_jedra_ali_none(naprave: Dict[str, Set[str]], izrecna: Iterable[str] = ()) -> Optional[Set[str]]:
     """Podedovana jedra za migracijo starega zapisa ali None, ce jih ni mogoce dolociti: kroga ali kljuca te naprave ni
     mogoce prebrati ali pa je krog prazen, zapis pa ima naprave z vsemi stirimi (krog.json izgubljen ali se ne prenesen).
     »Ne vem« ni »nobena«: prej se je oznaka dedovanja zapisala brez zmanjsanja in migracije ni bilo nikoli vec
-    (pregled 17, M1)."""
+    (pregled 17, M1). Naprave z izrecno privolitvijo v tej razlicici (`izrecna`, _izrecna) ne stejejo: prazen krog z
+    njimi ne caka (pregled 29, G2: prej je migracija pri praznem krogu cakala trajno)."""
+    izrecna = set(izrecna)
     try:
         k = _krog()
         with k._zaklep:
@@ -493,17 +495,19 @@ def _podedovana_jedra_ali_none(naprave: Dict[str, Set[str]]) -> Optional[Set[str
         kljuc = _lastni_kljuc()
         if not kljuc:
             return None
-        if not clani and any(set(d) == set(VSE_ZMOZNOSTI) for d in naprave.values()):
+        if not clani and any(set(d) == set(VSE_ZMOZNOSTI) and j not in izrecna for j, d in naprave.items()):
             return None
         return podedovani(clani, kljuc, _id_iz_kljuca)
     except Exception:  # noqa: BLE001
         return None
 
 
-def _brez_ozjega(naprave: Dict[str, Set[str]], jedra: Optional[Set[str]] = None) -> Dict[str, Set[str]]:
-    """Kopija zapisa, v kateri naprave z vsemi stirimi (`jedra` ali vse, ce None) nimajo ozjega kroga (PODEDOVANO)."""
-    vse = set(VSE_ZMOZNOSTI)
-    return {j: (set(PODEDOVANO) if set(d) == vse and (jedra is None or j in jedra) else set(d))
+def _brez_ozjega(naprave: Dict[str, Set[str]], jedra: Optional[Set[str]] = None,
+                 izrecna: Iterable[str] = ()) -> Dict[str, Set[str]]:
+    """Kopija zapisa, v kateri naprave z vsemi stirimi (`jedra` ali vse, ce None) nimajo ozjega kroga (PODEDOVANO).
+    Naprave z izrecno privolitvijo v tej razlicici (`izrecna`, _izrecna) ostanejo, kot so (pregled 29, G2)."""
+    vse, izrecna = set(VSE_ZMOZNOSTI), set(izrecna)
+    return {j: (set(PODEDOVANO) if set(d) == vse and (jedra is None or j in jedra) and j not in izrecna else set(d))
             for j, d in naprave.items()}
 
 
@@ -539,6 +543,14 @@ def _dom_iz(ostalo: dict) -> Set[str]:
     """Polje »dom« zapisa: jedro -> cas izrecne privolitve za domaco mapo (unix). Samo prava jedra."""
     surovo = ostalo.get("dom") if isinstance(ostalo, dict) else None
     return {str(j) for j in surovo if _je_jedro(j)} if isinstance(surovo, dict) else set()
+
+
+def _izrecna(ostalo: dict) -> Set[str]:
+    """Jedra z izrecno privolitvijo v tej razlicici: »dano_ob« (uporabnik je dal novo zmoznost) ali »dom«. Zapis
+    prejsnje razlicice teh polj nima. Migracija starega zapisa in cakanje nanjo takih naprav ne zmanjsata (pregled 29,
+    G2: prej je cakajoca migracija vzela upravljanje in Safeer Vnos tudi napravi, ki ji je uporabnik pravkar dal vse
+    stiri, okno pa je javilo »Shranjeno«; ko je migracija stekla, je tiho vzela se domaco mapo)."""
+    return set(_dano_ob(ostalo)) | _dom_iz(ostalo)
 
 
 def _dovoli_dom(j: str, ostalo: dict) -> None:
@@ -680,12 +692,13 @@ def _spremeni(sprememba: Callable[..., None],
                     elif stanje == "pokvarjen":
                         ob = time.time()
                     elif not _dedovanje_opravljeno(pot):
-                        podedovana = _podedovana_jedra_ali_none(naprave)
+                        izrecna = _izrecna(ostalo)
+                        podedovana = _podedovana_jedra_ali_none(naprave, izrecna)
                         if podedovana is None:
                             migracija_caka = True
                         else:
                             vse = set(VSE_ZMOZNOSTI)
-                            zmanjsana = {j for j in podedovana if naprave.get(j) == vse}
+                            zmanjsana = {j for j in podedovana if naprave.get(j) == vse and j not in izrecna}
                             for j in zmanjsana:
                                 naprave[j] = set(PODEDOVANO)
                     if pot == _prebrana_pot:
@@ -719,7 +732,7 @@ def _spremeni(sprememba: Callable[..., None],
                   "uporabnik ga odpre z eno privolitvijo v Safeer Linku" % len(zmanjsana), flush=True)
         if migracija_caka:
             _migracija_caka_ob = time.monotonic()
-            naprave = _brez_ozjega(naprave)
+            naprave = _brez_ozjega(naprave, izrecna=_izrecna(ostalo))
         else:
             _migracija_caka_ob = None
         _zapis, _zascita, _prebran_odtis, _prebrana_pot = naprave, zascita, odtis, pot
@@ -780,7 +793,7 @@ def _nalozen() -> Dict[str, Set[str]]:
                 # Zapis iz razlicice pred oznako dedovanja: ta je podedovanim napravam dala vse stiri (dpvz) - torej
                 # tudi ozji krog (domaca mapa, Safeer Vnos) brez privolitve. Enkrat jih zmanjsamo na PODEDOVANO
                 # (pregled 11, N1); kar je uporabnik po dedovanju spremenil (ni natanko dpvz), ostane.
-                naprave, zapisano = _migriraj_podedovane(naprave)
+                naprave, zapisano = _migriraj_podedovane(naprave, ostalo)
                 if zapisano:
                     return _brez_cakajocih(_zapis or {})     # _spremeni je nastavil zapis in odtis
         else:
@@ -800,15 +813,17 @@ def _brez_cakajocih(naprave: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     return {j: (set() if j in _cakajo_umik else d) for j, d in naprave.items()}
 
 
-def _migriraj_podedovane(naprave: Dict[str, Set[str]]) -> Tuple[Dict[str, Set[str]], bool]:
+def _migriraj_podedovane(naprave: Dict[str, Set[str]],
+                         ostalo: Optional[dict] = None) -> Tuple[Dict[str, Set[str]], bool]:
     """Klicati pod _zaklep iz _nalozen (zapis obstaja, oznake dedovanja se ni). Vrne (naprave, ali je zapisano z
     _spremeni, ki zmanjsa in zapise oznako). Ce podedovanih ni mogoce dolociti (krog ali kljuc ni berljiv) ali zapisa ni
     mogoce spremeniti, v tem programu nima ozjega kroga nobena naprava z vsemi stirimi (varna stran; programi in
-    predvajalnik ostanejo), oznaka se ne zapise in migracija se ponovi po UMIK_PONOVI_S (pregled 17, M1)."""
+    predvajalnik ostanejo), oznaka se ne zapise in migracija se ponovi po UMIK_PONOVI_S (pregled 17, M1). Naprav z
+    izrecno privolitvijo v tej razlicici (_izrecna) ne zmanjsa nikoli (pregled 29, G2)."""
     global _migracija_caka_ob
-    vse = set(VSE_ZMOZNOSTI)
-    podedovana = _podedovana_jedra_ali_none(naprave)
-    if podedovana is not None and not any(naprave.get(j) == vse for j in podedovana):
+    vse, izrecna = set(VSE_ZMOZNOSTI), _izrecna(ostalo or {})
+    podedovana = _podedovana_jedra_ali_none(naprave, izrecna)
+    if podedovana is not None and not any(naprave.get(j) == vse and j not in izrecna for j in podedovana):
         _zabelezi_dedovanje(_pot())
         _migracija_caka_ob = None
         return naprave, False
@@ -818,7 +833,7 @@ def _migriraj_podedovane(naprave: Dict[str, Set[str]]) -> Tuple[Dict[str, Set[st
         except OSError:
             pass
     _migracija_caka_ob = time.monotonic()
-    return _brez_ozjega(naprave, podedovana), False
+    return _brez_ozjega(naprave, podedovana, izrecna), False
 
 def jedro(device_id: str) -> str:
     def kljuc(i: str) -> Optional[str]:
@@ -1021,23 +1036,23 @@ def nastavi(device_id: str, dano: Iterable[str]) -> bool:
     """Napravi zapise natanko `dano`; prazen nabor = brez dostopa (naprava samo pomaga pri povezavi). Ozjega kroga
     ne doda (to je nastavi_ozji_krog - stikalo uporabnika). Ce je napravi kaj vzeto, pocakajoce prosnje in obvestila
     izginejo in programi, ki so se javili (ob_odvzemu), takoj koncajo, kar zanjo tece."""
-    return _nastavi(device_id, dano, dom=False)
+    return _nastavi(device_id, dano, ozji=False)
 
 
-def _nastavi(device_id: str, dano: Iterable[str], dom: bool) -> bool:
+def _nastavi(device_id: str, dano: Iterable[str], ozji: bool) -> bool:
     if not device_id or je_ta_naprava(device_id):
         return False
     j = jedro(device_id)
     if not j:
         return False
-    return _zapisi_jedru(j, iz_niza(v_niz(dano)), dom=dom)
+    return _zapisi_jedru(j, iz_niza(v_niz(dano)), ozji=ozji)
 
 
 def nastavi_ozji_krog(device_id: str, dano: Iterable[str]) -> bool:
     """Stikala v oknu Safeer Link (izrecna privolitev uporabnika na TEM racunalniku): katerokoli dovoljenje da ozji
     krog (ozji_krog), prazen nabor ga vzame v celoti. Stikalo ozjega kroga pove, da vsebuje domaco mapo (link.js
     dostopZaslonOpis): vklop je tudi privolitev zanjo (sme_domaco_mapo)."""
-    return _nastavi(device_id, ozji_krog(iz_niza(v_niz(dano))), dom=True)
+    return _nastavi(device_id, dano, ozji=True)
 
 
 def dovoli_domaco_mapo(device_id: str) -> bool:
@@ -1062,22 +1077,36 @@ def dovoli_domaco_mapo(device_id: str) -> bool:
         return stanje == "ok" and OZJI_KROG <= set(na_disku.get(j) or ()) and j in _dom_iz(ostalo)
 
 
-def _zapisi_jedru(j: str, nabor: Set[str], dom: bool = False) -> bool:
+def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False) -> bool:
+    """Napravi zapise `zahtevano` (`ozji`: pravilo stikal okna, glej nastavi_ozji_krog). True (»Shranjeno«) samo, ce je
+    zapisano na disku IN v tem programu res velja (pregled 17, M10; pregled 29, G2)."""
     prej: List[Optional[Set[str]]] = [None]
-    dom = dom and OZJI_KROG <= set(nabor)
-
-    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
-        if prej[0] is None:
-            prej[0] = set(naprave.get(j) or ())
-        naprave[j] = set(nabor)
-        if dom:
-            _dovoli_dom(j, ostalo)
     with _zaklep:
-        _nalozen()                      # prvi zagon (podedovane naprave) se zgodi pred prvo spremembo
+        # Kar ima naprava ta hip v tem programu - in kar vidi uporabnik v oknu: cakajoci umik in cakajoca migracija sta
+        # ze upostevana. Prvi zagon (podedovane naprave) se zgodi pred prvo spremembo.
+        ucinkovito = set(_nalozen().get(j) or ())
+        nabor = set(zahtevano)
+        if ozji and nabor:
+            nabor = ozji_krog(nabor)
+        dom = ozji and OZJI_KROG <= nabor
+        novo = bool(nabor - ucinkovito)
+
+        def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
+            if prej[0] is None:
+                prej[0] = set(naprave.get(j) or ())
+            naprave[j] = set(nabor)
+            if dom:
+                _dovoli_dom(j, ostalo)
+            if novo:
+                # Nova privolitev glede na to, kar je naprava imela v tem programu - tudi ce je zapis na disku ze imel
+                # vse stiri iz prejsnje razlicice: izrecna (_izrecna), migracija je ne zmanjsa.
+                dano = _dano_ob(ostalo)
+                dano[j] = time.time()
+                ostalo["dano_ob"] = dano
         ok = False
         for _poskus in range(2):
             try:
-                _spremeni(sprememba, z_ostalim=True)
+                v_programu = _spremeni(sprememba, z_ostalim=True)
             except OSError:
                 break                   # zapisa ni mogoce prebrati ali zapisati: spremembe ni (klicatelj to pove)
             # Zapis preverimo na disku: starejsi program (brez preverbe zapisa) ga lahko takoj povozi s starim stanjem
@@ -1088,6 +1117,9 @@ def _zapisi_jedru(j: str, nabor: Set[str], dom: bool = False) -> bool:
                 ok = set(na_disku.get(j) or ()) == set(nabor) and (not dom or j in _dom_iz(_o))
             else:
                 ok = not nabor and stanje in ("ni", "pokvarjen")     # brez zapisa nima nihce nicesar
+            # Zapisano mora tudi veljati: cakajoca migracija ali umik tega zapisa v programu ne smeta zmanjsati, okno pa
+            # javiti »Shranjeno« (pregled 29, G2).
+            ok = ok and set(_brez_cakajocih(v_programu).get(j) or ()) == nabor
             if ok:
                 break
     if prej[0] is not None and prej[0] - nabor:
