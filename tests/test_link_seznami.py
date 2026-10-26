@@ -615,8 +615,39 @@ class PrejetSeznamZRacunom(unittest.TestCase):
         self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 403, "Forbidden", None, None))
         self.assertFalse(self.mc.refresh_source(ident)["ok"])
         vir = self._viri()[XTREAM_B]
-        self.assertEqual((vir["zavrnjen"]["koda"], "caka_uporabnika" in vir), (403, False))
+        self.assertEqual((vir["zavrnjen"]["koda"], "caka_uporabnika" in vir), (403, True))      # Ş6: ostane
         self.assertGreater(self.mc._zavrnjen_do(vir), __import__("time").time())
+
+    def test_neuspesna_osvezitev_ne_odstrani_oznake_caka(self):
+        """Pregled 57, Ş6: oznaka »caka« je odpadla ze ob neuspeli osvezitvi, zato je refresh_stale vir od takrat sam
+        ponavljal (pri kodi 0 vsakih 10 min, prvi dve napaki brez premora): naprava, ki racuna nikoli ni prebrala,
+        je postala samodejni odjemalec racuna v tezavah. Oznako odstrani sele uspesna osvezitev."""
+        self._prejmi(("seznam", XTREAM_B))
+        ident = self._viri()[XTREAM_B]["id"]
+        for napaka in (OSError("preizkus: brez povezave"), urllib.error.HTTPError("x", 500, "Napaka", None, None),
+                       ValueError("preizkus: vir je prevelik")):
+            with self.subTest(napaka=type(napaka).__name__):
+                def prenesi(url, n=napaka):
+                    self.povezave.append(("prenos", url))
+                    raise n
+                self.mc._download = prenesi
+                self.povezave.clear()
+                self.assertFalse(self.mc.refresh_source(ident)["ok"])
+                self.assertEqual(len(self.povezave), 1)                 # uporabnikova osvezitev: ena zahteva
+                vir = self._viri()[XTREAM_B]
+                self.assertTrue(vir.get("caka_uporabnika"), vir)
+                self.assertTrue(vir["napaka"])                           # stran pokaze napako, ne »caka«
+                self.povezave.clear()
+                self.mc.refresh_stale(max_age=60)
+                self.mc._vnosi_virov(self.mc._load(), "tv-v-zivo")
+                for nit in threading.enumerate():
+                    if nit.name == "media-razclenitev":
+                        nit.join(5)
+                self.assertEqual(self.povezave, [])                      # samodejna pota ga se vedno preskocita
+        self.mc._download = lambda url: (self.LIST, "audio/x-mpegurl", url)
+        self.assertTrue(self.mc.refresh_source(ident)["ok"])
+        vir = self._viri()[XTREAM_B]
+        self.assertEqual(("caka_uporabnika" in vir, vir["stevilo"], vir["napaka"]), (False, 1, ""))
 
     def test_stran_pove_da_seznam_caka(self):
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

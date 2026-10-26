@@ -4409,11 +4409,12 @@ class MediaCenter:
             if saved is None:
                 return {"ok": False, "napaka": "ni_vira"}
             if ok:
-                for oznaka in ("zavrnjen", "ni_povezave"):
+                # Ponudnik seznam spet da; uporabnik je vir osvezil: ne caka vec (Ñ2). Samo ob uspehu (pregled 57, Ş6):
+                # po neuspeli osvezitvi (racun zaklenjen, brez povezave) bi sicer refresh_stale vir sam ponavljal in
+                # naprava, ki racuna se nikoli ni prebrala, bi postala samodejni odjemalec racuna v tezavah.
+                for oznaka in ("zavrnjen", "ni_povezave", "caka_uporabnika"):
                     source.pop(oznaka, None)
-                    saved.pop(oznaka, None)        # ponudnik seznam spet da
-            source.pop("caka_uporabnika", None)    # uporabnik je vir osvezil (ali dodal): ne caka vec (Ñ2)
-            saved.pop("caka_uporabnika", None)
+                    saved.pop(oznaka, None)
             saved.update(source)
             self._save(data)
         if ok and any(isinstance(x, dict) and x.get("iptv") for x in items):
