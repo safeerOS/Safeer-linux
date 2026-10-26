@@ -819,7 +819,14 @@ class Popravki58(unittest.TestCase):
         b = B.Bralnik(o.telo, vir)
         s = S.Streznik(b, nedejavnost_s=0.5)
         self.addCleanup(s.zapri)
-        prazne = [socket.create_connection(("127.0.0.1", s.vrata)) for _ in range(S.NAJVEC_POVEZAV + 4)]
+        # Linux zavrne povezave nad vrsto poslusanja (ECONNREFUSED), Windows jih postavi v vrsto - oboje je zascita.
+        prazne = []
+        for _ in range(S.NAJVEC_POVEZAV + 4):
+            try:
+                prazne.append(socket.create_connection(("127.0.0.1", s.vrata), timeout=2))
+            except (ConnectionRefusedError, socket.timeout):
+                pass
+        self.assertGreater(len(prazne), 0)
         self.addCleanup(lambda: [x.close() for x in prazne])
         time.sleep(0.3)
         with s._zaklep:
