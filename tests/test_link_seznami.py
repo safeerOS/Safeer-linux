@@ -840,6 +840,7 @@ class NapakaViraFailClosed(unittest.TestCase):
         for sporocilo in ("HTTP Error 404: Not Found", "<urlopen error [Errno 111] Connection refused>", "Vir je prevelik.",
                           "<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local "
                           "issuer certificate (_ssl.c:1000)>", "Ponudnik ni vrnil seznama.", "The read operation timed out",
+                          "Predloga potrebuje {tmdbId} ali {imdbId} in pot /movie/ ali /tv/.",
                           "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"):
             self.assertEqual(viri_sink.zakrij_naslove(sporocilo, napaka=True), sporocilo)
 

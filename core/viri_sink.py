@@ -349,7 +349,7 @@ _NASLOV_V_NAPAKI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S*")
 #: pot z vsaj dvema odsekoma brez navednic, parameter poizvedbe (?a=, &a=) in imena polj z racunom (username=, password= ...).
 _ZACETEK_CILJA = re.compile(
     r"""(?P<navednica>['"])(?=[/?])"""
-    r"""|(?<![\w.~%:-])/[\w.~%-]+/[\w.~%/-]"""
+    r"""|(?<![\w.~%:-])/[\w.~%-]+/[\w~%-]"""
     r"""|[?&;][\w.%~-]+="""
     r"""|\b(?:user(?:name)?|pass(?:word|wd)?|pwd|token|access_token|api_?key|mac|auth|login)=""", re.IGNORECASE)
 #: Odseki poti in vrednosti parametrov, ki niso skrivnost (obstojijo v vsakem naslovu seznama, zakrivanje jih ne sme trgati).
