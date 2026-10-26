@@ -271,7 +271,14 @@ _NASTAVI_PRIJAVO_GST = re.compile(
     r"|\bprops\.(?:user_id|user_pw|proxy_id|proxy_pw|cookies)\s*="
     r"|setattr\(\s*[\w.]+\.props\s*,\s*[\"'](?:user_id|user_pw|proxy_id|proxy_pw|cookies)[\"']"
     r"|(?<![\w-])(?:user-id|user-pw|proxy-id|proxy-pw)\s*="
-    r"|souphttpsrc[^\n]*\bcookies\s*=")
+    r"|souphttpsrc[^\n]*\bcookies\s*="
+    r"|(?<![\w-])cookies=")                      # opis cevovoda v vec vrsticah ali f-niz (pregled 29, G11)
+#: Siroko iskanje kot pred 25. 10. (pregled 29, G11): ime lastnosti kot samostojen niz ujame tudi konstanto
+#: (IME = "cookies"; set_property(IME, ...)) in set_property(*par). Dovoljene pojavitve: datoteka -> stevilo.
+_NIZ_PRIJAVE_GST = re.compile(r"[\"'](?:user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
+_DOVOLJENI_NIZI_PRIJAVE = {
+    "core/link_datoteke.py": 1,         # _IMENA_PROFILA: ime datoteke profila brskalnika (skrivnost), ne GStreamer
+}
 _NASTAVI_GLAVE_GST = re.compile(
     r"[\"']extra-headers[\"']|\bprops\.extra_headers\s*=|(?<![\w-])extra-headers\s*=")
 
@@ -287,6 +294,9 @@ class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
         najdeno = [str(p.relative_to(koren)) for p in datoteke
                    if _NASTAVI_PRIJAVO_GST.search(p.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(najdeno, [])
+        nizi = {str(p.relative_to(koren)): n for p in datoteke
+                for n in [len(_NIZ_PRIJAVE_GST.findall(p.read_text(encoding="utf-8", errors="replace")))] if n}
+        self.assertEqual(nizi, _DOVOLJENI_NIZI_PRIJAVE, "nova pojavitev imena lastnosti prijave GStreamer")
         # extra-headers samo za javne glave toka (Referer ...), ki jih zahteva dodatek - 15. 10. 2026: brez glave Referer
         # streznik toka vrne 429. V njih nikoli prijave ali piskotkov (te bi sle ob preusmeritvi naprej).
         najdeno = [str(p.relative_to(koren)) for p in datoteke
