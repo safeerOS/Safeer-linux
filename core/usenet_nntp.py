@@ -608,8 +608,17 @@ class Bazen:
             odvec.append(self._proste.pop(0))
         return odvec
 
-    def _vzemi(self, rok_do: float) -> tuple:
-        """(povezava, stara). Prosta povezava ali nova, ce jo vrata dovolijo; sicer caka do [rok_do]."""
+    def _vzemi(self, rok_do: float, sveza: bool = False) -> tuple:
+        """(povezava, stara). Prosta povezava ali nova, ce jo vrata dovolijo; sicer caka do [rok_do]. [sveza]: drugi
+        poskus vedno z novo povezavo - po premoru so lahko mrtve vse proste (pregled Grok 37 C1)."""
+        zavrzi: list = []
+        try:
+            return self.__vzemi(rok_do, sveza, zavrzi)
+        finally:
+            for x in zavrzi:
+                x.zapri(vljudno=True)
+
+    def __vzemi(self, rok_do: float, sveza: bool, zavrzi: list) -> tuple:
         with self._pogoj:
             while True:
                 if self._zaprt:
@@ -620,12 +629,20 @@ class Bazen:
                 if self.najvec < self._zgornja and self._zadnja_meja and zdaj - self._zadnja_meja >= RAST_BAZENA_S:
                     self.najvec += 1  # druga naprava je morda koncala: eno mesto nazaj na 10 min
                     self._zadnja_meja = zdaj
-                if self._proste:
+                # Ponudniki zapirajo nedejavne povezave (RFC 3977: streznik naj caka vsaj 3 min), NAT jih pozabi tiho:
+                # prosta povezava, nedejavna dlje od PROSTA_NAJDLJE_S, gre stran, preden bi zahteva cakala nanjo.
+                while self._proste and zdaj - self._proste[0].zadnja_raba > PROSTA_NAJDLJE_S:
+                    zavrzi.append(self._proste.pop(0))
+                if self._proste and not sveza:
                     p = self._proste.pop()
                     self._v_rabi.add(p)
                     return p, True
+                if sveza and self._proste and len(self._proste) + len(self._v_rabi) >= self.najvec:
+                    zavrzi.append(self._proste.pop(0))  # prostor za svezo povezavo: najstarejsa prosta gre
+                    continue
                 uspela = self._prijavljenih() > 0
-                if sme_odpreti(False, zdaj < self._premor_do, len(self._v_rabi), self.najvec, uspela, self._sonda):
+                vseh = len(self._proste) + len(self._v_rabi)
+                if sme_odpreti(False, zdaj < self._premor_do, vseh, self.najvec, uspela, self._sonda):
                     p = self.__nova()
                     p.sonda = not uspela
                     self._sonda = self._sonda or p.sonda
@@ -656,6 +673,14 @@ class Bazen:
             self._pogoj.notify_all()
         if not obdrzi:
             p.zapri(vljudno=True)
+
+    def _zavrzi_starejse(self, zadnja_raba: float) -> None:
+        """Stara povezava je bila mrtva: proste, nedejavne vsaj tako dolgo, so verjetno tudi (en premor, vse zaprte)."""
+        with self._pogoj:
+            stare = [x for x in self._proste if x.zadnja_raba <= zadnja_raba]
+            self._proste = [x for x in self._proste if x.zadnja_raba > zadnja_raba]
+        for x in stare:
+            x.zapri()
 
     def _odprta(self) -> None:
         """Povezava je odprta in prijavljena: premor in stevec neznanih prijav nazaj na nic. Prijavljene povezave je
@@ -712,8 +737,9 @@ class Bazen:
 
     def _izvedi(self, delo: Callable[[Povezava], object]):
         rok_do = time.monotonic() + self._rok
+        sveza = False
         for poskus in (0, 1):
-            p, stara = self._vzemi(rok_do)
+            p, stara = self._vzemi(rok_do, sveza)
             try:
                 if not stara:
                     p.odpri()
@@ -732,6 +758,8 @@ class Bazen:
                     self._neznana_prijava()
                 elif u in (ZMANJSAJ_POCAKAJ, POCAKAJ):
                     self._premor(u == ZMANJSAJ_POCAKAJ, e.izid)
+                elif u == ZNOVA and stara:
+                    self._zavrzi_starejse(p.zadnja_raba)
                 self._vrni(p)
                 if self._zaprt:
                     raise NapakaNntp(ZAPRTO) from None  # bazen zaprt med zahtevo: ne odpiramo nove povezave
@@ -739,7 +767,9 @@ class Bazen:
                     raise NapakaNntp(self._ustavljen, e.koda) from None
                 if u in (VRNI, NAPAKA) or poskus == 1:
                     raise
-                continue  # ZNOVA; pri premoru caka prosto povezavo ali konec premora (_vzemi)
+                # ZNOVA: vedno nova povezava (C1); pri premoru caka prosto povezavo ali konec premora (_vzemi).
+                sveza = u == ZNOVA
+                continue
             except BaseException:
                 p.zapri()  # nepricakovana napaka sredi zahteve: v medpomnilniku je lahko pol odgovora
                 self._vrni(p)

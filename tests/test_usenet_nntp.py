@@ -89,7 +89,7 @@ class LazniStreznik:
 
     def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False,
                  zamuda_gesla=0.0, napacno="481 Authentication failed", meja=None,
-                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False):
+                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0):
         self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
         self.pozdrav = pozdrav
@@ -99,6 +99,7 @@ class LazniStreznik:
         self.meja = meja  # najvec hkrati prijavljenih sej (meja povezav racuna)
         self.odgovor_meja = odgovor_meja
         self.gesla_ne_odgovori = gesla_ne_odgovori  # po PASS zapre brez odgovora
+        self.zamuda_body = zamuda_body
         self.prijavljenih = 0
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
@@ -202,6 +203,8 @@ class LazniStreznik:
                         s.sendall(b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[ID_OK])[:3000])
                         return
                     elif mid in CLANKI:
+                        if self.zamuda_body:
+                            time.sleep(self.zamuda_body)
                         if ukaz == "STAT":
                             s.sendall(b"223 0 <%s>\r\n" % mid.encode())
                         else:
@@ -328,6 +331,27 @@ class Nntp(unittest.TestCase):
         time.sleep(0.1)
         self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
         self.assertEqual(s.sprejete, 2)
+
+    def test_dve_mrtvi_prosti_povezavi_drugic_sveza(self):
+        # Grok 37 C1: po premoru so mrtve vse proste povezave - drugi poskus mora biti nova povezava, ne druga stara.
+        s = self.streznik(zapri_po_zahtevi=True, zamuda_body=0.3)
+        b = self.bazen(s, povezav=2)
+        self.assertEqual(self._hkrati(b, 2, 1), ["ok", "ok"])
+        self.assertEqual((s.sprejete, len(b._proste)), (2, 2), "dve prosti povezavi, streznik je zaprl obe")
+        time.sleep(0.1)
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 3, "ena stara (mrtva), nato sveza")
+        self.assertEqual(len(b._proste), 1, "starejsa prosta je sla stran skupaj z mrtvo")
+
+    def test_nedejavna_prosta_se_zapre(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        with mock.patch.object(N, "PROSTA_NAJDLJE_S", 0.1):
+            self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+            time.sleep(0.3)
+            self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 2, "nedejavna prosta povezava se ne uporabi")
+        self.assertIn("QUIT", s.ukazi, "zaprta vljudno (ponudnik sprosti mesto)")
 
     def test_rok_zahteve(self):
         s = self.streznik()
