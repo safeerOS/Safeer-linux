@@ -578,7 +578,9 @@ class Nntp(unittest.TestCase):
                 "try:\n    b.telo(sys.argv[7])\n    print('ok')\nexcept N.NapakaNntp as e:\n    print(e.izid)\n")
         r = subprocess.run([sys.executable, "-I", "-c", koda, KOREN, self.zapah, str(s.vrata), UPORABNIK, geslo,
                             self.ca, ID_OK], capture_output=True, text=True, timeout=60,
-                           env={"PATH": os.environ.get("PATH", "")})
+                           # Windows: OpenSSL brez SYSTEMROOT ne ustvari konteksta (SSLError 0xa080024, 26. 10. 2026)
+                           env={k: v for k, v in (("PATH", os.environ.get("PATH", "")),
+                                                  ("SYSTEMROOT", os.environ.get("SYSTEMROOT"))) if v is not None})
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         return r.stdout.strip()
 
@@ -594,7 +596,8 @@ class Nntp(unittest.TestCase):
             vsebina = f.read()
         for zasebno in ("napacno-geslo-z", UPORABNIK, "127.0.0.1"):
             self.assertNotIn(zasebno, vsebina)
-        self.assertEqual(os.stat(self.zapah).st_mode & 0o777, 0o600)
+        if os.name == "posix":  # Windows nima nacina POSIX (st_mode 0o666); dostop ureja ACL profila uporabnika
+            self.assertEqual(os.stat(self.zapah).st_mode & 0o777, 0o600)
         self.assertEqual(self._nov_proces(s, GESLO), "ok", "drugo geslo (uporabnik ga je popravil) gre")
         self.assertEqual(self._gesel(s), 2)
         # Odklene ga samo uporabnikov »Preveri« (ali nov vpis poverilnic): en nov poskus, nato spet trajen zapah.
