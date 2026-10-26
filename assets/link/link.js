@@ -3521,6 +3521,8 @@
     // Ozji krog (lastnik 25. 10. 2026 10:49): vsako dovoljenje vklopi tudi upravljanje in Safeer Vnos (»z«), izklop »z«
     // vzame ves dostop - ena privolitev, brez locenega stikala (isto pravilo v core/link_dostop.ozji_krog).
     var gumb = e && e.target, z = el("dostop_z");
+    var crka = gumb && typeof gumb.id === "string" && gumb.id.indexOf("dostop_") === 0 ? gumb.id.slice(7) : "";
+    if (DOSTOP_CRKE.indexOf(crka) < 0) return;
     if (gumb && z) {
       if (gumb === z && !z.checked) {
         for (var k = 0; k < DOSTOP_CRKE.length; k++) { var o = el("dostop_" + DOSTOP_CRKE[k]); if (o) o.checked = false; }
@@ -3535,7 +3537,9 @@
     }
     // »Shranjeno« pove sele odgovor racunalnika (dogodek "dostop" z dejanskim stanjem), ne izbira sama.
     besedilo("dostopOpomba", "");
-    most.nastaviDostop(n.id, crke);
+    // Racunalnik uporabi DEJANJE (katero stikalo, vklop ali izklop), ne nabora: ponovljen dogodek ali plosca s starim
+    // stanjem tako ne da nove pravice (pregled 38, O1; core/link_dostop.preklopi_ozji_krog).
+    most.nastaviDostop(n.id, crke, crka, !!gumb.checked);
   }
 
   function zapriDeljenje() {

@@ -1049,15 +1049,57 @@ def _nastavi(device_id: str, dano: Iterable[str], ozji: bool) -> bool:
 
 
 def nastavi_ozji_krog(device_id: str, dano: Iterable[str]) -> bool:
-    """Stikala v oknu Safeer Link (izrecna privolitev uporabnika na TEM racunalniku): katerokoli dovoljenje da ozji
-    krog (ozji_krog), prazen nabor ga vzame v celoti. Samo odvzem napravi zunaj ozjega kroga je natancen: izklop
-    stikala ne sme dati nove pravice (»pv« brez »p« je »v«, ne »dvz« s Safeer Vnos in domaco mapo).
+    """Stikala v oknu Safeer Link kot nabor (izrecna privolitev uporabnika na TEM racunalniku): nabor z novo zmoznostjo
+    da ozji krog (ozji_krog), prazen nabor ga vzame v celoti. Nabor, ki je del stanja naprave (izklop ali enak zapis
+    drugic), samo vzame - nikoli ne doda (»pv« brez »p« je »v«, ne »dvz« s Safeer Vnos in domaco mapo; pregled 38, O1:
+    prej je to veljalo samo za strogo podmnozico, enak zapis drugic je dal ozji krog). Okno Link poslje DEJANJE
+    (preklopi_ozji_krog): iz nabora ni mogoce vedeti, kaj je uporabnik izklopil, ce okno kaze staro stanje.
 
     Domaca mapa (polje »dom«, sme_domaco_mapo) samo ob VKLOPU ozjega kroga - stikalo ozjega kroga pove, da jo
     vsebuje (link.js dostopZaslonOpis). Sprememba drugega stikala naprave, ki je ze v ozjem krogu, privolitve ne doda:
     naprava d+z iz prejsnje razlicice jo dobi samo z »Dovoli domaco mapo« ali z izklopom in vklopom ozjega kroga
     (pregled 29, G1: prej jo je zapisala vsaka sprememba stikal, tudi izklop »Programi«)."""
     return _nastavi(device_id, dano, ozji=True)
+
+
+def preklopi_ozji_krog(device_id: str, zmoznost: str, vklop: bool) -> bool:
+    """Stikalo v oknu Safeer Link: uporabnik je vklopil ali izklopil ENO zmoznost (pregled 38, O1). Jedro uporabi samo
+    to razliko glede na stanje naprave v tem programu in na disku: ponovljen dogodek nima ucinka, okno s starim stanjem
+    (po umiku iz kroga, po zapisu drugega programa) pa ne da nove pravice.
+      - Izklop samo vzame, nikoli ne doda (ne ozjega kroga ne domace mape ne dano_ob). Izklop ozjega kroga (»z«) vzame
+        ves dostop, izklop drugega stikala samo to zmoznost; naprava v ozjem krogu obdrzi d+z, naprava zunaj njega, ki
+        ji ne ostane nobeno vidno stikalo, izgubi tudi »d« iz prejsnje razlicice (kot prej izklop vseh stikal).
+      - Vklop da to zmoznost in ozji krog (ozji_krog), domaco mapo samo, ce ozjega kroga se ni imela (pregled 29, G1)."""
+    if not isinstance(zmoznost, str) or zmoznost not in VSE_ZMOZNOSTI or not isinstance(vklop, bool):
+        return False
+    if not device_id or je_ta_naprava(device_id):
+        return False
+    j = jedro(device_id)
+    if not j:
+        return False
+    return _zapisi_jedru(j, set(), ozji=True, dejanje=(zmoznost, vklop))
+
+
+def _nabor_stikal(osnova: Set[str], zahtevano: Set[str], dejanje: Optional[Tuple[str, bool]]) -> Set[str]:
+    """Nabor po stikalih okna (nastavi_ozji_krog z naborom, preklopi_ozji_krog z dejanjem). `osnova`: kar ima naprava v
+    tem programu in na disku. Izklop in enak zapis vrneta podmnozico osnove - nikoli nove pravice (pregled 38, O1)."""
+    if dejanje is not None:
+        zmoznost, vklop = dejanje
+        if vklop:
+            return ozji_krog(osnova | {zmoznost})
+        if zmoznost == ZASLON:
+            return set()                            # izklop ozjega kroga vzame ves dostop
+        nabor = osnova - {zmoznost}
+    else:
+        nabor = set(zahtevano)
+        if not nabor or not nabor <= osnova:
+            return ozji_krog(nabor)                 # nova zmoznost: ozji krog; prazen nabor ostane prazen
+    if OZJI_KROG <= osnova:
+        return nabor | OZJI_KROG                    # izklop drugega stikala ozjega kroga ne vzame
+    if dejanje is None:
+        # »d« (izbrane mape iz prejsnje razlicice) okno ne pokaze: ostane, dokler uporabnik ne izklopi vsega.
+        return nabor | (osnova & {DATOTEKE})
+    return nabor if nabor - {DATOTEKE} else set()   # nobeno vidno stikalo vec: kot izklop vseh (vzame tudi »d«)
 
 
 def dovoli_domaco_mapo(device_id: str) -> bool:
@@ -1082,34 +1124,39 @@ def dovoli_domaco_mapo(device_id: str) -> bool:
         return stanje == "ok" and OZJI_KROG <= set(na_disku.get(j) or ()) and j in _dom_iz(ostalo)
 
 
-def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False) -> bool:
-    """Napravi zapise `zahtevano` (`ozji`: pravilo stikal okna, glej nastavi_ozji_krog). True (»Shranjeno«) samo, ce je
-    zapisano na disku IN v tem programu res velja (pregled 17, M10; pregled 29, G2)."""
+def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False,
+                  dejanje: Optional[Tuple[str, bool]] = None) -> bool:
+    """Napravi zapise `zahtevano` (`ozji`: pravilo stikal okna, glej nastavi_ozji_krog; `dejanje`: eno stikalo, glej
+    preklopi_ozji_krog). True (»Shranjeno«) samo, ce je zapisano na disku IN v tem programu res velja (pregled 17, M10;
+    pregled 29, G2)."""
     prej: List[Optional[Set[str]]] = [None]
+    # Zadnji izracun spremembe: izvede se ob vsakem poskusu zapisa, vedno iz stanja z diska.
+    izid: dict = {"nabor": set(zahtevano), "dom": False}
     with _zaklep:
         # Kar ima naprava ta hip v tem programu - in kar vidi uporabnik v oknu: cakajoci umik in cakajoca migracija sta
         # ze upostevana. Prvi zagon (podedovane naprave) se zgodi pred prvo spremembo.
         ucinkovito = set(_nalozen().get(j) or ())
-        nabor = set(zahtevano)
-        if ozji and nabor:
-            if nabor < ucinkovito and not OZJI_KROG <= ucinkovito:
-                # Samo izklop napravi zunaj ozjega kroga: vzame se samo izklopljeno. »d« (izbrane mape iz prejsnje
-                # razlicice) okno samo ne pokaze - ostane, dokler uporabnik ne izklopi vsega.
-                nabor |= ucinkovito & {DATOTEKE}
-            else:
-                nabor = ozji_krog(nabor)
-        dom = ozji and OZJI_KROG <= nabor and not OZJI_KROG <= ucinkovito
-        novo = bool(nabor - ucinkovito)
 
         def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str], ostalo: dict) -> None:
+            trenutno = set(naprave.get(j) or ())
             if prej[0] is None:
-                prej[0] = set(naprave.get(j) or ())
+                prej[0] = set(trenutno)
+            if ozji:
+                # Stikala: izhodisce je stanje v programu IN na disku - kar je drug program medtem vzel, izklop ali vklop
+                # drugega stikala ne vrne (pregled 38, O1).
+                osnova = ucinkovito & trenutno
+                nabor = _nabor_stikal(osnova, set(zahtevano), dejanje)
+            else:
+                osnova, nabor = ucinkovito, set(zahtevano)
+            # Domaca mapa samo ob VKLOPU ozjega kroga (pregled 29, G1). Izklop je ne doda nikoli: nabor <= osnova.
+            dom = ozji and OZJI_KROG <= nabor and not OZJI_KROG <= ucinkovito
+            izid["nabor"], izid["dom"] = set(nabor), dom
             naprave[j] = set(nabor)
             if dom:
                 _dovoli_dom(j, ostalo)
-            if novo:
+            if nabor - osnova:
                 # Nova privolitev glede na to, kar je naprava imela v tem programu - tudi ce je zapis na disku ze imel
-                # vse stiri iz prejsnje razlicice: izrecna (_izrecna), migracija je ne zmanjsa.
+                # vse stiri iz prejsnje razlicice: izrecna (_izrecna), migracija je ne zmanjsa. Izklop je nima.
                 dano = _dano_ob(ostalo)
                 dano[j] = time.time()
                 ostalo["dano_ob"] = dano
@@ -1119,12 +1166,13 @@ def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False) -> bool:
                 v_programu = _spremeni(sprememba, z_ostalim=True)
             except OSError:
                 break                   # zapisa ni mogoce prebrati ali zapisati: spremembe ni (klicatelj to pove)
+            nabor, dom = set(izid["nabor"]), bool(izid["dom"])
             # Zapis preverimo na disku: starejsi program (brez preverbe zapisa) ga lahko takoj povozi s starim stanjem
             # (pregled 11, N17) - potem se enkrat, sicer napaka, ki jo uporabnik vidi. Tudi nova privolitev: »Shranjeno«
             # samo, ce je res zapisana (pregled 17, M10).
             stanje, na_disku, _z, _ob, _o = _z_diska(_pot())
             if stanje == "ok":
-                ok = set(na_disku.get(j) or ()) == set(nabor) and (not dom or j in _dom_iz(_o))
+                ok = set(na_disku.get(j) or ()) == nabor and (not dom or j in _dom_iz(_o))
             else:
                 ok = not nabor and stanje in ("ni", "pokvarjen")     # brez zapisa nima nihce nicesar
             # Zapisano mora tudi veljati: cakajoca migracija ali umik tega zapisa v programu ne smeta zmanjsati, okno pa
@@ -1132,7 +1180,7 @@ def _zapisi_jedru(j: str, zahtevano: Set[str], ozji: bool = False) -> bool:
             ok = ok and set(_brez_cakajocih(v_programu).get(j) or ()) == nabor
             if ok:
                 break
-    if prej[0] is not None and prej[0] - nabor:
+    if prej[0] is not None and prej[0] - set(izid["nabor"]):
         _po_odvzemu(j)
     return ok
 

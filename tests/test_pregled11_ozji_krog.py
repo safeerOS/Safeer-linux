@@ -40,7 +40,11 @@ class N1Migracija(_Osnova):
         with open(pot, encoding="utf-8") as d:
             self.assertEqual(json.load(d)["naprave"][A], "pv")
         self.assertTrue(os.path.exists(pot + ".podedovano"))
-        link_dostop.nastavi_ozji_krog(A, "pv")           # uporabnik odpre ozji krog z eno privolitvijo
+        # Uporabnik odpre ozji krog z eno privolitvijo: stikalo ozjega kroga (okno poslje pvz). Enak zapis »pv« ni
+        # privolitev in ne da nicesar (pregled 38, O1 - preizkus je prej slonel na tej napaki).
+        self.assertTrue(link_dostop.nastavi_ozji_krog(A, "pv"))
+        self.assertEqual(link_dostop.zmoznosti(A), {"p", "v"})
+        link_dostop.nastavi_ozji_krog(A, "pvz")
         link_dostop._za_preizkus(pot)
         self.assertEqual(link_dostop.zmoznosti(A), set("dpvz"), "migracija je enkratna")
 

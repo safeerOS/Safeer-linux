@@ -405,3 +405,126 @@ class G2IzrecnaMedCakajocoMigracijo(_Osnova):
         with mock.patch.object(link_dostop, "_lastni_kljuc", lambda: None), \
                 mock.patch.object(link_dostop, "_izrecna", lambda ostalo: set()):
             self.assertFalse(link_dostop.nastavi_ozji_krog(A, "dpvz"), "»Shranjeno«, ceprav v programu ne velja")
+
+
+# ---------------------------------------------------------------------------------------------- pregled 38 (Grok)
+
+def _okno_link(odzivi):
+    """Okno Safeer Link brez WebKita: most nastaviDostop gre v SafeerLink._nastavi_dostop, odzivi v `odzivi`."""
+    from core import safeer_link
+    link = safeer_link.SafeerLink.__new__(safeer_link.SafeerLink)
+    link.naprave, link.naprave_vse, link.zaslon = [], None, None
+    link._odziv = lambda vrsta, podatki: odzivi.append((vrsta, podatki))
+    return link
+
+
+def _dano_ob():
+    with open(link_dostop._pot(), encoding="utf-8") as d:
+        return json.load(d).get("dano_ob") or {}
+
+
+class O1IzklopJeDejanje(_Osnova):
+    """Pregled 38, O1: izklop napravi zunaj ozjega kroga je vzel samo izklopljeno le, ce je bil nabor STROGA
+    podmnozica stanja. Enak zapis drugic (dvojni dogodek, osvezitev plosce) ali izklop iz plosce s starim stanjem (po
+    umiku iz kroga) je dal ozji krog (upravljanje, Safeer Vnos), domaco mapo in dano_ob."""
+
+    def test_dvakratni_enak_izklop_nabor(self):
+        _zapis_prejsnje({B: "pv"})
+        for i in range(2):
+            self.assertTrue(link_dostop.nastavi_ozji_krog(B, "v"))          # izklop »Programi«, nato enak zapis
+            self.assertEqual(link_dostop.zmoznosti(B), {"v"}, "%d. enak zapis je dal ozji krog" % (i + 1))
+            self.assertFalse(link_dostop.sme_domaco_mapo(B))
+        self.assertNotIn(link_dostop.jedro(B), _dano_ob(), "izklop je zapisal novo privolitev")
+
+    def test_dvakratni_enak_izklop_iz_okna(self):
+        _zapis_prejsnje({B: "pv", A: "dpv"})
+        odzivi = []
+        okno = _okno_link(odzivi)
+        for i in range(2):
+            okno._nastavi_dostop(B, "v", "p", False)                         # plosca: izklop »Programi«
+            self.assertEqual(link_dostop.zmoznosti(B), {"v"}, "%d. enak dogodek je dal ozji krog" % (i + 1))
+            self.assertFalse(link_dostop.sme_domaco_mapo(B))
+        self.assertEqual(odzivi[-1], ("dostop", {"id": B, "ok": True, "dostop": "v", "jaz": False, "dom": False}))
+        self.assertNotIn(link_dostop.jedro(B), _dano_ob())
+        # »d« iz prejsnje razlicice (plosca ga ne pokaze) ostane ob izklopu enega stikala, z zadnjim vidnim gre.
+        okno._nastavi_dostop(A, "p", "v", False)
+        self.assertEqual(link_dostop.zmoznosti(A), {"d", "p"})
+        okno._nastavi_dostop(A, "", "p", False)
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+
+    def test_izklop_iz_okna_s_starim_stanjem_po_umiku(self):
+        _zapis_prejsnje({B: "pv"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p", "v"})
+        link_dostop.ob_umiku_iz_kroga([link_dostop.jedro(B)])                # umik na drugi napravi
+        self.assertEqual(link_dostop.zmoznosti(B), set())
+        okno = _okno_link([])
+        # Plosca se kaze pv: izklop »Programi«, nato se »Predvajalnik« - po vsakem nic.
+        for argumenti in ((B, "v", "p", False), (B, "", "v", False)):
+            okno._nastavi_dostop(*argumenti)
+            self.assertEqual(link_dostop.zmoznosti(B), set(), "plosca s starim stanjem je dala ozji krog")
+            self.assertFalse(link_dostop.sme_domaco_mapo(B))
+            self.assertNotIn(link_dostop.jedro(B), _dano_ob())
+
+    def test_izklop_ne_vrne_kar_je_drug_program_vzel(self):
+        _zapis_prejsnje({B: "pv"})
+        self.assertEqual(link_dostop.zmoznosti(B), {"p", "v"})
+        j = link_dostop.jedro(B)
+        # Drug program (Safeer OS) je napravi medtem vzel »Predvajalnik«; ta program tega se ni prebral.
+        with open(link_dostop._pot(), encoding="utf-8") as d:
+            zapis = json.load(d)
+        zapis["naprave"] = {j: "p"}
+        with open(link_dostop._pot(), "w", encoding="utf-8") as d:
+            json.dump(zapis, d)
+        with mock.patch.object(link_dostop, "_nalozen", lambda: {j: {"p", "v"}}):
+            self.assertTrue(link_dostop.preklopi_ozji_krog(B, "p", False))
+        self.assertEqual(link_dostop.zmoznosti(B), set(), "izklop je vrnil, kar je drug program vzel")
+
+    def test_ponovljen_vklop_nima_ucinka(self):
+        _zapis_prejsnje({A: "dz", B: "v"})
+        for _ in range(2):
+            self.assertTrue(link_dostop.preklopi_ozji_krog(A, "p", True))
+            self.assertEqual(link_dostop.zmoznosti(A), set("dpz"))
+            self.assertFalse(link_dostop.sme_domaco_mapo(A), "d+z iz prejsnje razlicice: domaca mapa samo z gumbom")
+            self.assertTrue(link_dostop.preklopi_ozji_krog(B, "p", True))       # vklop zunaj ozjega kroga
+            self.assertEqual(link_dostop.zmoznosti(B), set("dpvz"))
+            self.assertTrue(link_dostop.sme_domaco_mapo(B))
+        self.assertTrue(link_dostop.preklopi_ozji_krog(B, "z", False))          # izklop ozjega kroga vzame vse
+        self.assertEqual(link_dostop.zmoznosti(B), set())
+        self.assertFalse(link_dostop.sme_domaco_mapo(B))
+
+    def test_okno_brez_dejanja_ne_spremeni_nicesar(self):
+        _zapis_prejsnje({B: "pv"})
+        odzivi = []
+        okno = _okno_link(odzivi)
+        for argumenti in ((B, "p"), (B, "p", "x", False), (B, "p", "pv", False), (B, "p", "p", "ne")):
+            okno._nastavi_dostop(*argumenti)
+            self.assertEqual(link_dostop.zmoznosti(B), {"p", "v"}, argumenti)
+            self.assertFalse(odzivi[-1][1]["ok"], argumenti)
+        self.assertFalse(link_dostop.preklopi_ozji_krog(B, "p", 0))
+
+    def test_most_poslje_dejanje(self):
+        from pathlib import Path
+        koren = Path(__file__).resolve().parents[1]
+        js = (koren / "assets" / "link" / "link.js").read_text(encoding="utf-8")
+        self.assertIn("most.nastaviDostop(n.id, crke, crka, !!gumb.checked);", js)
+        vir = (koren / "core" / "safeer_link.py").read_text(encoding="utf-8")
+        self.assertIn('poslji("nastaviDostop", [id, String(crke || ""), String(zmoznost || ""), vklop === true]);', vir)
+        self.assertIn('"nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:4]),', vir)
+
+
+class O2IzklopMedCakajocoMigracijo(_Osnova):
+    """Pregled 38, O2: naprava z vsemi stirimi na disku je z novo zmoznostjo (dano_ob) izrecna in izvzeta iz migracije.
+    Pot do tega brez privolitve za ozji krog je bil izklop (O1): enak izklop drugic je zapisal dano_ob in domaco mapo."""
+    clani = ({"id": "jaz", "kljuc": "KJAZ", "dodano": MEJA - 9000}, {"id": "a", "kljuc": "KA", "dodano": MEJA - 100})
+
+    def test_izklop_ne_naredi_naprave_izrecne(self):
+        _zapis_prejsnje({A: "dpvz"}, oznaka=False)
+        with mock.patch.object(link_dostop, "_lastni_kljuc", lambda: None):      # migracija caka
+            self.assertEqual(link_dostop.zmoznosti(A), {"p", "v"})
+            for _ in range(2):
+                self.assertTrue(link_dostop.nastavi_ozji_krog(A, "p"))          # izklop »Predvajalnik«, enak zapis
+                self.assertEqual(link_dostop.zmoznosti(A), {"p"})
+            self.assertNotIn(link_dostop.jedro(A), _dano_ob(), "izklop je napravo naredil izrecno")
+            self.assertFalse(link_dostop.sme_domaco_mapo(A))
+            self.assertTrue(link_dostop.preklopi_ozji_krog(A, "p", False))
+            self.assertEqual(link_dostop.zmoznosti(A), set())

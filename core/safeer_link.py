@@ -306,7 +306,10 @@ MOST_JS = """
     pomocStanje: function () { return JSON.stringify(window.__safeerLink.pomoc || null); },
     nastaviPomoc: function (vklop) { poslji("nastaviPomoc", [!!vklop]); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
-    nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
+    // Dejanje stikala (zmoznost, vklop) - nabor `crke` je samo za starejse mostove (pregled 38, O1).
+    nastaviDostop: function (id, crke, zmoznost, vklop) {
+      poslji("nastaviDostop", [id, String(crke || ""), String(zmoznost || ""), vklop === true]);
+    },
     dovoliDomacoMapo: function (id) { poslji("dovoliDomacoMapo", [id]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
     shraniVzdevek: function (id, ime) {
@@ -858,7 +861,7 @@ class SafeerLink:
             "upravljajRacunalnik": lambda: self._v_ozadju(lambda: self._upravljaj_racunalnik(*argumenti[:1])),
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
             "preimenujNapravo": lambda: self._v_ozadju(lambda: self._preimenuj_napravo(*argumenti[:2])),
-            "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:2]),
+            "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:4]),
             # V ozadju: zapis (zaklep datoteke, fsync) ne sme zamrzniti okna (pregled 29, G12). Ponovljen klik je
             # enak prvemu, vrstni red zato ni pomemben - pri nastaviDostop je (zadnje stanje stikal mora zmagati).
             "dovoliDomacoMapo": lambda: self._v_ozadju(lambda: self._dovoli_domaco_mapo(*argumenti[:1])),
@@ -2488,12 +2491,16 @@ class SafeerLink:
         if self.deljenje_zaslona is not None:
             self.deljenje_zaslona.ustavi()
 
-    def _nastavi_dostop(self, id_naprave: str = "", crke: str = "") -> None:
-        """Uporabnik je v oknu Safeer Link napravi dolocil, kaj ji ta racunalnik odpre (core/link_dostop)."""
+    def _nastavi_dostop(self, id_naprave: str = "", crke: str = "", zmoznost: str = "", vklop: object = None) -> None:
+        """Uporabnik je v oknu Safeer Link napravi vklopil ali izklopil eno stikalo (core/link_dostop). Racunalnik uporabi
+        samo DEJANJE (`zmoznost`, `vklop`), ne nabora `crke`, ki ga okno kaze: iz nabora je ponovljen dogodek ali okno s
+        starim stanjem (po umiku iz kroga) dal ozji krog in domaco mapo (pregled 38, O1). Brez veljavnega dejanja se nic
+        ne spremeni - okno pokaze dejansko stanje in napako."""
         id_naprave = str(id_naprave or "")
         try:
-            # Stikala okna so izrecna privolitev: katerokoli dovoljenje da ozji krog (link_dostop.nastavi_ozji_krog).
-            ok = link_dostop.nastavi_ozji_krog(id_naprave, link_dostop.iz_niza(str(crke or "")))
+            # Stikala okna so izrecna privolitev: vklop da ozji krog, izklop samo vzame (link_dostop.preklopi_ozji_krog).
+            ok = (isinstance(zmoznost, str) and zmoznost in link_dostop.VSE_ZMOZNOSTI and isinstance(vklop, bool)
+                  and link_dostop.preklopi_ozji_krog(id_naprave, zmoznost, vklop))
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Dostopa ni bilo mogoče shraniti: {e}")
             ok = False

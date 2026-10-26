@@ -44,7 +44,7 @@ class U8Natancno(_Osnova):
         link.naprave, link.naprave_vse, link.zaslon = [], None, None
         odzivi = []
         link._odziv = lambda vrsta, podatki: odzivi.append((vrsta, podatki))
-        link._nastavi_dostop(B, "v")
+        link._nastavi_dostop(B, "dvz", "v", True)       # plosca poslje dejanje: vklop »Predvajalnik« (pregled 38, O1)
         self.assertEqual(link_dostop.zmoznosti(B), {"v", "d", "z"})
         # Stikalo ozjega kroga je tudi privolitev za domaco mapo (vodja 25. 10. 2026, link_dostop.sme_domaco_mapo).
         self.assertIn(("dostop", {"id": B, "ok": True, "dostop": "dvz", "jaz": False, "dom": True}), odzivi,
