@@ -45,6 +45,9 @@ NAPAKA_NI_PREDPOMNJENO = "ni_predpomnjeno"
 #: Newznab 101 »account suspended«. Kljuc je morda pravi, a Safeer storitve ne klice, dokler uporabnik ne pritisne
 #: »Preveri« (P.sme_klicati) - vsak nov klic bi bil nov poskus prijave na zaklenjen racun.
 NAPAKA_ZAKLENJEN = "zaklenjen"
+#: Real-Debrid 9 »permission denied« MED UPORABO (Grokov pregled 40, S4): storitev kljuc pozna, tega dejanja pa ne dovoli
+#: (npr. brezplacen racun, koncna tocka). Samo v jedru - Debrid._poskus ga za uporabnika preslika v paket ali kljuc.
+NAPAKA_DOVOLJENJE = "dovoljenje"
 
 #: Oznaka pred imenom vira, ki ga ima storitev pripravljenega (takoj predvajljiv).
 OZNAKA_PREDPOMNJEN = "⚡"
@@ -287,6 +290,10 @@ def stanje_po_uporabi(prej: Optional[str], napaka: str, uspeh: bool) -> Optional
     Grokov pregled 40, S6 (26. 10. 2026): pozen uspeh zahteve, ki je stekla pred zaporo, je prepisal novejsi »zaklenjen«
     ali »ne velja« (tudi izid »Preveri«) v »velja« in s tem odprl zaklenjen racun vsem potem - zaporo odpravi samo
     »Preveri« ali nov vpis."""
+    if napaka == NAPAKA_DOVOLJENJE:
+        # Grokov pregled 40, S4: RD 9 ne zapre kljuca, ki ga je storitev ze potrdila (»velja«); nepreverjen ali brez
+        # stanja pa ne velja za to rabo (kot ob vpisu).
+        return STANJE_NE_VELJA if prej in (None, STANJE_NEPREVERJEN) else None
     novo = {NAPAKA_KLJUC: STANJE_NE_VELJA, NAPAKA_ZAKLENJEN: STANJE_ZAKLENJEN}.get(napaka)
     if novo is not None:
         return novo if novo != prej else None
@@ -460,6 +467,14 @@ def rd_vrsta_napake(http: int, koda: Optional[int]) -> str:
     if http == 429:
         return NAPAKA_MEJA
     return NAPAKA_STREZNIK
+
+
+def rd_vrsta_napake_uporabe(http: int, koda: Optional[int]) -> str:
+    """Napaka Real-Debrid MED UPORABO (rd_tok). Grokov pregled 40, S4 (26. 10. 2026): 9 »permission denied« pomeni »ni
+    dovoljenja za to dejanje« (ni premium, koncna tocka), ne napacen kljuc - prej je zaprl veljaven kljuc (»ne velja, vpisi
+    novega«), »Preveri« ga je potrdil in naslednje predvajanje spet zaprlo. Ob vpisu (/user) ostane »ne velja za to rabo«
+    (rd_vrsta_napake, skupni primeri v2)."""
+    return NAPAKA_DOVOLJENJE if koda == 9 else rd_vrsta_napake(http, koda)
 
 
 def ad_vrsta_napake(http: int, koda: Optional[str]) -> str:

@@ -298,7 +298,7 @@ CAKANI = _Cakani()
 def _rd_napaka(o: Odgovor) -> Izid:
     j = o.json if isinstance(o.json, dict) else {}
     koda = j.get("error_code") if isinstance(j.get("error_code"), int) else None
-    return Izid(napaka=P.rd_vrsta_napake(o.koda, koda), opis=str(j.get("error") or "")[:200], ponudnik=P.REAL_DEBRID)
+    return Izid(napaka=P.rd_vrsta_napake_uporabe(o.koda, koda), opis=str(j.get("error") or "")[:200], ponudnik=P.REAL_DEBRID)
 
 
 def _rd_izbrisi(kljuc: str, tid: str, dodano_ob: Optional[int], samo_predpomnjeno: bool) -> None:
@@ -1423,6 +1423,11 @@ class Debrid:
             izid = ad_tok(k, hash_, indeks, samo_pred, preklic=preklic)
         # Lastnik 25. 10. 2026 (kot Android Debrid.obIzidu): stanje kljuca sledi uporabi (401 -> »ne velja«, povezava -> velja).
         _javi(lambda n, u: self.ob_izidu(p, n, u, vezava), izid.napaka, bool(izid.url))
+        if izid.napaka == P.NAPAKA_DOVOLJENJE:
+            # Grokov pregled 40, S4: RD 9 - potrjen kljuc ostane, uporabnik izve, da racun tega ne omogoca (paket);
+            # kljuc, ki ga storitev se ni potrdila, ne velja za to rabo.
+            izid = Izid(izid.url, P.NAPAKA_PAKET if self.stanje_kljuca(p) == P.STANJE_VELJA else P.NAPAKA_KLJUC,
+                        izid.opis, izid.ponudnik)
         # Izid vedno nosi storitev, ki je odgovorila (sporocilo napake jo imenuje).
         return izid if izid.ponudnik else Izid(izid.url, izid.napaka, izid.opis, p)
 

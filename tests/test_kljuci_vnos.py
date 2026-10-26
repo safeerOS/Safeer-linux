@@ -832,6 +832,29 @@ class StanjeKljuca(unittest.TestCase):
                           {"s": "velja", "odtis": "cd"}, {"s": "x", "odtis": "ab"}, "x")],
                          [None, P.STANJE_VELJA, None, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA])
 
+    def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
+        """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
+        »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""
+        dovoljenje = debrid.Odgovor(403, '{"error": "permission_denied", "error_code": 9}')
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 7, "username": "u"}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "klic", return_value=dovoljenje):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_PAKET)        # »paket tega ne omogoca«, ne »kljuc ne velja«
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_VELJA)
+        self.assertTrue(d.sme_klicati(P.REAL_DEBRID))
+        # Kljuc, ki ga storitev se ni potrdila (izpad ob vpisu): 9 med uporabo - ne velja za to rabo (kot ob vpisu).
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+            self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_NEPREVERJEN)
+        with mock.patch.object(debrid, "klic", return_value=dovoljenje):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_NE_VELJA)
+        # Ob vpisu (/user) ostane »ne velja« (skupni primeri v2: rd_vrsta_napake 403/9 = kljuc, preverba_rd = ne_velja).
+        self.assertEqual((P.rd_vrsta_napake(403, 9), P.rd_preverba(403, {"error_code": 9})), (P.NAPAKA_KLJUC, P.PREVERBA_NEVELJAVEN))
+        self.assertEqual([P.rd_vrsta_napake_uporabe(403, k) for k in (8, 9, 14)],
+                         [P.NAPAKA_KLJUC, P.NAPAKA_DOVOLJENJE, P.NAPAKA_ZAKLENJEN])
+
     def test_pravila_za_uskladitev_in_prejem(self):
         """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""
         self.assertEqual([P.za_uskladitev(s) for s in (P.STANJE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA, None)],
