@@ -6,6 +6,7 @@ import json
 import tempfile
 import threading
 import time
+import re
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -261,27 +262,90 @@ class LogotipiTv(unittest.TestCase):
         self.assertEqual(ZV.LOGOTIP_ZNOVA_S, 600.0)
 
 
+#: Nastavitev lastnosti GStreamer (souphttpsrc), ne poljuben niz: set_property / set_object_arg z imenom lastnosti,
+#: props.<lastnost> = ..., ali lastnost=vrednost v opisu cevovoda (souphttpsrc ... cookies=...). Prej je preizkus iskal
+#: vsak niz "cookies" in padel na imenu datoteke profila brskalnika v core/link_datoteke.py (25. 10. 2026).
+#: GObject sprejme ime lastnosti tudi s podcrtajem ("user_id" = "user-id"; pregled 38, O3).
+_LASTNOSTI_PRIJAVE = r"(?:user[-_]id|user[-_]pw|proxy[-_]id|proxy[-_]pw|cookies)"
+_NASTAVI_PRIJAVO_GST = re.compile(
+    r"(?:set_property|set_object_arg)\(\s*(?:[\w.]+\s*,\s*)?[\"']" + _LASTNOSTI_PRIJAVE + r"[\"']"
+    r"|\bprops\.(?:user_id|user_pw|proxy_id|proxy_pw|cookies)\s*="
+    r"|setattr\(\s*[\w.]+\.props\s*,\s*[\"'](?:user_id|user_pw|proxy_id|proxy_pw|cookies)[\"']"
+    r"|(?<![\w-])(?:user-id|user-pw|proxy-id|proxy-pw)\s*="
+    r"|souphttpsrc[^\n]*\bcookies\s*="
+    r"|(?<![\w-])cookies\s*=(?!=)")              # opis cevovoda v vec vrsticah ali f-niz (pregled 29, G11; 38, O3)
+#: Siroko iskanje kot pred 25. 10. (pregled 29, G11): ime lastnosti kot samostojen niz ujame tudi konstanto
+#: (IME = "cookies"; set_property(IME, ...)) in set_property(*par). Samo z vezajem: "user_id" je kljuc JSON
+#: (Jellyfin, Matrix), konstanta s podcrtajem je ujeta samo ob set_property.
+_NIZ_PRIJAVE_GST = re.compile(r"[\"'](?:user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
+#: Dovoljene pojavitve: (datoteka, besedilo v ISTI vrstici). Pregled 38, O3: prej je bilo dovoljeno stevilo na datoteko,
+#: zato je nova pojavitev, ki je zamenjala dovoljeno, sla skozi. Lazen zadetek (npr. argument cookies= knjiznice
+#: requests) se dovoli tukaj po vrstici - vzorca se ne ozi.
+_DOVOLJENE_VRSTICE_PRIJAVE = (
+    ("core/link_datoteke.py", "_IMENA_PROFILA = frozenset("),  # ime datoteke profila brskalnika (skrivnost), ne GStreamer
+)
+
+
+def _vrstice_z(vzorec, datoteke, koren):
+    """(datoteka, vrstica) za vsako pojavitev vzorca."""
+    izid = []
+    for p in datoteke:
+        besedilo = p.read_text(encoding="utf-8", errors="replace")
+        for m in vzorec.finditer(besedilo):
+            konec = besedilo.find("\n", m.end())
+            vrstica = besedilo[besedilo.rfind("\n", 0, m.start()) + 1:konec if konec >= 0 else len(besedilo)]
+            izid.append((str(p.relative_to(koren)), vrstica.strip()))
+    return izid
+
+
+def _ni_dovoljeno(pojavitve):
+    return [(f, v) for f, v in pojavitve if not any(f == df and oznaka in v for df, oznaka in _DOVOLJENE_VRSTICE_PRIJAVE)]
+
+
+_NASTAVI_GLAVE_GST = re.compile(
+    r"[\"']extra-headers[\"']|\bprops\.extra_headers\s*=|(?<![\w-])extra-headers\s*=")
+
+
 class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
     def test_souphttpsrc_ne_dobi_glav_piskotkov_ali_gesla(self):
         """GStreamer-SA-2026-0080: souphttpsrc pred 1.28.7 ob preusmeritvi na drug izvor poslje naprej extra-headers,
         piskotke in user-id/user-pw. Runtime 50 ima GStreamer 1.26.11, zato prijava gre samo v naslov (ApiKey, u/t/s,
         uporabnik@): nov naslov iz Location je nima, libsoup pa prijavo iz naslova uporabi le za ta izvor
         (soup-auth-manager.c jo po uporabi odstrani). Teh lastnosti ne nastavljamo nikjer."""
-        import re
         koren = Path(__file__).resolve().parent.parent
         datoteke = list((koren / "core").rglob("*.py")) + list(koren.glob("*.py"))
-        vzorec = re.compile(r"[\"'](user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
-        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
-        self.assertEqual(najdeno, [])
+        self.assertEqual(_ni_dovoljeno(_vrstice_z(_NASTAVI_PRIJAVO_GST, datoteke, koren)), [])
+        nizi = _vrstice_z(_NIZ_PRIJAVE_GST, datoteke, koren)
+        self.assertEqual(_ni_dovoljeno(nizi), [], "nova pojavitev imena lastnosti prijave GStreamer")
+        self.assertEqual(len(nizi), len(_DOVOLJENE_VRSTICE_PRIJAVE), "dovoljena pojavitev ni vec na svojem mestu")
         # extra-headers samo za javne glave toka (Referer ...), ki jih zahteva dodatek - 15. 10. 2026: brez glave Referer
         # streznik toka vrne 429. V njih nikoli prijave ali piskotkov (te bi sle ob preusmeritvi naprej).
-        vzorec = re.compile(r"[\"']extra-headers[\"']")
-        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        najdeno = [str(p.relative_to(koren)) for p in datoteke
+                   if _NASTAVI_GLAVE_GST.search(p.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(najdeno, ["core/os_predvajalnik.py"])
         from core import os_predvajalnik
         self.assertFalse({"authorization", "cookie", "proxy-authorization"} & os_predvajalnik._DOVOLJENE_GLAVE)
         self.assertEqual(os_predvajalnik.cisti_glave({"Authorization": "Bearer x", "Cookie": "a=b", "Referer": "https://r/"}),
                          (("Referer", "https://r/"),))
+
+    def test_vzorci_ujamejo_oblike_zapisa(self):
+        """Pregled 38, O3: ime s podcrtajem, cookies = s presledki v opisu cevovoda; dovoljena pojavitev samo v svoji
+        vrstici (prej stevilo na datoteko)."""
+        for primer in ('src.set_property("user_id", uporabnik)', "src.set_property('proxy_pw', g)",
+                       'opis = ("souphttpsrc location=x "\n        "cookies = a=b ! decodebin")',
+                       'f"souphttpsrc location={u}\n cookies={c}"', "src.props.user_id = u"):
+            self.assertTrue(_NASTAVI_PRIJAVO_GST.search(primer), primer)
+        for primer in ("if cookies == stari:", "self.cookies_pot = pot", "recookies=1", 'd["user_id"] = 1'):
+            self.assertFalse(_NASTAVI_PRIJAVO_GST.search(primer), primer)
+        with tempfile.TemporaryDirectory() as mapa:
+            koren = Path(mapa)
+            (koren / "core").mkdir()
+            dat = koren / "core" / "link_datoteke.py"
+            dat.write_text('_IMENA_PROFILA = frozenset(("cookies", "web data"))\n', encoding="utf-8")
+            self.assertEqual(_ni_dovoljeno(_vrstice_z(_NIZ_PRIJAVE_GST, [dat], koren)), [])
+            dat.write_text('_IMENA_PROFILA = frozenset(("web data",))\nIME = "cookies"\n', encoding="utf-8")
+            self.assertEqual(_ni_dovoljeno(_vrstice_z(_NIZ_PRIJAVE_GST, [dat], koren)),
+                             [("core/link_datoteke.py", 'IME = "cookies"')], "zamenjana pojavitev je sla skozi")
 
 
 if __name__ == "__main__":

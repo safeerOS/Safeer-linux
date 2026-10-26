@@ -190,12 +190,14 @@ def _zdruzi_sorodne_naprave(naprave: List[dict]) -> List[dict]:
 
 
 def _dostop_naprave(id_naprave: str) -> dict:
-    """{"dostop": crke, "jaz": ali je to ta racunalnik} za seznam naprav; napaka ne sme podreti seznama."""
+    """{"dostop": crke, "jaz": ali je to ta racunalnik, "dom": ali sme do domace mape} za seznam naprav; napaka ne sme
+    podreti seznama. »dom« false pri d+z: zapis iz prejsnje razlicice - okno ponudi »Dovoli domaco mapo«."""
     try:
         return {"dostop": link_dostop.v_niz(link_dostop.zmoznosti(id_naprave)),
-                "jaz": bool(link_dostop.je_ta_naprava(id_naprave))}
+                "jaz": bool(link_dostop.je_ta_naprava(id_naprave)),
+                "dom": bool(link_dostop.sme_domaco_mapo(id_naprave))}
     except Exception:  # noqa: BLE001
-        return {"dostop": "", "jaz": False}
+        return {"dostop": "", "jaz": False, "dom": False}
 
 
 def _prosnja_iz_odgovora(telo: dict) -> dict:
@@ -304,7 +306,11 @@ MOST_JS = """
     pomocStanje: function () { return JSON.stringify(window.__safeerLink.pomoc || null); },
     nastaviPomoc: function (vklop) { poslji("nastaviPomoc", [!!vklop]); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
-    nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
+    // Dejanje stikala (zmoznost, vklop) - nabor `crke` je samo za starejse mostove (pregled 38, O1).
+    nastaviDostop: function (id, crke, zmoznost, vklop) {
+      poslji("nastaviDostop", [id, String(crke || ""), String(zmoznost || ""), vklop === true]);
+    },
+    dovoliDomacoMapo: function (id) { poslji("dovoliDomacoMapo", [id]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
     shraniVzdevek: function (id, ime) {
       var v = window.__safeerLink.vzdevki || {};
@@ -855,7 +861,10 @@ class SafeerLink:
             "upravljajRacunalnik": lambda: self._v_ozadju(lambda: self._upravljaj_racunalnik(*argumenti[:1])),
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
             "preimenujNapravo": lambda: self._v_ozadju(lambda: self._preimenuj_napravo(*argumenti[:2])),
-            "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:2]),
+            "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:4]),
+            # V ozadju: zapis (zaklep datoteke, fsync) ne sme zamrzniti okna (pregled 29, G12). Ponovljen klik je
+            # enak prvemu, vrstni red zato ni pomemben - pri nastaviDostop je (zadnje stanje stikal mora zmagati).
+            "dovoliDomacoMapo": lambda: self._v_ozadju(lambda: self._dovoli_domaco_mapo(*argumenti[:1])),
             "shraniVzdevek": lambda: self._shrani_vzdevek(*argumenti[:2]),
             "pozabiNapravo": lambda: self._v_ozadju(self._pozabi_napravo),
             "potrdiNovNaslov": lambda: self._v_ozadju(self._potrdi_nov_naslov),
@@ -2482,16 +2491,35 @@ class SafeerLink:
         if self.deljenje_zaslona is not None:
             self.deljenje_zaslona.ustavi()
 
-    def _nastavi_dostop(self, id_naprave: str = "", crke: str = "") -> None:
-        """Uporabnik je v oknu Safeer Link napravi dolocil, kaj ji ta racunalnik odpre (core/link_dostop)."""
+    def _nastavi_dostop(self, id_naprave: str = "", crke: str = "", zmoznost: str = "", vklop: object = None) -> None:
+        """Uporabnik je v oknu Safeer Link napravi vklopil ali izklopil eno stikalo (core/link_dostop). Racunalnik uporabi
+        samo DEJANJE (`zmoznost`, `vklop`), ne nabora `crke`, ki ga okno kaze: iz nabora je ponovljen dogodek ali okno s
+        starim stanjem (po umiku iz kroga) dal ozji krog in domaco mapo (pregled 38, O1). Brez veljavnega dejanja se nic
+        ne spremeni - okno pokaze dejansko stanje in napako."""
         id_naprave = str(id_naprave or "")
         try:
-            # Stikala okna so izrecna privolitev: katerokoli dovoljenje da ozji krog (link_dostop.nastavi_ozji_krog).
-            ok = link_dostop.nastavi_ozji_krog(id_naprave, link_dostop.iz_niza(str(crke or "")))
+            # Stikala okna so izrecna privolitev: vklop da ozji krog, izklop samo vzame (link_dostop.preklopi_ozji_krog).
+            ok = (isinstance(zmoznost, str) and zmoznost in link_dostop.VSE_ZMOZNOSTI and isinstance(vklop, bool)
+                  and link_dostop.preklopi_ozji_krog(id_naprave, zmoznost, vklop))
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Dostopa ni bilo mogoče shraniti: {e}")
             ok = False
         self._po_spremembi_dostopa(id_naprave, ok)
+
+    def _dovoli_domaco_mapo(self, id_naprave: str = "") -> None:
+        """»Dovoli domaco mapo« v oknu Safeer Link: naprava v ozjem krogu iz prejsnje razlicice dobi domaco mapo
+        (core/link_dostop.dovoli_domaco_mapo); ostala dovoljenja ostanejo."""
+        id_naprave = str(id_naprave or "")
+        try:
+            ok = link_dostop.dovoli_domaco_mapo(id_naprave)
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Domace mape ni bilo mogoce dovoliti: {e}")
+            ok = False
+        if threading.current_thread() is threading.main_thread():
+            self._po_spremembi_dostopa(id_naprave, ok)
+        else:
+            # Seznam naprav in okno samo na glavni niti (kot ob odvzemu iz druge niti).
+            GLib.idle_add(lambda: (self._po_spremembi_dostopa(id_naprave, ok), False)[1])
 
     def _po_spremembi_dostopa(self, id_naprave: str, ok: bool) -> None:
         """Seznam naprav in okno dobita nov dostop naprave (po stikalih v oknu ali po »Dovoli« v obvestilu)."""

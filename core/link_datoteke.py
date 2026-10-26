@@ -74,18 +74,41 @@ def _sme_naprava(id_naprave: str, zmoznost: str) -> bool:
 
 
 def _v_ozjem_krogu(id_naprave: str) -> bool:
-    """Ali je naprava v ozjem krogu (link_dostop.v_ozjem_krogu): samo taka vidi domaco mapo. Napaka pomeni ne."""
+    """Ali naprava sme do domace mape (link_dostop.sme_domaco_mapo): ozji krog z izrecno privolitvijo za domaco mapo -
+    zapis d+z iz prejsnje razlicice je nima, dokler je uporabnik ne dovoli (vodja 25. 10. 2026). Napaka pomeni ne."""
     try:
         from core import link_dostop
-        return link_dostop.v_ozjem_krogu(id_naprave)
+        return link_dostop.sme_domaco_mapo(id_naprave)
     except Exception:  # noqa: BLE001
         return False
 
 
+def _v_domacem_drevesu(pot: str) -> bool:
+    """Ali je razresena absolutna pot domaca mapa, mapa domacih map (/home - tam so tudi domace mape drugih
+    uporabnikov) ali kaj pod njima; tudi mapa nad njima razen korena (njen seznam vodi do domacih map)."""
+    dom = os.path.realpath(os.path.expanduser("~"))
+    nad = os.path.dirname(dom)
+    meja = dom if os.path.dirname(nad) == nad else nad        # /root (tik pod korenom): samo domaca mapa
+    if pot == meja or pot.startswith(meja.rstrip(os.sep) + os.sep):
+        return True
+    return os.path.dirname(pot) != pot and meja.startswith(pot.rstrip(os.sep) + os.sep)
+
+
 def _je_dom(oznaka) -> bool:
-    """Oznaka, ki jo vidi samo ozji krog: domaca mapa (dom:) in ves disk (disk: - vsebuje tudi domaco mapo; pregled
-    11, V8: nastavitev »ves disk« ne sme obiti pravila domace mape)."""
-    return isinstance(oznaka, str) and (oznaka.startswith("dom:") or oznaka.startswith("disk:"))
+    """Oznaka, ki jo vidi samo ozji krog: domaca mapa (dom:) in del vsega diska (disk:) z domacimi mapami
+    (_v_domacem_drevesu). Pregled 11 (V8) je ozjemu krogu zaprl ves disk; pregled 17 (M3): televizor brez ozjega kroga
+    je s tem izgubil zunanje diske in USB, nastavitev »ves disk« zanj pa ni vec delala. Zunanji diski in druge particije
+    (/media, /mnt) ostanejo vsaki napravi z dovoljenjem datotek, domace mape samo ozjemu krogu."""
+    if not isinstance(oznaka, str):
+        return False
+    if oznaka.startswith("dom:"):
+        return True
+    if not oznaka.startswith("disk:"):
+        return False
+    try:
+        return _v_domacem_drevesu(os.path.realpath(oznaka[len("disk:"):] or os.sep))
+    except (OSError, ValueError):
+        return True             # poti ni mogoce razresiti: samo ozjemu krogu
 
 
 def _jedro_naprave(id_naprave: str) -> str:
@@ -284,6 +307,30 @@ _VARNE_KONCNICE = frozenset((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", "
                              ".m2ts", ".mpg", ".mpeg", ".3gp", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".oga",
                              ".opus", ".wav", ".wma", ".svg", ".epub", ".iso"))
 NAJVEC_ZA_SEZNAM_B = 64 * 1024
+#: Glave spremljajocih datotek SQLite: WAL (oba vrstna reda bajtov) in dnevnik (journal).
+_GLAVE_SQLITE_SPREMLJAJOCE = (b"\x37\x7f\x06\x82", b"\x37\x7f\x06\x83", b"\xd9\xd5\x05\xf9\x20\xa1\x63\xd7")
+#: Koncnice, pri katerih je zasebni kljuc lahko binaren (DER) - pregled 17, M6: .key ni vec skrivnost po koncnici.
+_KONCNICE_DER = frozenset((".key", ".der", ""))
+#: PBES2 in PKCS#12 PBE: sifriran zasebni kljuc PKCS#8 (EncryptedPrivateKeyInfo).
+_OID_SIFRIRAN_KLJUC = (b"\x2a\x86\x48\x86\xf7\x0d\x01\x05\x0d", b"\x2a\x86\x48\x86\xf7\x0d\x01\x0c\x01")
+
+
+def _der_zasebni(glava: bytes) -> bool:
+    """Zasebni kljuc DER: PKCS#1, PKCS#8 in SEC1 so SEQUENCE, ki se zacne z INTEGER 0 ali 1; sifriran PKCS#8 ima na
+    zacetku OID PBES2/PKCS#12. Potrdilo DER se zacne s SEQUENCE (tbsCertificate), zato ni skrivnost."""
+    if len(glava) < 8 or glava[0] != 0x30:
+        return False
+    if glava[1] < 0x80:
+        zacetek = 2
+    elif 0x81 <= glava[1] <= 0x84:
+        zacetek = 2 + (glava[1] & 0x7F)
+    else:
+        return False
+    if glava[zacetek:zacetek + 3] in (b"\x02\x01\x00", b"\x02\x01\x01"):
+        return True
+    return any(oid in glava[:48] for oid in _OID_SIFRIRAN_KLJUC)
+
+
 _vsebina_spomin: "collections.OrderedDict[tuple, bool]" = collections.OrderedDict()
 _vsebina_kljuc = threading.Lock()
 _NAJVEC_SPOMINA = 8192
@@ -314,7 +361,10 @@ def _vsebina_skrivnost(pot: str, hitro: bool = False) -> bool:
     velikost)."""
     ime = os.path.basename(pot).lower()
     koncnica = os.path.splitext(ime)[1]
-    profil = ime in _IMENA_PROFILA
+    # Cookies-journal, Web Data-wal: profil po imenu brez pripone, kot v _ime_skrivnosti (pregled 17, M6).
+    osnova = next((ime[:-len(p)] for p in _PRIPONE_PROFILA if ime.endswith(p)), ime)
+    profil = osnova in _IMENA_PROFILA
+    spremljajoca = profil and osnova != ime
     try:
         st = os.stat(pot)
     except (FileNotFoundError, PermissionError, NotADirectoryError):
@@ -336,7 +386,8 @@ def _vsebina_skrivnost(pot: str, hitro: bool = False) -> bool:
     try:
         rocaj = os.open(pot, zastavice)
         try:
-            if not stat.S_ISREG(os.fstat(rocaj).st_mode):
+            st_odprte = os.fstat(rocaj)
+            if not stat.S_ISREG(st_odprte.st_mode):
                 return False
             glava = os.read(rocaj, koliko)
         finally:
@@ -348,7 +399,15 @@ def _vsebina_skrivnost(pot: str, hitro: bool = False) -> bool:
     nizka = glava.lower()
     izid = (glava.startswith(_GLAVE_SKRIVNOSTI) or b"PRIVATE KEY-----" in glava or b"PGP PRIVATE KEY BLOCK" in glava
             or b"aws_secret_access_key" in nizka or b"client-key-data:" in glava
-            or (profil and (glava.startswith(b"SQLite format 3\x00") or b'"os_crypt"' in glava)))
+            or (profil and (glava.startswith(b"SQLite format 3\x00") or b'"os_crypt"' in glava))
+            or (spremljajoca and (glava.startswith(_GLAVE_SQLITE_SPREMLJAJOCE)
+                                  or os.path.isfile(pot[:len(pot) - (len(ime) - len(osnova))])))
+            or (koncnica in _KONCNICE_DER and _der_zasebni(glava)))
+    # Izid v spomin pod odtisom ODPRTE datoteke (zamenjava med stat in open ne da tujega izida) in ne za datoteko,
+    # ki se je pravkar spremenila, ali brez stalne stevilke (FAT/exFAT, FUSE: cas na 2 s) - pregled 17, M8.
+    kljuc = (st_odprte.st_dev, st_odprte.st_ino, st_odprte.st_mtime_ns, st_odprte.st_size)
+    if st_odprte.st_ino == 0 or time.time() - st_odprte.st_mtime < 2.0:
+        return izid
     with _vsebina_kljuc:
         _vsebina_spomin[kljuc] = izid
         while len(_vsebina_spomin) > _NAJVEC_SPOMINA:
@@ -1189,6 +1248,8 @@ def _mape_zagona() -> set:
     (tudi kot simbolna povezava) in vse mape na PATH znotraj domace mape (pregled 11, N11)."""
     dom = os.path.realpath(os.path.expanduser("~"))
     mape = {dom, os.path.realpath(os.path.join(dom, "bin")), os.path.realpath(os.path.join(dom, ".local", "bin"))}
+    # PATH tega procesa ni PATH prijave (~/.bashrc doda svoje): pogoste mape orodij so na PATH skoraj vedno (M9).
+    mape |= {os.path.realpath(os.path.join(dom, *d)) for d in (("go", "bin"), (".cargo", "bin"), (".deno", "bin"))}
     for p in (os.environ.get("PATH") or "").split(os.pathsep):
         if p:
             r = os.path.realpath(os.path.expanduser(p))
@@ -1197,11 +1258,33 @@ def _mape_zagona() -> set:
     return mape
 
 
+def _namizje_xdg() -> str:
+    """Namizje iz ~/.config/user-dirs.dirs (XDG_DESKTOP_DIR) - ime je v jeziku namestitve (Schreibtisch, Bureau ...);
+    prazno, ce ga ni (pregled 17, M9)."""
+    dom = os.path.realpath(os.path.expanduser("~"))
+    try:
+        with open(os.path.join(dom, ".config", "user-dirs.dirs"), "r", encoding="utf-8", errors="replace") as d:
+            vrstice = d.read(16384).splitlines()
+    except OSError:
+        return ""
+    for v in vrstice:
+        v = v.strip()
+        if v.startswith("XDG_DESKTOP_DIR="):
+            vrednost = v.split("=", 1)[1].strip().strip('"')
+            if vrednost.startswith("$HOME"):
+                vrednost = dom + vrednost[len("$HOME"):]
+            return os.path.realpath(vrednost) if os.path.isabs(vrednost) else ""
+    return ""
+
+
 def _mapa_namizja(mapa: str) -> bool:
     """Namizje (zaganjalniki .desktop se tam pokazejo in jim namizje lahko zaupa)."""
     dom = os.path.realpath(os.path.expanduser("~"))
     r = os.path.realpath(mapa)
-    return os.path.dirname(r) == dom and os.path.basename(r).lower() in ("desktop", "namizje")
+    if os.path.dirname(r) == dom and os.path.basename(r).lower() in ("desktop", "namizje"):
+        return True
+    xdg = _namizje_xdg()
+    return bool(xdg) and r == xdg
 
 
 def _ime_za_zagon(ime: str, mapa: str) -> bool:
@@ -1852,6 +1935,8 @@ class StreznikDatotek:
                     return 403, {"ok": False, "napaka": "nevarna_vrsta"}
                 if _ime_za_zagon(novo_ime, os.path.dirname(pot)):
                     return 403, {"ok": False, "napaka": "nevarna_vrsta"}
+                if os.path.isdir(pot) and _mapa_za_zagon(os.path.join(os.path.dirname(pot), novo_ime)):
+                    return 403, {"ok": False, "napaka": "ni_dovoljeno"}     # preimenovanje v mapo PATH (M9)
                 nova = link_urejanje.preimenuj(pot, novo_ime)
             elif ukaz == "move":
                 cilj = self.mape.razresi(str(zahteva.get("folder") or ""))
@@ -1859,6 +1944,8 @@ class StreznikDatotek:
                     return 404, {"ok": False, "napaka": "ni_mape"}
                 if _mapa_za_zagon(cilj[1]) or _ime_za_zagon(os.path.basename(pot), cilj[1]):
                     return 403, {"ok": False, "napaka": "ni_dovoljeno"}
+                if os.path.isdir(pot) and _mapa_za_zagon(os.path.join(cilj[1], os.path.basename(pot))):
+                    return 403, {"ok": False, "napaka": "ni_dovoljeno"}     # mapa s premikom postane mapa PATH (M9)
                 if _mapa_namizja(cilj[1]) and not os.path.isdir(pot) and je_nevarno_ime(os.path.basename(pot)):
                     return 403, {"ok": False, "napaka": "nevarna_vrsta"}
                 nova = link_urejanje.premakni(pot, cilj[1])
@@ -1982,9 +2069,10 @@ class Datoteke:
         ce je kaj datotek za prenasati - streznik se zazene sele takrat.
         """
         oznaka = str(oznaka or "")
-        # Domaco mapo in ves disk vidi samo naprava v ozjem krogu: drugim je, kot da ju ni (pregled 6 in 11).
+        # Domaco mapo (tudi v »vsem disku«) vidi samo naprava v ozjem krogu: drugim je, kot da je ni (pregledi 6, 11 in
+        # 17). Zunanje diske pri »vsem disku« vidi vsaka naprava z dovoljenjem datotek (pregled 17, M3).
         ozji = _v_ozjem_krogu(id_naprave)
-        dom, disk = self.mape.dom and ozji, self.mape.ves_disk and ozji
+        dom, disk = self.mape.dom and ozji, self.mape.ves_disk
         # Brez izbranih map, brez dovoljenja za cel racunalnik in brez domace mape za ozji krog ni kaj pokazati.
         if not self.mape.poti and not disk and not dom:
             return {"items": [], "folder": "", "shared": False}
