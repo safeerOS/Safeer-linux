@@ -27,7 +27,8 @@ ID_PIKA = "pika.Zz@primer.invalid"
 ID_NI = "ni-ga.Yy@primer.invalid"
 ID_PREKINI = "prekini.Ww@primer.invalid"
 ID_ROK = "rok.Vv@primer.invalid"
-VSI_ID = (ID_OK, ID_PIKA, ID_NI, ID_PREKINI, ID_ROK)
+ID_VELIK = "velik.Uu@primer.invalid"
+VSI_ID = (ID_OK, ID_PIKA, ID_NI, ID_PREKINI, ID_ROK, ID_VELIK)
 
 PODATKI = bytes(range(256)) * 20
 CLANKI = {
@@ -89,7 +90,7 @@ class LazniStreznik:
 
     def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False,
                  zamuda_gesla=0.0, napacno="481 Authentication failed", meja=None,
-                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0):
+                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0, po_kosih=0.0):
         self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
         self.pozdrav = pozdrav
@@ -100,6 +101,7 @@ class LazniStreznik:
         self.odgovor_meja = odgovor_meja
         self.gesla_ne_odgovori = gesla_ne_odgovori  # po PASS zapre brez odgovora
         self.zamuda_body = zamuda_body
+        self.po_kosih = po_kosih  # telo po 64 KiB z zamikom (hkratna branja vec povezav)
         self.prijavljenih = 0
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
@@ -207,6 +209,11 @@ class LazniStreznik:
                             time.sleep(self.zamuda_body)
                         if ukaz == "STAT":
                             s.sendall(b"223 0 <%s>\r\n" % mid.encode())
+                        elif self.po_kosih:
+                            vse = b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[mid])
+                            for i in range(0, len(vse), 65536):
+                                s.sendall(vse[i:i + 65536])
+                                time.sleep(self.po_kosih)
                         else:
                             s.sendall(b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[mid]))
                     else:
@@ -584,6 +591,48 @@ class Nntp(unittest.TestCase):
         self.assertEqual(N.Bazen("h", povezav=0, kontekst=k).najvec, 1)
         self.assertEqual(N.Bazen("h", povezav=500, kontekst=k).najvec, N.NAJVEC_POVEZAV)
         self.assertEqual((N.PRIVZETO_POVEZAV, N.NAJVEC_POVEZAV, N.VRATA), (8, 50, 563))
+
+    def test_proracun_teles(self):
+        # Grok 37 C7 / 35 Y3: 6 hkratnih clankov po ~1,25 MiB v proracunu 3 MiB. Merimo vsoto medpomnilnikov vseh
+        # povezav ob vsakem branju: brez proracuna ~7 MiB, s proracunom osnove (3 x 0,5) + rast (1,25) + statusne
+        # vrstice.
+        CLANKI[ID_VELIK] = Y.kodiraj(bytes(range(256)) * 4800, "velik.mkv")
+        self.addCleanup(CLANKI.pop, ID_VELIK)
+        s = self.streznik(po_kosih=0.01)
+        vrh = [0]
+        izvirno = N.Povezava._beri
+
+        def beri(povezava, konec):
+            izvirno(povezava, konec)
+            vrh[0] = max(vrh[0], sum(len(x._medpomnilnik) for x in list(b._v_rabi)))
+        with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1536 * 1024), \
+                mock.patch.object(N, "OSNOVA_TELESA", 512 * 1024), mock.patch.object(N.Povezava, "_beri", beri):
+            b = self.bazen(s, povezav=6, rok=20.0, proracun_bajtov=3 * 1024 * 1024)
+            izidi = self._hkrati(b, 6, 1, ID_VELIK)
+        self.assertEqual(izidi, ["ok"] * 6, "brez zastoja (prej: zasezanje po delih je zaklenilo do roka)")
+        self.assertLessEqual(b.proracun.najvec_zasedeno, 3 * 1024 * 1024)
+        self.assertLessEqual(vrh[0], 3 * 1024 * 1024 + 6 * 256 * 1024, "vsota medpomnilnikov v proracunu")
+        self.assertEqual(b.proracun.zasedeno, 0, "vse sproscen")
+        self.assertGreater(s.najvec_hkrati, 1)
+
+    def test_proracun_rok(self):
+        with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1024 * 1024), \
+                mock.patch.object(N, "OSNOVA_TELESA", 512 * 1024):
+            p = N.Proracun(0)  # najmanj ena osnova in rast
+            self.assertTrue(p.zasezi(time.monotonic() + 1))
+            zacetek = time.monotonic()
+            self.assertFalse(p.zasezi(time.monotonic() + 0.2), "druga osnova ni prostora do roka")
+            self.assertLess(time.monotonic() - zacetek, 1.0)
+            self.assertTrue(p.rasti(time.monotonic() + 0.1))
+            self.assertFalse(p.rasti(time.monotonic() + 0.1), "en zeton rasti")
+            p.sprosti(True)
+            self.assertEqual(p.zasedeno, 0)
+            self.assertTrue(p.zasezi(time.monotonic() + 0.1))
+
+    def test_dolga_vrstica_v_enem_branju(self):
+        self.assertEqual(N.NAJVEC_VRSTICA_BAJTOV, 4096)
+        s = self.streznik(pozdrav="200 " + "x" * 9000)
+        self.assertEqual(self.napaka(lambda: self.bazen(s).telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
 
     def test_telo_vecje_od_meje(self):
         s = self.streznik()

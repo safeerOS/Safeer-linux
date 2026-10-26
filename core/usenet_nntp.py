@@ -53,6 +53,11 @@ PREMOR_BREZ_ODPRTIH_S = 60.0  # ni nobene druge odprte povezave, ki bi se sprost
 PREMOR_DO_S = 300.0
 #: Bazen, zmanjsan zaradi meje povezav, po 10 min brez nove meje spet dobi eno mesto (druga naprava je morda koncala).
 RAST_BAZENA_S = 600.0
+#: Skupen proracun teles clankov na bazen (namizje; Android ima manj): 50 povezav x 4 MiB bi bilo 200 MiB samo
+#: medpomnilnikov (pregled Grok 37 C7). Obicajen clanek (<1 MiB) ne caka nikoli.
+PRORACUN_BAJTOV = 64 * 1024 * 1024
+#: Osnova, ki jo zaseze vsako telo: clanek do ~1,25 MiB (izmerjeno 384-719 KiB) ne potrebuje vec.
+OSNOVA_TELESA = 1536 * 1024
 ROK_POVEZAVE_S = 10.0
 ROK_ZAHTEVE_S = 30.0
 _BERI = 256 * 1024
@@ -276,12 +281,67 @@ def _ukaz_z_id(ukaz: str, message_id: str) -> bytes:
     return ("%s <%s>\r\n" % (ukaz, mid)).encode("ascii")
 
 
+class Proracun:
+    """Skupen proracun pomnilnika teles v bazenu (pregled Grok 37 C7, 35 Y3). Vsako telo pred branjem zaseze OSNOVO;
+    vecje telo vzame se edini zeton rasti (prostor do NAJVEC_TELO_BAJTOV). Nihce ne caka, medtem ko drzi del rasti,
+    zato zastoja ni: osnove imajo svoj del proracuna, rast pa vedno ima svojega (prej je zasezanje po delih 6 hkratnih
+    teles po 1,2 MiB v 3 MiB zaklenilo do roka). Steje medpomnilnik telesa; statusna vrstica (do 256 KiB na povezavo) in
+    kratkotrajna kopija ob vrnitvi nista steti."""
+
+    def __init__(self, bajtov: int):
+        self.osnova = OSNOVA_TELESA
+        self.rast = max(0, NAJVEC_TELO_BAJTOV + _BERI - self.osnova)
+        self.bajtov = max(int(bajtov), self.osnova + self.rast)
+        self._osnov = 0
+        self._rast = False
+        self.najvec_zasedeno = 0  # za meritev in preizkus
+        self._pogoj = threading.Condition(threading.Lock())
+
+    @property
+    def zasedeno(self) -> int:
+        return self._osnov * self.osnova + (self.rast if self._rast else 0)
+
+    def _cakaj(self, pogoj: Callable[[], bool], konec: float) -> bool:
+        while not pogoj():
+            ostane = konec - time.monotonic()
+            if ostane <= 0:
+                return False
+            self._pogoj.wait(ostane)
+        return True
+
+    def zasezi(self, konec: float) -> bool:
+        """Osnova za eno telo; False = ni prostora do [konec]."""
+        with self._pogoj:
+            if not self._cakaj(lambda: (self._osnov + 1) * self.osnova + self.rast <= self.bajtov, konec):
+                return False
+            self._osnov += 1
+            self.najvec_zasedeno = max(self.najvec_zasedeno, self.zasedeno)
+            return True
+
+    def rasti(self, konec: float) -> bool:
+        """Zeton rasti (telo vecje od osnove); drzi ga ena nit naenkrat."""
+        with self._pogoj:
+            if not self._cakaj(lambda: not self._rast, konec):
+                return False
+            self._rast = True
+            self.najvec_zasedeno = max(self.najvec_zasedeno, self.zasedeno)
+            return True
+
+    def sprosti(self, rast: bool) -> None:
+        with self._pogoj:
+            self._osnov -= 1
+            if rast:
+                self._rast = False
+            self._pogoj.notify_all()
+
+
 class Povezava:
     """Ena povezava NNTP prek TLS z eno zahtevo naenkrat (vzporednost ureja Bazen)."""
 
     def __init__(self, gostitelj: str, vrata: int = VRATA, uporabnik: Optional[str] = None, geslo: Optional[str] = None,
                  kontekst: Optional[ssl.SSLContext] = None, rok_povezave: float = ROK_POVEZAVE_S,
-                 rok: float = ROK_ZAHTEVE_S, pred_prijavo: Optional[Callable[[], tuple]] = None):
+                 rok: float = ROK_ZAHTEVE_S, pred_prijavo: Optional[Callable[[], tuple]] = None,
+                 proracun: Optional[Proracun] = None):
         _preveri_poverilnico(uporabnik)
         _preveri_poverilnico(geslo)
         self.gostitelj = str(gostitelj)
@@ -299,6 +359,7 @@ class Povezava:
         #: Bazen: (ovira ali None, prijava_uspela) tik pred AUTHINFO - zavrnjen racun ne dobi gesla niti iz povezave,
         #: ki se je odpirala vzporedno.
         self._pred_prijavo = pred_prijavo
+        self._proracun = proracun
         self.faza = FAZA_POVEZAVA  # kje je zadnja napaka nastala (ukrep_bazena)
         self.pripravljena = False  # pozdrav in prijava sta uspela
         self.sonda = False  # bazen: ta povezava je edina, ki se odpira, dokler prijava ne uspe
@@ -356,6 +417,8 @@ class Povezava:
         iskano = 0
         while True:
             k = self._medpomnilnik.find(b"\r\n", max(0, iskano - 1))
+            if k > NAJVEC_VRSTICA_BAJTOV:
+                raise self._napaka(NAPAKA_PROTOKOLA)  # tudi, ce je CRLF prisel v istem branju (Grok 37 C7)
             if k >= 0:
                 vrstica = bytes(self._medpomnilnik[:k])
                 del self._medpomnilnik[:k + 2]
@@ -370,19 +433,32 @@ class Povezava:
         return izid_odgovora(ukaz, vrstica, prijava_uspela), koda_vrstice(vrstica) or 0
 
     def _telo(self, konec: float) -> bytes:
-        iskano = 0
-        while True:
-            k = konec_telesa(self._medpomnilnik, iskano)
-            if k > NAJVEC_TELO_BAJTOV:
-                raise self._napaka(NAPAKA_PROTOKOLA)  # tudi celo telo, ki je prislo v enem kosu
-            if k >= 0:
-                telo = brez_pik(bytes(self._medpomnilnik[:k]))
-                del self._medpomnilnik[:k + 3]
-                return telo
-            if len(self._medpomnilnik) > NAJVEC_TELO_BAJTOV:
-                raise self._napaka(NAPAKA_PROTOKOLA)
-            iskano = len(self._medpomnilnik)
-            self._beri(konec)
+        if self._proracun is not None and not self._proracun.zasezi(konec):
+            raise self._napaka(ROK)
+        rast = False
+        try:
+            iskano = 0
+            while True:
+                k = konec_telesa(self._medpomnilnik, iskano)
+                if k > NAJVEC_TELO_BAJTOV:
+                    raise self._napaka(NAPAKA_PROTOKOLA)  # tudi celo telo, ki je prislo v enem kosu
+                if k >= 0:
+                    with memoryview(self._medpomnilnik)[:k] as m:
+                        telo = brez_pik(bytes(m))  # ena kopija (bytes(bytearray[:k]) bi naredil dve)
+                    del self._medpomnilnik[:k + 3]
+                    return telo
+                if len(self._medpomnilnik) > NAJVEC_TELO_BAJTOV:
+                    raise self._napaka(NAPAKA_PROTOKOLA)
+                if (self._proracun is not None and not rast
+                        and len(self._medpomnilnik) + _BERI > self._proracun.osnova):
+                    if not self._proracun.rasti(konec):
+                        raise self._napaka(ROK)
+                    rast = True
+                iskano = len(self._medpomnilnik)
+                self._beri(konec)
+        finally:
+            if self._proracun is not None:
+                self._proracun.sprosti(rast)
 
     # -------------------------------------------------------------- povezava in prijava
 
@@ -573,7 +649,8 @@ class Bazen:
 
     def __init__(self, gostitelj: str, vrata: int = VRATA, uporabnik: Optional[str] = None, geslo: Optional[str] = None,
                  povezav: int = PRIVZETO_POVEZAV, kontekst: Optional[ssl.SSLContext] = None,
-                 rok_povezave: float = ROK_POVEZAVE_S, rok: float = ROK_ZAHTEVE_S):
+                 rok_povezave: float = ROK_POVEZAVE_S, rok: float = ROK_ZAHTEVE_S,
+                 proracun_bajtov: int = PRORACUN_BAJTOV):
         _preveri_poverilnico(uporabnik)
         _preveri_poverilnico(geslo)
         kontekst = varen_kontekst(kontekst)  # en kontekst za vse povezave (wrap_socket je varen za niti)
@@ -583,8 +660,9 @@ class Bazen:
         self.najvec = self._zgornja
         self._rok = float(rok)
         self._racun = _odtis_racuna(self.gostitelj, uporabnik, geslo)
+        self.proracun = Proracun(proracun_bajtov)  # najmanj ena osnova in rast
         self.__nova: Callable[[], Povezava] = lambda: Povezava(gostitelj, vrata, uporabnik, geslo, kontekst,
-                                                                 rok_povezave, rok, self._pred_prijavo)
+                                                                 rok_povezave, rok, self._pred_prijavo, self.proracun)
         self._proste: list = []
         self._v_rabi: set = set()
         self._pogoj = threading.Condition(threading.Lock())
