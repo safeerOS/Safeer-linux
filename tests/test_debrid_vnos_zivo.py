@@ -7,9 +7,12 @@ Vrstica pove stanje kljuca (Android d1fdecc): »ključ velja ✓«, »ključ ne 
 uporabnik tipka, ostane). Vzorec iz navodil se zavrne brez klica storitve.
 Preizkus tipka kljuc (Enter), med preverbo sta polje in gumb zaklenjena, izid je v vrstici stanja (role=status), fokus
 se vrne v polje, kljuc ne ostane v strani. Kljuci so izmisljeni; zbirka skrivnosti je v pomnilniku.
-Storitve so privzeto ponaredki; SAFEER_ZIVO_KLJUCI=1 vprasa PRAVI TorBox, Real-Debrid, AllDebrid in nzbfinder.ws
-(izmisljen kljuc mora biti zavrnjen). Zagon (nas WebKit): ./tools/nas_webkit.sh xvfb-run -a python3 -m pytest -q
-tests/test_debrid_vnos_zivo.py"""
+Storitve so privzeto ponaredki; SAFEER_ZIVO_KLJUCI=1 vprasa PRAVI TorBox (izmisljen kljuc mora biti zavrnjen).
+Grokov pregled 40, S7 (lastnik 26. 10. 2026: »Nevarnost zaklepa računa je prioriteta«): izmisljen kljuc v zivem nacinu
+NIKOLI ne gre Real-Debridu, AllDebridu ali indeksatorju - RD ob ugibanju kljucev zapre naslov IP (error 22) in z njim
+pravi racun lastnika na istem IP, indeksatorji stejejo neuspele prijave. Preizkusi teh storitev se v zivem nacinu
+preskocijo PRED vpisom (prej sele po klicu), varovalo v setUp ustavi vsak drug klic. TorBox naslova IP ne omejuje.
+Zagon (nas WebKit): ./tools/nas_webkit.sh xvfb-run -a python3 -m pytest -q tests/test_debrid_vnos_zivo.py"""
 import json
 import os
 import threading
@@ -79,6 +82,20 @@ class DebridVnos(unittest.TestCase):
         self.d = debrid.Debrid(lambda: nast["d"], lambda x: nast.__setitem__("d", json.loads(json.dumps(x))),
                                self.zbirka.skrij, self.zbirka.razkrij, self.zbirka.pozabi)
         self.nast = nast
+        if ZIVO:
+            # Grokov pregled 40, S7: v zivem nacinu gre izmisljen kljuc samo TorBoxu - vse drugo je napaka preizkusa.
+            pravi_klic = debrid.klic
+
+            def varovalo(naslov, *a, **k):
+                if not str(naslov).startswith("https://api.torbox.app/"):
+                    raise AssertionError("zivi nacin: izmisljen kljuc samo TorBoxu, ne " + str(naslov).split("?")[0])
+                return pravi_klic(naslov, *a, **k)
+            for ime, nadomestek in (("klic", varovalo),
+                                    ("indeksator_preveri", mock.Mock(side_effect=AssertionError("zivi nacin: brez indeksatorja"))),
+                                    ("usenet_isci", mock.Mock(side_effect=AssertionError("zivi nacin: brez indeksatorja")))):
+                zamenjava = mock.patch.object(debrid, ime, nadomestek)
+                zamenjava.start()
+                self.addCleanup(zamenjava.stop)
         upr = WebKit.UserContentManager()
         upr.add_script(WebKit.UserScript.new(MOST, WebKit.UserContentInjectedFrames.TOP_FRAME,
                                              WebKit.UserScriptInjectionTime.START, None, None))
@@ -161,6 +178,11 @@ class DebridVnos(unittest.TestCase):
                    html: document.body.innerHTML };
         })()""" % vrstica)
 
+    def _brez_pravih(self, storitev: str):
+        """Grokov pregled 40, S7: zivi nacin izmisljenega kljuca ne poslje [storitev] - preskok PRED vpisom."""
+        if ZIVO:
+            self.skipTest("zivi nacin: izmisljen kljuc ne gre storitvi %s (zaklep racuna ali IP)" % storitev)
+
     def test_torbox_zavrnjen_veljaven_in_odstranjen(self):
         pred = self._vpisi("torbox", [KLJUC_TB])
         self.assertEqual((pred["zaklenjeno"], pred["zaseden"], pred["stanje"], pred["vloga"]),
@@ -193,10 +215,10 @@ class DebridVnos(unittest.TestCase):
         self.assertTrue(po["fokus_v_vrstici"])
 
     def test_nzbfinder_zavrnjen_naslov_ostane(self):
+        self._brez_pravih("nzbfinder.ws")
         pred = self._vpisi("usenet", ["https://nzbfinder.ws", KLJUC_IX])
         self.assertEqual((pred["zaklenjeno"], pred["stanje"]), (True, "Preverjam ključ …"))
-        preveri = mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_NEVELJAVEN)
-        with (mock.MagicMock() if ZIVO else preveri):
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_NEVELJAVEN):
             self._streži()
         po = self._po("usenet")
         self.assertEqual(po["stanje"], "Indeksator je ključ zavrnil – ni shranjen. Preveri ga na strani profila indeksatorja.")
@@ -219,12 +241,10 @@ class DebridVnos(unittest.TestCase):
 
     def test_vrstica_nepreverjen_in_ne_velja(self):
         """Izpad ob vpisu: »še ni preverjen« (prej »vpisan ✓«); 401 med uporabo: »ne velja – vpiši znova«."""
+        self._brez_pravih("TorBox (izpad ni mogoc)")
         self._vpisi("torbox", [KLJUC_TB])
-        with (mock.MagicMock() if ZIVO else mock.patch.object(debrid, "torbox_preveri",
-                                                              return_value=(P.PREVERBA_NI_ODGOVORA, None))):
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
             self._streži()
-        if ZIVO:
-            self.skipTest("pravi TorBox izmisljen kljuc zavrne - izpad tu ni mogoc")
         po = self._po("torbox")
         self.assertEqual(po["opis"], "ključ še ni preverjen")
         self.assertTrue(po["stanje"].startswith("Ključ TorBox je shranjen (šifriran), a ga TorBox zdaj ni mogel potrditi"))
@@ -250,12 +270,10 @@ class DebridVnos(unittest.TestCase):
     def test_zaklenjen_racun_vrstica_pove_kaj_narediti(self):
         """Lastnik 26. 10. 2026: RD 14 »account locked« - kljuc shranjen, vrstica pove »odkleni na real-debrid.com«,
         Safeer RD ne klice do »Preveri«."""
+        self._brez_pravih("Real-Debrid")
         self._vpisi("realdebrid", [KLJUC_RD])
-        with (mock.MagicMock() if ZIVO else mock.patch.object(
-                debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}'))):
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')):
             self._streži()
-        if ZIVO:
-            self.skipTest("pravi Real-Debrid izmisljen kljuc zavrne - zaklenjen racun tu ni mogoc")
         po = self._po("realdebrid")
         self.assertTrue(po["opis"].startswith("Real-Debrid je račun zaklenil ali ne dovoli tega naslova IP – odkleni ga na "
                                               "real-debrid.com"), po["opis"])
@@ -293,22 +311,20 @@ class DebridVnos(unittest.TestCase):
 
     def test_real_debrid_in_alldebrid_preverjena(self):
         """Prej sta se RD in AD shranila brez preverbe (»Ključ … je shranjen«), tudi zavrnjen kljuc."""
+        self._brez_pravih("Real-Debrid in AllDebrid")
         self._vpisi("realdebrid", [KLJUC_RD])
-        with (mock.MagicMock() if ZIVO else mock.patch.object(
-                debrid, "klic", return_value=debrid.Odgovor(401, '{"error": "bad_token", "error_code": 8}'))):
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(401, '{"error": "bad_token", "error_code": 8}')):
             self._streži()
         po = self._po("realdebrid")
         self.assertEqual(po["stanje"], "Real-Debrid je ta ključ zavrnil – ni shranjen. Preveri ga na real-debrid.com/apitoken.")
         self.assertEqual(self.zbirka.z, {})
         self._vpisi("alldebrid", [KLJUC_AD])
-        with (mock.MagicMock() if ZIVO else mock.patch.object(
-                debrid, "klic", return_value=debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BAD_APIKEY"}}'))):
+        with mock.patch.object(debrid, "klic",
+                               return_value=debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BAD_APIKEY"}}')):
             self._streži()
         self.assertEqual(self._po("alldebrid")["stanje"],
                          "AllDebrid je ta ključ zavrnil – ni shranjen. Preveri ga na alldebrid.com/apikeys.")
         self.assertEqual(self.zbirka.z, {})
-        if ZIVO:
-            return
         with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 1, "username": "u", "email": "e@primer.test"}')):
             self._vpisi("realdebrid", [KLJUC_RD])
             self._streži()
