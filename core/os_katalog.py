@@ -343,6 +343,7 @@ class Katalog:
                  knjiznica: Optional[knjiznica_kroga.Knjiznica] = None, lokalna: Any = None) -> None:
         self.config_dir = Path(config_dir)
         self.dogodek = dogodek
+        self._pozabi_rocne_izbire()
         self.v_glavni = v_glavni
         self._predvajaj = predvajaj
         self._vdelano = vdelano
@@ -430,6 +431,12 @@ class Katalog:
     def _drzava(self) -> str:
         return str(self._nastavitve().get("media_watch_country") or "auto")
 
+    def _pozabi_rocne_izbire(self) -> None:
+        """Lastnik 26. 10. 2026 (NALOGA 33): nekdanja rocna izbira vgrajenega vira za naslov se ob prvem zagonu prebere,
+        ne uporabi in zbrise - da ne ostane skrita prednost."""
+        if os_vgrajeni_viri.KLJUC_IZBIRE in self._nastavitve():
+            self._spremeni_nastavitve(os_vgrajeni_viri.pozabi_rocne_izbire)
+
     def _nastavitve(self) -> dict:
         try:
             d = json.loads((self.config_dir / "nastavitve.json").read_text(encoding="utf-8"))
@@ -467,8 +474,6 @@ class Katalog:
         "mediaZvrsti": "_zvrsti", "mediaRadioDrzave": "_radio_drzave", "mediaKatalog": "_katalog", "mediaPredgrej": "_predgrej", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
         "mediaPodrobnosti": "_podrobnosti", "mediaWatchSettings": "_watch_settings", "mediaWatchCountry": "_watch_country",
         "mediaSezona": "_sezona", "mediaEpizoda": "_epizoda", "mediaFilm": "_film",
-        # Razlicice naslova v podrobnostih (dodatki in strezniki, ki jih je dodal uporabnik): seznam in rocna izbira.
-        "mediaRazlicice": "_razlicice", "mediaIzberiRazlicico": "_izberi_razlicico",
         # Drzave in jeziki kanalov javnih seznamov IPTV (core/kanali_iptv.py): [] -> stanje, [drzave, jeziki] -> shrani.
         "mediaTvIzbira": "_tv_izbira",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
@@ -511,7 +516,7 @@ class Katalog:
         "mediaVgrajenVirOdstrani": "_vgr_odstrani", "mediaVgrajenVirPreizkusi": "_vgr_preizkusi",
         "mediaVgrajeniObvestilo": "_vgr_obvestilo", "mediaVgrajeneMoznosti": "_vgr_moznosti",
         "mediaVgrajenaKnjiznica": "_vgr_knjiznica", "mediaVgrajeniOsvezi": "_vgr_osvezi",
-        "mediaVgrajenaIzbira": "_vgr_izbira", "mediaVgrajenoPreveri": "_vgr_preveri",
+        "mediaVgrajenoPreveri": "_vgr_preveri",
     }
 
     @staticmethod
@@ -619,14 +624,6 @@ class Katalog:
 
     def _film(self, a: list) -> Any:
         return self.mc.movie_item(int(a[0]) if a else 0, self._niz(a, 1))
-
-    def _razlicice(self, a: list) -> Any:
-        """[id vnosa]: razlicice za seznam v podrobnostih (core/os_media.razlicice_naslova)."""
-        return self.mc.razlicice_naslova(self._niz(a, 0))
-
-    def _izberi_razlicico(self, a: list) -> bool:
-        """[id vnosa, podpis]: rocna izbira se zapomni za ta naslov; podpis privzete izbiro pobrise."""
-        return self.mc.izberi_razlicico(self._niz(a, 0), self._niz(a, 1))
 
     def _tv_izbira(self, a: list) -> Any:
         """[] -> drzave in jeziki kanalov javnih seznamov (na voljo, izbrano, drzava uporabnika); [drzave, jeziki] ->
@@ -872,25 +869,12 @@ class Katalog:
         return True
 
     def _vgr_moznosti(self, a: list) -> list:
-        """[vnos, sezona, epizoda]: gumbi »Predvajaj prek« za eno (ze zdruzeno) kartico - viri ne dodajo kartic;
-        nedosegljivih ni, najhitrejsi (ali rocno izbran) je prvi."""
+        """[vnos, sezona, epizoda]: lastni vgrajeni viri za eno (ze zdruzeno) kartico, ko noben tok ne predvaja - viri ne
+        dodajo kartic; nedosegljivih ni, najhitrejsi je prvi (rocne izbire ni, NALOGA 33)."""
         item = a[0] if a and isinstance(a[0], dict) else {}
         sezona, epizoda = (a[1] if len(a) > 1 else 0), (a[2] if len(a) > 2 else 0)
-        d = self._nastavitve()
-        izbire = d.get(os_vgrajeni_viri.KLJUC_IZBIRE) if isinstance(d.get(os_vgrajeni_viri.KLJUC_IZBIRE), dict) else {}
-        izbira = str(izbire.get(os_vgrajeni_viri.kljuc_naslova(item, sezona, epizoda)) or "")
-        return os_vgrajeni_viri.moznosti_za(os_vgrajeni_viri.seznam(d), item, sezona, epizoda,
-                                            self._vgr_meritve(), izbira)
-
-    def _vgr_izbira(self, a: list) -> bool:
-        """[vnos, sezona, epizoda, id vira]: uporabnik je rocno izbral vir za ta naslov."""
-        item = a[0] if a and isinstance(a[0], dict) else {}
-        kljuc = os_vgrajeni_viri.kljuc_naslova(item, a[1] if len(a) > 1 else 0, a[2] if len(a) > 2 else 0)
-        vid = self._niz(a, 3)
-        if not kljuc or not any(v["id"] == vid for v in os_vgrajeni_viri.seznam(self._nastavitve())):
-            return False
-        self._spremeni_nastavitve(lambda d: os_vgrajeni_viri.zapomni_izbiro(d, kljuc, vid))
-        return True
+        return os_vgrajeni_viri.moznosti_za(os_vgrajeni_viri.seznam(self._nastavitve()), item, sezona, epizoda,
+                                            self._vgr_meritve())
 
     def _vgr_preveri(self, a: list) -> bool:
         """[naslov]: hitra preverba tik pred odprtjem (en vzorec). False: stran tiho izbere naslednji najhitrejsi vir."""
@@ -1488,10 +1472,12 @@ class Katalog:
         kanali = getattr(self.mc, "kanali", None)
         if kanali is not None:
             kanali.gleda()
+        izvirni = getattr(self.mc, "_dynamic_items", {}).get(ident)
         item = self.mc.resolve(ident)
-        uporabi = getattr(self.mc, "uporabi_izbiro", None)
-        if uporabi is not None:
-            item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej
+        samodejno = getattr(self.mc, "samodejni_vrstni_red", None)
+        if samodejno is not None:
+            # NALOGA 33: brez rocne izbire - lastni streznik najprej, toki dodatkov za njim kot rezerva, nedosegljivi na konec.
+            item = samodejno(ident, izvirni, item)
         if not item:
             print("[SafeerMedia] vnosa ni mogoce razresiti", file=sys.stderr, flush=True)
             return None

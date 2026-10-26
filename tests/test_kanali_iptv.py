@@ -1125,7 +1125,8 @@ class Vmesnik(unittest.TestCase):
 
     def test_serija_seznama_poslje_id_kartice(self):
         self.assertIn('klic("mediaSezona", [item.tmdb_id, season, item.id])', self.js)
-        self.assertEqual(self.js.count('ep.stevilka, item.naslov + " · " + ep.naslov, item.id]'), 2)
+        # Samo Predvajaj epizode: gumba »Viri te epizode« (rocna izbira vira) ni vec - NALOGA 33.
+        self.assertEqual(self.js.count('ep.stevilka, item.naslov + " · " + ep.naslov, item.id]'), 1)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 Lazni strezniki tecejo na 127.0.0.1 (brez interneta)."""
 
 import http.server
+import json
+import os
 import tempfile
 import threading
 import time
@@ -267,7 +269,8 @@ class IskanjeRokTests(unittest.TestCase):
 
 class LastniStreznikPrviTests(unittest.TestCase):
     """Pravilo lastnika: uporabnikov strežnik je vedno privzet (pred kakovostjo in hitrostjo). Prava pot: movie_item
-    (merge_duplicates) -> resolve (tokovi dodatkov) -> razlicice_naslova -> Predvajaj."""
+    (merge_duplicates) -> resolve (tokovi dodatkov) -> samodejni_vrstni_red (Predvajaj) - brez seznama in rocne izbire
+    (NALOGA 33)."""
 
     @classmethod
     def setUpClass(cls):
@@ -300,13 +303,15 @@ class LastniStreznikPrviTests(unittest.TestCase):
             self.addCleanup(z.stop)
         return mc
 
+    def _predvajaj(self, mc, vnos_id):
+        return mc.samodejni_vrstni_red(vnos_id, mc._dynamic_items.get(vnos_id), mc.resolve(vnos_id))
+
     def test_dosegljiv_lastni_streznik_je_samodejna_izbira(self):
         mc = self._mc(self.koren + "/jf.mkv")
         vnos = mc.movie_item(1, "Film")
-        seznam = mc.razlicice_naslova(vnos["id"])["razlicice"]
-        self.assertEqual((seznam[0]["vir"], seznam[0]["privzeta"], seznam[0]["lastni"]), ("Moj Jellyfin", True, True))
-        self.assertEqual(sorted(r["vir"] for r in seznam), ["Dodatek A", "Dodatek B", "Moj Jellyfin"])
-        predvajaj = mc.uporabi_izbiro(mc.resolve(vnos["id"]))
+        predvajaj = self._predvajaj(mc, vnos["id"])
+        self.assertEqual(sorted(r.get("dodatek") or r.get("vir") for r in predvajaj["razlicice"]),
+                         ["Dodatek A", "Dodatek B", "Moj Jellyfin"])
         self.assertEqual(predvajaj["url"], self.koren + "/jf.mkv")                       # Predvajaj: lastni
         # Toki dodatkov so za lastnim kot tiha rezerva predvajalnika.
         from core.os_katalog import tok_za_predvajalnik
@@ -316,49 +321,24 @@ class LastniStreznikPrviTests(unittest.TestCase):
     def test_nedosegljiv_lastni_streznik_je_skrit_samodejna_je_naslednja(self):
         mc = self._mc("http://127.0.0.1:9/jf.mkv")          # nihce ne poslusa
         vnos = mc.movie_item(1, "Film")
-        seznam = mc.razlicice_naslova(vnos["id"])["razlicice"]
-        self.assertNotIn("Moj Jellyfin", [r["vir"] for r in seznam])
-        self.assertEqual((seznam[0]["vir"], seznam[0]["privzeta"]), ("Dodatek A", True))
-        predvajaj = mc.uporabi_izbiro(mc.resolve(vnos["id"]))
+        predvajaj = self._predvajaj(mc, vnos["id"])
         self.assertEqual(predvajaj["url"], self.koren + "/stej?1080")                     # Predvajaj: naslednja ziva
         self.assertIn("http://127.0.0.1:9/jf.mkv", [r["url"] for r in predvajaj["razlicice"]])   # rezerva ostane
 
 
-class IzbiraRazliciceTests(unittest.TestCase):
-    def test_rocna_izbira_se_zapomni_za_naslov(self):
+class BrezRocneIzbireTests(unittest.TestCase):
+    """Lastnik 26. 10. 2026 (NALOGA 33): rocne izbire razlicice ni; nekdanja (izbrane-razlicice.json) se ne uporabi in
+    se ob zagonu zbrise."""
+
+    def test_nekdanja_rocna_izbira_se_pozabi(self):
         mapa = tempfile.mkdtemp()
+        pot = os.path.join(mapa, "izbrane-razlicice.json")
+        with open(pot, "w", encoding="utf-8") as d:
+            json.dump({"imdb:tt0000001": "0123456789abcdef"}, d)
         mc = os_media.MediaCenter(mapa, roots=[])
-        razlicice = [{"url": "https://cdn.test/720.mp4?sign=1", "dodatek": "Dodatek A", "opis": "720p", "tok": True,
-                      "glave": {"Referer": "https://a.test/"}},
-                     {"url": "https://drug.test/480.mp4?sign=1", "dodatek": "Dodatek B", "opis": "480p", "tok": True}]
-        vnos = {"id": "x", "vrsta": "film", "url": razlicice[0]["url"], "glave": {"Referer": "https://a.test/"},
-                "razlicice": razlicice, "imdb_id": "tt0000001"}
-        mc._dynamic_items["x"] = vnos
-        with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]), \
-                mock.patch.object(mc, "_izmeri_ping", lambda u: None), mock.patch.object(mc._meritve, "ms", lambda u: None):
-            seznam = mc.razlicice_naslova("x")["razlicice"]
-        self.assertEqual([(r["vir"], r["privzeta"]) for r in seznam], [("Dodatek A", True), ("Dodatek B", False)])
-        self.assertEqual([r["najhitrejsi"] for r in seznam], [False, False])      # odziv ni izmerjen: brez oznake
-        pingi = {"cdn.test": 80.0, "drug.test": 20.0}
-        with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]), \
-                mock.patch.object(mc._meritve, "ms", lambda u: pingi.get(urllib.parse.urlsplit(u).hostname)), \
-                mock.patch.object(mc._meritve, "zastarelo", lambda u: False):
-            hitri = mc.razlicice_naslova("x")["razlicice"]
-        self.assertEqual([(r["ping"], r["najhitrejsi"]) for r in hitri], [(80, False), (20, True)])
-        self.assertNotIn("sign", str(seznam))                       # podpisani naslovi ne gredo na stran
-        self.assertTrue(mc.izberi_razlicico("x", seznam[1]["podpis"]))
-        izbran = mc.uporabi_izbiro(mc._dynamic_items["x"])
-        self.assertEqual(izbran["url"], razlicice[1]["url"])
-        self.assertNotIn("glave", izbran)                          # glave prve razlicice ne veljajo za drugo
-        # Nov zagon, nov podpisan naslov iste razlicice: izbira velja (podpis ni naslov).
-        mc2 = os_media.MediaCenter(mapa, roots=[])
-        novo = dict(vnos, razlicice=[dict(razlicice[0], url="https://cdn.test/720.mp4?sign=2"),
-                                     dict(razlicice[1], url="https://drug.test/480.mp4?sign=2")])
-        self.assertEqual(mc2.uporabi_izbiro(novo)["url"], "https://drug.test/480.mp4?sign=2")
-        # Izbira privzete pobrise rocno izbiro.
-        mc2._dynamic_items["x"] = novo
-        self.assertTrue(mc2.izberi_razlicico("x", ""))
-        self.assertEqual(mc2.uporabi_izbiro(novo)["url"], novo["url"])
+        self.assertFalse(os.path.exists(pot))
+        for ime in ("izberi_razlicico", "uporabi_izbiro", "razlicice_naslova"):
+            self.assertFalse(hasattr(mc, ime), ime)
 
 
 if __name__ == "__main__":

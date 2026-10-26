@@ -1381,6 +1381,11 @@ class MediaCenter:
                  secret_encryptor=None, secret_decryptor=None):
         self.config_dir = Path(config_dir)
         self.store_path = self.config_dir / "media.json"
+        # NALOGA 33 (lastnik 26. 10. 2026): rocnih izbir razlicice ni vec - nekdanje se ne uporabijo in se zbrisejo.
+        try:
+            (self.config_dir / "izbrane-razlicice.json").unlink()
+        except OSError:
+            pass
         self.roots = [Path(path) for path in roots] if roots is not None else self._default_roots()
         self._lock = threading.RLock()
         self._tokovi_odgovor = threading.local()   # .vsi: ali so ob zadnjem vprasanju po tokovih odgovorili vsi dodatki
@@ -5628,86 +5633,7 @@ class MediaCenter:
             bazen.shutdown(wait=False)
         return tokovi
 
-    # --- razlicice naslova (podrobnosti filma ali epizode: uporabnik lahko izbere drug vir) -----------------------------
-    @staticmethod
-    def _podpis_razlicice(r: dict) -> str:
-        """Stalna oznaka razlicice: dodatek ali vir, kakovost in gostitelj - ne naslov (podpisani naslovi potecejo)."""
-        gost = urllib.parse.urlsplit(str(r.get("url") or "")).hostname or ""
-        deli = [str(r.get("dodatek") or r.get("vir") or ""), str(r.get("opis") or r.get("kakovost") or "")[:80],
-                hashlib.sha1(gost.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]]
-        return hashlib.sha1("|".join(deli).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
-
-    @staticmethod
-    def _kljuc_naslova(item: dict) -> str:
-        """Naslov za zapomnjeno izbiro: film po TMDB/IMDb, epizoda po id-ju dodatka (tt..:sezona:epizoda)."""
-        for u in [str(item.get("url") or "")] + [str(v.get("url") or "") for v in (item.get("razlicice") or []) if isinstance(v, dict)]:
-            if u.startswith("stremio:"):
-                _koren, tip, ident = (u[len("stremio:"):].split("|") + ["", ""])[:3]
-                if tip and ident:
-                    return "stremio:%s:%s" % (tip, ident)
-        if int(item.get("tmdb_id") or 0):
-            return "tmdb:%s:%s:%s:%s" % (item.get("vrsta") or "", item.get("tmdb_id"), item.get("sezona") or 0, item.get("epizoda") or 0)
-        if str(item.get("imdb_id") or "").startswith("tt"):
-            return "imdb:" + str(item["imdb_id"])
-        return "id:" + str(item.get("id") or "") if item.get("id") else ""
-
-    def _izbire_razlicic(self) -> dict:
-        if getattr(self, "_izbire", None) is None:
-            try:
-                data = json.loads((self.config_dir / "izbrane-razlicice.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                data = {}
-            self._izbire = {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
-        return self._izbire
-
-    def izberi_razlicico(self, item_id: str, podpis: str) -> bool:
-        """Rocna izbira razlicice za ta naslov (zapomni se); privzeta (samodejna) izbiro pobrise."""
-        item = self._dynamic_items.get(item_id)
-        if not isinstance(item, dict):
-            return False
-        kljuc = self._kljuc_naslova(item)
-        if not kljuc:
-            return False
-        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)]
-        if podpis and not any(self._podpis_razlicice(r) == podpis for r in razlicice):
-            return False
-        with self._lock:
-            izbire = self._izbire_razlicic()
-            samodejna = razlicice and self._podpis_razlicice(razlicice[0]) == podpis and not item.get("izbrana_razlicica")
-            if not podpis or samodejna:
-                izbire.pop(kljuc, None)
-            else:
-                izbire[kljuc] = podpis
-            while len(izbire) > 500:
-                izbire.pop(next(iter(izbire)))
-            try:
-                self.config_dir.mkdir(parents=True, exist_ok=True)
-                shramba_json.zapisi_atomsko(self.config_dir / "izbrane-razlicice.json", izbire, indent=None)
-            except OSError:
-                pass
-        # Naslednji Predvajaj uporabi izbiro (razresen vnos ostane, uredi ga uporabi_izbiro).
-        self._dynamic_items[item_id] = dict(item, izbrana_razlicica="")
-        return True
-
-    def uporabi_izbiro(self, item: Optional[dict]) -> Optional[dict]:
-        """Zapomnjena rocna izbira gre na prvo mesto (ce je razlicica se med ponujenimi); sicer ostane samodejna."""
-        if not isinstance(item, dict):
-            return item
-        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)]
-        podpis = self._izbire_razlicic().get(self._kljuc_naslova(item)) if razlicice else None
-        if not podpis:
-            return item
-        izbrana = next((r for r in razlicice if self._podpis_razlicice(r) == podpis), None)
-        if izbrana is None or not str(izbrana.get("url") or "").startswith(("http://", "https://")):
-            return item
-        out = dict(item, razlicice=[izbrana] + [r for r in razlicice if r is not izbrana], url=izbrana["url"],
-                   izbrana_razlicica=podpis)
-        if izbrana.get("glave"):
-            out["glave"] = dict(izbrana["glave"])
-        elif "glave" in out and izbrana.get("tok"):
-            out.pop("glave", None)
-        return out
-
+    # --- samodejni vrstni red razlicic (brez rocne izbire, NALOGA 33) -------------------------------------------------
     def _ping_ms(self, url: str) -> Optional[float]:
         """Zadnji izmerjeni odziv gostitelja (ms) ali None - zbirka meritev core/meritve_virov.py (ista kot za lastne
         vgrajene vire)."""
@@ -5742,13 +5668,13 @@ class MediaCenter:
         self._dynamic_items[item_id] = out
         return out
 
-    def razlicice_naslova(self, item_id: str) -> dict:
-        """Razlicice za seznam v podrobnostih: ime vira (dodatek ali streznik, ki ga je dodal uporabnik), kakovost,
-        izmerjen odziv gostitelja. Mrtvih (sonda pred predvajanjem jih je zavrnila) ni. Prva je privzeta (samodejna)."""
-        izvirni = self._dynamic_items.get(item_id)
-        item = self.resolve(item_id, pripravi_torrent=False)
+    def samodejni_vrstni_red(self, item_id: str, izvirni: Optional[dict], item: Optional[dict]) -> Optional[dict]:
+        """Razresen vnos [item] pred predvajanjem (Predvajaj, core/os_katalog): toki dodatkov gredo za lastnim streznikom
+        kot rezerva, lastni streznik vprasamo, ali odgovori, in ce prva razlicica ne odgovori, Predvajaj zacne z naslednjo
+        zivo (ostale ostanejo za tiho zamenjavo). Prej se je to zgodilo samo ob odprtju seznama razlicic v podrobnostih;
+        seznama in rocne izbire ni vec (lastnik 26. 10. 2026, NALOGA 33)."""
         if not isinstance(item, dict) or item.get("napaka_koda") or item.get("napaka"):
-            return {"id": item_id, "razlicice": []}
+            return item
         item = self._dodaj_toke_dodatkov(item_id, izvirni, item)
         samodejno = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)
                      and str(r.get("url") or "").startswith(("http://", "https://"))]
@@ -5780,28 +5706,8 @@ class MediaCenter:
             else:
                 popravljen.pop("glave", None)
             self._dynamic_items[item_id] = popravljen
-        gostitelji = {urllib.parse.urlsplit(str(r["url"])).hostname: r["url"] for r in zive}
-        neznani = [u for u in gostitelji.values() if self._ping_ms(u) is None or self._meritve.zastarelo(u)]
-        if neznani:
-            from concurrent.futures import wait
-            wait([_bazen_virov().submit(self._izmeri_ping, u) for u in neznani[:8]], timeout=1.0)
-        izbira = self._izbire_razlicic().get(self._kljuc_naslova(item), "")
-        pingi = [self._ping_ms(r["url"]) for r in zive]
-        # »Najhitrejsi« ima smisel samo med vec streznikov: oznaci prvo razlicico najhitrejsega gostitelja.
-        po_gostiteljih = {urllib.parse.urlsplit(str(r["url"])).hostname: p for r, p in zip(zive, pingi) if p is not None}
-        najhitrejsi_i = -1
-        if len(po_gostiteljih) > 1:
-            najhitrejsi_i = min((i for i, p in enumerate(pingi) if p is not None), key=lambda i: (pingi[i], i))
-        izhod = []
-        for i, (r, ping) in enumerate(zip(zive, pingi)):
-            podpis = self._podpis_razlicice(r)
-            kakovost = str(r.get("kakovost") or "") or (_quality_label(int(r.get("locljivost") or 0)) if r.get("locljivost") else "")
-            izhod.append({"podpis": podpis, "vir": str(r.get("dodatek") or r.get("vir") or "")[:60],
-                          "opis": str(r.get("opis") or "").split("\n")[0][:80], "kakovost": kakovost[:20],
-                          "ping": None if ping is None else round(ping), "privzeta": i == 0,
-                          "najhitrejsi": i == najhitrejsi_i,
-                          "izbrana": bool(izbira) and podpis == izbira, "lastni": bool(r.get("lastni"))})
-        return {"id": item_id, "razlicice": izhod, "izbira": bool(izbira) and any(x["izbrana"] for x in izhod)}
+            return popravljen
+        return item
 
     def tokovi_postaje(self, item_id: str) -> list[dict]:
         """Programi radijske postaje (Rock Radio: Best Ballads, Hard & Heavy ...) kot vnosi, ki jih resolve() pozna."""

@@ -43,9 +43,9 @@ VRSTE = ("url", "komponenta")
 #: Kljuca v nastavitve.json Medijskega centra (core/os_katalog.py).
 KLJUC_VIROV = "vgrajeni_viri"
 KLJUC_OBVESTILA = "vgrajeni_viri_obvestilo"
-#: Rocna izbira vira za naslov (samo ce jo uporabnik izbere): {kljuc naslova: id vira}.
+#: Nekdanja rocna izbira vira za naslov ({kljuc naslova: id vira}). Lastnik 26. 10. 2026 (NALOGA 33): uporabnik vira ne
+#: izbira - kljuc se ob prvem zagonu pozabi (pozabi_rocne_izbire), da stara izbira ne ostane skrita prednost.
 KLJUC_IZBIRE = "vgrajeni_viri_izbira"
-NAJVEC_IZBIR = 500
 
 #: Vzorcni naslov za »Preizkusi« (javni film in serija z znanimi id-ji).
 VZOREC_FILM = {"imdb": "tt0111161", "tmdb": "278", "tvdb": "190", "type": "movie", "title": "The Shawshank Redemption",
@@ -303,36 +303,20 @@ def javni(vir: dict, meritve: Optional[meritve_virov.Meritve] = None) -> dict:
     return izid
 
 
-def kljuc_naslova(item: dict, sezona: Any = 0, epizoda: Any = 0) -> str:
-    """Kljuc naslova za zapomnjeno rocno izbiro: id-ji (imdb, nato tmdb, tvdb), za epizodo se sezona in epizoda."""
-    p = podatki_vnosa(item, sezona, epizoda)
-    osnova = ("imdb:" + p["imdb"]) if p.get("imdb") else ("tmdb:" + p["tmdb"]) if p.get("tmdb") else \
-        ("tvdb:" + p["tvdb"]) if p.get("tvdb") else ""
-    if not osnova:
-        return ""
-    return osnova + (":%s:%s" % (p["season"], p["episode"]) if p.get("season") else "")
-
-
-def zapomni_izbiro(nastavitve: dict, kljuc: str, vid: str) -> None:
-    """Uporabnik je sam izbral vir za naslov: naslednjic je ta privzet (dokler je dosegljiv)."""
-    if not kljuc or not vid:
-        return
-    izbire = nastavitve.get(KLJUC_IZBIRE) if isinstance(nastavitve.get(KLJUC_IZBIRE), dict) else {}
-    izbire.pop(kljuc, None)
-    izbire[kljuc] = str(vid)
-    while len(izbire) > NAJVEC_IZBIR:
-        izbire.pop(next(iter(izbire)))
-    nastavitve[KLJUC_IZBIRE] = izbire
+def pozabi_rocne_izbire(nastavitve: dict) -> bool:
+    """Ob zagonu: nekdanje rocne izbire vira (KLJUC_IZBIRE) se ne uporabijo in se zbrisejo. True = nastavitve so se
+    spremenile (shrani jih klicatelj)."""
+    return nastavitve.pop(KLJUC_IZBIRE, None) is not None
 
 
 def moznosti_za(viri: list, item: dict, sezona: Any = 0, epizoda: Any = 0,
-                meritve: Optional[meritve_virov.Meritve] = None, izbira: str = "") -> list:
+                meritve: Optional[meritve_virov.Meritve] = None) -> list:
     """Gumbi »Predvajaj prek <ime>« za EN vnos kataloga (kartica je ze zdruzena po id-jih - viri ne dodajo kartice).
 
     Vklopljeni viri s predlogo, ki jo vnos izpolni, in komponente. Isti koncni naslov se pokaze enkrat (prvi po vrstnem
     redu uporabnika, ostali v »tudi«). Nedosegljivih (zadnja meritev ok=False) ni - ko meritev v ozadju spet uspe, se
-    vrnejo sami. Vrstni red je skupno pravilo meritve_virov.razvrsti (najhitrejsi dosegljivi prvi); rocna izbira
-    uporabnika za ta naslov (izbira = id vira) je prva, ce je med moznostmi. Prva moznost ima »privzeta«: True."""
+    vrnejo sami. Vrstni red je skupno pravilo meritve_virov.razvrsti (najhitrejsi dosegljivi prvi) - rocne izbire ni
+    (NALOGA 33); stran odpre prvo in nedosegljivo zamenja z naslednjo iste vrste. Prva moznost ima »privzeta«: True."""
     podatki = podatki_vnosa(item, sezona, epizoda)
     izid: list = []
     po_naslovu: dict = {}
@@ -362,11 +346,6 @@ def moznosti_za(viri: list, item: dict, sezona: Any = 0, epizoda: Any = 0,
         po_naslovu[kljuc] = moznost
         izid.append(moznost)
     izid = meritve_virov.razvrsti(izid, meritve, kakovost=lambda _m: 0)
-    if izbira:
-        rocna = [m for m in izid if m["id"] == izbira]
-        if rocna:
-            rocna[0]["izbrana"] = True
-            izid = rocna + [m for m in izid if m["id"] != izbira]
     if izid:
         izid[0]["privzeta"] = True
     return izid

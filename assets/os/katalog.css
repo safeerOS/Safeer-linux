@@ -323,24 +323,6 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .jf-plosca .gumb.potrdi { background: var(--rdeca); color: var(--zelena-temna); }
 .kat-vir-vticniki { flex: none; display: inline-flex; align-items: center; gap: 6px; }
 
-/* Razlicice naslova v podrobnostih: en seznam vseh moznosti predvajanja (toki dodatkov in streznikov, vgrajeni viri). */
-.kat-razlicice { margin:14px 0 0;max-width:720px }
-.kat-razlicice h4 { margin:0 0 8px;color:var(--medlo);font-size:14px }
-.kat-razlicice-epizoda { margin:-4px 0 10px 12px }
-.kat-razlicice-seznam { display:flex;flex-direction:column;gap:6px }
-.kat-razlicica { display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr) auto;gap:4px 12px;align-items:center;text-align:left;
-  padding:10px 14px;border:1px solid var(--rob);border-radius:12px;background:var(--kartica);color:var(--besedilo);font:inherit;cursor:pointer }
-.kat-razlicica:hover { background:var(--media-poudarek) }
-.kat-razlicica:focus-visible { outline:3px solid var(--fokus);outline-offset:2px }
-.kat-razlicica.izbrana { border-color:var(--zelena);background:var(--izbrano) }
-.kat-razlicica-ime { font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
-.kat-razlicica-opis { color:var(--medlo);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
-.kat-razlicica-oznake { display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap }
-.kat-razlicica-znacka { padding:2px 8px;border-radius:999px;border:1px solid var(--rob);color:var(--medlo);font-size:12px }
-.kat-razlicica-znacka.privzeta, .kat-razlicica-znacka.izbrana { color:var(--zelena);border-color:var(--zelena) }
-.kat-razlicica-znacka.najhitrejsi { color:var(--ok);border-color:var(--ok) }
-.kat-razlicica-ping { color:var(--tise);font-size:12px;font-variant-numeric:tabular-nums }
-@media (max-width: 700px) { .kat-razlicica { grid-template-columns:minmax(0,1fr) auto } .kat-razlicica-opis { grid-column:1 / -1;grid-row:2 } }
 /* Lastni vgrajeni viri (assets/os/vgrajeno.js): vir cez ves Medijski center, nad podrobnostmi in sloji; barve iz tokens.css. */
 .vgrajeno-sloj { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--ozadje); }
 .vgrajeno-vrstica { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--media-meni); border-bottom: 1px solid var(--tanka); }

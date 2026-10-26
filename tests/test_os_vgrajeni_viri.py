@@ -147,8 +147,9 @@ class Shramba(unittest.TestCase):
             self.assertEqual(kat._vgr_preizkusi([{"url": "https://a.example/{foo}"}]), {"ok": False, "napaka": "znacka"})
             for metoda in ("mediaVgrajeniViri", "mediaVgrajenVirShrani", "mediaVgrajenVirOdstrani", "mediaVgrajenVirPreizkusi",
                            "mediaVgrajeniObvestilo", "mediaVgrajeneMoznosti", "mediaVgrajenaKnjiznica", "mediaVgrajeniOsvezi",
-                           "mediaVgrajenaIzbira", "mediaVgrajenoPreveri"):
+                           "mediaVgrajenoPreveri"):
                 self.assertIn(metoda, K.Katalog.METODE)
+            self.assertNotIn("mediaVgrajenaIzbira", K.Katalog.METODE)            # rocne izbire ni (NALOGA 33)
             self.assertTrue(kat._vgr_odstrani([r["vir"]["id"]]))
 
 
@@ -221,7 +222,7 @@ class Meritve(unittest.TestCase):
                     {"url": "https://neizmerjeni.example/a", "vir": "n"}, {"url": "https://hitri.example/a", "vir": "h"},
                     {"url": "http://192.168.1.5:8096/a", "vir": "jellyfin", "lastni": True}]
         self.assertEqual([x["vir"] for x in M.razvrsti(moznosti, m)], ["jellyfin", "h", "p", "n", "mrtvi"])
-        # Lastni vgrajeni viri: nedosegljivega ni, najhitrejsi je privzet; rocna izbira je prva.
+        # Lastni vgrajeni viri: nedosegljivega ni, najhitrejsi je privzet; rocne izbire ni (NALOGA 33).
         d = _nastavitve()
         for ime in ("mrtvi", "pocasni", "hitri"):
             V.shrani(d, {"ime": ime, "url": "https://%s.example/{imdb}" % ime})
@@ -229,10 +230,12 @@ class Meritve(unittest.TestCase):
         moz = V.moznosti_za(V.seznam(d), item, meritve=m)
         self.assertEqual([(x["ime"], x["ms"]) for x in moz], [("hitri", 20.0), ("pocasni", 90.0)])
         self.assertTrue(moz[0]["privzeta"])
-        izbran = next(v["id"] for v in V.seznam(d) if v["ime"] == "pocasni")
-        moz = V.moznosti_za(V.seznam(d), item, meritve=m, izbira=izbran)
-        self.assertEqual([x["ime"] for x in moz], ["pocasni", "hitri"])
-        self.assertTrue(moz[0]["izbrana"] and moz[0]["privzeta"])
+        # Nekdanja rocna izbira v nastavitvah ne spremeni vrstnega reda in se pozabi.
+        d[V.KLJUC_IZBIRE] = {"imdb:tt0111161": next(v["id"] for v in V.seznam(d) if v["ime"] == "pocasni")}
+        self.assertEqual([x["ime"] for x in V.moznosti_za(V.seznam(d), item, meritve=m)], ["hitri", "pocasni"])
+        self.assertTrue(V.pozabi_rocne_izbire(d))
+        self.assertNotIn(V.KLJUC_IZBIRE, d)
+        self.assertFalse(V.pozabi_rocne_izbire(d))
         # Ko meritev spet uspe, se vir vrne sam.
         casi["mrtvi.example"] = 10.0
         ura.t += M.STAROST_NEDOSEGLJIV_S + 1
@@ -397,8 +400,8 @@ class StranInMost(unittest.TestCase):
         self.assertIn('"vgrajenoAktivno": lambda: self._vgrajeno_aktivno(pogled', self.py)
         for ident in ("vgrSeznam", "vgrObrazec", "slojVgrOdgovornost", "vgrOdgPotrdi", "mediaVgrajenePloscice"):
             self.assertIn('id="%s"' % ident, self.html)
-        # Moznosti vgrajenih virov so vrstice v seznamu razlicic (narisiRazlicice) - ni drugih, podvojenih gumbov.
-        self.assertIn("RAZL.ponudniki.push(vgrPonudnik)", self.os_js)
+        # NALOGA 33: vgrajeni vir naslova se odpre samodejno, ko noben tok ne predvaja - brez seznama in gumbov za izbiro.
+        self.assertIn("function vgrSamodejno(item)", self.os_js)
         self.assertNotIn('id="mediaVgrajeneMoznosti"', self.html)
         self.assertNotIn("narisiVgrajeneMoznosti", self.os_js)
         self.assertLess(self.html.index('src="vgrajeno.js"'), self.html.index('src="os.js"'))
