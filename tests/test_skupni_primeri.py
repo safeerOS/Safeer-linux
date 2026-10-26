@@ -93,6 +93,9 @@ def _usenet(f, v):
         return NN.varna_poverilnica(v["vrednost"])
     if f == "nntp_id_odgovora":
         return NN.id_odgovora_ustreza(v["vrstica"], v["id"])
+    if f == "nntp_zapah_odtis":
+        r, g = NN.zapah_odtis(bytes.fromhex(v["sol_hex"]), v["ponudnik"], v["uporabnik"], v["geslo"])
+        return {"racun": r, "geslo": g}
     if f == "nntp_id":
         return NZ.id_clanka(v["id"])
     if f == "varno_ime":
@@ -113,13 +116,14 @@ def _usenet(f, v):
                 "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA, "prosta_najdlje_s": int(NN.PROSTA_NAJDLJE_S),
                 "premor_od_s": int(NN.PREMOR_OD_S), "premor_brez_odprtih_s": int(NN.PREMOR_BREZ_ODPRTIH_S),
                 "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S),
-                "ziva_prijava_s": int(NN.ZIVA_PRIJAVA_S)}
+                "ziva_prijava_s": int(NN.ZIVA_PRIJAVA_S), "zapah_ponovitev": NN.ZAPAH_PONOVITEV,
+                "zapahov_najvec": NN.NAJVEC_ZAPAHOV}
     raise KeyError("neznano pravilo: " + f)
 
 
 USENET_POGON = {"yenc_dekodiraj", "nntp_telo", "yenc_iz_nntp", "nntp_izid", "nntp_id", "varno_ime", "nzb_ime",
                 "nzb_razcleni", "usenet_meje", "nntp_ukrep", "nntp_sme_odpreti", "nntp_premor", "nntp_poverilnica",
-                "nntp_id_odgovora"}
+                "nntp_id_odgovora", "nntp_zapah_odtis"}
 
 
 def izracunaj(f, v):

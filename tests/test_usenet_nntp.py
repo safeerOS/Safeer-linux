@@ -10,6 +10,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -20,6 +21,7 @@ from unittest import mock
 
 from core import usenet_nntp as N, usenet_yenc as Y
 
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPORABNIK = "preizkus-uporabnik-7f3a"
 GESLO = "preizkus-geslo-Qx9"
 ID_OK = "clanek-1.AbC@primer.invalid"
@@ -287,6 +289,12 @@ class Nntp(unittest.TestCase):
         N._NEZNANE.clear()
         self.addCleanup(N._ZAVRNJENI.clear)
         self.addCleanup(N._NEZNANE.clear)
+        # Trajni zapah (Grok 43 C2) vsak preizkus v svoji zacasni datoteki - nikoli v pravi mapi stanja.
+        mapa = tempfile.mkdtemp(prefix="usenet-zapah-")
+        self.addCleanup(shutil.rmtree, mapa, True)
+        self.zapah = os.path.join(mapa, "usenet-zapah")
+        self.addCleanup(setattr, N, "_POT_ZAPAHA", N._POT_ZAPAHA)
+        N.nastavi_shrambo_zapaha(self.zapah)
 
     def kontekst(self):
         return ssl.create_default_context(cafile=self.ca)
@@ -552,6 +560,55 @@ class Nntp(unittest.TestCase):
         N.dovoli_prijavo_znova("127.0.0.1", UPORABNIK, "napacno-geslo")  # uporabnik je geslo vpisal znova
         self.assertEqual(self.napaka(lambda: self.bazen(s, geslo="napacno-geslo").telo(ID_OK)).izid, N.PRIJAVA)
         self.assertEqual(self._gesel(s), 3)
+
+    def _nov_proces(self, s, geslo):
+        """Nov proces (ponovni zagon, sesutje, posodobitev) z istimi poverilnicami: izid prve zahteve."""
+        koda = ("import ssl, sys\nsys.path.insert(0, sys.argv[1])\nfrom core import usenet_nntp as N\n"
+                "getattr(N, 'nastavi_shrambo_zapaha', lambda p: None)(sys.argv[2])\n"
+                "b = N.Bazen('127.0.0.1', int(sys.argv[3]), uporabnik=sys.argv[4], geslo=sys.argv[5], rok_povezave=5.0,"
+                " rok=5.0, kontekst=ssl.create_default_context(cafile=sys.argv[6]))\n"
+                "try:\n    b.telo(sys.argv[7])\n    print('ok')\nexcept N.NapakaNntp as e:\n    print(e.izid)\n")
+        r = subprocess.run([sys.executable, "-I", "-c", koda, KOREN, self.zapah, str(s.vrata), UPORABNIK, geslo,
+                            self.ca, ID_OK], capture_output=True, text=True, timeout=60,
+                           env={"PATH": os.environ.get("PATH", "")})
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        return r.stdout.strip()
+
+    def test_zapah_prezivi_nov_proces(self):
+        # Grok 43 C2: zapah je bil samo v pomnilniku procesa - po ponovnem zagonu, sesutju ali posodobitvi je nov proces
+        # znova poslal napacno geslo. Zdaj je trajen (odtis, nikoli geslo): nov proces ne poslje AUTHINFO.
+        s = self.streznik()
+        self.assertEqual(self.napaka(lambda: self.bazen(s, geslo="napacno-geslo-z").telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 1)
+        self.assertEqual(self._nov_proces(s, "napacno-geslo-z"), N.PRIJAVA)
+        self.assertEqual((s.sprejete, self._gesel(s)), (1, 1), "nov proces: brez povezave in brez AUTHINFO")
+        with open(self.zapah, encoding="ascii") as f:
+            vsebina = f.read()
+        for zasebno in ("napacno-geslo-z", UPORABNIK, "127.0.0.1"):
+            self.assertNotIn(zasebno, vsebina)
+        self.assertEqual(os.stat(self.zapah).st_mode & 0o777, 0o600)
+        self.assertEqual(self._nov_proces(s, GESLO), "ok", "drugo geslo (uporabnik ga je popravil) gre")
+        self.assertEqual(self._gesel(s), 2)
+        # Odklene ga samo uporabnikov »Preveri« (ali nov vpis poverilnic): en nov poskus, nato spet trajen zapah.
+        b = self.bazen(s, geslo="napacno-geslo-z")
+        self.assertEqual(self.napaka(b.preveri).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 2, "preveri() brez odklepa ne poskusi")
+        self.assertEqual(self.napaka(lambda: b.preveri(odkleni=True)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 3, "uporabnikov »Preveri«: en nov poskus")
+        self.assertEqual(self._nov_proces(s, "napacno-geslo-z"), N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 3, "po novi zavrnitvi spet trajen zapah")
+        N.dovoli_prijavo_znova("127.0.0.1", UPORABNIK, "napacno-geslo-z")  # nov vpis poverilnic
+        self.assertEqual(self._nov_proces(s, "napacno-geslo-z"), N.PRIJAVA)
+        self.assertEqual(self._gesel(s), 4, "po novem vpisu en poskus")
+
+    def test_zapah_pokvarjena_datoteka(self):
+        with open(self.zapah, "w", encoding="ascii") as f:
+            f.write("safeer-usenet-zapah 1\nni zapis\n" + "zz" * 70 + "\n")
+        self.assertFalse(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO))
+        N.nastavi_shrambo_zapaha(None)  # brez mape stanja: samo v pomnilniku, brez napake
+        s = self.streznik()
+        self.assertEqual(self.napaka(lambda: self.bazen(s, geslo="napacno-geslo-p").telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertTrue(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, "napacno-geslo-p"))
 
     def test_481_za_to_povezavo_je_prijava(self):
         s = self.streznik(napacno="481 Authentication failed for this connection")

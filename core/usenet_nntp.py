@@ -13,7 +13,9 @@ pozdrav, AUTHINFO USER/PASS (RFC 4643), BODY in STAT po message-id (RFC 3977), Q
   geslo. Dokler ni zive prijave, se odpira ena sama povezava naenkrat (sonda). Pri AUTHINFO je vsak odgovor razen
   281/381 in jasne meje povezav zavrnjena prijava - tudi »481 Authentication failed« po uspeli prijavi (geslo se je
   med sejo morda spremenilo; pregled Grok 43 C1). Zavrnjena prijava ustavi bazen (vse povezave zaprte) in zapre
-  racun, dokler uporabnik poverilnic ne vpise znova (dovoli_prijavo_znova) - napacno geslo pride do streznika enkrat.
+  racun, dokler uporabnik poverilnic ne vpise znova (dovoli_prijavo_znova) ali sam ne klikne »Preveri«
+  (preveri(odkleni=True)) - napacno geslo pride do streznika enkrat. Zapah je trajen (pregled Grok 43 C2): prezivi
+  ponovni zagon, sesutje in posodobitev (odtis v mapi stanja, nikoli geslo).
   »Prevec povezav« bazen skrci na sprejete povezave in zacne premor novih povezav (nov_premor) - nikoli nov poskus
   prijave v zanki.
 - Roki: povezava (TCP + TLS + pozdrav + prijava) in celotna zahteva imata vsak svoj rok do monotonega casa - streznik,
@@ -28,10 +30,12 @@ pozdrav, AUTHINFO USER/PASS (RFC 4643), BODY in STAT po message-id (RFC 3977), Q
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import os
 import socket
 import ssl
+import tempfile
 import threading
 import time
 from typing import Callable, Optional
@@ -59,6 +63,13 @@ RAST_BAZENA_S = 600.0
 #: Prijava je ziva samo, ce je povezava v zadnjih 30 s uspesno koncala prijavo ali ukaz (pregled Grok 43 C1: odprta
 #: vticnica ni dokaz - ponudnik je sejo ob menjavi gesla morda ze zaprl). Samo ziva prijava dovoli vzporedno odpiranje.
 ZIVA_PRIJAVA_S = 30.0
+#: Trajni zapah racuna (pregled Grok 43 C2): zapis = sol (16 B, svoja za vsak zapis), racun = SHA-256(sol, ponudnik,
+#: uporabnik), geslo = PBKDF2-HMAC-SHA256(ponudnik, uporabnik, geslo; sol, ZAPAH_PONOVITEV) - nikoli geslo. Pocasen
+#: odtis, ker je zavrnjeno geslo pogosto tipkarska napaka pravega (izmerjeno 26. 10. 2026 na prenosniku: 0,09 s).
+#: Zapis z lastno soljo je prenosljiv med napravami kroga (korak 3).
+ZAPAH_PONOVITEV = 100_000
+NAJVEC_ZAPAHOV = 32
+_GLAVA_ZAPAHA = "safeer-usenet-zapah 1"
 #: Skupen proracun teles clankov na bazen (namizje; Android ima manj): 50 povezav x 4 MiB bi bilo 200 MiB samo
 #: medpomnilnikov (pregled Grok 37 C7). Obicajen clanek (<1 MiB) ne caka nikoli.
 PRORACUN_BAJTOV = 64 * 1024 * 1024
@@ -687,6 +698,120 @@ def _odtis_racuna(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]
     return _zgosti(_ponudnik(gostitelj), uporabnik, geslo or "")
 
 
+def _polja(*polja: str) -> bytes:
+    return b"".join(len(b).to_bytes(4, "big") + b for b in (x.encode("utf-8") for x in polja))
+
+
+def zapah_odtis(sol: bytes, ponudnik: str, uporabnik: str, geslo: str) -> tuple:
+    """(racun, geslo) zapisa trajnega zapaha, sestnajstisko (skupni primeri nntp_zapah_odtis; Android isto)."""
+    racun = hashlib.sha256(sol + _polja(ponudnik, uporabnik)).hexdigest()
+    return racun, hashlib.pbkdf2_hmac("sha256", _polja(ponudnik, uporabnik, geslo), sol, ZAPAH_PONOVITEV, 32).hex()
+
+
+_PRIVZETO = object()
+#: Datoteka trajnega zapaha: privzeto XDG_STATE_HOME/safeer/usenet-zapah (Flatpak: mapa aplikacije - prezivi
+#: posodobitev), None = samo pomnilnik procesa. nastavi_shrambo_zapaha za preizkuse in klicatelja.
+_POT_ZAPAHA: object = _PRIVZETO
+_ZAPAH_ZAKLEP = threading.Lock()
+
+
+def nastavi_shrambo_zapaha(pot: Optional[str]) -> None:
+    global _POT_ZAPAHA
+    _POT_ZAPAHA = pot
+
+
+def _pot_zapaha() -> Optional[str]:
+    p = _POT_ZAPAHA
+    if p is _PRIVZETO:
+        osnova = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+        return os.path.join(osnova, "safeer", "usenet-zapah")
+    return p  # type: ignore[return-value]
+
+
+def _beri_zapahe(pot: str) -> list:
+    """Zapisi (sol, racun, geslo, cas); nepopolna ali tuja datoteka = brez zapisov (ne ustavi pogona)."""
+    try:
+        with open(pot, "r", encoding="ascii") as f:
+            vrstice = f.read(64 * 1024).splitlines()
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeError) as e:
+        _log.info("usenet nntp: zapaha ni mogoce prebrati (%s)", type(e).__name__)
+        return []
+    if not vrstice or vrstice[0] != _GLAVA_ZAPAHA:
+        return []
+    zapisi = []
+    for v in vrstice[1:]:
+        d = v.split(" ")
+        if (len(d) == 4 and len(d[0]) == 32 and len(d[1]) == 64 and len(d[2]) == 64 and d[3].isdigit()
+                and all(c in "0123456789abcdef" for c in d[0] + d[1] + d[2])):
+            zapisi.append((bytes.fromhex(d[0]), d[1], d[2], int(d[3])))
+    return zapisi[-NAJVEC_ZAPAHOV:]
+
+
+def _pisi_zapahe(pot: str, zapisi: list) -> None:
+    """Atomarno (zacasna datoteka + os.replace), samo za uporabnika (mkstemp: 0600, mapa 0700)."""
+    mapa = os.path.dirname(pot) or "."
+    os.makedirs(mapa, mode=0o700, exist_ok=True)
+    besedilo = "\n".join([_GLAVA_ZAPAHA] + ["%s %s %s %d" % (z[0].hex(), z[1], z[2], z[3]) for z in zapisi]) + "\n"
+    fd, zacasna = tempfile.mkstemp(prefix=".usenet-zapah-", dir=mapa)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(besedilo)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(zacasna, pot)
+    except BaseException:
+        try:
+            os.unlink(zacasna)
+        except OSError:
+            pass
+        raise
+
+
+def _zapahi_racuna(zapisi: list, ponudnik: str, uporabnik: str) -> list:
+    return [z for z in zapisi
+            if hmac.compare_digest(hashlib.sha256(z[0] + _polja(ponudnik, uporabnik)).hexdigest(), z[1])]
+
+
+def _trajno_zavrnjen(ponudnik: str, uporabnik: str, geslo: str) -> bool:
+    pot = _pot_zapaha()
+    if pot is None:
+        return False
+    with _ZAPAH_ZAKLEP:
+        zapisi = _zapahi_racuna(_beri_zapahe(pot), ponudnik, uporabnik)
+    return any(hmac.compare_digest(zapah_odtis(z[0], ponudnik, uporabnik, geslo)[1], z[2]) for z in zapisi)
+
+
+def _zapisi_zapah(ponudnik: str, uporabnik: str, geslo: str) -> None:
+    pot = _pot_zapaha()
+    if pot is None:
+        return
+    sol = os.urandom(16)
+    racun, odtis = zapah_odtis(sol, ponudnik, uporabnik, geslo)  # pocasen odtis izven zaklepa
+    with _ZAPAH_ZAKLEP:
+        try:
+            zapisi = _beri_zapahe(pot) + [(sol, racun, odtis, int(time.time()))]
+            _pisi_zapahe(pot, zapisi[-NAJVEC_ZAPAHOV:])
+        except OSError as e:
+            _log.warning("usenet nntp: zapaha ni mogoce shraniti (%s) - velja do konca procesa", type(e).__name__)
+
+
+def _pozabi_zapahe(ponudnik: str, uporabnik: str) -> None:
+    """Zapahi racuna gredo stran (nov vpis, »Preveri«, uspela prijava - staro napacno geslo ni vec na disku)."""
+    pot = _pot_zapaha()
+    if pot is None:
+        return
+    with _ZAPAH_ZAKLEP:
+        zapisi = _beri_zapahe(pot)
+        racuna = _zapahi_racuna(zapisi, ponudnik, uporabnik)
+        if racuna:
+            try:
+                _pisi_zapahe(pot, [z for z in zapisi if z not in racuna])
+            except OSError as e:
+                _log.warning("usenet nntp: zapaha ni mogoce shraniti (%s)", type(e).__name__)
+
+
 def _vrata_prijave(gostitelj: str, uporabnik: str) -> threading.Lock:
     """Zaklep prijave racuna (ponudnik, uporabnik) - en za vse bazene in gesla tega racuna v procesu."""
     kljuc = _zgosti("prijava", _ponudnik(gostitelj), uporabnik)
@@ -695,19 +820,31 @@ def _vrata_prijave(gostitelj: str, uporabnik: str) -> threading.Lock:
 
 
 def prijava_zavrnjena(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> bool:
-    """Ali je ponudnik te poverilnice ze zavrnil (do ponovnega vpisa jih ne posiljamo)."""
+    """Ali je ponudnik te poverilnice ze zavrnil - v tem procesu ali prej (trajni zapah, Grok 43 C2). Do ponovnega
+    vpisa ali uporabnikovega »Preveri« jih ne posiljamo."""
     o = _odtis_racuna(gostitelj, uporabnik, geslo)
+    if o is None:
+        return False
     with _ZAVRNJENI_ZAKLEP:
-        return o is not None and o in _ZAVRNJENI
+        if o in _ZAVRNJENI:
+            return True
+    if not _trajno_zavrnjen(_ponudnik(gostitelj), str(uporabnik), geslo or ""):
+        return False
+    with _ZAVRNJENI_ZAKLEP:
+        _ZAVRNJENI.add(o)
+    return True
 
 
 def dovoli_prijavo_znova(gostitelj: str, uporabnik: Optional[str], geslo: Optional[str]) -> None:
     """Uporabnik je poverilnice vpisal znova (tudi enake - npr. po podaljsanju narocnine): en nov poskus prijave je spet
-    dovoljen. Klice ga samo izrecno dejanje uporabnika (shrani v nastavitvah), nikoli samodejno."""
+    dovoljen (tudi trajni zapah racuna gre stran). Klice ga samo izrecno dejanje uporabnika (shrani v nastavitvah),
+    nikoli samodejno."""
     o = _odtis_racuna(gostitelj, uporabnik, geslo)
     with _ZAVRNJENI_ZAKLEP:
         _ZAVRNJENI.discard(o)
         _NEZNANE.pop(o, None)
+    if uporabnik is not None:
+        _pozabi_zapahe(_ponudnik(gostitelj), uporabnik)
 
 
 class Bazen:
@@ -731,6 +868,7 @@ class Bazen:
         self.najvec = self._zgornja
         self._rok = float(rok)
         self._racun = _odtis_racuna(self.gostitelj, uporabnik, geslo)
+        self.__poverilnice = (_ponudnik(self.gostitelj), uporabnik, geslo)  # trajni zapah in »Preveri« (nikoli v repr)
         self._vrata = _vrata_prijave(self.gostitelj, uporabnik) if uporabnik is not None else None
         self.proracun = Proracun(proracun_bajtov)  # najmanj ena osnova in rast
         self.__nova: Callable[[], Povezava] = lambda: Povezava(
@@ -792,6 +930,7 @@ class Bazen:
             if izid == OK:
                 with _ZAVRNJENI_ZAKLEP:
                     _NEZNANE.pop(self._racun, None)
+                _pozabi_zapahe(*self.__poverilnice[:2])  # racun dela s tem geslom: stari zapahi niso vec potrebni
                 return
             u = ukrep_bazena(izid, FAZA_PRIJAVA, False, 0)
             if u == NEZNANA_PRIJAVA:
@@ -809,8 +948,12 @@ class Bazen:
         bazen ustavljen. Povezave zapre _ustavi (klicatelj)."""
         if self._racun is not None:
             with _ZAVRNJENI_ZAKLEP:
+                nov = self._racun not in _ZAVRNJENI
                 _ZAVRNJENI.add(self._racun)
                 _NEZNANE.pop(self._racun, None)
+            if nov:
+                ponudnik, uporabnik, geslo = self.__poverilnice
+                _zapisi_zapah(ponudnik, uporabnik, geslo or "")  # trajno: prezivi ponovni zagon (Grok 43 C2)
         with self._pogoj:
             if self._ustavljen is None:
                 self._ustavljen = PRIJAVA
@@ -1003,9 +1146,18 @@ class Bazen:
         _ukaz_z_id("STAT", message_id)
         return self._izvedi(lambda p: p.stat(message_id))
 
-    def preveri(self) -> None:
+    def preveri(self, odkleni: bool = False) -> None:
         """Vedno nova povezava s prijavo (»Preizkusi povezavo«; Grok 37 C9: prosta povezava ni dokaz, da streznik se
-        dela). Zapah velja tudi tu: zavrnjen racun ne poskusi znova. Napaka: NapakaNntp."""
+        dela). Zapah velja tudi tu. [odkleni]: uporabnik je sam kliknil »Preveri« (lastnik 26. 10. 2026: zapah
+        odklene samo nov vpis poverilnic ali uporabnikov »Preveri«) - en nov poskus prijave; nikoli samodejno.
+        Napaka: NapakaNntp."""
+        if odkleni and self._racun is not None:
+            ponudnik, uporabnik, geslo = self.__poverilnice
+            dovoli_prijavo_znova(ponudnik, uporabnik, geslo)
+            with self._pogoj:
+                if self._ustavljen == PRIJAVA:
+                    self._ustavljen = None
+                self._pogoj.notify_all()
         self._izvedi(lambda p: None, sveza=True)
 
     def zapri(self) -> None:
