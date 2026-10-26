@@ -96,7 +96,8 @@ class Postavitev(unittest.TestCase):
 
     def test_zmanjsano_gibanje(self):
         kat = _beri("assets", "os", "katalog.css")
-        self.assertIn("@media (prefers-reduced-motion: no-preference) { .kat-vrtavka { animation:", kat)
+        # Vrtavka se vrti samo med nalaganjem (26. 10. 2026: sicer ~60 slik/s v mirovanju) in samo brez zmanjsanega gibanja.
+        self.assertIn("@media (prefers-reduced-motion: no-preference) { .kat-nalaganje.nalaga .kat-vrtavka { animation:", kat)
         self.assertIn("@media (prefers-reduced-motion: no-preference) {\n  .media-dodaj-meni:not([hidden])", self.css)
 
 
