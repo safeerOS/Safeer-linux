@@ -562,3 +562,17 @@ class UsklajevanjeVirov(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ViriSinkBrezMediaServers(unittest.TestCase):
+    """Grok 82, Ĥ1: viri_sink je v tovoru Safeer Control, media_servers pa ne - znan_javen ga ne sme uvoziti."""
+
+    def test_znan_javen_ne_uvozi_media_servers(self):
+        import ast
+        koren = Path(__file__).resolve().parents[1]
+        drevo = ast.parse((koren / "core" / "viri_sink.py").read_text(encoding="utf-8"))
+        uvozi = {getattr(n, "module", None) or "" for n in ast.walk(drevo) if isinstance(n, ast.ImportFrom)}
+        self.assertNotIn("media_servers", uvozi)
+        from core import viri_sink, media_servers
+        self.assertEqual(viri_sink.CINEMETA_MANIFEST, media_servers.CINEMETA)
+        self.assertTrue(viri_sink.znan_javen(viri_sink.CINEMETA_MANIFEST))

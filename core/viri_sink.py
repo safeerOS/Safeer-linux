@@ -196,6 +196,10 @@ def ima_prijavo(url: object) -> bool:
     return brez_prijave(url) != str(url or "")
 
 
+#: Javni dodatek Stremio brez kljuca (Android StremioPravila JAVNI_DODATKI); enako media_servers.CINEMETA.
+CINEMETA_MANIFEST = "https://v3-cinemeta.strem.io/manifest.json"
+
+
 def znan_javen(naslov: object, oznacen: bool = False) -> bool:
     """Ali je vir POZITIVNO znan kot javen, brez racuna (pregled 46, Ö1 - ob dvomu ne, kot preverba v ozadju v
     pregledu 39, I1): naslov http(s) brez presledkov in nevidnih znakov, brez prijave ali racuna v naslovu (ima_prijavo,
@@ -214,8 +218,8 @@ def znan_javen(naslov: object, oznacen: bool = False) -> bool:
         return False
     # Javni dodatek Stremio brez kljuca: samo tocen naslov Cinemete (enako kot Android StremioPravila JAVNI_DODATKI, Ñ1);
     # po zdruzitvi kljuci-namizje + mc-iptv-serije (26. 10. 2026) ga je sicer izvoz izpustil (test_skrivni_dodatki).
-    from .media_servers import CINEMETA
-    return kanali_iptv.znan_javni_vir(besedilo) or besedilo == CINEMETA or oznacen is True
+    # Brez uvoza media_servers: ta ni v tovoru Safeer Control (Grok 82, Ĥ1) - naslov je zapisan tu, enak media_servers.CINEMETA.
+    return kanali_iptv.znan_javni_vir(besedilo) or besedilo == CINEMETA_MANIFEST or oznacen is True
 
 
 def za_ozji_krog(naslov: object, oznacen: bool = False) -> bool:
