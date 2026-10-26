@@ -433,7 +433,7 @@ class ZeRazposlaneKopije(unittest.TestCase):
         with tempfile.TemporaryDirectory() as prazna:
             mc = os_media.MediaCenter(prazna, roots=[])
             viri = [{"tip": "seznam", "ime": "", "naslov": n, "cas": 9} for n in (XTREAM, POT, JAVNI)]
-            for ozji, pricakovano in ((None, [POT, JAVNI]), (False, [JAVNI]), (True, [XTREAM, POT, JAVNI])):
+            for ozji, pricakovano in ((None, [JAVNI]), (False, [JAVNI]), (True, [XTREAM, POT, JAVNI])):    # Ê3: None kot false
                 klici = []
                 kazalo = dict({"sources": viri, "sources_deleted": {}}, **({} if ozji is None else {"ozji": ozji}))
                 with mock.patch.object(mc, "_prevzemi_vir", lambda v: klici.append(v["naslov"]) or (False, 0)):

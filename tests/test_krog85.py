@@ -349,7 +349,8 @@ class Viri(unittest.TestCase):
             {"tip": "podkast", "ime": "Moj podkast", "naslov": "https://podkast.primer.si/feed.xml", "cas": 0},
             {"tip": "splet", "ime": "Stran", "naslov": "https://stran.primer.si/", "cas": 7},
             {"tip": "peertube", "ime": "pt", "naslov": "peertube.primer.si", "cas": 7},
-            {"tip": "api", "ime": "api", "naslov": "https://api.primer.si|x", "cas": 7}], "sources_deleted": {}}
+            {"tip": "api", "ime": "api", "naslov": "https://api.primer.si|x", "cas": 7}], "sources_deleted": {},
+            "ozji": True}                  # pregled 51, Ê3: brez kljuca ozji (starejsa naprava) bi sel naprej samo znan javen vir
         osvezitve = []
         self.mc.ob_virih = lambda: osvezitve.append(1)
         self.assertTrue(self.mc.viri_uskladi(kazalo))
@@ -393,7 +394,8 @@ class Viri(unittest.TestCase):
                                      "podkast|https://podkast.primer.si/feed.xml": dodan + 6, "tok|https://neznan.primer.si/a.mp3": 9})
         # Izbrisan vir se z naprave, ki ga se ima (dodan prej), ne vrne; dodan pozneje se.
         self.assertFalse(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan}]}))
-        self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}]}))
+        self.assertTrue(self.mc.viri_uskladi({"sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": dodan + 9}],
+                                                  "ozji": True}))
         self.assertEqual(self._viri(), {("stremio", "https://javen.primer.si/manifest.json"): dodan + 9})
         self.assertNotIn("stremio|https://javen.primer.si/manifest.json", self.mc.viri_izvoz(ozji=True)["sources_deleted"])
         # Izbris tukaj: druge naprave ga dobijo s casom, ki ni starejsi od dodajanja (ure naprav niso enake).
@@ -412,7 +414,7 @@ class Viri(unittest.TestCase):
         def vprasaj(parametri):
             vprasanja.append(dict(parametri or {}))
             return {"lists": [], "deleted": {}, "sources": [{"tip": "stremio", "ime": "", "naslov": "https://javen.primer.si/manifest.json", "cas": 3}],
-                    "sources_deleted": {}} if not parametri else None
+                    "sources_deleted": {}, "ozji": True} if not parametri else None
         self.assertTrue(self.mc.seznami_uskladi(vprasaj))
         self.assertEqual(vprasanja, [{}])                                           # eno vprasanje za sezname in vire
         self.assertEqual(list(self._viri()), [("stremio", "https://javen.primer.si/manifest.json")])

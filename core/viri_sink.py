@@ -230,13 +230,13 @@ def zaznan_racun(naslov: object) -> bool:
 def prevzem_dovoljen(naslov: object, ozji_odgovor: object) -> bool:
     """Ali vir z druge naprave prevzamemo (pregled 46, Ö3). Odgovor `lists.get` od te razlicice naprej pove, ali nas
     ima naprava v ozjem krogu ("ozji"): true - vsak vir; false - samo pozitivno znan javen (drugega nam ne bi smela
-    poslati). Naprava starejse razlicice ("ozji" ga ni) je dala vse vire vsem: od nje ne prevzamemo vira z racunom, ki
-    ga hevristika prepozna - kopija gesla ne ostane na napravi, ki morda ni v njenem ozjem krogu."""
+    poslati). Naprava starejse razlicice ("ozji" ga ni) je dala vse vire vsem in ne vemo, ali nas ima v ozjem krogu:
+    ob dvomu ne (pregled 51, Ê3) - prevzamemo samo pozitivno znan javen vir, kot pri odgovoru false. Heuristika
+    zaznan_racun bi shranila vir z geslom neprepoznane oblike (…/playlist/<u>/<g>/m3u_plus, zeton v poti) na napravo, ki
+    morda ni v ozjem krogu. Vir z racunom pride, ko se posodobi se posiljatelj."""
     if ozji_odgovor is True:
         return True
-    if ozji_odgovor is False:
-        return znan_javen(naslov)
-    return not zaznan_racun(naslov)
+    return znan_javen(naslov)
 
 
 def verjetno_geslo(naslov: object, seznam_iptv: bool = False, oznacen: bool = False) -> bool:
