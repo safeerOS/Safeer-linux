@@ -767,6 +767,21 @@ def _je_predvajalni_vir(url: str) -> bool:
     return _je_predloga_predvajalnika(url) or _je_korenski_predvajalni_vir(url)
 
 
+#: Platforme, ki jih Medijski center bere samo prek uradnih vdelav (_official_music_embed, _resolve_embed_or_direct_source):
+#: nobena nima racuna pri ponudniku IPTV, zato zanje ne velja pravilo »neznano je racun« (MediaCenter._racun_vira).
+_PLATFORME_BREZ_RACUNA = ("youtube.com", "youtu.be", "soundcloud.com", "bandcamp.com")
+
+
+def _platforma_brez_racuna(url: object) -> bool:
+    besedilo = str(url or "")
+    try:
+        gostitelj = (urllib.parse.urlsplit(besedilo).hostname or "").casefold()
+    except ValueError:
+        return False
+    return (any(gostitelj == d or gostitelj.endswith("." + d) for d in _PLATFORME_BREZ_RACUNA)
+            or _je_predvajalni_vir(besedilo))
+
+
 def _je_neposredni_medijski_tok(url: str) -> bool:
     """Prepozna neposreden medijski URL, ki ga ne smemo prenesti kot katalog."""
     path = urllib.parse.urlsplit(url).path.lower()
@@ -4310,14 +4325,14 @@ class MediaCenter:
 
     @staticmethod
     def _racun_vira(source: dict) -> bool:
-        """Ali ima vir verjetno racun pri ponudniku (pregled 51, Ê1: zaznan_racun je heuristika, ki oblik …/playlist/<u>/<g>/
-        m3u_plus, zetona v poti in kratke povezave ne pozna): prepoznan racun ali oblika seznama z racunom, ali pa je
-        to seznam kanalov IPTV, ki ni znan javen. Podkast, stran ali navaden seznam brez racuna: ne (zanje je
-        rezervna pot - vdelani predvajalnik)."""
-        url, oznacen = source.get("url"), source.get("javni") is True
-        vnosi = source.get("vnosi") if isinstance(source.get("vnosi"), list) else []
-        iptv = any(isinstance(x, dict) and x.get("iptv") for x in vnosi)
-        return viri_sink.verjetno_racun_seznama(url, oznacen) or viri_sink.verjetno_geslo(url, iptv, oznacen)
+        """Ali vir velja za vir z racunom pri ponudniku: premor ob vsakem odgovoru brez seznama, ena zahteva, nikoli
+        rezervna pot. Velja za VSAK vir, ki ni pozitivno znan javen (viri_sink.za_ozji_krog), ne glede na obliko naslova
+        (pregled 57, Ş2; enako Android, pregled 52, I5). Pregled 51, Ê1 je odlocal zaznan_racun in zastavico iptv v vnosih:
+        kratka povezava ali zeton v poti sta pred prvim uspesnim branjem veljala za »ni racun« in 404, 5xx ali prazen 200
+        sta pomenila dve zahtevi z geslom brez premora. Izjema so znane platforme, ki jih beremo samo prek uradnih vdelav
+        in nimajo racuna pri ponudniku IPTV (_platforma_brez_racuna)."""
+        url = source.get("url")
+        return viri_sink.za_ozji_krog(url, source.get("javni") is True) and not _platforma_brez_racuna(url)
 
     def refresh_source(self, source_id: str) -> dict:
         if source_id.startswith("streznik-"):

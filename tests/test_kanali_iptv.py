@@ -736,7 +736,12 @@ class ZavrnjenSeznam(unittest.TestCase):
         kanal = [{"id": "k", "iptv": True, "url": "http://ponudnik.primer.test:8080/live/uporabnik/geslo/1.ts", "naslov": "K"}]
         primeri = [("http://ponudnik.primer.test:8080/playlist/uporabnik/geslo/m3u_plus", []),     # oblika seznama z racunom
                    ("http://ponudnik.primer.test:8080/get/uporabnik/geslo/m3u8_plus", []),
-                   ("http://kratka.primer.test/abc", kanal)]                                      # ze brani kanali IPTV
+                   ("http://kratka.primer.test/abc", kanal),                                      # ze brani kanali IPTV
+                   # Pregled 57, Ş2: pred prvim uspesnim branjem (vnosi prazni) neprepoznana oblika ni bila »racun«
+                   ("http://kratka.primer.test/abc", []),
+                   ("https://ponudnik.primer.test/7f3a9c1e5b2d/tv", []),                          # zeton v poti
+                   ("https://ponudnik.primer.test/zeton123.m3u", []),                             # .m3u brez prepoznanega racuna
+                   ("https://seznam.primer.test/tv.m3u", [])]                                     # neznan navaden seznam
         for url, vnosi in primeri:
             for odgovor in ("404", "prazen"):
                 with self.subTest(url=url, odgovor=odgovor):
@@ -759,6 +764,27 @@ class ZavrnjenSeznam(unittest.TestCase):
                     self.assertEqual(self.prenosi, [url])
                     self.assertEqual(self._vir()["zavrnjen"]["n"], 1)
                     self.assertEqual(self._vir()["zavrnjen"]["koda"], 404 if odgovor == "404" else 0)
+
+    def test_nov_vir_neprepoznane_oblike_s_poteklim_racunom_ena_zahteva(self):
+        """Pregled 57, Ş2: nov vir (vnosi prazni) s kratko povezavo, ki jo ponudnik zavrne (404, prazen 200), je dobil
+        drugo zahtevo (rezervna pot) brez premora; zdaj ena zahteva in zavrnitev z vzrokom."""
+        for odgovor in ("404", "prazen"):
+            with self.subTest(odgovor=odgovor):
+                naslov = "http://kratka.primer.test/%s" % odgovor
+                self.prenosi.clear()
+
+                def prenesi(u):
+                    self.prenosi.append(u)
+                    if odgovor == "prazen":
+                        return b"", "text/plain", u
+                    raise urllib.error.HTTPError(u, 404, "Not Found", None, None)
+                self.mc._download = prenesi
+                self.mc._izmeri_ping = lambda u: None
+                with mock.patch.object(os_media, "_resolve_embed_or_direct_source",
+                                       side_effect=AssertionError("druga zahteva na neznan naslov")):
+                    r = self.mc.add_source(naslov, "Kratka")
+                self.assertFalse(r["ok"])
+                self.assertEqual(self.prenosi, [naslov])
 
     def test_brez_povezave_tretjic_zapored_vse_redkeje(self):
         """Ê1: koda 0 (prekinjena povezava, TLS, rok) je za vir z racunom ostala vsakih 10 min brez rasti."""
@@ -796,11 +822,13 @@ class ZavrnjenSeznam(unittest.TestCase):
         self.assertEqual(klici, [javni])
         self.assertNotIn("zavrnjen", self._vir())
 
-    def test_brez_racuna_ostane_rezervna_pot(self):
+    def test_uporabnikov_javni_seznam_ohrani_rezervno_pot(self):
+        """Seznam, ki ga je uporabnik izrecno oznacil kot javnega (vir["javni"]), ni vir z racunom: rezervna pot ostane
+        (pregled 57, Ş2: neznan seznam brez oznake je zdaj racun, glej test_racun_neprepoznane_oblike_je_enako_zavarovan)."""
         javni = "https://seznam.primer.test/tv.m3u"
         with self.mc._lock:
             data = self.mc._load()
-            data["viri"][0]["url"] = javni
+            data["viri"][0].update(url=javni, javni=True)
             self.mc._save(data)
         self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 404, "Not Found", None, None))
         klici = []
@@ -808,6 +836,21 @@ class ZavrnjenSeznam(unittest.TestCase):
             self.assertFalse(self.mc.refresh_source("xt")["ok"])
         self.assertEqual(klici, [javni])
         self.assertNotIn("zavrnjen", self._vir())
+
+    def test_znana_platforma_brez_racuna_ohrani_rezervno_pot(self):
+        """Pregled 57, Ş2: »neznano je racun« ne sme vzeti vdelave YouTube, SoundCloud in Bandcamp (nobena nima racuna
+        pri ponudniku IPTV): ob napaki prenosa jo naslov se vedno predvaja v uradni vdelavi, brez premora."""
+        youtube = "https://www.youtube.com/watch?v=abc123XYZ_-"
+        with self.mc._lock:
+            data = self.mc._load()
+            data["viri"][0].update(url=youtube)
+            self.mc._save(data)
+        self.mc._download = lambda url: (_ for _ in ()).throw(urllib.error.HTTPError(url, 404, "Not Found", None, None))
+        self.assertTrue(self.mc.refresh_source("xt")["ok"])
+        self.assertNotIn("zavrnjen", self._vir())
+        self.assertIn("youtube.com/embed/abc123XYZ_-", self._vir()["vnosi"][0]["url"])
+        self.assertFalse(os_media.MediaCenter._racun_vira({"url": youtube}))
+        self.assertTrue(os_media.MediaCenter._racun_vira({"url": "https://youtube.com.primer.test/x"}))
 
     def test_neuspeh_brez_izjeme_se_ponovi(self):
         def prenesi(url):
