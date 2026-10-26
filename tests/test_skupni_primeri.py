@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
-from core import usenet_nntp as NN, usenet_nzb as NZ, usenet_yenc as Y
+from core import usenet_bralnik as UB, usenet_nntp as NN, usenet_nzb as NZ, usenet_rar as UR, usenet_tok as UT
+from core import usenet_yenc as Y
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
 #: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
@@ -69,6 +70,52 @@ def _nzb_izhod(podatki):
     return {"izid": NZ.OK, "naslov": n.naslov, "ima_geslo": n.ima_geslo, "datoteke": [
         {"ime": d.ime, "skupine": list(d.skupine), "bajtov_nzb": d.bajtov_nzb, "manjka": d.manjka,
          "segmenti": [[x.stevilka, x.bajtov, x.id] for x in d.segmenti]} for d in n.datoteke]}
+
+
+def _znani(v):
+    return {int(s): (int(o), int(n)) for s, o, n in v["znani"]}
+
+
+def _rar_izhod(b, velikost):
+    izid = UR.preveri(b, velikost)
+    try:
+        z = UR.razcleni_zvezek(b, velikost)
+    except UR.NapakaRar:
+        return {"izid": izid}
+    return {"izid": izid, "rar": z.razlicica, "zvezek": z.stevilka, "vec_zvezkov": z.vec_zvezkov, "datoteke": [
+        {"ime": x.ime, "odmik": x.odmik, "dolzina": x.dolzina, "velikost": x.velikost, "pred": x.razdeljen_pred,
+         "po": x.razdeljen_po, "store": x.store, "sifriran": x.sifriran, "mapa": x.mapa} for x in z.vnosi]}
+
+
+def _tok(f, v):
+    """Korak 2 (core/usenet_tok.py, usenet_rar.py, usenet_bralnik.py; Android isto v Kotlinu)."""
+    if f == "tok_odmik":
+        try:
+            u = UT.poisci(v["velikost"], v["celota"], v["del_bajtov"], _znani(v), v["odmik"])
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+        return {"izid": UT.OK, "segment": u.stevilka, "odmik": u.odmik, "natancno": u.natancno}
+    if f == "tok_segmenti":
+        return UT.segmenti_okna(v["velikost"], v["celota"], v["del_bajtov"], _znani(v), v["odmik"], v["dolzina"])
+    if f == "tok_okno":
+        return UB.okno_vnaprej(v["zaporedno_prebrano"], v["zacetno"], v["najvec"])
+    if f == "tok_profili":
+        return {k: [p.okno_bajtov, p.zacetno_okno, p.lru_bajtov, p.vzporedno] for k, p in UB.PROFILI.items()}
+    if f == "rar_glava":
+        return _rar_izhod(base64.b64decode(v["glava_b64"]), v["velikost"])
+    if f == "rar_zvezki":
+        return UR.vrstni_red_zvezkov(v["imena"])
+    if f == "rar_sestavi":
+        try:
+            zv = [UR.razcleni_zvezek(base64.b64decode(b), n) for b, n in zip(v["zvezki_b64"], v["velikosti"])]
+            ime, velikost, kosi = UR.sestavi(zv)
+        except UR.NapakaRar as e:
+            return {"izid": e.izid}
+        return {"izid": UR.OK, "ime": ime, "velikost": velikost, "kosi": [[k.zvezek, k.odmik, k.dolzina] for k in kosi]}
+    raise KeyError("neznano pravilo: " + f)
+
+
+TOK = {"tok_odmik", "tok_segmenti", "tok_okno", "tok_profili", "rar_glava", "rar_zvezki", "rar_sestavi"}
 
 
 def _usenet(f, v):
@@ -132,6 +179,8 @@ def izracunaj(f, v):
     """Isto ime pravila kot v primerih (in v Kotlinu preslikano)."""
     if f in USENET_POGON:
         return _usenet(f, v)
+    if f in TOK:
+        return _tok(f, v)
     if f == "vrstni_red":
         return P.vrstni_red(set(v["z_kljucem"]), v["prednostna"])
     if f == "aktivna":
@@ -251,7 +300,7 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def test_usenet_pogon(self):
-        self._preveri(PRIMERI_USENET, set(), 410)  # v4 (zaklep racuna, pregleda Grok 43 in 44)
+        self._preveri(PRIMERI_USENET, set(), 520)  # v5 (korak 2: preslikava odmikov, RAR store, okno vnaprej)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))
