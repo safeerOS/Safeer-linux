@@ -832,7 +832,10 @@ jobs:
           if dpkg-deb -f "$PLAYER" Depends | grep -E '(^|, )safeer-webkit\b'; then echo "::error::Player zahteva loceni safeer-webkit"; exit 1; fi
           dpkg-deb -f "$PLAYER" Provides | grep -F "safeer-webkit (= $(dpkg-deb -f "$WEBKIT" Version)+vgrajen)"
           # Vsebina: en sam vnos v meniju (Player), brez seje namizja in samodejnega zagona; tovor in ukaz safeer-player sta.
-          SAFEER_PLAYER_DEB="$PLAYER" python3 -m pytest -q tests/test_safeer_player_paket.py
+          # Brez pytest v tem poslu (test_ci_vrata: vsak pytest izbere nacin WebKita); isto kot test_pravi_paket_ima_samo_vnos_player.
+          VNOSI=$(dpkg-deb -c "$PLAYER" | grep -oE '\./usr/share/applications/[^ ]+\.desktop$' | sort)
+          [ "$VNOSI" = "./usr/share/applications/safeer-os.Player.desktop" ] || { echo "::error::Player ima vnose: $VNOSI"; exit 1; }
+          if dpkg-deb -c "$PLAYER" | grep -E '\./(usr/share/(xsessions|wayland-sessions)|etc/xdg/autostart)/'; then echo "::error::Player ima sejo ali samodejni zagon"; exit 1; fi
           dpkg-deb -c "$PLAYER" | grep -E '\./usr/lib/safeer-os/safeer_os\.py$'
           dpkg-deb -c "$PLAYER" | grep -E '^-rwxr-xr-x .* \./usr/bin/safeer-player$'
           if dpkg-deb -c "$PLAYER" | grep -F 'safeer-cinnamon'; then echo "::error::Player ima Safeer Cinnamon"; exit 1; fi
