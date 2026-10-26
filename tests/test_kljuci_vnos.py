@@ -973,6 +973,62 @@ class StanjeKljuca(unittest.TestCase):
             d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
         self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
 
+    def test_odstranitev_izbrise_kljuc_tudi_ob_hkratni_zapori(self):
+        """Grokov pregled 47, U4: _zaprti se je bral in pisal brez zaklepa, »Odstrani« pa ga je pregledoval - zapora, ki jo
+        druga nit doda med pregledom, je vrgla RuntimeError in sifriran kljuc je ostal v zbirki (vmesnik: »odstranjen«)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+
+        class Tekma(dict):
+            """Druga nit (⚡, predvajanje, »Preveri«) doda zaporo MED pregledom slovarja."""
+            def __iter__(self):
+                for i, z in enumerate(dict.__iter__(self)):
+                    if i == 0:
+                        dict.__setitem__(self, (P.ALLDEBRID, "drugo%d" % len(self)), P.STANJE_NE_VELJA)
+                    yield z
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_ZAKLENJEN)
+        self.assertEqual(len(z.zbirka), 3)
+        d._zaprti = Tekma(d._zaprti)
+        d.pozabi_kljuc(P.REAL_DEBRID)
+        d.pozabi_indeksator()
+        self.assertEqual((z.zbirka, "usenet" in nast["d"], d.kljuc(P.REAL_DEBRID)), ({}, False, None))
+        # Zapora, ki je samo v pomnilniku (zapis v nastavitve ni uspel), ostane po »Odstrani« (po kljucu, kot Android).
+        z, nast = Shramba(), {"d": {}}
+        d = debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),
+                          lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        pisi = d._pisi
+
+        def pisi_ne(_x):
+            raise OSError("disk poln")
+        d._pisi = pisi_ne
+        d.ob_izidu(P.REAL_DEBRID, P.NAPAKA_ZAKLENJEN, False)
+        d._pisi = pisi
+        d.pozabi_kljuc(P.REAL_DEBRID)
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+            self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_ZAKLENJEN)
+        # Hkratno branje in pisanje zapor iz vec niti brez napake.
+        napake: list = []
+
+        def pisi_zapore():
+            try:
+                for i in range(3000):
+                    d._spomni_zaporo(P.ALLDEBRID, "o%d" % i, P.STANJE_NE_VELJA if i % 2 else P.STANJE_VELJA)
+            except Exception as e:  # noqa: BLE001
+                napake.append(e)
+        niti = [threading.Thread(target=pisi_zapore) for _ in range(2)]
+        for n in niti:
+            n.start()
+        for _ in range(200):
+            d.stanje_kljuca(P.REAL_DEBRID)
+        for n in niti:
+            n.join(10)
+        self.assertEqual(napake, [])
+
     def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
         """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
         »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""

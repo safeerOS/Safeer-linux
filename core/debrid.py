@@ -821,7 +821,10 @@ class Debrid:
         self._zaklep_rocne = threading.Lock()
         # Grokov pregled 40, S3: (storitev, odtis) -> »ne velja« ali »zaklenjen« v pomnilniku, ZE PRED zapisom v
         # nastavitve - zapora velja tudi, ce zapis ne uspe (poln disk, nastavitve samo za branje, zbirka zaklenjena).
+        # Grokov pregled 47: velja po kljucu, »Odstrani« in zamenjava je ne odpravita (U1); bere in pise se samo pod
+        # _zaklep_zapor (U4) - pise ga vec niti (⚡, predvajanje, »Preveri« v niti mostu, samodejna preverba).
         self._zaprti: dict = {}
+        self._zaklep_zapor = threading.Lock()   # notranji: pod njim se ne klice nic drugega (zaklep nastavitev je zunanji)
 
     def _rocna_cez(self, p: str, odtis: str) -> int:
         """Grokov pregled 40, S8: 0 = »Preveri« ali vpis kljuca z [odtis] sme k storitvi (cas se zabelezi), sicer sekunde
@@ -1009,16 +1012,19 @@ class Debrid:
         zs = d.get("zapore")
         zapore = P.zapore_iz_zapisa(zs.get(p) if isinstance(zs, dict) else zs)
         zapora = P.STANJE_NE_VELJA if zapore is None else zapore.get(odtis)    # pokvarjen razdelek zapor: zaprto (U2)
-        return P.stanje_z_zaporo(self._zaprti.get((p, odtis)), na_mestu, zapora)
+        with self._zaklep_zapor:
+            v_pomnilniku = self._zaprti.get((p, odtis))
+        return P.stanje_z_zaporo(v_pomnilniku, na_mestu, zapora)
 
     def _spomni_zaporo(self, p: str, odtis: Optional[str], s: Optional[str]) -> None:
         """Grokov pregled 40, S3: »ne velja« in »zaklenjen« v pomnilnik pred zapisom; potrjeno stanje zaporo odpravi."""
         if not odtis or s is None:
             return
-        if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
-            self._zaprti[(p, odtis)] = s
-        elif s == P.STANJE_VELJA:                   # U1: »nepreverjen« zapore ne odpravi (kot Android)
-            self._zaprti.pop((p, odtis), None)
+        with self._zaklep_zapor:
+            if s in (P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN):
+                self._zaprti[(p, odtis)] = s
+            elif s == P.STANJE_VELJA:               # U1: »nepreverjen« zapore ne odpravi (kot Android)
+                self._zaprti.pop((p, odtis), None)
 
     def stanje_kljuca(self, p: str) -> Optional[str]:
         """P.STANJE_* shranjenega kljuca [p]; None = ni kljuca ali ga se nihce ni preveril (stanje drugega kljuca ne velja)."""
@@ -1177,11 +1183,12 @@ class Debrid:
             d.setdefault("paketi", {}).pop(p, None)
             self._postavi_stanje(d, p, None)
         self._spremeni(f)
-        for z in [z for z in self._zaprti if z[0] == p]:
-            self._zaprti.pop(z, None)
+        # Grokov pregled 47, U4: skrivnost se izbrise takoj po zapisu nastavitev. Prej je bil vmes pregled _zaprti brez
+        # zaklepa - zapora, ki jo je druga nit dodala med pregledom, je vrgla RuntimeError in sifriran kljuc je ostal v
+        # zbirki, ceprav je vmesnik rekel »odstranjen«. Zapora po kljucu ostane (U1, kot Android).
+        self._pozabi(*staro)
         self._zadnja_preverba.pop(p, None)
         self._preverjen_odtis.pop(p, None)
-        self._pozabi(*staro)
 
     # ---- Usenet: uporabnikov indeksator Newznab (naslov in kljuc samo sifrirana, kot kljuci storitev)
     def indeksator(self) -> Optional[tuple]:
@@ -1214,18 +1221,15 @@ class Debrid:
             else:
                 self._postavi_stanje(d, P.INDEKSATOR, stanje if stanje is not None
                                      else self._zapis_stanja(self._stanje_v(d, P.INDEKSATOR, odtis), odtis))
-        if nov is None:
-            for z in [z for z in self._zaprti if z[0] == P.INDEKSATOR]:
-                self._zaprti.pop(z, None)
-        else:
+        if nov is not None:                         # odstranitev: zapora po kljucu ostane (U1), brez pregleda _zaprti (U4)
             self._spomni_zaporo(P.INDEKSATOR, odtis, (stanje or {}).get("s"))
         self._spremeni(f)
+        self._pozabi(*[x for x in staro if x not in (nov or {}).values()])     # U4: takoj po zapisu nastavitev
         self._zadnja_preverba.pop(P.INDEKSATOR, None)
         self._preverjen_odtis.pop(P.INDEKSATOR, None)
         # Grokov pregled 40, S1: povezave NZB s prejsnjim kljucem (v naslovu) ne ostanejo v pomnilniku.
         nov_odtis = self._odtis(P.INDEKSATOR)
         self._pozabi_povezave(lambda o: o is not None and o == nov_odtis)
-        self._pozabi(*[x for x in staro if x not in (nov or {}).values()])
 
     def nastavi_indeksator(self, naslov: str, kljuc: str, stanje: Optional[str] = None) -> bool:
         osn, k = U.osnova(naslov), U.ocisti_kljuc(kljuc)
