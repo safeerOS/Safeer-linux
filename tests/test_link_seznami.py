@@ -280,6 +280,10 @@ class PoljaSeznamaZunajOzjegaKroga(unittest.TestCase):
         self.assertFalse(viri_sink.zapis_androida_javen("//ponudnik.test/live/uporabnik/skrito-geslo/1.ts"))
         self.assertFalse(viri_sink.zapis_androida_javen(self.GSON))
         self.assertTrue(viri_sink.zapis_androida_javen('{"naslov": "Pesem", "avtor": "Pevka"}'))
+        # Pregled 95, Ĵ2: kljuc storitve brez besede password/token napravi zunaj ozjega kroga ne gre.
+        self.assertFalse(viri_sink.zapis_androida_javen('{"naslov": "Pesem", "torboxKey": "tb_9f8e7d6c5b4a3921"}'))
+        self.assertFalse(viri_sink.zapis_androida_javen('{"realdebrid": "ABCD1234EFGH5678IJKL"}'))
+        self.assertTrue(viri_sink.zapis_androida_javen('{"naslov": "Monkey", "izvajalec": "Keys"}'))
         self.assertFalse(viri_sink.javna_slika("http://i.ytimg.com/vi/x/hq.jpg"))           # samo https
         self.assertFalse(viri_sink.javna_slika("https://i.ytimg.com.ponudnik.test/x.jpg"))
 

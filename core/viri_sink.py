@@ -384,6 +384,10 @@ def zapis_androida_javen(zapis: object) -> bool:
         return False                    # pregloboko gnezden zapis: ne vemo, kaj je notri - ob dvomu ne
     if _RACUN_V_BESEDILU.search(besedilo):
         return False
+    # Pregled 95, Ĵ2 (26. 10. 2026): kljuc z imenom storitve ali koncnico (torboxKey, realdebrid, secret ...) vzorec
+    # racuna ne prepozna - ista prepoznava kot za nastavitve dodatkov (skrivni_dodatki.ima_kljucno_polje).
+    if skrivni_dodatki.ima_kljucno_polje(besedilo):
+        return False
     naslovi = _NASLOV_V_BESEDILU.findall(besedilo)
     if besedilo.count("//") != len(naslovi):
         return False                    # naslov brez sheme (//gostitelj/...) ali nerazumljiv zapis
