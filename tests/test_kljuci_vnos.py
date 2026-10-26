@@ -1,0 +1,1184 @@
+"""Vnos kljuca debrid (TorBox, Real-Debrid, AllDebrid) in indeksatorja Usenet (npr. NZBFinder) na namizju kot na TV
+(lastnik 25. 10. 2026; Android d1fdecc).
+
+Vzorec (»XXXXXXXX-XXXX-…«) se zavrne brez klica storitve. Kljuc se ob vnosu preveri (TorBox user/me, Real-Debrid in
+AllDebrid /user, indeksator z enim iskanjem): zavrnjen se ne shrani, izpad ga shrani kot NEPREVERJEN (ne »velja«).
+Stanje (velja / ne velja / nepreverjen) je vezano na odtis kljuca, sledi uporabi (401 -> ne velja) in se nepreverjen
+preveri znova najvec na 10 min. Shranjen je samo v zbirki skrivnosti (v nastavitvah le oznaka); odstranjen ali zamenjan
+se izbrise tudi iz nje. Kljuc, e-naslov in uporabnisko ime racuna nikoli v izpis, dnevnik ali odgovor mostu. Brez pravega
+omrezja: storitve so ponaredki (indeksator je lokalen streznik na 127.0.0.1). Kljuci so izmisljeni.
+"""
+import contextlib
+import http.server
+import io
+import json
+import logging
+import shutil
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+
+from core import debrid, debrid_pravila as P, os_media, usenet_pravila as U
+
+#: Izmisljen; prejsnji (0f0e0d0c-…-050403020100, 17 nicel od 32 znakov) je vzorec (P.je_vzorec_kljuca).
+KLJUC_TB = "7c1e9a4b-2f6d-4e8a-b3c5-9d0f1a2e6b74"
+KLJUC_RD = "R7mK2pX9vL4qT8wN3zB6cH1jF5dS0gY2aE7uI4oP9kM3nV8bQ6xZ"
+KLJUC_AD = "aB3dE5gH7jK9mN1pQ3sT"
+UPORABNIK = "uporabnik-primer"
+H1 = "a" * 39 + "1"
+KLJUC_TB2 = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"
+KLJUC_IX = "0123456789abcdef0123456789abcdef"
+EPOSTA = "oseba@primer.test"
+#: Izmerjeno 25. 10. 2026 (nzbfinder.ws, izmisljen kljuc): HTTP 401 in to telo.
+NZBFINDER_401 = '<?xml version="1.0" encoding="UTF-8"?>\n<error code="100" description="Incorrect user credentials (incorrect API key?)"/>'
+RSS = '<?xml version="1.0"?><rss version="2.0"><channel><title>x</title></channel></rss>'
+
+
+class Shramba:
+    """Zbirka skrivnosti v pomnilniku: oznaka -> skrivnost (kot os_katalog.skrij/razkrij/pozabi)."""
+
+    def __init__(self):
+        self.zbirka: dict = {}
+        self.n = 0
+
+    def skrij(self, s: str) -> str:
+        self.n += 1
+        oznaka = "zbirka:%d" % self.n
+        self.zbirka[oznaka] = s
+        return oznaka
+
+    def razkrij(self, v: str) -> str:
+        return self.zbirka[v]
+
+    def pozabi(self, v: str) -> None:
+        self.zbirka.pop(v, None)
+
+
+def _debrid():
+    z = Shramba()
+    nast = {"d": {}}
+    d = debrid.Debrid(lambda: nast["d"], lambda x: nast.__setitem__("d", json.loads(json.dumps(x))),
+                      z.skrij, z.razkrij, z.pozabi)
+    return d, nast, z
+
+
+def _minuta_kasneje(d) -> None:
+    """Grokov pregled 40, S8: »Preveri« in ponoven vpis istega kljuca gresta storitvi najvec enkrat na minuto - preizkus
+    premakne zadnji klic v preteklost (kot uporabnik, ki pocaka minuto)."""
+    for k in list(d._rocna):
+        d._rocna[k] -= P.ROCNA_PREVERBA_S + 1
+
+
+class Pravila(unittest.TestCase):
+    def test_torbox_preverba(self):
+        self.assertEqual(P.torbox_preverba(200, {"success": True, "data": {"plan": 2, "email": EPOSTA}}), (P.PREVERBA_VELJAVEN, 2))
+        self.assertEqual(P.torbox_preverba(200, {"success": True, "data": {"plan": True}}), (P.PREVERBA_VELJAVEN, None))
+        self.assertEqual(P.torbox_preverba(403, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
+        self.assertEqual(P.torbox_preverba(200, {"success": False, "error": "AUTH_ERROR"}), (P.PREVERBA_NEVELJAVEN, None))
+        # Pregled Grok 28 L2: 401 brez kode TorBox (posrednik, prijavna stran) ni izrecen odgovor o kljucu.
+        self.assertEqual(P.torbox_preverba(401, None), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(401, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
+        self.assertEqual(P.torbox_preverba(429, {}), (P.PREVERBA_MEJA, None))
+        self.assertEqual(P.torbox_preverba(502, None), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(0, None), (P.PREVERBA_NI_ODGOVORA, None))
+        # Paket tega ne omogoca: storitev kljuc pozna - velja (kot Android preverbaIzNapake).
+        self.assertEqual(P.torbox_preverba(200, {"success": False, "error": "PLAN_RESTRICTED_FEATURE"}), (P.PREVERBA_VELJAVEN, None))
+        self.assertEqual((P.ime_paketa(2), P.ime_paketa(0), P.ime_paketa(9), P.ime_paketa(None)), ("Pro", "Free", "paket 9", ""))
+        self.assertFalse(P.shrani_po_preverbi(P.PREVERBA_NEVELJAVEN))
+        self.assertFalse(P.shrani_po_preverbi(P.PREVERBA_OBLIKA))
+        for izid in (P.PREVERBA_VELJAVEN, P.PREVERBA_MEJA, P.PREVERBA_NI_ODGOVORA):
+            self.assertTrue(P.shrani_po_preverbi(izid))
+        self.assertFalse(P.shrani_po_preverbi(""))                # storitve brez preverbe ni vec (prej PREVERBA_NI)
+
+    def test_preverba_indeksatorja(self):
+        self.assertEqual(U.preverba_indeksatorja(401, NZBFINDER_401), P.PREVERBA_NEVELJAVEN)
+        self.assertEqual(U.preverba_indeksatorja(200, NZBFINDER_401), P.PREVERBA_NEVELJAVEN)
+        self.assertEqual(U.preverba_indeksatorja(200, RSS), P.PREVERBA_VELJAVEN)
+        self.assertEqual(U.preverba_indeksatorja(200, '<error code="500" description="Request limit reached"/>'), P.PREVERBA_MEJA)
+        self.assertEqual(U.preverba_indeksatorja(429, ""), P.PREVERBA_MEJA)
+        self.assertEqual(U.preverba_indeksatorja(200, "<html><body>prijava</body></html>"), P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual(U.preverba_indeksatorja(503, ""), P.PREVERBA_NI_ODGOVORA)
+        self.assertIn("apikey=", U.naslov_preverbe("https://nzbfinder.ws", KLJUC_IX))
+        self.assertTrue(U.naslov_preverbe("https://nzbfinder.ws", KLJUC_IX).startswith("https://nzbfinder.ws/api?t=search"))
+
+    def test_velja_samo_s_pozitivnim_dokazom(self):
+        """Grokov pregled 36, D1: Real-Debrid 403 brez telesa (pozarni zid, CDN, VPN, IP podatkovnega centra) in 2xx z {}
+        sta dala »velja« - napacen kljuc je dobil »kljuc velja ✓« in bi sel med naprave (P.za_uskladitev)."""
+        for http, telo in ((403, None), (403, {}), (200, {}),
+                           (200, None), (200, {"type": "premium"}), (200, {"id": "7"}), (200, {"id": True}),
+                           (200, {"username": ""}), (204, None)):
+            self.assertEqual(P.rd_preverba(http, telo), P.PREVERBA_NI_ODGOVORA, (http, telo))
+        self.assertEqual(P.rd_preverba(200, {"id": 7}), P.PREVERBA_VELJAVEN)
+        self.assertEqual(P.rd_preverba(200, {"username": UPORABNIK}), P.PREVERBA_VELJAVEN)
+        # Lastnik 26. 10. 2026 (zaklep racuna): 9 ni nikoli »velja«, 14 in 22 sta zaklenjen racun.
+        self.assertEqual(P.rd_preverba(403, {"error": "permission_denied", "error_code": 9}), P.PREVERBA_NEVELJAVEN)
+        self.assertEqual(P.rd_preverba(403, {"error": "account_locked", "error_code": 14}), P.PREVERBA_ZAKLENJEN)
+        self.assertEqual(P.rd_preverba(403, {"error": "ip_not_allowed", "error_code": 22}), P.PREVERBA_ZAKLENJEN)
+        self.assertEqual(P.rd_preverba(401, None), P.PREVERBA_NEVELJAVEN)
+        # TorBox (api.torbox.app za Cloudflare): 403 brez kode TorBox ni zavrnjen kljuc - ne ob vpisu ne med uporabo.
+        self.assertEqual(P.torbox_preverba(403, None), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(403, {}), (P.PREVERBA_NI_ODGOVORA, None))
+        self.assertEqual(P.torbox_preverba(403, {"success": False, "error": "BAD_TOKEN"}), (P.PREVERBA_NEVELJAVEN, None))
+        self.assertEqual(P.torbox_vrsta_napake(403, None), P.NAPAKA_STREZNIK)
+        self.assertEqual(P.torbox_vrsta_napake(403, "PLAN_RESTRICTED_FEATURE"), P.NAPAKA_PAKET)
+        self.assertEqual(P.torbox_vrsta_napake(401, None), P.NAPAKA_STREZNIK)    # pregled Grok 28 L2
+        self.assertEqual(P.torbox_vrsta_napake(401, "BAD_TOKEN"), P.NAPAKA_KLJUC)
+        # AllDebrid in indeksator: 403 brez napake storitve je ze bil »ni odgovora«.
+        self.assertEqual(P.ad_preverba(403, None), P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual(U.preverba_indeksatorja(403, "<html><title>Just a moment...</title></html>"), P.PREVERBA_NI_ODGOVORA)
+
+    def test_izberi_usenet(self):
+        self.assertEqual(U.izberi_usenet([None, False, None], True), U.NOBENA)
+        self.assertEqual(U.izberi_usenet([], False), U.NOBENA)
+        self.assertEqual(U.izberi_usenet([False, None], False), U.CAKAJ)
+
+
+class TorBox(unittest.TestCase):
+    def test_veljaven_kljuc_shranjen_samo_v_zbirki_s_paketom(self):
+        d, nast, z = _debrid()
+        izhod = io.StringIO()
+        odgovor = debrid.Odgovor(200, json.dumps({"success": True, "data": {"plan": 2, "email": EPOSTA}}))
+        with mock.patch.object(debrid, "klic", return_value=odgovor) as k, self.assertLogs("safeer.debrid", logging.INFO) as dnevnik, \
+                contextlib.redirect_stdout(izhod), contextlib.redirect_stderr(izhod):
+            s = debrid.most(d, ["kljuc", P.TORBOX, " %s\n" % KLJUC_TB])
+        self.assertEqual(k.call_args[0][:2], (P.TORBOX_UPORABNIK, KLJUC_TB))          # kljuc v glavi, ne v naslovu
+        self.assertEqual((s["ok"], s["preverba"], s["paket"]), (True, P.PREVERBA_VELJAVEN, "Pro"))
+        tb = next(x for x in s["storitve"] if x["id"] == P.TORBOX)
+        self.assertEqual((tb["kljuc"], tb["paket"]), (True, "Pro"))
+        self.assertIs(s["usenet"]["torbox_pro"], True)
+        self.assertEqual(list(z.zbirka.values()), [KLJUC_TB])
+        self.assertEqual(nast["d"]["kljuci"][P.TORBOX], "zbirka:1")                   # v nastavitvah samo oznaka
+        for besedilo in (json.dumps(s), json.dumps(nast["d"]), izhod.getvalue(), "\n".join(dnevnik.output)):
+            self.assertNotIn(KLJUC_TB, besedilo)
+            self.assertNotIn(EPOSTA, besedilo)
+
+    def test_zavrnjen_kljuc_ni_shranjen(self):
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"success": false, "error": "BAD_TOKEN"}')):
+            s = debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])
+        self.assertEqual((s["ok"], s["preverba"]), (False, P.PREVERBA_NEVELJAVEN))
+        self.assertEqual((z.zbirka, nast["d"].get("kljuci")), ({}, None))
+
+    def test_403_brez_json_ni_potrditev_ne_zavrnitev(self):
+        """Grokov pregled 36, D1: RD 403 brez JSON (VPN, podatkovni center) je bil »kljuc velja ✓«; TorBox 403 s stranjo
+        Cloudflare je veljaven kljuc zavrnil (ni shranjen) in med uporabo trajno oznacil »ne velja«."""
+        stran = "<!DOCTYPE html><html><title>Attention Required! | Cloudflare</title></html>"
+        for p, kljuc in ((P.REAL_DEBRID, KLJUC_RD), (P.TORBOX, KLJUC_TB), (P.ALLDEBRID, KLJUC_AD)):
+            d, _nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, stran)):
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual((s["ok"], s["preverba"], _vrstica(s, p)["stanje"]),
+                             (True, P.PREVERBA_NI_ODGOVORA, P.STANJE_NEPREVERJEN), p)
+            self.assertFalse(d.kljuc_velja(p), p)                  # ne gre med naprave
+            self.assertEqual(list(z.zbirka.values()), [kljuc], p)
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, stran)):
+            self.assertEqual(d.predpomnjeni([H1]), set())
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)    # Cloudflare med uporabo kljuca ne zavrne
+
+    def test_brez_povezave_shranjen_brez_paketa(self):
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", side_effect=OSError("brez omrezja")):
+            s = debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])
+        self.assertEqual((s["ok"], s["preverba"], s["paket"]), (True, P.PREVERBA_NI_ODGOVORA, ""))
+        self.assertIsNone(s["usenet"]["torbox_pro"])
+        self.assertEqual(list(z.zbirka.values()), [KLJUC_TB])
+        # Izpad ni potrditev: nepreverjen, ne »velja« (prej je bil enak preverjenemu - »kljuc vpisan ✓«).
+        self.assertEqual(next(x for x in s["storitve"] if x["id"] == P.TORBOX)["stanje"], P.STANJE_NEPREVERJEN)
+        self.assertFalse(d.kljuc_velja(P.TORBOX))
+
+    def test_napacna_oblika_brez_klica(self):
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica storitve")):
+            s = debrid.most(d, ["kljuc", P.TORBOX, "https://torbox.app/settings"])
+        self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, P.PREVERBA_OBLIKA, {}))
+
+    def test_real_debrid_in_alldebrid_preverjena_ob_vnosu(self):
+        """Prej sta se RD in AD shranila brez preverbe (PREVERBA_NI) - tudi vzorec in zavrnjen kljuc."""
+        for p, kljuc, naslov, zavrnjen in (
+                (P.REAL_DEBRID, KLJUC_RD, P.RD_UPORABNIK, debrid.Odgovor(401, '{"error": "bad_token", "error_code": 8}')),
+                (P.ALLDEBRID, KLJUC_AD, P.AD_UPORABNIK,
+                 debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BAD_APIKEY"}}'))):
+            d, nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", return_value=zavrnjen) as k:
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual(k.call_args[0][:2], (naslov, kljuc))                   # kljuc v glavi, ne v naslovu
+            self.assertEqual((s["ok"], s["preverba"], z.zbirka, nast["d"].get("kljuci")), (False, P.PREVERBA_NEVELJAVEN, {}, None))
+            racun = {"id": 7, "username": UPORABNIK, "email": EPOSTA} if p == P.REAL_DEBRID else \
+                {"status": "success", "data": {"user": {"username": UPORABNIK, "email": EPOSTA, "isPremium": True}}}
+            izhod = io.StringIO()
+            _minuta_kasneje(d)
+            with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, json.dumps(racun))), \
+                    self.assertLogs("safeer.debrid", logging.INFO) as dnevnik, contextlib.redirect_stdout(izhod), \
+                    contextlib.redirect_stderr(izhod):
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual((s["ok"], s["preverba"]), (True, P.PREVERBA_VELJAVEN))
+            self.assertEqual(next(x for x in s["storitve"] if x["id"] == p)["stanje"], P.STANJE_VELJA)
+            self.assertEqual(list(z.zbirka.values()), [kljuc])
+            # Odgovor /user nosi uporabnisko ime in e-naslov: nic od tega (ne kljuc) v most, nastavitve, dnevnik ali izpis.
+            for besedilo in (json.dumps(s), json.dumps(nast["d"]), izhod.getvalue(), "\n".join(dnevnik.output)):
+                for skrito in (kljuc, EPOSTA, UPORABNIK):
+                    self.assertNotIn(skrito, besedilo)
+
+    def test_zamenjan_in_odstranjen_kljuc_izbrisan_iz_zbirke(self):
+        """Prej je odstranitev pobrisala samo oznako v nastavitvah - kljuc je ostal v zbirki skrivnosti."""
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 1)):
+            self.assertTrue(debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])["ok"])
+            s = debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB2])
+        self.assertEqual(list(z.zbirka.values()), [KLJUC_TB2])                       # stari izbrisan
+        self.assertIs(s["usenet"]["torbox_pro"], False)
+        self.assertEqual(d.kljuc(P.TORBOX), KLJUC_TB2)
+        s = debrid.most(d, ["pozabi", P.TORBOX])
+        self.assertEqual(z.zbirka, {})
+        self.assertNotIn(P.TORBOX, nast["d"].get("paketi") or {})
+        self.assertFalse(next(x for x in s["storitve"] if x["id"] == P.TORBOX)["kljuc"])
+
+    def test_medijski_center_brise_iz_zbirke(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            z = Shramba()
+            mc = os_media.MediaCenter(tmp, roots=[], secret_encryptor=z.skrij, secret_decryptor=z.razkrij,
+                                      secret_forget=z.pozabi)
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+                self.assertTrue(debrid.most(mc.debrid, ["kljuc", P.TORBOX, KLJUC_TB])["ok"])
+            with open(tmp + "/debrid.json", encoding="utf-8") as f:
+                self.assertNotIn(KLJUC_TB, f.read())
+            debrid.most(mc.debrid, ["pozabi", P.TORBOX])
+            self.assertEqual(z.zbirka, {})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class _Indeksator(http.server.BaseHTTPRequestHandler):
+    odgovori: dict = {}
+    zahteve: list = []
+
+    def do_GET(self):  # noqa: N802 - ime iz http.server
+        type(self).zahteve.append(self.path)
+        koda, telo, glave = type(self).odgovori.get(self.path.split("?", 1)[0], (404, "", {}))
+        self.send_response(koda)
+        for k, v in glave.items():
+            self.send_header(k, v)
+        self.send_header("Content-Type", "text/xml; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(telo.encode())
+
+    def log_message(self, *_a):
+        pass
+
+
+class Indeksator(unittest.TestCase):
+    def setUp(self):
+        _Indeksator.odgovori, _Indeksator.zahteve = {}, []
+        self.streznik = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Indeksator)
+        threading.Thread(target=self.streznik.serve_forever, daemon=True).start()
+        self.osn = "http://127.0.0.1:%d" % self.streznik.server_address[1]     # http samo v domace omrezje (U.osnova)
+
+    def tearDown(self):
+        self.streznik.shutdown()
+        self.streznik.server_close()
+
+    def test_nzbfinder_zavrne_kljuc(self):
+        _Indeksator.odgovori["/api"] = (401, NZBFINDER_401, {})
+        d, nast, z = _debrid()
+        izhod = io.StringIO()
+        with self.assertLogs("safeer.debrid", logging.INFO) as dnevnik, contextlib.redirect_stdout(izhod), \
+                contextlib.redirect_stderr(izhod):
+            s = debrid.most(d, ["usenet", self.osn + "/api?", KLJUC_IX])
+        self.assertEqual((s["ok"], s["preverba"]), (False, P.PREVERBA_NEVELJAVEN))
+        self.assertEqual((z.zbirka, nast["d"].get("usenet")), ({}, None))
+        self.assertEqual(len(_Indeksator.zahteve), 1)
+        for besedilo in (json.dumps(s), izhod.getvalue(), "\n".join(dnevnik.output)):
+            self.assertNotIn(KLJUC_IX, besedilo)
+
+    def test_potrjen_kljuc_shranjen_samo_v_zbirki(self):
+        _Indeksator.odgovori["/api"] = (200, RSS, {})
+        d, nast, z = _debrid()
+        s = debrid.most(d, ["usenet", self.osn, KLJUC_IX])
+        self.assertEqual((s["ok"], s["preverba"], s["usenet"]["gostitelj"]), (True, P.PREVERBA_VELJAVEN, "127.0.0.1"))
+        self.assertEqual(sorted(z.zbirka.values()), sorted([self.osn, KLJUC_IX]))
+        self.assertNotIn(KLJUC_IX, json.dumps(nast["d"]))
+        self.assertNotIn(KLJUC_IX, json.dumps(s))
+        # Zamenjava in odstranitev izbriseta stare zapise iz zbirke.
+        self.assertTrue(debrid.most(d, ["usenet", self.osn, KLJUC_IX[::-1]])["ok"])
+        self.assertEqual(sorted(z.zbirka.values()), sorted([self.osn, KLJUC_IX[::-1]]))
+        debrid.most(d, ["pozabi_usenet"])
+        self.assertEqual(z.zbirka, {})
+
+    def test_preusmeritve_ne_sledi(self):
+        """Naslov preverbe nosi kljuc: preusmeritev (tudi na drug streznik) se ne sledi - kljuc ne gre naprej."""
+        _Indeksator.odgovori["/api"] = (302, "", {"Location": self.osn + "/drugam"})
+        _Indeksator.odgovori["/drugam"] = (200, RSS, {})
+        d, _nast, z = _debrid()
+        s = debrid.most(d, ["usenet", self.osn, KLJUC_IX])
+        self.assertEqual(s["preverba"], P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual([p.split("?", 1)[0] for p in _Indeksator.zahteve], ["/api"])
+
+    def test_kljuc_v_polju_za_naslov_ne_gre_nikamor(self):
+        """Grokov pregled 31, H1: kljuc, prilepljen v polje za naslov, se ne shrani in ne gre v DNS ali do storitve;
+        gola domena (»nzbfinder.ws«) dobi https:// sama (lastnik 25. 10. 2026, kot Android)."""
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")), \
+                mock.patch("socket.getaddrinfo", side_effect=AssertionError("brez DNS")):
+            for naslov in (KLJUC_IX, " %s " % KLJUC_TB, "https://%s/api" % KLJUC_IX, KLJUC_RD):
+                s = debrid.most(d, ["usenet", naslov, KLJUC_IX])
+                self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, U.PREVERBA_NASLOV_JE_KLJUC, {}), naslov)
+                self.assertNotIn(KLJUC_IX, json.dumps(s))
+        self.assertIsNone(nast["d"].get("usenet"))
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN) as pv:
+            s = debrid.most(d, ["usenet", " nzbfinder.ws ", KLJUC_IX])
+        self.assertEqual(pv.call_args[0], ("https://nzbfinder.ws", KLJUC_IX))
+        self.assertEqual((s["ok"], s["usenet"]["gostitelj"]), (True, "nzbfinder.ws"))
+        # Kljuc kot gostitelj, ki ga je shranila prejsnja razlicica: indeksatorja ni (nic ne gre v DNS).
+        d2, nast2, z2 = _debrid()
+        nast2["d"] = {"usenet": {"url": z2.skrij("https://" + KLJUC_IX), "kljuc": z2.skrij(KLJUC_IX)}}
+        self.assertIsNone(d2.indeksator())
+
+    def test_http_na_javni_naslov_zavrnjen_brez_klica(self):
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")):
+            s = debrid.most(d, ["usenet", "http://nzbfinder.ws", KLJUC_IX])
+        self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, P.PREVERBA_OBLIKA, {}))
+
+
+class UsenetTakojPravilo(unittest.TestCase):
+    def test_boljsa_izdaja_se_pocaka(self):
+        """izberi_usenet: dokler boljsa izdaja ni odgovorila, slabsa pripravljena se ne izbere (do roka)."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+
+        def tok(id_toka, *_a, **_k):
+            if id_toka.endswith("1"):
+                time.sleep(0.3)
+            return debrid.Izid(url="https://cdn.tb/" + id_toka[-1], ponudnik=P.TORBOX)
+        tokovi = [{"url": "usenet:000000000000000%d" % i, "naslov": "F%d" % i, "gb": 2.0} for i in (1, 2)]
+        with mock.patch.object(d, "usenet_tok", side_effect=tok):
+            izid = d.usenet_takoj(tokovi, rok=3.0)
+        self.assertEqual((izid[0], izid[1].url), (0, "https://cdn.tb/1"))
+
+
+def _vrstica(s: dict, p: str) -> dict:
+    return next(x for x in s["storitve"] if x["id"] == p)
+
+
+class StanjeKljuca(unittest.TestCase):
+    """M1-M8 nacrta kljuci-namizje (Android d1fdecc): vzorec, stanje po odtisu, ponovna preverba, 401 med uporabo."""
+
+    def test_vzorec_zavrnjen_brez_klica_storitve(self):
+        """Lastnik 25. 10. 2026: vzorec »XXXXXXXX-XXXX-…« se je shranil kot »kljuc vpisan ✓«. Zdaj oblika, nic ne gre ven."""
+        for p, vnos in ((P.TORBOX, "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"), (P.TORBOX, " your_api_key_here_123456 "),
+                        (P.REAL_DEBRID, "abcabcabcabcabcabcabc"), (P.ALLDEBRID, "0000000000000000"),
+                        (P.TORBOX, "k7Q2m9X4p1R8t5W3z6Y")):                   # 19 znakov: TorBox najmanj 20 (M8)
+            d, nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", side_effect=AssertionError("vzorec ne gre do storitve")) as k:
+                s = debrid.most(d, ["kljuc", p, vnos])
+            self.assertEqual((s["ok"], s["preverba"], k.call_count, z.zbirka), (False, P.PREVERBA_OBLIKA, 0, {}), vnos)
+            self.assertEqual(_vrstica(s, p)["stanje"], "")
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("vzorec ne gre do indeksatorja")):
+            s = debrid.most(d, ["usenet", "https://nzbfinder.ws", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"])
+        self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, P.PREVERBA_OBLIKA, {}))
+
+    def test_stanje_vezano_na_kljuc(self):
+        """Zamenjan kljuc nima stanja prejsnjega; v nastavitvah je samo odtis (ne kljuc)."""
+        d, nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            self.assertEqual(_vrstica(debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB]), P.TORBOX)["stanje"], P.STANJE_VELJA)
+        self.assertTrue(d.kljuc_velja(P.TORBOX))
+        zapis = nast["d"]["stanja"][P.TORBOX]
+        self.assertEqual(zapis["odtis"], P.odtis_stanja(KLJUC_TB))
+        self.assertNotIn(KLJUC_TB, json.dumps(nast["d"]))
+        self.assertNotIn(KLJUC_TB[:8], zapis["odtis"])
+        d.nastavi_kljuc(P.TORBOX, KLJUC_TB2)                    # npr. razlicica pred to - kljuc brez stanja
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))
+        self.assertEqual(_vrstica(d.stanje(), P.TORBOX)["stanje"], P.STANJE_NEPREVERJEN)
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", side_effect=OSError("brez omrezja")):
+            debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])       # spet prvi kljuc, a storitev ne odgovori
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NEPREVERJEN)   # ne »velja« od prej
+
+    def test_401_med_uporabo_ne_velja_povezava_velja(self):
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(napaka=P.NAPAKA_KLJUC, ponudnik=P.TORBOX)), \
+                self.assertLogs("safeer.debrid", logging.INFO) as dnevnik:
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
+        self.assertEqual(_vrstica(debrid.most(d, []), P.TORBOX)["stanje"], P.STANJE_NE_VELJA)
+        self.assertNotIn(KLJUC_TB, "\n".join(dnevnik.output))
+        self.assertEqual(d.kljuc(P.TORBOX), KLJUC_TB)           # kljuc ostane - uporabnik ga vpise znova ali »Preveri«
+        # Lastnik 26. 10. 2026 (zaklep racuna): zavrnjenega kljuca ne posljemo vec, tudi ob predvajanju ne.
+        with mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)) as pv:
+            s = debrid.most(d, ["preveri", P.TORBOX])            # uporabnik pritisne »Preveri«
+        self.assertEqual((pv.call_count, s["ok"], _vrstica(s, P.TORBOX)["stanje"]), (1, True, P.STANJE_VELJA))
+        with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)):
+            self.assertTrue(d.tok(H1).url)
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
+        # Zavrnjen kljuc ze ob preverbi ⚡ (checkcached 401).
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(401, '{"success": false, "error": "BAD_TOKEN"}')):
+            self.assertEqual(d.predpomnjeni([H1]), set())
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NE_VELJA)
+
+    def test_meja_in_izpad_med_uporabo_ne_spremenita_stanja(self):
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        for napaka in (P.NAPAKA_MEJA, P.NAPAKA_STREZNIK, P.NAPAKA_NI_PREDPOMNJENO):
+            with mock.patch.object(debrid, "torbox_tok", return_value=debrid.Izid(napaka=napaka, ponudnik=P.TORBOX)):
+                d.tok(H1, samo_takoj=True)
+            self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA, napaka)
+
+    def test_nepreverjen_preveri_znova_najvec_na_10_min(self):
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", side_effect=OSError("brez omrezja")):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)) as pv:
+            s = debrid.most(d, ["preveri"])                    # takoj po vpisu: ne (zadnja preverba < 10 min)
+            self.assertEqual((pv.call_count, _vrstica(s, P.TORBOX)["stanje"]), (0, P.STANJE_NEPREVERJEN))
+            d._zadnja_preverba[P.TORBOX] -= P.PREVERI_ZNOVA_S + 1
+            s = debrid.most(d, ["preveri"])
+            self.assertEqual((pv.call_count, _vrstica(s, P.TORBOX)["stanje"], _vrstica(s, P.TORBOX)["paket"]),
+                             (1, P.STANJE_VELJA, "Pro"))
+            debrid.most(d, ["preveri"])                         # veljaven se ne preverja znova (do 401 med uporabo)
+            self.assertEqual(pv.call_count, 1)
+
+    def test_kljuc_brez_stanja_preverjen_ob_odprtju_okna(self):
+        """Kljuc iz razlicice pred to (brez stanja): okno ga preveri; zavrnjen ostane shranjen kot »ne velja«."""
+        d, _nast, z = _debrid()
+        d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(401, '{"error": "bad_token", "error_code": 8}')) as k:
+            s = debrid.most(d, ["preveri"])
+            debrid.most(d, ["preveri"])
+        self.assertEqual((k.call_count, k.call_args[0][0]), (1, P.RD_UPORABNIK))
+        self.assertEqual(_vrstica(s, P.REAL_DEBRID)["stanje"], P.STANJE_NE_VELJA)
+        self.assertEqual(list(z.zbirka.values()), [KLJUC_RD])
+        self.assertFalse(d.kljuc_velja(P.REAL_DEBRID))
+
+    def test_brez_stanja_najvec_ena_preverba_na_10_min(self):
+        """Lastnik 26. 10. 2026 (zaklep racuna): kljuc brez stanja je bil preverjen ob VSAKEM odprtju okna, dokler se
+        stanje ni zapisalo - ce zapis ne uspe (zbirka, disk), je bil vsak klik nov klic storitve."""
+        d, _nast, _z = _debrid()
+        d.nastavi_kljuc(P.TORBOX, KLJUC_TB)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)) as pv, \
+                mock.patch.object(d, "_zapisi_stanje", return_value=False):
+            for _ in range(5):
+                debrid.most(d, ["preveri"])
+            self.assertEqual(pv.call_count, 1)
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2)                 # drug kljuc: preveri se takoj
+            debrid.most(d, ["preveri"])
+            self.assertEqual(pv.call_count, 2)
+            d._zadnja_preverba[P.TORBOX] -= P.PREVERI_ZNOVA_S + 1
+            debrid.most(d, ["preveri"])
+            self.assertEqual(pv.call_count, 3)
+
+    def test_shranjen_vzorec_ne_gre_storitvi(self):
+        """Grokov pregled 36, D7: vzorec iz prejsnje razlicice je samodejna preverba poslala storitvi (zavrnjen vpis)."""
+        d, _nast, _z = _debrid()
+        d.nastavi_kljuc(P.TORBOX, "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX")
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(401, "{}")) as k:
+            s = debrid.most(d, ["preveri"])
+            debrid.most(d, ["preveri"])
+        self.assertEqual((k.call_count, _vrstica(s, P.TORBOX)["stanje"]), (0, P.STANJE_NE_VELJA))
+
+    def test_zavrnjen_kljuc_ne_gre_v_samodejne_klice(self):
+        """Lastnik 26. 10. 2026 (zaklep racuna): kljuc, ki ga je storitev zavrnila, je sel ob vsakem seznamu virov znova
+        v ⚡ (checkcached) ter v iskanje in prenos NZB - vsak klic se en zavrnjen vpis pri storitvi."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)), \
+                mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+            d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+        self.assertTrue(d.usenet_na_voljo())
+        d.ob_izidu(P.TORBOX, P.NAPAKA_KLJUC, False)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(401, '{"success": false, "error": "BAD_TOKEN"}')) as k:
+            self.assertEqual(d.predpomnjeni([H1]), set())
+        self.assertEqual(k.call_count, 0)
+        self.assertFalse(d.usenet_na_voljo())
+        with mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)  # tudi predvajanje ne (lastnik 26. 10. 2026)
+        with mock.patch.object(debrid, "usenet_nzb", side_effect=AssertionError("brez klica")), \
+                mock.patch.object(debrid, "torbox_usenet", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.usenet_tok("usenet:0000000000000001", "F").napaka, P.NAPAKA_KLJUC)
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            debrid.most(d, ["preveri", P.TORBOX])                # »Preveri« ga vrne v rabo
+        self.assertTrue(d.usenet_na_voljo())
+        d.ob_izidu(P.INDEKSATOR, P.NAPAKA_KLJUC, False)
+        self.assertFalse(d.usenet_na_voljo())
+        with mock.patch.object(debrid, "usenet_isci", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.usenet_isci("tt0111161"), [])
+
+    def test_zaklenjen_racun_ne_klicemo_do_preveri(self):
+        """Lastnik 26. 10. 2026 (zaklep racuna): RD 14 »account locked« je bil »kljuc velja« (paket) in racun smo
+        uporabljali naprej; RD 22 »ip not allowed« preverba na 10 min; AllDebrid AUTH_BLOCKED »ne velja«. Zdaj zaklenjen:
+        kljuc shranjen, vrstica pove, kaj narediti, nobenega klica (ne ⚡, ne predvajanje, ne samodejna preverba) do
+        uporabnikovega »Preveri«."""
+        for p, kljuc, odgovor in (
+                (P.REAL_DEBRID, KLJUC_RD, debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')),
+                (P.REAL_DEBRID, KLJUC_RD, debrid.Odgovor(403, '{"error": "ip_not_allowed", "error_code": 22}')),
+                (P.ALLDEBRID, KLJUC_AD, debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BLOCKED"}}'))):
+            d, _nast, z = _debrid()
+            with mock.patch.object(debrid, "klic", return_value=odgovor) as k:
+                s = debrid.most(d, ["kljuc", p, kljuc])
+            self.assertEqual((k.call_count, s["ok"], s["preverba"]), (1, True, P.PREVERBA_ZAKLENJEN), odgovor.telo)
+            self.assertEqual(_vrstica(s, p)["stanje"], P.STANJE_ZAKLENJEN)
+            self.assertEqual(list(z.zbirka.values()), [kljuc])
+            self.assertFalse(d.kljuc_velja(p))                   # ne gre med naprave
+            with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")) as k, \
+                    mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                    mock.patch.object(debrid, "ad_tok", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+                d._zadnja_preverba[p] -= 10 * P.PREVERI_ZNOVA_S
+                debrid.most(d, ["preveri"])                      # samodejna preverba ga ne poskusi
+            self.assertEqual(d.stanje_kljuca(p), P.STANJE_ZAKLENJEN)
+            racun = '{"id": 7, "username": "u"}' if p == P.REAL_DEBRID else '{"status": "success", "data": {"user": {}}}'
+            _minuta_kasneje(d)
+            with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, racun)) as k:
+                s = debrid.most(d, ["preveri", p])               # po odklepu uporabnik pritisne »Preveri«
+            self.assertEqual((k.call_count, _vrstica(s, p)["stanje"]), (1, P.STANJE_VELJA))
+        # RD 9 »permission denied« ni nikoli »velja« (ni premium ali ni dovoljenja): zavrnjen, ni shranjen.
+        d, _nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "permission_denied", "error_code": 9}')):
+            s = debrid.most(d, ["kljuc", P.REAL_DEBRID, KLJUC_RD])
+        self.assertEqual((s["ok"], s["preverba"], z.zbirka), (False, P.PREVERBA_NEVELJAVEN, {}))
+
+    def test_zaklenjen_med_uporabo(self):
+        """AllDebrid AUTH_BLOCKED med predvajanjem (nova lokacija): zaklenjen, naslednje predvajanje brez klica."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"status": "success", "data": {"user": {}}}')):
+            d.vpisi_kljuc(P.ALLDEBRID, KLJUC_AD)
+        blokiran = debrid.Odgovor(200, '{"status": "error", "error": {"code": "AUTH_BLOCKED", "message": "new location"}}')
+        with mock.patch.object(debrid, "klic", return_value=blokiran) as k:
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+            n = k.call_count
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+        self.assertEqual((n, k.call_count, d.stanje_kljuca(P.ALLDEBRID)), (1, 1, P.STANJE_ZAKLENJEN))
+
+    def test_izid_med_uporabo_vezan_na_kljuc_zahteve(self):
+        """Grokov pregled 36, D2: ob_izidu je bral kljuc sele po odgovoru - 401 starega kljuca je oznacil »ne velja«
+        kljuc, ki ga je uporabnik vpisal med predvajanjem (in ga s tem izkljucil iz rabe), uspeh starega pa novega »velja«."""
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, 2)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+
+        def tok_401(*_a, **_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2, 2, P.STANJE_VELJA)     # medtem vpisan in potrjen nov kljuc
+            return debrid.Izid(napaka=P.NAPAKA_KLJUC, ponudnik=P.TORBOX)
+        with mock.patch.object(debrid, "torbox_tok", side_effect=tok_401):
+            d.tok(H1)
+        self.assertEqual((d.kljuc(P.TORBOX), d.stanje_kljuca(P.TORBOX)), (KLJUC_TB2, P.STANJE_VELJA))
+
+        def tok_uspeh(*_a, **_k):
+            # Nov, se nepreverjen kljuc (ne KLJUC_TB: tega je storitev zgoraj zavrnila - zapora v pomnilniku, S3).
+            d.nastavi_kljuc(P.TORBOX, "5e2f8a1c-9b3d-4c7e-a6f0-1d8b2c4e7a95")
+            return debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)
+        with mock.patch.object(debrid, "torbox_tok", side_effect=tok_uspeh):
+            d.tok(H1)
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))                     # uspeh starega ni potrditev novega
+
+        def predpomnjeni_401(*_a, **_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2, 2, P.STANJE_VELJA)
+            return debrid.Odgovor(401, '{"success": false, "error": "BAD_TOKEN"}')
+        with mock.patch.object(debrid, "klic", side_effect=predpomnjeni_401):
+            d.predpomnjeni([H1])
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
+
+    def test_401_nzb_drugega_gostitelja_ni_kljuc_indeksatorja(self):
+        """Grokov pregled 36, D2: po dovoljeni preusmeritvi na CDN je 401 CDN-ja oznacil kljuc indeksatorja »ne velja«.
+        Pregled Grok 28 L2: tudi 401 istega gostitelja brez napake Newznab ni zavrnjen kljuc; z napako 100 je."""
+        import urllib.error
+
+        def odpiralnik(url, telo=b""):
+            class O:
+                def open(self, *_a, **_k):
+                    raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, io.BytesIO(telo))
+            return lambda *_a: O()
+        povezava = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik("https://cdn.primer.test/nzb/1?sig=x")):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, U.NAPAKA_INDEKSATOR))
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik(povezava)):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, U.NAPAKA_INDEKSATOR))
+        with mock.patch.object(debrid.urllib.request, "build_opener", odpiralnik(povezava, NZBFINDER_401.encode())):
+            self.assertEqual(debrid.usenet_nzb(povezava), (None, P.NAPAKA_KLJUC))
+
+    def test_zamenjan_med_preverbo_ne_dobi_stanja_starega(self):
+        d, _nast, _z = _debrid()
+        d.nastavi_kljuc(P.TORBOX, KLJUC_TB)
+
+        def preveri(_k):
+            d.nastavi_kljuc(P.TORBOX, KLJUC_TB2)               # uporabnik je medtem vpisal drug kljuc
+            return P.PREVERBA_NEVELJAVEN, None
+        with mock.patch.object(debrid, "torbox_preveri", side_effect=preveri):
+            self.assertFalse(d.preveri_nepreverjene())
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))
+        self.assertIsNone(d._nastavitve().get("stanja", {}).get(P.TORBOX))
+
+    def test_povezava_nzb_s_starim_kljucem_ne_gre_indeksatorju(self):
+        """Grokov pregled 40, S1: povezava NZB v pomnilniku (do 500) nosi kljuc indeksatorja iz casa iskanja, usenet_tok
+        pa je gledal stanje TRENUTNEGA kljuca. Po zaklepu racuna (NZBFinder 101) in vpisu drugega kljuca ali odstranitvi
+        indeksatorja je klik na star vir poslal zaklenjen kljuc indeksatorju."""
+        kljuc_ix2 = "fedcba9876543210fedcba9876543210"
+        povezava = "https://nzbfinder.ws/getnzb?id=1&apikey=" + KLJUC_IX
+        for konec in ("nov_kljuc", "odstranjen", "zaklenjen", "isti_velja"):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)), \
+                    mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+            with mock.patch.object(debrid, "usenet_isci", return_value=[U.Zadetek("Film.2024.1080p", povezava, 2 << 30)]):
+                idt = d.usenet_isci("tt0111161")[0]["url"]
+            if konec == "isti_velja":                    # nadzor: s kljucem, ki je se shranjen in velja, NZB gre
+                with mock.patch.object(debrid, "usenet_nzb", return_value=(b"<nzb/>", "")) as nzb, \
+                        mock.patch.object(debrid, "torbox_usenet", return_value=debrid.Izid(url="https://cdn.tb/u")):
+                    self.assertEqual(d.usenet_tok(idt, "Film").url, "https://cdn.tb/u")
+                self.assertEqual(nzb.call_args[0][0], povezava)
+                continue
+            d.ob_izidu(P.INDEKSATOR, P.NAPAKA_ZAKLENJEN, False)          # NZBFinder 101: racun suspendiran
+            self.assertEqual(d._povezave_nzb, {}, konec)                  # zavrnjen kljuc ne ostane v povezavah
+            with d._zaklep:                                              # kot da bi povezava ostala (npr. hkratno iskanje)
+                d._povezave_nzb[idt] = (povezava, d._vezava(P.INDEKSATOR))
+            if konec == "nov_kljuc":
+                with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                    d.vpisi_indeksator("https://nzbfinder.ws", kljuc_ix2)
+                self.assertEqual(d._povezave_nzb, {})                    # menjava kljuca pocisti povezave
+                with d._zaklep:
+                    d._povezave_nzb[idt] = (povezava, (("x",), P.odtis_stanja("https://nzbfinder.ws|" + KLJUC_IX)))
+            elif konec == "odstranjen":
+                d.pozabi_indeksator()
+                self.assertEqual(d._povezave_nzb, {})
+                with d._zaklep:
+                    d._povezave_nzb[idt] = (povezava, (("x",), P.odtis_stanja("https://nzbfinder.ws|" + KLJUC_IX)))
+            with mock.patch.object(debrid, "usenet_nzb", side_effect=AssertionError("star kljuc ne gre ven")), \
+                    mock.patch.object(debrid, "torbox_usenet", side_effect=AssertionError("brez klica")):
+                izid = d.usenet_tok(idt, "Film")
+            self.assertEqual(izid.napaka, P.NAPAKA_ZAKLENJEN if konec == "zaklenjen" else U.NAPAKA_INDEKSATOR, konec)
+
+    def test_preveri_brez_odgovora_zaprtega_ne_odklene(self):
+        """Grokov pregled 40, S2: »Preveri« (ali ponoven vpis istega kljuca) brez odgovora storitve (izpad, 429, 5xx, 403
+        brez kode) je znizal »ne velja« ali »zaklenjen« v »nepreverjen« - ⚡, predvajanje in preverba na 10 min so spet
+        klicali zaklenjen racun brez dokaza, da velja."""
+        for napaka, zaprto in ((P.NAPAKA_KLJUC, P.STANJE_NE_VELJA), (P.NAPAKA_ZAKLENJEN, P.STANJE_ZAKLENJEN)):
+            for izid in (P.PREVERBA_NI_ODGOVORA, P.PREVERBA_MEJA):
+                for pot in ("preveri", "vpis"):
+                    opis = (napaka, izid, pot)
+                    d, _nast, _z = _debrid()
+                    with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                        d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                    d.ob_izidu(P.TORBOX, napaka, False)
+                    _minuta_kasneje(d)
+                    with mock.patch.object(debrid, "torbox_preveri", return_value=(izid, None)) as pv:
+                        s = debrid.most(d, ["preveri", P.TORBOX] if pot == "preveri" else ["kljuc", P.TORBOX, KLJUC_TB])
+                    self.assertEqual((pv.call_count, s["preverba"], _vrstica(s, P.TORBOX)["stanje"]), (1, izid, zaprto), opis)
+                    self.assertFalse(d.sme_klicati(P.TORBOX), opis)
+                    with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")), \
+                            mock.patch.object(debrid, "torbox_tok", side_effect=AssertionError("brez klica")):
+                        self.assertEqual(d.predpomnjeni([H1]), set(), opis)
+                        self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN if zaprto == P.STANJE_ZAKLENJEN else P.NAPAKA_KLJUC)
+                        d._zadnja_preverba[P.TORBOX] -= 10 * P.PREVERI_ZNOVA_S
+                        debrid.most(d, ["preveri"])                  # samodejna preverba ga ne poskusi
+        # Nov (drug) kljuc brez odgovora je nepreverjen - stanje prejsnjega kljuca ne velja zanj.
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            self.assertEqual(d.vpisi_kljuc(P.TORBOX, KLJUC_TB2)["stanje"], P.STANJE_NEPREVERJEN)
+        # Indeksator enako: zaklenjen (Newznab 101) ostane zaklenjen, ce indeksator ob »Preveri« ali vpisu ne odgovori.
+        for pot in ("preveri", "vpis"):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_VELJAVEN):
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+            d.ob_izidu(P.INDEKSATOR, P.NAPAKA_ZAKLENJEN, False)
+            _minuta_kasneje(d)
+            with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_NI_ODGOVORA) as ix:
+                s = debrid.most(d, ["preveri", "usenet"] if pot == "preveri" else ["usenet", "https://nzbfinder.ws", KLJUC_IX])
+            self.assertEqual((ix.call_count, s["usenet"]["stanje"]), (1, P.STANJE_ZAKLENJEN), pot)
+            self.assertFalse(d.sme_klicati(P.INDEKSATOR), pot)
+        self.assertEqual([P.stanje_po_rocni_preverbi(i) for i in (P.PREVERBA_VELJAVEN, P.PREVERBA_ZAKLENJEN,
+                          P.PREVERBA_NEVELJAVEN, P.PREVERBA_OBLIKA, P.PREVERBA_NI_ODGOVORA, P.PREVERBA_MEJA)],
+                         [P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA, None, None])
+
+    def test_pozen_uspeh_ne_odpravi_zapore(self):
+        """Grokov pregled 40, S6: zahteva, ki je stekla pred zaporo, je s poznim uspehom prepisala novejsi »zaklenjen« ali
+        »ne velja« v »velja« - nato so vse poti (⚡, predvajanje, Usenet) spet klicale zaklenjen racun."""
+        for napaka, zaprto in ((P.NAPAKA_ZAKLENJEN, P.STANJE_ZAKLENJEN), (P.NAPAKA_KLJUC, P.STANJE_NE_VELJA)):
+            d, _nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+
+            def tok_pozen(*_a, **_k):
+                d.ob_izidu(P.TORBOX, napaka, False)              # medtem ⚡ ali druga zahteva dobi zaporo
+                return debrid.Izid(url="https://cdn.tb/f", ponudnik=P.TORBOX)
+            with mock.patch.object(debrid, "torbox_tok", side_effect=tok_pozen):
+                d.tok(H1)
+            self.assertEqual(d.stanje_kljuca(P.TORBOX), zaprto, napaka)
+            self.assertFalse(d.sme_klicati(P.TORBOX), napaka)
+        # Zastarelo branje: stanje je bilo prebrano pred zaporo druge niti - zapis »velja« pogleda stanje pod zaklepom.
+        d, nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        d.ob_izidu(P.TORBOX, P.NAPAKA_ZAKLENJEN, False)
+        with mock.patch.object(d, "stanje_kljuca", return_value=P.STANJE_NEPREVERJEN):
+            d.ob_izidu(P.TORBOX, "", True)
+        self.assertEqual(nast["d"]["stanja"][P.TORBOX]["s"], P.STANJE_ZAKLENJEN)
+        # Nepreverjen ali brez stanja: uspeh med uporabo kljuc potrdi (kot prej).
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        d.ob_izidu(P.TORBOX, "", True)
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_VELJA)
+        self.assertEqual([P.stanje_po_uporabi(s, "", True) for s in (None, P.STANJE_NEPREVERJEN, P.STANJE_VELJA,
+                                                                      P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN)],
+                         [P.STANJE_VELJA, P.STANJE_VELJA, None, None, None])
+
+    def test_preveri_in_vpis_istega_kljuca_najvec_enkrat_na_minuto(self):
+        """Grokov pregled 40, S8: »Preveri« in ponoven vpis istega kljuca nista imela meje - deset klikov na »Preveri« pri
+        zaklenjenem racunu RD je bilo deset poskusov prijave v minuti. preveri_izrecno je na tekoco samodejno preverbo
+        cakal v niti mostu (do 4 x 8 s)."""
+        zaklenjen = debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=zaklenjen) as k:
+            self.assertEqual(debrid.most(d, ["kljuc", P.REAL_DEBRID, KLJUC_RD])["preverba"], P.PREVERBA_ZAKLENJEN)
+            for ukaz in (["preveri", P.REAL_DEBRID], ["kljuc", P.REAL_DEBRID, KLJUC_RD], ["preveri", P.REAL_DEBRID]):
+                s = debrid.most(d, ukaz)
+                self.assertEqual((s["ok"], s["preverba"]), (False, P.PREVERBA_POCAKAJ), ukaz)
+                self.assertTrue(0 < s["cez_s"] <= 60, s["cez_s"])
+                self.assertEqual(_vrstica(s, P.REAL_DEBRID)["stanje"], P.STANJE_ZAKLENJEN)
+            self.assertEqual(k.call_count, 1)
+            _minuta_kasneje(d)
+            self.assertEqual(debrid.most(d, ["preveri", P.REAL_DEBRID])["preverba"], P.PREVERBA_ZAKLENJEN)
+            self.assertEqual(debrid.most(d, ["preveri", P.REAL_DEBRID])["preverba"], P.PREVERBA_POCAKAJ)
+            self.assertEqual(k.call_count, 2)
+        # Drug kljuc (uporabnik je popravil tipkarsko napako) ni omejen.
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 7, "username": "u"}')) as k:
+            self.assertEqual(debrid.most(d, ["kljuc", P.REAL_DEBRID, KLJUC_RD[::-1]])["preverba"], P.PREVERBA_VELJAVEN)
+        self.assertEqual(k.call_count, 1)
+        # Indeksator enako (vpis in »Preveri« istega naslova in kljuca).
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_ZAKLENJEN) as ix:
+            debrid.most(d, ["usenet", "https://nzbfinder.ws", KLJUC_IX])
+            self.assertEqual(debrid.most(d, ["preveri", "usenet"])["preverba"], P.PREVERBA_POCAKAJ)
+            self.assertEqual(debrid.most(d, ["usenet", "https://nzbfinder.ws", KLJUC_IX])["preverba"], P.PREVERBA_POCAKAJ)
+        self.assertEqual(ix.call_count, 1)
+        # Samodejna preverba tece: »Preveri« ne caka zaklepa v niti mostu (prej do 4 x 8 s), nic ne gre storitvi.
+        _minuta_kasneje(d)
+        izid: dict = {}
+        with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")), \
+                mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")):
+            self.assertTrue(d._preverjam.acquire(timeout=1))
+            try:
+                nit = threading.Thread(target=lambda: izid.__setitem__("v", debrid.most(d, ["preveri", P.REAL_DEBRID])))
+                nit.start()
+                nit.join(2.0)
+                self.assertFalse(nit.is_alive(), "»Preveri« caka na samodejno preverbo")
+            finally:
+                d._preverjam.release()
+            nit.join(5.0)
+        self.assertEqual((izid["v"]["ok"], izid["v"]["preverba"]), (False, P.PREVERBA_TECE))
+        self.assertEqual([P.rocna_preverba_dovoljena(z, 1000.0) for z in (0.0, 940.0, 940.001, 1000.0, 1000.5)],
+                         [True, True, False, False, True])
+
+    def test_zapora_odpove_zaprto(self):
+        """Grokov pregled 40, S3: zapora je bila samo toliko trdna kot zapis nastavitev - neuspel zapis, neznano ali
+        pokvarjeno stanje in nastavi_kljuc brez stanja so pomenili »sme klicati« (odpove odprto)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        # 1. Zapis stanja ne uspe (poln disk, nastavitve samo za branje): RD 14 med predvajanjem zapre kljuc v pomnilniku.
+        z, nast = Shramba(), {"d": {}}
+        d = debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),           # kot datoteka: vsako branje svoja kopija
+                          lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+
+        def pisi_ne(_x):
+            raise OSError("disk poln")
+        d._pisi = pisi_ne
+        with mock.patch.object(debrid, "rd_tok", return_value=debrid.Izid(napaka=P.NAPAKA_ZAKLENJEN, ponudnik=P.REAL_DEBRID)):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+        self.assertEqual(nast["d"]["stanja"][P.REAL_DEBRID]["s"], P.STANJE_VELJA)     # na disku ostane staro
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
+        with mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN)
+            d._zadnja_preverba[P.REAL_DEBRID] = 0.0
+            debrid.most(d, ["preveri"])                          # samodejna preverba ga ne poskusi
+        self.assertEqual(_vrstica(debrid.most(d, []), P.REAL_DEBRID)["stanje"], P.STANJE_ZAKLENJEN)
+        # 2. Zapis stanja ISTEGA kljuca, ki ga ni mogoce prebrati: »ne velja« (»Preveri«), ne »brez stanja«.
+        odtis = P.odtis_stanja(KLJUC_TB)
+        for zapis in ({"s": "nekaj-novega", "odtis": odtis}, {"s": None, "odtis": odtis}, {"s": P.STANJE_VELJA},
+                      {"s": P.STANJE_VELJA, "odtis": 7}, "pokvarjeno", ["x"]):
+            d, nast, _z = _debrid()
+            with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+                d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+            nast["d"]["stanja"][P.TORBOX] = zapis
+            self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NE_VELJA, zapis)
+            with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.predpomnjeni([H1]), set(), zapis)
+        nast["d"]["stanja"] = ["pokvarjeno"]                     # ves razdelek stanj ni slovar
+        self.assertEqual(d.stanje_kljuca(P.TORBOX), P.STANJE_NE_VELJA)
+        nast["d"]["stanja"] = {P.TORBOX: {"s": P.STANJE_ZAKLENJEN, "odtis": P.odtis_stanja(KLJUC_TB2)}}
+        self.assertIsNone(d.stanje_kljuca(P.TORBOX))             # zapis DRUGEGA kljuca: nov kljuc je nepreverjen
+        # 3. nastavi_kljuc ali nastavi_indeksator brez stanja (uvoz, selitev) za ISTI kljuc ohrani »zaklenjen«.
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "indeksator_preveri", return_value=P.PREVERBA_ZAKLENJEN):
+            d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX)
+        d._zaprti.clear()                                        # npr. po ponovnem zagonu: samo zapis v nastavitvah
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD))
+        self.assertTrue(d.nastavi_indeksator("https://nzbfinder.ws", KLJUC_IX))
+        self.assertEqual((d.stanje_kljuca(P.REAL_DEBRID), d.stanje_kljuca(P.INDEKSATOR)),
+                         (P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN))
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD[::-1]))   # drug kljuc nima stanja prejsnjega
+        self.assertIsNone(d.stanje_kljuca(P.REAL_DEBRID))
+        self.assertEqual([P.stanje_iz_zapisa(z, "ab") for z in (None, {"s": "velja", "odtis": "ab"},
+                          {"s": "velja", "odtis": "cd"}, {"s": "x", "odtis": "ab"}, "x")],
+                         [None, P.STANJE_VELJA, None, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA])
+
+    def test_zapora_po_kljucu_prezivi_zamenjavo_odstranitev_in_zagon(self):
+        """Grokov pregled 47, U1 (kot Android a15fb57): ponoven vpis prej zaprtega kljuca po zamenjavi z drugim kljucem,
+        po »Odstrani« ali po ponovnem zagonu ga je brez odgovora storitve zapisal kot »nepreverjen« in zaporo izbrisal -
+        ⚡, predvajanje in samodejna preverba so ga nato spet posiljali zaklenjenemu racunu."""
+        zaklenjen = debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        izpad = debrid.Odgovor(503, "")
+        drugi = KLJUC_RD[::-1]
+        z, nast = Shramba(), {"d": {}}
+
+        def nov():                                   # kot ponovni zagon: nov Debrid na istih nastavitvah, pomnilnik prazen
+            return debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),
+                                 lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        for pot in ("zamenjava", "odstrani", "zagon", "pozen izid po zamenjavi"):
+            nast["d"] = {}
+            d = nov()
+            if pot == "pozen izid po zamenjavi":     # zahteva s KLJUC_RD tece, uporabnik vpise drugi kljuc, RD odgovori 14
+                with mock.patch.object(debrid, "klic", return_value=racun):
+                    d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+                vezava = d._vezava(P.REAL_DEBRID)
+                with mock.patch.object(debrid, "klic", return_value=racun):
+                    d.vpisi_kljuc(P.REAL_DEBRID, drugi)
+                d.ob_izidu(P.REAL_DEBRID, P.NAPAKA_ZAKLENJEN, False, vezava)
+                self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_VELJA)     # drugi kljuc ostane veljaven
+                d = nov()
+            else:
+                with mock.patch.object(debrid, "klic", return_value=zaklenjen):
+                    self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_ZAKLENJEN, pot)
+                if pot == "odstrani":
+                    enc = nast["d"]["kljuci"][P.REAL_DEBRID]
+                    d.pozabi_kljuc(P.REAL_DEBRID)
+                    self.assertNotIn(enc, z.zbirka)             # kljuc je iz zbirke izbrisan, zapora (odtis) ostane
+                else:
+                    with mock.patch.object(debrid, "klic", return_value=racun):
+                        self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, drugi)["stanje"], P.STANJE_VELJA, pot)
+                    if pot == "zagon":
+                        d = nov()
+            _minuta_kasneje(d)
+            with mock.patch.object(debrid, "klic", return_value=izpad):
+                v = d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+            self.assertEqual((v["preverba"], v["stanje"], d.stanje_kljuca(P.REAL_DEBRID)),
+                             (P.PREVERBA_NI_ODGOVORA, P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN), pot)
+            self.assertFalse(d.sme_klicati(P.REAL_DEBRID), pot)
+            with mock.patch.object(debrid, "rd_tok", side_effect=AssertionError("brez klica")), \
+                    mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")):
+                self.assertEqual(d.tok(H1).napaka, P.NAPAKA_ZAKLENJEN, pot)
+                d._zadnja_preverba.clear()
+                debrid.most(d, ["preveri"])                     # samodejna preverba ga ne poskusi
+            self.assertNotIn(KLJUC_RD, json.dumps(nast["d"]))   # v nastavitvah samo odtis, nikoli kljuc
+        # Samo »velja« (»Preveri« ali vpis, ki ga storitev potrdi) zaporo odpravi; potem je izpad spet »nepreverjen«.
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            self.assertEqual(d.preveri_izrecno(P.REAL_DEBRID)["stanje"], P.STANJE_VELJA)
+        self.assertNotIn(P.odtis_stanja(KLJUC_RD), nast["d"]["zapore"][P.REAL_DEBRID])
+        # Indeksator enako (naslov in kljuc): »Odstrani« in zamenjava ne odpravita zapore.
+        d = nov()
+        osn = "https://nzbfinder.ws"
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_ZAKLENJEN)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        d.pozabi_indeksator()
+        _minuta_kasneje(d)
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX[::-1], preveri=lambda o, k: P.PREVERBA_VELJAVEN)["stanje"],
+                         P.STANJE_VELJA)
+        _minuta_kasneje(d)
+        self.assertEqual(nov().vpisi_indeksator(osn, KLJUC_IX, preveri=lambda o, k: P.PREVERBA_MEJA)["stanje"],
+                         P.STANJE_ZAKLENJEN)
+        # Zadnjih P.NAJVEC_ZAPOR zapor na storitev; »nepreverjen« zapore ne odpravi, »velja« jo.
+        zapore: dict = {}
+        for i in range(12):
+            zapore = P.z_zaporo(zapore, "odtis%d" % i, P.STANJE_NE_VELJA)
+        self.assertEqual((len(zapore), "odtis0" in zapore, zapore.get("odtis11")), (8, False, P.STANJE_NE_VELJA))
+        self.assertEqual(P.z_zaporo({"a": P.STANJE_ZAKLENJEN}, "a", P.STANJE_NEPREVERJEN), {"a": P.STANJE_ZAKLENJEN})
+        self.assertEqual(P.z_zaporo({"a": P.STANJE_ZAKLENJEN}, "a", P.STANJE_VELJA), {})
+        self.assertEqual(P.zapore_iz_zapisa({"a": P.STANJE_ZAKLENJEN, "b": "velja", "": P.STANJE_NE_VELJA, "c": 3}),
+                         {"a": P.STANJE_ZAKLENJEN})
+        self.assertEqual([P.stanje_z_zaporo(*x) for x in ((None, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA),
+                                                          (None, None, P.STANJE_ZAKLENJEN),
+                                                          (None, P.STANJE_VELJA, P.STANJE_NE_VELJA),
+                                                          (P.STANJE_ZAKLENJEN, P.STANJE_VELJA, None),
+                                                          (None, P.STANJE_NEPREVERJEN, None))],
+                         [P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_NEPREVERJEN])
+
+    def test_pokvarjen_razdelek_ne_odpre_drugih_storitev(self):
+        """Grokov pregled 47, U2: razdelek stanj (ali zapor), ki ni slovar, je do zapisa zaprl vse kljuce (S3), prvi zapis
+        stanja katere koli storitve pa ga je zamenjal s praznim - zapore drugih storitev so izginile (odpove odprto)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+        tb_velja = mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO))
+        for razdelek in ("stanja", "zapore"):
+            for dejanje in ("vpis", "preveri", "odstrani"):
+                pot = razdelek + " " + dejanje
+                d, nast, _z = _debrid()
+                with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+                    d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)                     # nepreverjen
+                with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_NI_ODGOVORA, None)):
+                    d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+                d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)
+                nast["d"][razdelek] = ["pokvarjeno"]
+                self.assertEqual([d.stanje_kljuca(p) for p in (P.REAL_DEBRID, P.TORBOX, P.INDEKSATOR)],
+                                 [P.STANJE_NE_VELJA] * 3, pot)
+                _minuta_kasneje(d)
+                if dejanje == "vpis":
+                    with tb_velja:
+                        self.assertEqual(d.vpisi_kljuc(P.TORBOX, KLJUC_TB)["stanje"], P.STANJE_VELJA, pot)
+                elif dejanje == "preveri":
+                    with tb_velja:
+                        self.assertEqual(d.preveri_izrecno(P.TORBOX)["stanje"], P.STANJE_VELJA, pot)
+                else:
+                    d.pozabi_kljuc(P.TORBOX)
+                    self.assertIsNone(d.stanje_kljuca(P.TORBOX), pot)
+                if razdelek == "stanja" or dejanje != "odstrani":
+                    self.assertIsInstance(nast["d"][razdelek], dict, pot)     # razdelek je popravljen
+                # Druge storitve ostanejo zaprte: brez klica do »Preveri«.
+                self.assertEqual((d.stanje_kljuca(P.REAL_DEBRID), d.stanje_kljuca(P.INDEKSATOR)),
+                                 (P.STANJE_NE_VELJA, P.STANJE_NE_VELJA), pot)
+                with mock.patch.object(debrid, "klic", side_effect=AssertionError("brez klica")), \
+                        mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("brez klica")):
+                    d._zadnja_preverba.clear()
+                    debrid.most(d, ["preveri"])
+                self.assertFalse(d.sme_klicati(P.REAL_DEBRID) or d.sme_klicati(P.INDEKSATOR), pot)
+                self.assertNotIn(KLJUC_RD, json.dumps(nast["d"]))
+        # »Preveri« jih vrne.
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            self.assertEqual(d.preveri_izrecno(P.REAL_DEBRID)["stanje"], P.STANJE_VELJA)
+        # Zapis na mestu je vedno zapis shranjenega kljuca: uvoz prej zaklenjenega kljuca (nastavi_kljuc brez stanja) ne
+        # pusti zapisa prejsnjega kljuca - popravilo pokvarjenega razdelka zapor ga ne vzame za dokoncno stanje.
+        d, nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(403, '{"error": "account_locked", "error_code": 14}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD[::-1])
+        d._zaprti.clear()                                        # npr. po ponovnem zagonu
+        self.assertTrue(d.nastavi_kljuc(P.REAL_DEBRID, KLJUC_RD))
+        self.assertEqual(nast["d"]["stanja"][P.REAL_DEBRID]["odtis"], P.odtis_stanja(KLJUC_RD))
+        nast["d"]["zapore"] = "pokvarjeno"
+        with tb_velja:
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
+
+    def test_odstranitev_izbrise_kljuc_tudi_ob_hkratni_zapori(self):
+        """Grokov pregled 47, U4: _zaprti se je bral in pisal brez zaklepa, »Odstrani« pa ga je pregledoval - zapora, ki jo
+        druga nit doda med pregledom, je vrgla RuntimeError in sifriran kljuc je ostal v zbirki (vmesnik: »odstranjen«)."""
+        racun = debrid.Odgovor(200, '{"id": 7, "username": "u"}')
+
+        class Tekma(dict):
+            """Druga nit (⚡, predvajanje, »Preveri«) doda zaporo MED pregledom slovarja."""
+            def __iter__(self):
+                for i, z in enumerate(dict.__iter__(self)):
+                    if i == 0:
+                        dict.__setitem__(self, (P.ALLDEBRID, "drugo%d" % len(self)), P.STANJE_NE_VELJA)
+                    yield z
+        d, nast, z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        d.vpisi_indeksator("https://nzbfinder.ws", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_ZAKLENJEN)
+        self.assertEqual(len(z.zbirka), 3)
+        d._zaprti = Tekma(d._zaprti)
+        d.pozabi_kljuc(P.REAL_DEBRID)
+        d.pozabi_indeksator()
+        self.assertEqual((z.zbirka, "usenet" in nast["d"], d.kljuc(P.REAL_DEBRID)), ({}, False, None))
+        # Zapora, ki je samo v pomnilniku (zapis v nastavitve ni uspel), ostane po »Odstrani« (po kljucu, kot Android).
+        z, nast = Shramba(), {"d": {}}
+        d = debrid.Debrid(lambda: json.loads(json.dumps(nast["d"])),
+                          lambda x: nast.__setitem__("d", json.loads(json.dumps(x))), z.skrij, z.razkrij, z.pozabi)
+        with mock.patch.object(debrid, "klic", return_value=racun):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        pisi = d._pisi
+
+        def pisi_ne(_x):
+            raise OSError("disk poln")
+        d._pisi = pisi_ne
+        d.ob_izidu(P.REAL_DEBRID, P.NAPAKA_ZAKLENJEN, False)
+        d._pisi = pisi
+        d.pozabi_kljuc(P.REAL_DEBRID)
+        _minuta_kasneje(d)
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+            self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_ZAKLENJEN)
+        # Hkratno branje in pisanje zapor iz vec niti brez napake.
+        napake: list = []
+
+        def pisi_zapore():
+            try:
+                for i in range(3000):
+                    d._spomni_zaporo(P.ALLDEBRID, "o%d" % i, P.STANJE_NE_VELJA if i % 2 else P.STANJE_VELJA)
+            except Exception as e:  # noqa: BLE001
+                napake.append(e)
+        niti = [threading.Thread(target=pisi_zapore) for _ in range(2)]
+        for n in niti:
+            n.start()
+        for _ in range(200):
+            d.stanje_kljuca(P.REAL_DEBRID)
+        for n in niti:
+            n.join(10)
+        self.assertEqual(napake, [])
+
+    def test_indeksator_z_drugace_zapisanim_naslovom_je_isti_kljuc(self):
+        """Grokov pregled 47, U5: odtis indeksatorja je vkljuceval naslov, kot ga je vpisal uporabnik - isti kljuc z
+        »www.«, velikimi crkami, koncno piko ali privzetimi vrati je bil nov kljuc: brez meje 1x na minuto in brez zapore."""
+        osn = "https://nzbfinder.ws"
+        self.assertEqual(P.odtis_indeksatorja(osn, KLJUC_IX), P.odtis_stanja(osn + "|" + KLJUC_IX))   # skupni primeri v2
+        for drug in ("https://WWW.NZBFinder.ws/", "https://www.nzbfinder.ws:443", "nzbfinder.ws.", "https://nzbfinder.ws/api/"):
+            self.assertEqual(P.odtis_indeksatorja(U.osnova(drug), KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX), drug)
+        for drug in ("https://api.nzbfinder.ws", "https://nzbfinder.ws:8443", "https://nzbfinder.ws/drugo"):
+            self.assertNotEqual(P.odtis_indeksatorja(U.osnova(drug), KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX), drug)
+        for lokalni in ("http://127.0.0.1:5076", "http://[fd00::1]:5076"):          # domace omrezje: kot prej
+            self.assertEqual(P.odtis_indeksatorja(U.osnova(lokalni), KLJUC_IX), P.odtis_stanja(lokalni + "|" + KLJUC_IX))
+        d, _nast, _z = _debrid()
+        klici: list = []
+
+        def zaklenjen(o, k):
+            klici.append(o)
+            return P.PREVERBA_ZAKLENJEN
+        self.assertEqual(d.vpisi_indeksator(osn, KLJUC_IX, preveri=zaklenjen)["stanje"], P.STANJE_ZAKLENJEN)
+        v = d.vpisi_indeksator("https://WWW.NZBFinder.ws/", KLJUC_IX, preveri=zaklenjen)
+        self.assertEqual((v["preverba"], len(klici)), (P.PREVERBA_POCAKAJ, 1))     # meja 1x na minuto velja
+        _minuta_kasneje(d)
+        v = d.vpisi_indeksator("https://WWW.NZBFinder.ws/", KLJUC_IX, preveri=lambda o, k: P.PREVERBA_NI_ODGOVORA)
+        self.assertEqual((v["stanje"], d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)),
+                         (P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN, False))
+        self.assertEqual(d.indeksator()[0], "https://WWW.NZBFinder.ws")       # za zahteve ostane vpisani naslov
+
+    def test_stanje_indeksatorja_pod_odtisom_pred_u5_ostane_po_posodobitvi(self):
+        """Grokov pregled 49, O1: U5 je odtis indeksatorja izracunal iz poenotenega naslova - stanje in zapora, shranjena
+        pod odtisom naslova, kot je bil vpisan (»www.«, velike crke), po posodobitvi nista bila najdena: zaklenjen indeksator
+        je bil »brez stanja« in ga je samodejna preverba takoj poklicala (zaklep racuna)."""
+        naslov = "https://WWW.Primer.test/"
+        osn = U.osnova(naslov)
+        star, nov = P.odtis_stanja(osn + "|" + KLJUC_IX), P.odtis_indeksatorja(osn, KLJUC_IX)
+        self.assertNotEqual(star, nov)
+
+        def po_posodobitvi(razdelki):
+            """Nastavitve iz prejsnje razlicice: indeksator z neenotnim naslovom in stanje/zapore pod STARIM odtisom."""
+            d, nast, z = _debrid()
+            d.nastavi_indeksator(naslov, KLJUC_IX)
+            nast["d"].update(json.loads(json.dumps(razdelki)))
+            return debrid.Debrid(lambda: nast["d"], lambda x: nast.__setitem__("d", json.loads(json.dumps(x))),
+                                 z.skrij, z.razkrij, z.pozabi), nast
+
+        for s in (P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA):
+            for razdelki in ({"stanja": {P.INDEKSATOR: {"s": s, "odtis": star, "ob": 1.0}}},
+                             {"zapore": {P.INDEKSATOR: {star: s}}}):
+                d, nast = po_posodobitvi(razdelki)
+                self.assertEqual((d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)), (s, False), razdelki)
+                with mock.patch.object(debrid, "indeksator_preveri", side_effect=AssertionError("klic storitve")) as ix, \
+                        mock.patch.object(debrid, "klic", side_effect=AssertionError("klic storitve")):
+                    d.preveri_nepreverjene()                    # samodejna preverba ne sme poklicati zaprtega kljuca
+                    self.assertEqual(ix.call_count, 0)
+                # Prvi zapis nastavitev prenese stanje na novi odtis (potem ga »velja« odpravi pri pravem kljucu).
+                d.nastavi_kljuc(P.TORBOX, KLJUC_TB, None, P.STANJE_VELJA)
+                self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), s)
+                self.assertNotIn(star, json.dumps(nast["d"].get("stanja", {}).get(P.INDEKSATOR)) + json.dumps(nast["d"].get("zapore", {}).get(P.INDEKSATOR)))
+        # »velja« pod starim odtisom je »velja« (isti kljuc) in tak kljuc sme k storitvi.
+        d, _ = po_posodobitvi({"stanja": {P.INDEKSATOR: {"s": P.STANJE_VELJA, "odtis": star, "ob": 1.0}}})
+        self.assertEqual((d.stanje_kljuca(P.INDEKSATOR), d.sme_klicati(P.INDEKSATOR)), (P.STANJE_VELJA, True))
+        # Zapora pod obema odtisoma: velja strozja (zaklep racuna), ne glede na vrstni red.
+        for a, b, pricakovano in ((P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN, P.STANJE_ZAKLENJEN),
+                                  (P.STANJE_ZAKLENJEN, P.STANJE_NE_VELJA, P.STANJE_ZAKLENJEN),
+                                  (P.STANJE_NE_VELJA, P.STANJE_NE_VELJA, P.STANJE_NE_VELJA)):
+            for vrstni_red in ((star, nov), (nov, star)):
+                vrednosti = {star: a, nov: b}
+                d, _ = po_posodobitvi({"zapore": {P.INDEKSATOR: {o: vrednosti[o] for o in vrstni_red}}})
+                self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), pricakovano, (a, b, vrstni_red))
+        self.assertEqual(P.strozja_zapora(P.STANJE_NE_VELJA, None), P.STANJE_NE_VELJA)
+        self.assertEqual(P.strozja_zapora(None, P.STANJE_ZAKLENJEN), P.STANJE_ZAKLENJEN)
+        # Stanje drugega kljuca (ne tega odtisa) se ne prenese: nov kljuc je nepreverjen.
+        d, _ = po_posodobitvi({"stanja": {P.INDEKSATOR: {"s": P.STANJE_ZAKLENJEN, "odtis": P.odtis_stanja("drug|" + KLJUC_IX), "ob": 1.0}}})
+        self.assertIsNone(d.stanje_kljuca(P.INDEKSATOR))
+
+    def test_rd_9_med_uporabo_ne_zapre_potrjenega_kljuca(self):
+        """Grokov pregled 40, S4: RD 9 »permission denied« (ni premium, koncna tocka) je med uporabo zaprl veljaven kljuc -
+        »ključ ne velja, vpiši novega«, »Preveri« ga je potrdil, naslednje predvajanje spet zaprlo."""
+        dovoljenje = debrid.Odgovor(403, '{"error": "permission_denied", "error_code": 9}')
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(200, '{"id": 7, "username": "u"}')):
+            d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)
+        with mock.patch.object(debrid, "klic", return_value=dovoljenje):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_PAKET)        # »paket tega ne omogoca«, ne »kljuc ne velja«
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_VELJA)
+        self.assertTrue(d.sme_klicati(P.REAL_DEBRID))
+        # Kljuc, ki ga storitev se ni potrdila (izpad ob vpisu): 9 med uporabo - ne velja za to rabo (kot ob vpisu).
+        d, _nast, _z = _debrid()
+        with mock.patch.object(debrid, "klic", return_value=debrid.Odgovor(503, "")):
+            self.assertEqual(d.vpisi_kljuc(P.REAL_DEBRID, KLJUC_RD)["stanje"], P.STANJE_NEPREVERJEN)
+        with mock.patch.object(debrid, "klic", return_value=dovoljenje):
+            self.assertEqual(d.tok(H1).napaka, P.NAPAKA_KLJUC)
+        self.assertEqual(d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_NE_VELJA)
+        # Ob vpisu (/user) ostane »ne velja« (skupni primeri v2: rd_vrsta_napake 403/9 = kljuc, preverba_rd = ne_velja).
+        self.assertEqual((P.rd_vrsta_napake(403, 9), P.rd_preverba(403, {"error_code": 9})), (P.NAPAKA_KLJUC, P.PREVERBA_NEVELJAVEN))
+        self.assertEqual([P.rd_vrsta_napake_uporabe(403, k) for k in (8, 9, 14)],
+                         [P.NAPAKA_KLJUC, P.NAPAKA_DOVOLJENJE, P.NAPAKA_ZAKLENJEN])
+
+    def test_pravila_za_uskladitev_in_prejem(self):
+        """secrets.sync na namizju se ni: pravili sta tu, da ju uskladitev uporabi od prvega dne (M7)."""
+        self.assertEqual([P.za_uskladitev(s) for s in (P.STANJE_VELJA, P.STANJE_NEPREVERJEN, P.STANJE_NE_VELJA, None)],
+                         [True, False, False, False])
+        self.assertEqual([P.sprejmi_prejetega(i) for i in (P.PREVERBA_VELJAVEN, P.PREVERBA_MEJA, P.PREVERBA_NI_ODGOVORA,
+                                                           P.PREVERBA_NEVELJAVEN, P.PREVERBA_OBLIKA)],
+                         [True, False, False, False, False])
+
+
+class StanjeIndeksatorja(unittest.TestCase):
+    def setUp(self):
+        _Indeksator.odgovori, _Indeksator.zahteve = {}, []
+        self.streznik = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Indeksator)
+        threading.Thread(target=self.streznik.serve_forever, daemon=True).start()
+        self.osn = "http://127.0.0.1:%d" % self.streznik.server_address[1]
+        self.addCleanup(self.streznik.server_close)
+        self.addCleanup(self.streznik.shutdown)
+
+    def test_izpad_nepreverjen_iskanje_potrdi_401_zavrne_403_ne(self):
+        d, _nast, _z = _debrid()
+        _Indeksator.odgovori["/api"] = (503, "", {})
+        s = debrid.most(d, ["usenet", self.osn, KLJUC_IX])
+        self.assertEqual((s["ok"], s["preverba"], s["usenet"]["stanje"]), (True, P.PREVERBA_NI_ODGOVORA, P.STANJE_NEPREVERJEN))
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            d.vpisi_kljuc(P.TORBOX, KLJUC_TB)
+        _Indeksator.odgovori["/api"] = (200, RSS, {})
+        d.usenet_isci("tt0111161")
+        self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), P.STANJE_VELJA)
+        # Cloudflare (izmerjeno 25. 10. 2026 na nzbfinder.ws): 403 s stranjo HTML ni zavrnjen kljuc.
+        _Indeksator.odgovori["/api"] = (403, "<!DOCTYPE html><html><title>Just a moment...</title></html>", {})
+        d.usenet_isci("tt0111161")
+        self.assertEqual(d.stanje_kljuca(P.INDEKSATOR), P.STANJE_VELJA)
+        _Indeksator.odgovori["/api"] = (401, NZBFINDER_401, {})
+        d.usenet_isci("tt0111161")
+        self.assertEqual(debrid.most(d, [])["usenet"]["stanje"], P.STANJE_NE_VELJA)
+        self.assertNotIn(KLJUC_IX, json.dumps(debrid.most(d, [])))
+        # Zavrnjen: iskanje se ne ponavlja (lastnik 26. 10. 2026) - do »Preveri«.
+        n = len(_Indeksator.zahteve)
+        self.assertEqual((d.usenet_isci("tt0111161"), len(_Indeksator.zahteve)), ([], n))
+        _Indeksator.odgovori["/api"] = (200, '<error code="101" description="Account suspended"/>', {})
+        _minuta_kasneje(d)
+        s = debrid.most(d, ["preveri", "usenet"])
+        self.assertEqual((len(_Indeksator.zahteve), s["usenet"]["stanje"]), (n + 1, P.STANJE_ZAKLENJEN))
+        self.assertFalse(d.usenet_na_voljo())
+        _Indeksator.odgovori["/api"] = (200, RSS, {})
+        _minuta_kasneje(d)
+        self.assertEqual(debrid.most(d, ["preveri", "usenet"])["usenet"]["stanje"], P.STANJE_VELJA)
+
+
+if __name__ == "__main__":
+    unittest.main()

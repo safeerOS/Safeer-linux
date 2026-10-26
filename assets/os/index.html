@@ -649,6 +649,7 @@
     <p class="drobno" id="debridPojasnilo" data-t="debridPojasnilo"></p>
     <div class="debrid-seznam" id="debridSeznam"></div>
     <label class="debrid-takoj"><input type="checkbox" id="debridSamoTakoj"> <span data-t="debridSamoTakoj"></span></label>
+    <p class="drobno debrid-stanje" id="debridStanjeVnosa" role="status" aria-live="polite"></p>
     <div class="gumbi"><button type="button" class="gumb" id="debridZapri" data-t="zapri"></button></div>
   </div>
 </div>
@@ -748,6 +749,15 @@
     <h3 id="nevarnoNaslov" data-t="priponkaNevarnaNaslov"></h3>
     <p class="drobno" id="nevarnoOpis"></p>
     <div class="gumbi"><button type="button" class="gumb" id="nevarnoPreklici" data-t="preklici"></button><button type="button" class="gumb" id="nevarnoNadaljuj" data-t="priponkaVseeno"></button></div>
+  </div>
+</div>
+
+<!-- Torrent brez debrida: naslov IP v roju nikoli tiho (lastnik 25. 10. 2026, kot Android opozoriPredRojem) -->
+<div class="sloj" id="slojRoj"><div class="tancica"></div>
+  <div class="plosca kanal-carovnik" role="alertdialog" aria-modal="true" aria-labelledby="rojNaslov" aria-describedby="rojOpis">
+    <h3 id="rojNaslov" data-t="rojNaslov"></h3>
+    <p class="drobno" id="rojOpis"></p>
+    <div class="gumbi roj-gumbi"><button type="button" class="gumb" id="rojPreklici" data-t="preklici"></button><button type="button" class="gumb" id="rojZnova" data-t="rojZnova"></button><button type="button" class="gumb" id="rojTorbox" data-t="rojTorbox"></button><button type="button" class="gumb" id="rojNeposredno" data-t="rojNeposredno"></button></div>
   </div>
 </div>
 

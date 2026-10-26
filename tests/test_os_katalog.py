@@ -309,6 +309,24 @@ console.log(JSON.stringify([rele("/embed/59o4m222aVw", ""), rele("/watch", "?v=5
         self.k.yt_zaprt()
         self.assertEqual(self.dogodki, [("mediaYtZaprt", {"id": "seznam:a"})])
 
+    def test_napredek_webtor_po_id_vsebine_ne_po_naslovu_cdn(self):
+        """Naloga 21, tocka 4 (Windows: nadaljuj.json je imel za kljuc koncni naslov CDN, ki je ob vsakem razresevanju
+        drug): na namizju Linux je mesto pod id vsebine - nov podpisan naslov CDN nadaljuje na istem mestu, naslov CDN
+        ne gre v nobeno datoteko."""
+        prvi = "https://nexus-1.cdn.test/dld/aaaa?token=podpis1"
+        drugi = "https://nexus-2.cdn.test/dld/bbbb?token=podpis2"
+        vnos = {"id": "f1", "vrsta": "film", "naslov": "Film", "webtor": True, "preverjen": True}
+        self._vnosi(f1=dict(vnos, url=prvi))
+        self.k.izvedi("mediaPredvajaj", ["f1"])
+        self.k.shrani_napredek(prvi, 1234.7, 6000)
+        self._vnosi(f1=dict(vnos, url=drugi))
+        self.k.izvedi("mediaPredvajaj", ["f1"])
+        self.assertEqual(self.predvajano[-1][3], 1234)            # nov naslov CDN, isto mesto
+        from pathlib import Path
+        zapisano = "".join(d.read_text(encoding="utf-8", errors="replace") for d in Path(self.mapa.name).rglob("*") if d.is_file())
+        self.assertIn("1234", zapisano)
+        self.assertNotIn("cdn.test", zapisano)
+
     def test_napredek_filma(self):
         self._vnosi(f1={"id": "f1", "vrsta": "film", "naslov": "Film", "url": "https://arhiv.test/film.mp4"})
         self.k.izvedi("mediaPredvajaj", ["f1"])

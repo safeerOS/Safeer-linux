@@ -7142,7 +7142,8 @@ class SafeerOS(Gtk.Application):
         tok = tok if isinstance(tok, dict) else {}
         seznam = [os_predvajalnik.Skladba(uri, ime, vrsta, zacetek=max(0, int(zacetek or 0)), podnapisi=podnapisi,
                                           glave=os_predvajalnik.cisti_glave(tok.get("glave")),
-                                          nadomestni=os_predvajalnik.cisti_nadomestne(tok.get("nadomestni")))]
+                                          nadomestni=os_predvajalnik.cisti_nadomestne(tok.get("nadomestni")),
+                                          preusmeritve=not tok.get("brez_preusmeritev"))]
         return self._predvajaj_neposredno(uri, vrsta=vrsta, prikazi=prikazi, ime=ime, seznam=seznam, zacni=0)
 
     def _medijska_knjiznica(self):

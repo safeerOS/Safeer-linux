@@ -6056,47 +6056,191 @@
     klic("mediaDebrid", ["aktivna", v === "brez" ? "" : v]).then(function (s) { debridStanje = s; narisiDebrid(true); })
       .catch(function () {});
   }
+  // Lastnik 25. 10. 2026 (kot Android d1fdecc): vrstica pove, ali kljuc VELJA (storitev ga je potrdila), ne samo, da je
+  // vpisan. Kljuc brez stanja (iz prejsnje razlicice) ali nepreverjen (izpad ob vpisu) jedro po odprtju okna preveri
+  // (["preveri"], najvec na 10 min); vrstice se osvezijo na mestu - polja, ki jih uporabnik ravno tipka, ostanejo.
+  // debridRazlicica: vpis ali odstranitev med preverbo - zastarel odgovor preverbe ne prepise novejsega stanja.
+  var debridRazlicica = 0;
+  function opisStanjaKljuca(stanje) {
+    return t(stanje === "velja" ? "debridVelja" : stanje === "ne_velja" ? "debridNeVelja" : "debridNepreverjen");
+  }
+  // Lastnik 26. 10. 2026 (zaklep racuna): zaklenjen racun - vrstica pove, kaj narediti; Safeer storitve ne klice, dokler
+  // uporabnik ne pritisne »Preveri«.
+  function opisZaklenjen(id, ime) {
+    return id === "realdebrid" ? t("debridZaklenjenRd") : id === "alldebrid" ? t("debridZaklenjenAd")
+      : t("debridZaklenjen", { ime: ime });
+  }
+  function opisDebrida(x) {
+    if (!x.kljuc) return t("debridKje", { kje: x.kje });
+    if (x.stanje === "zaklenjen") return opisZaklenjen(x.id, x.ime);
+    return opisStanjaKljuca(x.stanje) + (x.stanje === "velja" && x.paket ? " · " + t("debridPaket", { paket: x.paket }) : "")
+      + (x.meritev ? " · " + x.meritev : "");
+  }
+  function opisUseneta(u) {
+    if (!u.gostitelj) return t("usenetPojasnilo") + " " + t("usenetKje");
+    return t("usenetVpisan", { gostitelj: u.gostitelj }) + " · "
+      + (u.stanje === "zaklenjen" ? opisZaklenjen("usenet", u.gostitelj) : opisStanjaKljuca(u.stanje))
+      + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "");
+  }
+  function nepreverjeniDebrid(s) {
+    return !!s && ((s.storitve || []).some(function (x) { return x.kljuc && x.stanje === "nepreverjen"; })
+      || !!(s.usenet && s.usenet.gostitelj && s.usenet.stanje === "nepreverjen"));
+  }
+  function osveziOpiseDebrid(s) {
+    if (!s || !$("slojDebrid").classList.contains("viden")) return;
+    debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
+    (s.storitve || []).forEach(function (x) {
+      var m = document.querySelector('#debridSeznam [data-id="' + x.id + '"] small');
+      if (m) m.textContent = opisDebrida(x);
+    });
+    var mu = document.querySelector('#debridSeznam [data-id="usenet"] small');
+    if (mu) mu.textContent = opisUseneta(s.usenet || {});
+  }
   function odpriDebrid() {
     $("slojDebrid").classList.add("viden");
-    klic("mediaDebrid", []).then(narisiDebridOkno).catch(function () {});
+    $("debridStanjeVnosa").textContent = "";
+    klic("mediaDebrid", []).then(function (s) {
+      narisiDebridOkno(s);
+      if (!nepreverjeniDebrid(s)) return;
+      var r = debridRazlicica;
+      klic("mediaDebrid", ["preveri"]).then(function (o) { if (r === debridRazlicica) osveziOpiseDebrid(o); })
+        .catch(function () {});
+    }).catch(function () {});
+  }
+  // Lastnik 25. 10. 2026 (TorBox in NZBFinder na prenosniku kot na TV): kljuc se ob vnosu preveri pri storitvi (TorBox
+  // »user/me«, indeksator z enim iskanjem) - jedro vrne samo izid in ime paketa, nikoli kljuca. Med preverbo (do 8 s) sta
+  // polje in gumb zaklenjena, izid je v vrstici stanja okna (role=status) in v obvestilu.
+  // Grokov pregled 40, S8: jedro »Preveri« in ponoven vpis ISTEGA kljuca dovoli najvec enkrat na minuto (vsak zavrnjen
+  // klic je pri storitvi neuspel poskus prijave) in ne caka na tekoco samodejno preverbo - sporocilo pove, zakaj ni klica.
+  function sporociloOmejitve(o, ime) {
+    var p = (o && o.preverba) || "";
+    if (p === "pocakaj") return t("debridPocakaj", { s: (o && o.cez_s) || 60 });
+    if (p === "tece") return t("debridPreverbaTece");
+    return t("debridKljucaNi", { ime: ime });
+  }
+  function sporociloPreverbe(o, x, usenet) {
+    var p = (o && o.preverba) || "";
+    if (p === "pocakaj") return sporociloOmejitve(o, "");
+    // Grokov pregled 40, S2: ponoven vpis zaprtega kljuca brez odgovora storitve - kljuc ostane zaprt (prej »shranjen,
+    // preverjen bo ob uporabi«, ceprav ga Safeer ne uporablja).
+    var brez = o && o.ok && (p === "ni_odgovora" || p === "meja");
+    if (usenet) {
+      var u = (o && o.usenet) || {};
+      if (o && o.ok && p === "zaklenjen") return opisZaklenjen("usenet", u.gostitelj || "");
+      if (brez && (u.stanje === "ne_velja" || u.stanje === "zaklenjen"))
+        return t("debridBrezOdgovora", { ime: u.gostitelj || t("usenetIme") }) + " "
+          + (u.stanje === "zaklenjen" ? opisZaklenjen("usenet", u.gostitelj || "") : opisStanjaKljuca(u.stanje));
+      if (o && o.ok) return t(p === "veljaven" ? "usenetPotrjen" : p ? "usenetNiPreverjen" : "usenetShranjen");
+      // Grokov pregled 31, H1: kljuc v polju za naslov - jedro ga ni shranilo in ni poslalo nikamor.
+      return t(p === "neveljaven" ? "usenetZavrnjen" : p === "naslov_kljuc" ? "usenetNaslovKljuc" : "usenetNiVeljaven");
+    }
+    if (o && o.ok) {
+      if (p === "zaklenjen") return opisZaklenjen(x.id, x.ime);
+      if (p === "veljaven") {
+        var m = o.paket ? t("debridVeljavenPaket", { ime: x.ime, paket: o.paket }) : t("debridVeljaven", { ime: x.ime });
+        return m + (x.id === "torbox" && o.paket && o.paket !== "Pro" ? " " + t("usenetBrezPro") + "." : "");
+      }
+      var vr = ((o && o.storitve) || []).filter(function (s) { return s.id === x.id; })[0] || {};
+      if (brez && (vr.stanje === "ne_velja" || vr.stanje === "zaklenjen"))
+        return t("debridBrezOdgovora", { ime: x.ime }) + " " + opisDebrida(vr);
+      // Vsi trije (TorBox, Real-Debrid, AllDebrid) se ob vnosu preverijo: shranjen brez potrditve je nepreverjen.
+      return t("debridNiPreverjen", { ime: x.ime });
+    }
+    // »oblika«: ne kljuc ali vzorec iz navodil (»XXXXXXXX-XXXX-…«) - jedro ga zavrne brez klica storitve.
+    return p === "neveljaven" ? t("debridZavrnjen", { ime: x.ime, kje: x.kje }) : t("debridNiKljuc", { ime: x.ime, kje: x.kje });
+  }
+  function preveriInShrani(ukaz, polja, gumb, x, usenet, poUspehu) {
+    var stanje = $("debridStanjeVnosa");
+    debridRazlicica++;
+    polja.concat([gumb]).forEach(function (e) { e.disabled = true; });
+    gumb.setAttribute("aria-busy", "true");
+    stanje.textContent = t("debridPreverjam");
+    var naslov = usenet ? polja[0].value : "";
+    klic("mediaDebrid", ukaz).then(function (o) {
+      var sporocilo = sporociloPreverbe(o, x, usenet);
+      polja[polja.length - 1].value = "";             // kljuc nikoli ne ostane v polju
+      if (o && o.ok && poUspehu) poUspehu();
+      stanje.textContent = sporocilo; obvesti(sporocilo);
+      narisiDebridOkno(o);
+      var vrstica = '#debridSeznam [data-id="' + (usenet ? "usenet" : x.id) + '"] ';
+      var polje = document.querySelector(vrstica + 'input[type="url"]');
+      // Zavrnjen kljuc: naslova ni treba tipkati znova - razen ce je bil v polju za naslov kljuc (ne ostane viden).
+      if (polje && !(o && o.ok) && (o && o.preverba) !== "naslov_kljuc") polje.value = naslov;
+      var cilj = document.querySelector(vrstica + (o && o.ok ? "input" : 'input[type="password"]'));
+      if (cilj) cilj.focus();
+    }).catch(function () {
+      polja.concat([gumb]).forEach(function (e) { e.disabled = false; });
+      gumb.removeAttribute("aria-busy"); stanje.textContent = "";
+    });
+  }
+  // Lastnik 26. 10. 2026: kljuc »ne velja« ali »zaklenjen« se znova preveri SAMO ob tem gumbu (ena preverba, gumb je
+  // med njo zaklenjen) - Safeer ga sam ne poskusa vec.
+  function gumbPreveri(id, x, usenet) {
+    var g = el("button", "gumb", ubezi(t("debridPreveri"))); g.type = "button";
+    g.setAttribute("aria-label", t("debridPreveri") + " – " + (usenet ? t("usenetIme") : x.ime));
+    g.addEventListener("click", function () {
+      var stanje = $("debridStanjeVnosa");
+      debridRazlicica++;
+      g.disabled = true; g.setAttribute("aria-busy", "true");
+      stanje.textContent = t("debridPreverjam");
+      klic("mediaDebrid", ["preveri", id]).then(function (o) {
+        var v = usenet ? (o && o.usenet) || {}
+          : ((o && o.storitve) || []).filter(function (s) { return s.id === id; })[0] || {};
+        var opis = v.stanje === "zaklenjen" ? opisZaklenjen(id, usenet ? v.gostitelj : x.ime) : opisStanjaKljuca(v.stanje);
+        var p = (o && o.preverba) || "";
+        // Grokov pregled 40, S2: storitev ni odgovorila (izpad, 429, 5xx) - stanje ostane in vrstica to pove.
+        var sporocilo = !(o && o.ok) ? sporociloOmejitve(o, usenet ? (v.gostitelj || t("usenetIme")) : x.ime)
+          : (p === "ni_odgovora" || p === "meja")
+          ? t("debridBrezOdgovora", { ime: usenet ? (v.gostitelj || t("usenetIme")) : x.ime }) + " " + opis
+          : v.stanje === "zaklenjen" ? opis : (usenet ? t("usenetIme") : x.ime) + ": " + opis;
+        stanje.textContent = sporocilo; obvesti(sporocilo);
+        narisiDebridOkno(o);
+        var cilj = document.querySelector('#debridSeznam [data-id="' + id + '"] input');
+        if (cilj) cilj.focus();
+      }).catch(function () { g.disabled = false; g.removeAttribute("aria-busy"); stanje.textContent = ""; });
+    });
+    return g;
   }
   function narisiDebridOkno(s) {
     if (!s) return;
     debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
     var sez = $("debridSeznam"); sez.innerHTML = "";
     (s.storitve || []).forEach(function (x) {
-      var vrsta = el("div", "debrid-vrstica");
+      var vrsta = el("div", "debrid-vrstica"); vrsta.dataset.id = x.id;
       var opis = el("div", "debrid-opis");
       opis.appendChild(el("strong", "", ubezi(x.ime)));
-      opis.appendChild(el("small", "", ubezi(x.kljuc ? t("debridVpisan") + (x.meritev ? " · " + x.meritev : "") : t("debridKje", { kje: x.kje }))));
+      opis.appendChild(el("small", "", ubezi(opisDebrida(x))));
       vrsta.appendChild(opis);
       var polje = el("input", ""); polje.type = "password"; polje.autocomplete = "off"; polje.spellcheck = false;
       polje.placeholder = t("debridKljuc"); polje.setAttribute("aria-label", t("debridKljuc") + " – " + x.ime);
       var shrani = el("button", "gumb", ubezi(t("debridShrani"))); shrani.type = "button";
-      function shraniKljuc() {
-        klic("mediaDebrid", ["kljuc", x.id, polje.value]).then(function (o) {
-          polje.value = "";
-          obvesti(t(o && o.ok ? "debridShranjen" : "debridNiKljuc", { ime: x.ime }));
-          narisiDebridOkno(o);
-        }).catch(function () {});
-      }
+      function shraniKljuc() { preveriInShrani(["kljuc", x.id, polje.value], [polje], shrani, x, false); }
       shrani.addEventListener("click", shraniKljuc);
       polje.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniKljuc(); } });
       vrsta.appendChild(polje); vrsta.appendChild(shrani);
+      if (x.kljuc && (x.stanje === "ne_velja" || x.stanje === "zaklenjen")) vrsta.appendChild(gumbPreveri(x.id, x, false));
       if (x.kljuc) {
         var odstrani = el("button", "gumb", ubezi(t("debridOdstrani"))); odstrani.type = "button";
-        odstrani.addEventListener("click", function () { klic("mediaDebrid", ["pozabi", x.id]).then(narisiDebridOkno).catch(function () {}); });
+        odstrani.setAttribute("aria-label", t("debridOdstrani") + " – " + x.ime);
+        odstrani.addEventListener("click", function () {
+          debridRazlicica++;
+          klic("mediaDebrid", ["pozabi", x.id]).then(function (o) {
+            $("debridStanjeVnosa").textContent = t("debridOdstranjen", { ime: x.ime });
+            narisiDebridOkno(o);
+            var cilj = document.querySelector('#debridSeznam [data-id="' + x.id + '"] input');
+            if (cilj) cilj.focus();
+          }).catch(function () {});
+        });
         vrsta.appendChild(odstrani);
       }
       sez.appendChild(vrsta);
     });
     // Usenet prek TorBoxa: uporabnikov indeksator (Newznab). Naslov in kljuc ostaneta sifrirana na tem racunalniku;
     // nazaj dobimo samo gostitelja.
-    var u = s.usenet || {}, uv = el("div", "debrid-vrstica");
+    var u = s.usenet || {}, uv = el("div", "debrid-vrstica"); uv.dataset.id = "usenet";
     var uo = el("div", "debrid-opis");
     uo.appendChild(el("strong", "", ubezi(t("usenetIme"))));
-    uo.appendChild(el("small", "", ubezi(u.gostitelj ? t("usenetVpisan", { gostitelj: u.gostitelj }) + (u.torbox ? "" : " · " + t("usenetBrezTorbox"))
-      : t("usenetPojasnilo"))));
+    uo.appendChild(el("small", "", ubezi(opisUseneta(u))));
     uv.appendChild(uo);
     var un = el("input", ""); un.type = "url"; un.autocomplete = "off"; un.spellcheck = false;
     un.placeholder = t("usenetNaslov"); un.setAttribute("aria-label", t("usenetNaslov"));
@@ -6104,19 +6248,24 @@
     uk.placeholder = t("usenetKljuc"); uk.setAttribute("aria-label", t("usenetKljuc"));
     var us = el("button", "gumb", ubezi(t("debridShrani"))); us.type = "button";
     function shraniUsenet() {
-      klic("mediaDebrid", ["usenet", un.value, uk.value]).then(function (o) {
-        uk.value = "";
-        obvesti(t(o && o.ok ? "usenetShranjen" : "usenetNiVeljaven"));
-        if (o && o.ok) un.value = "";
-        narisiDebridOkno(o);
-      }).catch(function () {});
+      preveriInShrani(["usenet", un.value, uk.value], [un, uk], us, { id: "usenet" }, true, function () { un.value = ""; });
     }
     us.addEventListener("click", shraniUsenet);
     [un, uk].forEach(function (p) { p.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniUsenet(); } }); });
     uv.appendChild(un); uv.appendChild(uk); uv.appendChild(us);
+    if (u.gostitelj && (u.stanje === "ne_velja" || u.stanje === "zaklenjen")) uv.appendChild(gumbPreveri("usenet", { id: "usenet" }, true));
     if (u.gostitelj) {
       var uod = el("button", "gumb", ubezi(t("debridOdstrani"))); uod.type = "button";
-      uod.addEventListener("click", function () { klic("mediaDebrid", ["pozabi_usenet"]).then(narisiDebridOkno).catch(function () {}); });
+      uod.setAttribute("aria-label", t("debridOdstrani") + " – " + t("usenetIme"));
+      uod.addEventListener("click", function () {
+        debridRazlicica++;
+        klic("mediaDebrid", ["pozabi_usenet"]).then(function (o) {
+          $("debridStanjeVnosa").textContent = t("usenetOdstranjen");
+          narisiDebridOkno(o);
+          var cilj = document.querySelector('#debridSeznam [data-id="usenet"] input');
+          if (cilj) cilj.focus();
+        }).catch(function () {});
+      });
       uv.appendChild(uod);
     }
     sez.appendChild(uv);
@@ -7496,6 +7645,7 @@
       }
       // Napake predvajanja (tok, napaka, motor ...) so tihe, sled je v sled.log (lastnik 18. 10. 2026). Ostanejo samo
       // stanja, ko mora uporabnik nekaj storiti ali izvedeti (MEDIA_UKREPAJ: prostor na disku, pomnilnik, Twitch ne oddaja).
+      if (item.napaka_koda === "p2p_potrditev") { potrdiRoj(item, id, predvajanje); return; }
       if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
@@ -7509,6 +7659,34 @@
     }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
   }
   var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1 };
+  // Film imajo samo torrenti, debrida ni (ali Webtor ni dal toka): naslov IP bi bil viden v roju - nikoli tiho (lastnik
+  // 25. 10. 2026, kot Android opozoriPredRojem). Privzeto Preklici (zadrzan Enter ne odpre roja); »Poskusi znova cez
+  // minuto« samo z dodatkom Webtor (nov tok najprej prenese Webtor sam), »Dodaj TorBox« samo brez debrida.
+  function potrdiRoj(item, id, predvajanje) {
+    var p = item.p2p || {};
+    $("rojOpis").textContent = t("rojOpis");
+    $("rojZnova").hidden = !p.webtor;
+    $("rojTorbox").hidden = !!p.debrid;
+    kat.roj = { id: String(item.id || id || ""), izvorId: id, predvajanje: predvajanje };
+    $("slojRoj").classList.add("viden");
+    setTimeout(function () { $("rojPreklici").focus(); }, 30);
+  }
+  function zapriRoj() { var r = kat.roj; kat.roj = null; $("slojRoj").classList.remove("viden"); return r; }
+  function rojNeposredno() {
+    var r = zapriRoj();
+    if (r && r.id) odpriKatalogVnos(null, ["mediaPredvajaj", [r.id, { p2p: true }]]);
+  }
+  function rojZnova() {
+    var r = zapriRoj();
+    if (!r) return;
+    obvesti(t("rojCakam"));
+    clearTimeout(kat.rojCasovnik);
+    var zahteva = kat.zahtevaPredvajanja;
+    kat.rojCasovnik = setTimeout(function () {
+      if (zahteva !== kat.zahtevaPredvajanja) return;       // uporabnik je medtem izbral drugo vsebino
+      odpriKatalogVnos(r.izvorId, r.predvajanje);
+    }, 60000);
+  }
 
   // ---- osebne police (lastnik, 14. 10. 2026: najboljse iz Jellyfina, Kodija, Stremia, Ampacha in Serviia)
   // Nadaljuj (z naslednjo epizodo), Nazadnje dodano, Najvec predvajano in Priljubljene na vrhu zavihka - samo police z
@@ -8647,12 +8825,17 @@
     if (!kat.viri.length) { cilj.appendChild(skriti || el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
-      // Naslov vira z racunom (Xtream z geslom) samo kot gostitelj (core/viri_sink.prikaz_naslova).
-      var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;
+      // Naslov vira z racunom (Xtream z geslom) samo kot gostitelj (core/viri_sink.prikaz_naslova); dodatek z osebnim
+      // zetonom samo z naslovom brez zetona (core/skrivni_dodatki.py, prikaz).
+      var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : (source.prikaz || source.url);
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || prikaz)));
       // Ponudnik je seznam zavrnil (401/403 ...): prevedeno sporocilo, samodejno vse redkeje (core/os_media, pregled 39, I5).
       // Brez kode (odgovor brez seznama, pregled 46, Ö5) pove napaka sama.
+      // Dodatek z osebnim zetonom (core/skrivni_dodatki.py): kje je zeton shranjen, nezavarovan zeton in samo HTTPS.
       var status = source.napaka ? (source.zavrnjen && source.zavrnjen.koda ? t("katVirZavrnjen", { koda: String(source.zavrnjen.koda) }) : source.napaka)
+        : source.nezavarovan ? t("katSkrivniNezavarovan")
+        : source.samo_https ? t("katSkrivniHttp")
+        : source.skriven ? t("katSkrivniDodatek") + (source.razkrit ? " · " + t("katSkrivniRazkrit") : "")
         : (source.vrsta === "streznik"
         ? t("katOsebniStreznik") + " · " + (source.ponudnik || "")
         : t("katVirElementov", { n: source.stevilo || 0 }));
@@ -8667,7 +8850,8 @@
       else if (!source.napaka && source.prvo_uporaba) status = t("katVirPrvo");
       // Premor po zavrnitvi velja tudi za »Osvezi«: vrstica pove, cez koliko casa je nov poskus mogoc (pregled 68, Ą5).
       if (source.premor_s) status += " · " + t("katVirPremor", { t: trajanjeBesedilo(Math.max(60, source.premor_s)) });
-      info.appendChild(el("small", source.napaka ? "kat-vir-napaka" : "", ubezi(status + (prikaz ? " · " + prikaz : ""))));
+      info.appendChild(el("small", source.napaka || source.nezavarovan || source.samo_https ? "kat-vir-napaka" : "",
+        ubezi(status + (prikaz ? " · " + prikaz : ""))));
       if (kanali && kanali.zaklenjenih) info.appendChild(el("small", "kat-vir-zaklenjeni", ubezi(t("katKanaliZaklenjeni", { n: kanali.zaklenjenih }))));
       // Geslo vira je starejsa razlicica dala napravam zunaj ozjega kroga: opozorilo, dokler ga lastnik ne potrdi
       // (core/os_media._preseli_racune, pregled 46, Ö3).
@@ -8726,7 +8910,7 @@
       }
       var remove = el("button", "gumb-ikona", svg("x")); remove.type = "button"; remove.title = t("odstrani");
       // Vir, ki je enak na vseh napravah v Safeer Linku, se izbriše povsod: prvi klik vpraša (brez sistemskega okna).
-      var povsod = (source.ponudnik === "stremio" && source.zaseben === false) ||
+      var povsod = (source.ponudnik === "stremio" && source.zaseben === false && !source.skriven && !source.nezavarovan) ||
         (source.vrsta !== "streznik" && source.tip !== "predvajalni_vir" && (!!source.link_tip || (source.stevilo || 0) > 0)), potrjeno = false;
       remove.onclick = function () {
         if (povsod && !potrjeno) { potrjeno = true; remove.classList.add("potrdi"); remove.textContent = t("virOdstraniPovsod"); return; }
@@ -10138,6 +10322,10 @@
     sprejemPrilog($("sporocilaVnos"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
     sprejemPrilog($("sporocilaVsebina"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
     sprejemPrilog($("obrazecNovo"), "novo", function () { return true; });
+    $("rojPreklici").addEventListener("click", function () { zapriRoj(); obvesti(t("rojPreklicano")); });
+    $("rojNeposredno").addEventListener("click", rojNeposredno);
+    $("rojZnova").addEventListener("click", rojZnova);
+    $("rojTorbox").addEventListener("click", function () { zapriRoj(); odpriDebrid(); });
     $("nevarnoPreklici").addEventListener("click", function () { $("slojNevarno").classList.remove("viden"); S.nevarnoNadaljuj = null; });
     $("nevarnoNadaljuj").addEventListener("click", function () {
       var nadaljuj = S.nevarnoNadaljuj; S.nevarnoNadaljuj = null; $("slojNevarno").classList.remove("viden");

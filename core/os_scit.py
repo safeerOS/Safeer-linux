@@ -48,7 +48,7 @@ from array import array
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from core import root_ukaz
+from core import root_ukaz, webtor
 from core.signed_feed import _atomic_write, isti_gostitelj
 
 NASLOV = "127.0.0.1"
@@ -686,6 +686,17 @@ class Nabor:
                 return KATEGORIJE[self.kategorije[j]]
         return None
 
+    def vse_kategorije(self, ime: str) -> List[str]:
+        """Kategorije imena in vseh nadrejenih domen (kategorija() vrne samo najbolj natancno ujemanje)."""
+        izid = []
+        deli = ime.split(".")
+        for i in range(len(deli) - 1):
+            z = _zgoscenka(".".join(deli[i:]))
+            j = bisect.bisect_left(self.zgoscenke, z)
+            if j < len(self.zgoscenke) and self.zgoscenke[j] == z:
+                izid.append(KATEGORIJE[self.kategorije[j]])
+        return izid
+
     def shrani(self, pot: str) -> None:
         """Atomsko, z edinstveno zacasno datoteko: sezname osvezujeta lahko dva procesa (Scit in Splet ali Safeer
         Browser) hkrati - prej sta pisala v isti domene.bin.tmp."""
@@ -890,6 +901,20 @@ class Seznami:
             if k in KATEGORIJA_SEZNAMA_GROZNJ:
                 return KATEGORIJA_SEZNAMA_GROZNJ[k]
         return None
+
+    def groznja(self, ime: str) -> bool:
+        """Ime ali katera nadrejena domena je na seznamu GROZENJ (ne oglasov) - v naboru ali v podpisanem seznamu
+        grozenj. Izjema Webtor (oglasi) tako nikoli ne umakne groznje (pregled Grok N15)."""
+        with self._kljuc:
+            if any(k != KATEGORIJA_PREMORA for k in self.nabor.vse_kategorije(ime)):
+                return True
+        s = self.storitev
+        if s is not None and s.loaded.is_set():
+            try:
+                return s.store.match_host(ime) in KATEGORIJA_SEZNAMA_GROZNJ
+            except Exception:  # noqa: BLE001 - seznam groženj ni berljiv: raje blokirano (fail-closed)
+                return True
+        return False
 
     def stanje(self) -> dict:
         st = {"domen": len(self.nabor), "posodobljeno": float(self.meta.get("cas", 0) or 0), "napakaSeznamov": self.napaka,
@@ -1403,6 +1428,16 @@ class Scit:
         kategorija = self.seznami.kategorija(ime) if self.seznami is not None else None
         if kategorija == KATEGORIJA_PREMORA and self._premor_do and time.monotonic() < self._premor_do:
             return None
+        if kategorija == KATEGORIJA_PREMORA and webtor.je_stalna_izjema_scita(ime):
+            # Webtor rezerva (25. 10. 2026): oglasni seznam ne sme ustaviti toka (API in gostitelj toka, natancno -
+            # core/webtor.py). Izmerjeno 25. 10.: nasi seznami jih ne blokirajo. Seznami grozenj imajo vedno prednost -
+            # tudi za nadrejeno domeno in podpisani seznam (Grok N15); brez te preverbe ostane blokirano.
+            groznja = getattr(self.seznami, "groznja", None)
+            try:
+                if groznja is not None and not groznja(ime):
+                    return None
+            except Exception:  # noqa: BLE001 - fail-closed
+                return kategorija
         return kategorija
 
     def dovoli(self, domena, dovoli: bool = True) -> dict:

@@ -69,7 +69,9 @@ class UsenetTakoj(unittest.TestCase):
 
     def test_nzb_se_ne_prenese_dvakrat(self):
         d = _debrid((P.TORBOX, KLJUC_TB))
-        d._povezave_nzb["usenet:aaaa"] = "https://ix.example/getnzb/a.nzb?apikey=x"
+        # Povezava nosi vezavo kljuca indeksatorja ob iskanju (Grokov pregled 40, S1: brez nje ne gre nikamor).
+        self.assertTrue(d.nastavi_indeksator("https://ix.example", "0123456789abcdef0123456789abcdef"))
+        d._povezave_nzb["usenet:aaaa"] = ("https://ix.example/getnzb/a.nzb?apikey=x", d._vezava(P.INDEKSATOR))
         with mock.patch.object(debrid, "usenet_nzb", return_value=(b"<nzb/>", "")) as nzb, \
                 mock.patch.object(debrid, "torbox_usenet", return_value=debrid.Izid(napaka=P.NAPAKA_NI_PREDPOMNJENO)):
             d.usenet_tok("usenet:aaaa", "Film", samo_takoj=True)

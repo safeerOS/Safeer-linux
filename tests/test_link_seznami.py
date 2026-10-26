@@ -162,7 +162,8 @@ class RacunSamoOzjiKrog(unittest.TestCase):
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
             js = f.read()
-        self.assertIn("var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : source.url;", js)
+        # Po zdruzitvi s kljuci-namizje (26. 10.): url_prikaz ima se vedno prednost, nato prikaz/url (zakrit naslov drugih vrst).
+        self.assertIn("var prikaz = source.url_prikaz !== undefined ? source.url_prikaz : ", js)
         self.assertNotIn('ubezi(status + " · " + source.url)', js)
 
 

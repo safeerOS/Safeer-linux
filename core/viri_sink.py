@@ -18,7 +18,8 @@ Pravila:
     ne prevzamemo; dokler ne vemo, ali je zaseben, velja kot zaseben;
   * racunalnik prevzame samo, kar zna predvajati (preveri ob prevzemu); cesar ne zna, si zapomni in ne poskusa znova
     ob vsakem usklajevanju; spletnih strani, streznikov PeerTube in virov API ne prevzema;
-  * isti vir: dodatek po korenu (brez /manifest.json), drugo po naslovu - ne glede na vrsto, ki mu jo je dala naprava.
+  * isti vir: dodatek po korenu (brez /manifest.json), drugo po naslovu - ne glede na vrsto, ki mu jo je dala naprava;
+  * dodatek z osebnim zetonom ali kljucem v naslovu ne gre ven in ga ne prevzamemo (javen_naslov, 25. 10. 2026).
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ import json
 import re
 import urllib.parse
 from typing import Optional
+
+from core import skrivni_dodatki
 
 #: Vrsta vira, ki ga je uporabnik dodal na racunalniku (vrsto doloci naprava, ki ga prevzame).
 URL = "url"
@@ -86,8 +89,26 @@ def cist_vir(o: object) -> Optional[dict]:
         return None
     if tip != "peertube" and not naslov.startswith(("http://", "https://")):
         return None
+    if not javen_naslov(tip, naslov):
+        return None
     return {"tip": tip, "ime": ime, "naslov": naslov,
             "cas": int(cas) if isinstance(cas, (int, float)) and not isinstance(cas, bool) and cas > 0 else 0}
+
+
+def javen_naslov(tip: str, naslov: str) -> bool:
+    """Vir sme med vse naprave v Linku: dodatek z osebnim zetonom ali kljucem (Webtor, Torrentio z debrid kljucem) in
+    katerikoli nadomestek ne (core/skrivni_dodatki.py) - ne gre ven in ga ne prevzamemo. Pred 25. 10. 2026 je tak
+    dodatek z lists.get sel vsem napravam (zeton v cistopisu). Ozjega kroga za kljuce namizje se nima."""
+    naslov = str(naslov or "")
+    if skrivni_dodatki.je_nadomestek(naslov):
+        return False
+    return tip != STREMIO or skrivni_dodatki.sme_med_vse_naprave(naslov)
+
+
+def javen_kljuc(k: str) -> bool:
+    """Kljuc izbrisa "tip|naslov" brez skrivnosti dodatka in brez nadomestka."""
+    tip, _, naslov = str(k or "").partition("|")
+    return javen_naslov(tip, naslov)
 
 
 def vir_prevzamemo(imam: bool, moj_izbris: Optional[int], tuj_cas: int) -> bool:
@@ -121,7 +142,7 @@ def cisti_izbrisi(d: object) -> dict:
     for k, c in list(d.items())[:NAJVEC_IZBRISANIH]:
         if not isinstance(k, str) or len(k) > 2100 or not isinstance(c, (int, float)) or isinstance(c, bool) or c <= 0:
             continue
-        if _VRSTE.fullmatch(k.partition("|")[0]):
+        if _VRSTE.fullmatch(k.partition("|")[0]) and javen_kljuc(k):
             izid[k] = int(c)
     return izid
 

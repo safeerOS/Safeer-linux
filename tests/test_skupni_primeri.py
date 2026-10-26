@@ -7,9 +7,41 @@ import json
 import unittest
 from pathlib import Path
 
-from core import debrid_pravila as P, media_servers, usenet_pravila as U
+from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
+#: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
+PRIMERI_WEBTOR = Path(__file__).resolve().parent / "skupni-primeri" / "webtor-rezerva.json"
+#: Pravila iz PRIMERI_WEBTOR, ki jih namizje se nima - in zakaj. Novo pravilo v datoteki mora priti sem ali v izracunaj.
+NI_NA_NAMIZJU = {
+    "uskladitev_novejsi": "usklajevanje kljucev v ozjem krogu (secrets.sync) namizje se nima",
+    "scit_primeren_za_ucenje": "Scit na namizju se gostiteljev ne uci (izmerjeno 25. 10.: seznami Webtorja ne blokirajo)",
+    "webtor_nauceni_gostitelj": "Scit na namizju se gostiteljev ne uci",
+}
+#: Preverba kljucev debrid in indeksatorja (25. 10. 2026, Android d1fdecc) - ista datoteka kot na Androidu; verzija 2
+#: (26. 10. 2026, Grokov pregled 36) jo je prinesla namizju - Android jo prevzame (skupni-primeri-osnutek).
+PRIMERI_KLJUCI = Path(__file__).resolve().parent / "skupni-primeri" / "kljuci-preverba.json"
+#: Izidi preverbe: v primerih Androidova imena, namizje ima svoje vrednosti (most in os.js ostaneta) - en slovar.
+IZID_ANDROID = {P.PREVERBA_VELJAVEN: "velja", P.PREVERBA_NEVELJAVEN: "ne_velja", P.PREVERBA_NI_ODGOVORA: "ni_odgovora",
+                P.PREVERBA_MEJA: "meja", P.PREVERBA_OBLIKA: "oblika", P.PREVERBA_ZAKLENJEN: "zaklenjen"}
+IZID_NAMIZJE = {v: k for k, v in IZID_ANDROID.items()}
+#: Stevilo primerov v PRIMERI_KLJUCI (verzija 3, 26. 10. 2026: pregled Grok 28 L2).
+STEVILO_KLJUCI = 218
+#: Koraki izbire virov: namizje (usenet_pravila.vrstni_red_virov) ima korak »takoj« razdeljen na ⚡ in povezave.
+KORAKI_ANDROID = {U.KORAK_USENET_TAKOJ: "USENET_PRIPRAVLJEN", U.KORAK_PREDPOMNJEN: "TAKOJ", U.KORAK_NEPOSREDNI: "TAKOJ",
+                  U.KORAK_USENET_CAKAJ: "USENET_CAKANJE", U.KORAK_WEBTOR: "WEBTOR", U.KORAK_DEBRID_CAKAJ: "CAKANJE_DEBRID"}
+
+
+def _koraki_kot_android(ima_usenet: bool) -> list:
+    izid = []
+    for k in U.vrstni_red_virov(ima_usenet, True):
+        if not izid or izid[-1] != KORAKI_ANDROID[k]:
+            izid.append(KORAKI_ANDROID[k])
+    return izid
+
+
+def _wt_kljuc(x):
+    return None if x is None else W.kljuc(x[0], x[1])
 
 
 def _meritev(m):
@@ -81,14 +113,113 @@ def izracunaj(f, v):
         return U.za_samodejno(v["gb"])
     if f == "usenet_najboljsa_pripravljena":
         return U.najboljsa_pripravljena(v["pripravljene"])
+    # Dodatki z osebnim zetonom v naslovu (core/skrivni_dodatki.py, Android SkrivnostiPravila.kt).
+    if f == "skrivna_predpona_dodatka":
+        return S.skrivna_predpona_dodatka(v["naslov"])
+    if f == "skrivna_predpona_toka":
+        return S.skrivna_predpona_toka(v["naslov"])
+    if f == "v_nadomestek":
+        return S.v_nadomestek(v["naslov"])
+    if f == "za_prikaz":
+        return S.za_prikaz(v["naslov"])
+    if f == "odstrani_tok_ob_shranjevanju":
+        return S.odstrani_tok_ob_shranjevanju(v["osnova"], v["tok"])
+    # Webtor rezerva (core/webtor.py, Android WebtorPravila.kt).
+    if f == "webtor_oznaka":
+        return list(W.razcleni(v["ime"]))
+    if f == "je_webtor_dodatek":
+        return W.je_webtor_dodatek(v["id"], v["osnova"])
+    if f == "webtor_odlocitev":
+        return W.odlocitev(v["koda"], v["prvi_bajt_ms"], v["potekel"], v.get("vsebina"))
+    if f == "webtor_rok_sonde":
+        return W.rok_sonde(v["zacetek_prve"], v["zdaj"], v["poskusov"])
+    if f == "webtor_steje_kot_poskus":
+        return W.steje_kot_poskus(v["izid"], v["trajanje_ms"])
+    if f == "webtor_vrstni_red":
+        return W.vrstni_red([_wt_kljuc(x) for x in v["nasi"]], [(_wt_kljuc(w[:2]), w[2]) for w in v["webtor"]],
+                            v["imamo_torbox"], v.get("samo_takoj", False), v.get("datoteke"))
+    # Verzija 3 (Android webtor-popravek, 25. 10. 2026 popoldne): datoteka iz JWT, pregled vsebine sonde.
+    if f == "webtor_kljuc_toka":
+        k = W.kljuc_webtor(v["hash"], v["url"])
+        return list(k) if k else None
+    if f == "webtor_je_video_ime":
+        return W.je_video_ime(v["ime"])
+    if f == "webtor_datoteka":
+        return W.datoteka(v["idx"], v["ime_toka"], v["nas_idx"], v["nas_ime"])
+    if f == "webtor_posoda":
+        return W.posoda(bytes.fromhex(v["glava_hex"]))
+    if f == "webtor_avi_kodek":
+        return W.avi_kodek(bytes.fromhex(v["glava_hex"]))
+    if f == "webtor_pregled":
+        return list(W.pregled(v["vrsta"], bytes.fromhex(v["glava_hex"]), v["skupaj"], float(v["pricakovano_gb"]),
+                              lambda m: m in v["podprti"]))
+    if f == "webtor_skupna_velikost":
+        return W.skupna_velikost(v["koda"], v["content_range"], v["content_length"])
+    if f == "vrstni_red_korakov":
+        return _koraki_kot_android(v["ima_usenet"])
+    if f == "izberi_usenet":
+        # Debrid.usenet_takoj odloca s tem pravilom (25. 10. 2026; prej svoja zanka) - isti primeri kot Android.
+        return U.izberi_usenet(v["izidi"], v["rok_potekel"])
+    if f == "scit_dovoljena":
+        return W.scit_dovoljena(v["ime"], v["naucene"], v["zdaj"])
+    # Preverba kljucev (PRIMERI_KLJUCI): izide preslika IZID_ANDROID, stanja so ista imena (velja/ne_velja/nepreverjen).
+    if f == "kljuc_iz_vnosa":
+        return P.kljuc_iz_vnosa(v["vnos"], v["ponudnik"])
+    if f == "je_vzorec_kljuca":
+        return P.je_vzorec_kljuca(v["kljuc"])
+    if f == "preverba_torbox":
+        izid, paket = P.torbox_preverba(v["http"], v["telo"])
+        return [IZID_ANDROID[izid], paket]
+    if f == "preverba_rd":
+        return IZID_ANDROID[P.rd_preverba(v["http"], v["telo"])]
+    if f == "preverba_ad":
+        return IZID_ANDROID[P.ad_preverba(v["http"], v["telo"])]
+    if f == "preverba_indeksatorja":
+        return IZID_ANDROID[U.preverba_indeksatorja(v["http"], v["telo"])]
+    if f == "osnova_indeksatorja":
+        return U.osnova(v["vnos"])
+    if f == "naslov_je_kljuc":
+        return U.naslov_je_kljuc(v["vnos"])
+    if f == "naslov_preverbe_indeksatorja":
+        return U.naslov_preverbe(v["osnova"], v["kljuc"])
+    if f == "preverba_iz_napake":
+        return IZID_ANDROID[P.preverba_iz_napake(v["vrsta"])]
+    if f == "odtis_stanja":
+        return P.odtis_stanja(v["kljuc"])
+    if f == "stanje_po_preverbi":
+        return P.stanje_po_preverbi(IZID_NAMIZJE[v["preverba"]])
+    if f == "za_uskladitev":
+        return P.za_uskladitev(v["stanje"])
+    if f == "sprejmi_prejetega":
+        return P.sprejmi_prejetega(IZID_NAMIZJE[v["preverba"]])
+    if f == "sme_klicati":
+        return P.sme_klicati(v["stanje"])
+    if f == "preveri_zdaj":
+        # Primeri so v ms (Android), namizje steje v sekundah (time.time).
+        return P.preveri_zdaj(v["stanje"], v["zadnjic_ms"] / 1000.0, v["zdaj_ms"] / 1000.0)
     raise KeyError("neznano pravilo: " + f)
 
 
 class SkupniPrimeri(unittest.TestCase):
     def test_vsi_primeri(self):
-        koren = json.loads(PRIMERI.read_text(encoding="utf-8"))
+        self._preveri(PRIMERI, set(), 60)
+
+    def test_webtor_rezerva(self):
+        self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
+
+    def test_kljuci_preverba(self):
+        # Natancno stevilo (Grokov pregled 36, D9): prag »najmanj« je dovolil tiho izgubo primerov.
+        self._preveri(PRIMERI_KLJUCI, set(), STEVILO_KLJUCI)
+        self.assertEqual(len(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["primeri"]), STEVILO_KLJUCI)
+        self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 3)
+
+    def _preveri(self, pot, preskoci: set, najmanj: int):
+        koren = json.loads(pot.read_text(encoding="utf-8"))
+        self.assertTrue(preskoci <= {p["f"] for p in koren["primeri"]}, "NI_NA_NAMIZJU ima pravilo, ki ga ni vec")
         napake = []
         for p in koren["primeri"]:
+            if p["f"] in preskoci:
+                continue
             try:
                 dobljeno = izracunaj(p["f"], p["vhod"])
             except Exception as e:  # noqa: BLE001 - izjema je napaka primera, ne konec preizkusa
@@ -96,7 +227,7 @@ class SkupniPrimeri(unittest.TestCase):
             if dobljeno != p["izhod"]:
                 napake.append("%s %s: pricakovano %r, dobljeno %r" % (p["f"], p["vhod"], p["izhod"], dobljeno))
         self.assertEqual(napake, [], "\n".join(napake))
-        self.assertGreaterEqual(len(koren["primeri"]), 60)
+        self.assertGreaterEqual(len(koren["primeri"]), najmanj)
 
 
 if __name__ == "__main__":

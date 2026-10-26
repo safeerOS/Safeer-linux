@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import debrid, jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
-from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
+from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, skrivni_dodatki, uporabniske_skripte
 from core import shramba_json
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
@@ -115,8 +115,9 @@ def nacin_predvajanja(item: dict, neposredni_zvok: Callable[[str], bool] = lambd
     vdelano = (item.get("vrsta") == "embed" or "/embed/" in nizko
                or any(x in nizko for x in ("youtube", "vimeo", "dailymotion", "peertube")))
     pot = urllib.parse.urlsplit(url).path.lower()
+    # webtor: koncni naslov toka, ki ga je preverila sonda (core/webtor.py) - vedno nas predvajalnik, nikoli brskalnik.
     neposredno = (os.path.splitext(pot)[1] in os_media.MEDIA_EXT or pot.endswith((".m3u8", ".mpd", ".ts"))
-                  or bool(item.get("glave")))
+                  or bool(item.get("glave")) or bool(item.get("webtor")) or bool(item.get("preverjen")))
     if vdelano and not neposredno:
         return "vdelano"
     if neposredno:
@@ -156,12 +157,17 @@ def tok_za_predvajalnik(item: dict, url: str) -> dict:
     # Samo tokovi (datoteka, HLS, tok dodatka z glavami) - spletna stran z vdelanim predvajalnikom ni razlicica toka.
     nadomestni = [(str(r["url"]), r.get("glave") or {}) for r in razlicice
                   if str(r.get("url") or "").startswith(("http://", "https://")) and str(r.get("url")) != url
+                  and not skrivni_dodatki.je_nadomestek(str(r.get("url")))
                   and (r.get("tok") or nacin_predvajanja({"url": r["url"], "glave": r.get("glave")}) == "neposredno")][:10]
     tok = {}
     if isinstance(glave, dict) and glave:
         tok["glave"] = dict(glave)
     if nadomestni:
         tok["nadomestni"] = nadomestni
+    if item.get("webtor") or item.get("preverjen"):
+        # Webtor in tok dodatka s kljucem (pregled Grok U4): sonda je preverila koncni naslov - predvajalnik ne sledi novim
+        # preusmeritvam (streznik bi drugi zahtevi lahko odgovoril s preusmeritvijo na http ali v domace omrezje).
+        tok["brez_preusmeritev"] = True
     return tok
 
 
@@ -172,6 +178,8 @@ def podnapisi_vnosa(item: dict) -> tuple:
         if not isinstance(p, dict):
             continue
         url = str(p.get("uri") or p.get("url") or "")
+        if skrivni_dodatki.je_nadomestek(url):
+            continue            # podnapis dodatka z osebnim kljucem: nadomestek ni naslov (kljuc ne gre v predvajalnik)
         if not url.startswith(("https://", "http://127.0.0.1:", "file://")):
             continue
         jezik = str(p.get("jezik") or p.get("lang") or "")[:12]
@@ -390,7 +398,8 @@ class Katalog:
         with self._zaklep:
             if self._mc is None:
                 # Krajevne datoteke ima na Linuxu knjiznica Medijskega centra (core/os_knjiznica.py), zato tu brez map.
-                self._mc = os_media.MediaCenter(str(self.config_dir), roots=[], secret_encryptor=skrij, secret_decryptor=razkrij)
+                self._mc = os_media.MediaCenter(str(self.config_dir), roots=[], secret_encryptor=skrij, secret_decryptor=razkrij,
+                                                secret_forget=pozabi)
                 self._mc.visina_zaslona = self.visina_zaslona
                 # Pred predvajanjem preverimo, da prvi tok res odgovori (mrtva povezava ne sme biti prva).
                 self._mc.preveri_tokove = True
@@ -693,15 +702,22 @@ class Katalog:
 
     def _odstrani_vir(self, a: list) -> Any:
         ident = self._niz(a, 0)
-        skrivnost = ""
-        try:   # geslo odstranjenega streznika ne ostane v zbirki skrivnosti
-            skrivnost = next((str(s.get("secret_enc") or "") for s in self.mc._load().get("osebni_strezniki", [])
-                              if isinstance(s, dict) and s.get("id") == ident), "")
-        except Exception:  # noqa: BLE001
-            pass
+        skrivnosti: list = []
+        try:   # geslo odstranjenega streznika in sifriran naslov dodatka z zetonom ne ostaneta v zbirki skrivnosti
+            zapis = next((s for s in self.mc._load().get("osebni_strezniki", [])
+                          if isinstance(s, dict) and s.get("id") == ident), {})
+            skrivnosti = [str(zapis.get(k) or "") for k in ("secret_enc", "url_enc") if zapis.get(k)]
+        except Exception:  # noqa: BLE001 - zapisa ni mogoce prebrati: ni kaj pozabiti
+            skrivnosti = []
         ok = self.mc.remove_source(ident)
-        if ok and skrivnost:
-            pozabi(skrivnost)
+        if ok:
+            try:   # Grok 19, M1: naslov, ki ga nedokoncan prehod se potrebuje, ostane do konca prehoda
+                ohrani = self.mc.skrivnosti_v_prehodu()
+            except Exception:  # noqa: BLE001
+                ohrani = set()
+            for skrivnost in skrivnosti:
+                if skrivnost not in ohrani:
+                    pozabi(skrivnost)
         return ok
 
     def _osvezi_vir(self, a: list) -> Any:
@@ -1488,7 +1504,9 @@ class Katalog:
         kanali = getattr(self.mc, "kanali", None)
         if kanali is not None:
             kanali.gleda()
-        item = self.mc.resolve(ident)
+        # ["id", {"p2p": true}]: uporabnik je na strani izbral »Predvajaj neposredno« (naslov IP v roju, os_media.resolve).
+        p2p = len(a) > 1 and isinstance(a[1], dict) and a[1].get("p2p") is True
+        item = self.mc.resolve(ident, p2p=True) if p2p else self.mc.resolve(ident)
         uporabi = getattr(self.mc, "uporabi_izbiro", None)
         if uporabi is not None:
             item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej
@@ -1518,6 +1536,10 @@ class Katalog:
             # druga vsebina: Spotify ne igra zraven (v ozadju - zastal Safeer DRM ne sme zadrzati predvajanja)
             threading.Thread(target=sp.upravljaj, args=("ustavi",), daemon=True).start()
         nacin = nacin_predvajanja(item, os_media.je_neposredni_zvok)
+        if nacin in ("neposredno", "vdelano") and skrivni_dodatki.je_nadomestek(str(item.get("url") or "")):
+            # Nadomestek (tok dodatka s kljucem) ni naslov toka; pravega s kljucem ne damo ne predvajalniku ne pogledu
+            # (od tam gre v Link »kaj se predvaja«) - pregled Grok N5.
+            return dict(item, native=True, napaka_koda="tok")
         self._yt = None       # nova izbira: prejsnja skladba v vgradnem predvajalniku ne sprozi vec nicesar
         if nacin:
             self._preklici_ponudbo()  # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama

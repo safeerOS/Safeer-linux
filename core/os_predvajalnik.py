@@ -37,6 +37,8 @@ class Skladba:
     #: Druge razlicice istega naslova: ((uri, glave), ...). Ce se tok ne odpre (4xx, 5xx, cas, stran HTML), predvajalnik
     #: tiho poskusi naslednjo; napako pokaze sele, ko ne dela nobena.
     nadomestni: tuple = ()
+    #: False: souphttpsrc ne sledi preusmeritvam (tok Webtor - koncni naslov je preverila sonda, core/webtor.py).
+    preusmeritve: bool = True
 
 
 #: Kode napak predvajanja (za dnevnik). Lastnik 18. 10. 2026: napak predvajalnika uporabniku ne kazemo - predvajalnik
@@ -265,6 +267,8 @@ class Predvajalnik:
         self._poskusi: list = []
         self._razlicica = 0            # indeks v _poskusi (radio ima svoj stevec _poskus)
         self._glave: tuple = ()
+        #: False: trenutni tok ne sme slediti preusmeritvam (Skladba.preusmeritve; tok Webtor ali tok s kljucem).
+        self._preusmeritve = True
         self._nalozeno = False
         #: Klic, ko se posnetek ne odpre z nobeno razlicico (Medijski center ga oznaci kot nepredvajljivega).
         self.neuspeh = lambda _skladba: None
@@ -313,7 +317,8 @@ class Predvajalnik:
                              podnapisi=_cisti_podnapisi(v.podnapisi),
                              naprava=str(v.naprava or "")[:80], oznaka=str(v.oznaka or "")[:1024],
                              izvirnik=str(v.izvirnik or "")[:2048], glave=cisti_glave(v.glave),
-                             nadomestni=cisti_nadomestne(v.nadomestni)) for v in vnosi]
+                             nadomestni=cisti_nadomestne(v.nadomestni), preusmeritve=v.preusmeritve is not False)
+                       for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
         return self.predvajaj(zacni)
@@ -343,6 +348,7 @@ class Predvajalnik:
         s = self.vrsta[indeks]
         self._poskusi = [(s.uri, tuple(s.glave or ()))] + [n for n in (s.nadomestni or ()) if n[0] != s.uri]
         self._razlicica, self._glave, self._nalozeno = 0, tuple(s.glave or ()), False
+        self._preusmeritve = s.preusmeritve is not False
         self._dekoder, self._stari_dekoderji = "", set()
         self._nastavi_zivo(je_zivi_tok(s))
         self.element.set_property("uri", s.uri)
@@ -850,7 +856,20 @@ class Predvajalnik:
         self.vodilo.remove_signal_watch()
 
     def _nastavi_vir(self, _playbin, vir) -> None:
-        """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva."""
+        """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva, in politika preusmeritev."""
+        if not self._preusmeritve:
+            nastavljeno = False
+            try:
+                if vir.find_property("automatic-redirect") is not None:
+                    vir.set_property("automatic-redirect", False)
+                    nastavljeno = True
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] preusmeritve toka:", type(e).__name__, flush=True)
+            if not nastavljeno:
+                # Pregled Grok N7: vir, ki ne zna prepovedati preusmeritev, tega toka ne predvaja (fail-closed).
+                print("[SafeerOS] tok brez preusmeritev: vir tega ne podpira - ustavljeno", flush=True)
+                self.zakasni(0, self.ustavi)
+                return
         if not self._glave:
             return
         try:
