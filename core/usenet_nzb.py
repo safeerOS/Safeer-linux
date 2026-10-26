@@ -263,43 +263,54 @@ def razcleni(podatki: bytes) -> Nzb:
     koren = None
     globina = elementov = datotek = segmentov = 0
     naslov, geslo, datoteke = None, None, []
+
+    def dogodki() -> None:
+        nonlocal koren, globina, elementov, datotek, segmentov, naslov, geslo
+        for dogodek, el in razclenjevalnik.read_events():
+            if dogodek == "start":
+                elementov += 1
+                ime = _lokalno(el.tag)
+                if globina == 0:
+                    if ime != "nzb":
+                        raise NapakaNzb(NI_NZB)
+                    koren = el
+                elif globina == 1 and ime == "file":
+                    datotek += 1
+                elif ime == "segment":
+                    segmentov += 1
+                if elementov > NAJVEC_ELEMENTOV or datotek > NAJVEC_DATOTEK or segmentov > NAJVEC_SEGMENTOV:
+                    raise NapakaNzb(PREVELIK)
+                globina += 1
+                continue
+            globina -= 1
+            if globina != 1:
+                continue
+            ime = _lokalno(el.tag)
+            if ime == "file":
+                d = _datoteka(el)
+                if d is not None:
+                    datoteke.append(d)
+            elif ime == "head":
+                for meta in el:
+                    vrsta = str(meta.get("type") or "").lower() if _lokalno(meta.tag) == "meta" else ""
+                    t = _naslov(meta.text or "")
+                    if vrsta == "title" and naslov is None and t:
+                        naslov = t
+                    elif vrsta == "password" and geslo is None and t:
+                        geslo = (meta.text or "").strip()  # geslo arhiva ostane, kot je (brez strnjevanja)
+            del koren[:]  # obdelano - ne drzimo celega drevesa v pomnilniku
+
     try:
         for od in range(0, len(besedilo), _KOS):
             razclenjevalnik.feed(besedilo[od:od + _KOS])
-            for dogodek, el in razclenjevalnik.read_events():
-                if dogodek == "start":
-                    elementov += 1
-                    ime = _lokalno(el.tag)
-                    if globina == 0:
-                        if ime != "nzb":
-                            raise NapakaNzb(NI_NZB)
-                        koren = el
-                    elif globina == 1 and ime == "file":
-                        datotek += 1
-                    elif ime == "segment":
-                        segmentov += 1
-                    if elementov > NAJVEC_ELEMENTOV or datotek > NAJVEC_DATOTEK or segmentov > NAJVEC_SEGMENTOV:
-                        raise NapakaNzb(PREVELIK)
-                    globina += 1
-                    continue
-                globina -= 1
-                if globina != 1:
-                    continue
-                ime = _lokalno(el.tag)
-                if ime == "file":
-                    d = _datoteka(el)
-                    if d is not None:
-                        datoteke.append(d)
-                elif ime == "head":
-                    for meta in el:
-                        vrsta = str(meta.get("type") or "").lower() if _lokalno(meta.tag) == "meta" else ""
-                        t = _naslov(meta.text or "")
-                        if vrsta == "title" and naslov is None and t:
-                            naslov = t
-                        elif vrsta == "password" and geslo is None and t:
-                            geslo = (meta.text or "").strip()  # geslo arhiva ostane, kot je (brez strnjevanja)
-                del koren[:]  # obdelano - ne drzimo celega drevesa v pomnilniku
+            dogodki()
+        # Expat >= 2.6 odlozi delni zeton (reparse deferral): dogodki pridejo sele ob flush()/close() - brez branja
+        # tu bi se zadnja <file> tiho izgubila (Grok 37 C5; prenosnik ima expat 2.6.1, Python 3.12.3).
+        if hasattr(razclenjevalnik, "flush"):
+            razclenjevalnik.flush()
+            dogodki()
         razclenjevalnik.close()
+        dogodki()
     except ET.ParseError:
         raise NapakaNzb(NAPAKA_XML) from None
     if koren is None:

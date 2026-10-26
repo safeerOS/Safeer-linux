@@ -46,6 +46,15 @@ class Nzb(unittest.TestCase):
                     besedilo = str(e)
                 self.assertNotIn("SKRIVNOST", besedilo)
 
+    def test_dogodki_ob_koncu_niso_izgubljeni(self):
+        # Grok 37 C5: expat >= 2.6 odlozi delni zeton - dogodki pridejo sele ob flush()/close(). Po 7 znakov.
+        xml = ('<nzb><file subject="a.mkv"><segments><segment bytes="1" number="1">a@primer.invalid</segment>'
+               '</segments></file><file subject="b.mkv"><segments><segment bytes="1" number="1">b@primer.invalid'
+               '</segment></segments></file></nzb>')
+        for kos in (7, 13, 64):
+            with mock.patch.object(NZ, "_KOS", kos):
+                self.assertEqual([d.ime for d in NZ.razcleni(xml.encode()).datoteke], ["a.mkv", "b.mkv"], kos)
+
     def test_meje_stevila(self):
         self.assertEqual(self.izid(nzb(4, 2)), NZ.OK)
         with mock.patch.object(NZ, "NAJVEC_DATOTEK", 3):

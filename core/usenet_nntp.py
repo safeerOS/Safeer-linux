@@ -274,6 +274,21 @@ def _preveri_poverilnico(vrednost: Optional[str]) -> None:
         raise ValueError("usenet nntp: neveljavna poverilnica")  # brez vrednosti (UnicodeError bi nosil celo vrednost)
 
 
+def _preveri_gostitelja(gostitelj: object, vrata: object) -> None:
+    """Gostitelj in vrata pred vsako povezavo (Grok 37 C8): sicer OverflowError, UnicodeError ali ValueError mimo
+    NapakaNntp; »uporabnik:geslo@news.x« ali kljuc kot gostitelj ne gre v DNS. Sporocilo brez vrednosti."""
+    g = gostitelj if isinstance(gostitelj, str) else ""
+    if not 1 <= len(g) <= 253 or any(z in g for z in "@/\\ \t\r\n\x00[]"):
+        raise ValueError("usenet nntp: neveljaven gostitelj")
+    try:
+        g.encode("idna")
+        v = int(vrata)  # type: ignore[call-overload]
+    except (UnicodeError, ValueError, TypeError):
+        raise ValueError("usenet nntp: neveljaven gostitelj ali vrata") from None
+    if not 1 <= v <= 65535:
+        raise ValueError("usenet nntp: neveljavna vrata")
+
+
 def _ukaz_z_id(ukaz: str, message_id: str) -> bytes:
     mid = id_clanka(message_id)
     if mid is None:
@@ -344,6 +359,7 @@ class Povezava:
                  proracun: Optional[Proracun] = None):
         _preveri_poverilnico(uporabnik)
         _preveri_poverilnico(geslo)
+        _preveri_gostitelja(gostitelj, vrata)
         self.gostitelj = str(gostitelj)
         self.vrata = int(vrata)
         self.__uporabnik = uporabnik
@@ -355,6 +371,7 @@ class Povezava:
         self._surov: Optional[socket.socket] = None  # med vzpostavljanjem TCP (da ga prekini() lahko zbudi)
         self._prekinjeno = False
         self._medpomnilnik = bytearray()
+        self._zadnja_vrstica = ""
         self.prijavljen = False
         #: Bazen: (ovira ali None, prijava_uspela) tik pred AUTHINFO - zavrnjen racun ne dobi gesla niti iz povezave,
         #: ki se je odpirala vzporedno.
@@ -377,9 +394,9 @@ class Povezava:
     def _napaka(self, izid: str, koda: int = 0, vzrok: Optional[BaseException] = None) -> NapakaNntp:
         if izid != NI_CLANKA:
             self.zapri()
+        # Brez gostitelja (ponudnik je zaseben podatek - Grok 37 C8), poverilnic, id in besedila streznika.
         (_log.debug if izid == NI_CLANKA else _log.info)(
-            "usenet nntp: %s %s%s", self.gostitelj, izid,
-            " (%s)" % type(vzrok).__name__ if vzrok else (" (%d)" % koda if koda else ""))
+            "usenet nntp: %s%s", izid, " (%s)" % type(vzrok).__name__ if vzrok else (" (%d)" % koda if koda else ""))
         return NapakaNntp(izid, koda)
 
     def _beri(self, konec: float) -> None:
@@ -430,6 +447,7 @@ class Povezava:
 
     def _odgovor(self, ukaz: str, konec: float, prijava_uspela: bool = False) -> tuple:
         vrstica = self._vrstica(konec)
+        self._zadnja_vrstica = vrstica
         return izid_odgovora(ukaz, vrstica, prijava_uspela), koda_vrstice(vrstica) or 0
 
     def _telo(self, konec: float) -> bytes:
@@ -581,7 +599,7 @@ class Povezava:
 
     # -------------------------------------------------------------- zahteve
 
-    def _zahteva(self, ukaz: str, vrstica: bytes, z_telesom: bool) -> Optional[bytes]:
+    def _zahteva(self, ukaz: str, vrstica: bytes, z_telesom: bool, mid: str) -> Optional[bytes]:
         if self._sock is None:
             self.odpri()
         konec = time.monotonic() + self._rok
@@ -591,16 +609,21 @@ class Povezava:
         # ne gre k strezniku mimo vrat bazena (sonda, zapah).
         if izid != OK:
             raise self._napaka(izid, koda)
-        return self._telo(konec) if z_telesom else None
+        if not id_odgovora_ustreza(self._zadnja_vrstica, mid):
+            raise self._napaka(NAPAKA_PROTOKOLA, koda)  # odgovor za drug clanek (Grok 37 C9): povezava ni usklajena
+        telo = self._telo(konec) if z_telesom else None
+        if self._medpomnilnik:
+            self.zapri()  # bajti za koncem odgovora: brez cevovoda jih ne sme biti - povezava ne gre v bazen
+        return telo
 
     def telo(self, message_id: str) -> bytes:
         """BODY: telo clanka brez podvojenih pik (za usenet_yenc.dekodiraj)."""
-        return self._zahteva("BODY", _ukaz_z_id("BODY", message_id), True)
+        return self._zahteva("BODY", _ukaz_z_id("BODY", message_id), True, id_clanka(message_id))
 
     def stat(self, message_id: str) -> bool:
         """STAT: ali clanek obstaja (430/423 = False)."""
         try:
-            self._zahteva("STAT", _ukaz_z_id("STAT", message_id), False)
+            self._zahteva("STAT", _ukaz_z_id("STAT", message_id), False, id_clanka(message_id))
             return True
         except NapakaNntp as e:
             if e.izid == NI_CLANKA:
@@ -653,6 +676,7 @@ class Bazen:
                  proracun_bajtov: int = PRORACUN_BAJTOV):
         _preveri_poverilnico(uporabnik)
         _preveri_poverilnico(geslo)
+        _preveri_gostitelja(gostitelj, vrata)
         kontekst = varen_kontekst(kontekst)  # en kontekst za vse povezave (wrap_socket je varen za niti)
         self.gostitelj = str(gostitelj)
         self.vrata = int(vrata)
@@ -847,9 +871,8 @@ class Bazen:
 
     # -------------------------------------------------------------- zahteve
 
-    def _izvedi(self, delo: Callable[[Povezava], object]):
+    def _izvedi(self, delo: Callable[[Povezava], object], sveza: bool = False):
         rok_do = time.monotonic() + self._rok
-        sveza = False
         for poskus in (0, 1):
             p, stara = self._vzemi(rok_do, sveza)
             try:
@@ -898,11 +921,9 @@ class Bazen:
         return self._izvedi(lambda p: p.stat(message_id))
 
     def preveri(self) -> None:
-        """Ena povezava s prijavo (»Preizkusi povezavo« v nastavitvah). Napaka: NapakaNntp."""
-        def odpri(p: Povezava) -> None:
-            if not p.odprta:
-                p.odpri()
-        self._izvedi(odpri)
+        """Vedno nova povezava s prijavo (»Preizkusi povezavo«; Grok 37 C9: prosta povezava ni dokaz, da streznik se
+        dela). Zapah velja tudi tu: zavrnjen racun ne poskusi znova. Napaka: NapakaNntp."""
+        self._izvedi(lambda p: None, sveza=True)
 
     def zapri(self) -> None:
         """Zapre proste povezave in prekine zahteve v teku (te vrnejo ZAPRTO) - zapiranje ne caka na rok."""

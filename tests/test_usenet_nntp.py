@@ -90,7 +90,8 @@ class LazniStreznik:
 
     def __init__(self, mapa, potrdilo="prav", pozdrav="200 lazni streznik pripravljen", zapri_po_zahtevi=False,
                  zamuda_gesla=0.0, napacno="481 Authentication failed", meja=None,
-                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0, po_kosih=0.0):
+                 odgovor_meja="502 Too many connections", gesla_ne_odgovori=False, zamuda_body=0.0, po_kosih=0.0,
+                 drug_id=False, ostanek=b""):
         self.kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.kontekst.load_cert_chain(os.path.join(mapa, potrdilo + ".pem"), os.path.join(mapa, potrdilo + ".key"))
         self.pozdrav = pozdrav
@@ -102,6 +103,8 @@ class LazniStreznik:
         self.gesla_ne_odgovori = gesla_ne_odgovori  # po PASS zapre brez odgovora
         self.zamuda_body = zamuda_body
         self.po_kosih = po_kosih  # telo po 64 KiB z zamikom (hkratna branja vec povezav)
+        self.drug_id = drug_id  # 222 z message-id drugega clanka
+        self.ostanek = ostanek  # bajti za koncem bloka (brez cevovoda jih ne sme biti)
         self.prijavljenih = 0
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
@@ -215,7 +218,8 @@ class LazniStreznik:
                                 s.sendall(vse[i:i + 65536])
                                 time.sleep(self.po_kosih)
                         else:
-                            s.sendall(b"222 0 <%s> body\r\n" % mid.encode() + _nntp(CLANKI[mid]))
+                            vrnjen = b"drug.Tt@primer.invalid" if self.drug_id else mid.encode()
+                            s.sendall(b"222 0 <%s> body\r\n" % vrnjen + _nntp(CLANKI[mid]) + self.ostanek)
                     else:
                         # streznik ponovi message-id - odjemalec besedila odgovora ne sme prenesti v izjemo ali dnevnik
                         s.sendall(b"430 No such article <%s>\r\n" % mid.encode())
@@ -633,6 +637,45 @@ class Nntp(unittest.TestCase):
         self.assertEqual(N.NAJVEC_VRSTICA_BAJTOV, 4096)
         s = self.streznik(pozdrav="200 " + "x" * 9000)
         self.assertEqual(self.napaka(lambda: self.bazen(s).telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
+
+    def test_napacen_gostitelj_ali_vrata(self):
+        # Grok 37 C8: prej OverflowError/UnicodeError/ValueError mimo NapakaNntp; poverilnica v gostitelju ne gre v DNS.
+        k = self.kontekst()
+        for g, v in (("uporabnik:" + GESLO + "@news.primer.invalid", 563), ("", 563), ("a b", 563), ("x" * 254, 563),
+                     ("news.primer.invalid", 0), ("news.primer.invalid", 70000), ("a" * 64 + ".invalid", 563)):
+            with self.assertRaises(ValueError) as e:
+                N.Bazen(g, v, kontekst=k)
+            self.assertNotIn(GESLO, str(e.exception))
+        N.Bazen("::1", 563, kontekst=k)
+        N.Bazen("news.primer.invalid", 443, kontekst=k)
+
+    def test_dnevnik_brez_gostitelja(self):
+        s = self.streznik()
+        self.napaka(lambda: self.bazen(s, geslo="napacno-geslo-d").telo(ID_OK))
+        self.assertTrue(self.zajem.besedila)
+        self.assertFalse([b for b in self.zajem.besedila if "127.0.0.1" in b], "ponudnik je zaseben podatek")
+
+    def test_odgovor_za_drug_clanek(self):
+        s = self.streznik(drug_id=True)
+        b = self.bazen(s)
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
+        self.assertEqual(s.sprejete, 1, "brez ponovitve (napaka protokola na sveži povezavi)")
+        self.assertEqual(len(b._proste), 0, "neusklajena povezava ne gre v bazen")
+
+    def test_ostanek_za_koncem_zapre_povezavo(self):
+        s = self.streznik(ostanek=b"223 0 <x@primer.invalid>\r\n")
+        b = self.bazen(s)
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(len(b._proste), 0, "povezava z ostankom ne gre v bazen")
+        self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK])
+        self.assertEqual(s.sprejete, 2)
+
+    def test_preveri_vedno_sveza(self):
+        s = self.streznik()
+        b = self.bazen(s)
+        b.telo(ID_OK)
+        b.preveri()
+        self.assertEqual(s.sprejete, 2, "»Preizkusi povezavo« ne gre po stari prosti povezavi")
 
     def test_telo_vecje_od_meje(self):
         s = self.streznik()
