@@ -81,7 +81,7 @@ def _usenet(f, v):
             return {"izid": Y.PRIREZANO} if r is None else _yenc_izhod(r[0])
         return None if r is None else {"telo_b64": _b64(r[0]), "ostanek_b64": _b64(r[1])}
     if f == "nntp_izid":
-        return NN.izid_odgovora(v["ukaz"], v["vrstica"], v.get("prijava_uspela", False))
+        return NN.izid_odgovora(v["ukaz"], v["vrstica"])
     if f == "nntp_ukrep":
         return NN.ukrep_bazena(v["izid"], v["faza"], v["stara"], v["poskus"])
     if f == "nntp_sme_odpreti":
@@ -112,7 +112,8 @@ def _usenet(f, v):
                 "poverilnica_bajtov": NN.NAJVEC_POVERILNICA_BAJTOV, "povezav_privzeto": NN.PRIVZETO_POVEZAV,
                 "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA, "prosta_najdlje_s": int(NN.PROSTA_NAJDLJE_S),
                 "premor_od_s": int(NN.PREMOR_OD_S), "premor_brez_odprtih_s": int(NN.PREMOR_BREZ_ODPRTIH_S),
-                "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S)}
+                "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S),
+                "ziva_prijava_s": int(NN.ZIVA_PRIJAVA_S)}
     raise KeyError("neznano pravilo: " + f)
 
 
@@ -244,7 +245,7 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_WEBTOR, set(NI_NA_NAMIZJU), 130)
 
     def test_usenet_pogon(self):
-        self._preveri(PRIMERI_USENET, set(), 400)  # v3: 410 primerov
+        self._preveri(PRIMERI_USENET, set(), 410)  # v4 (zaklep racuna, pregleda Grok 43 in 44)
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))

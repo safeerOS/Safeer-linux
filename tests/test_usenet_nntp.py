@@ -106,6 +106,8 @@ class LazniStreznik:
         self.drug_id = drug_id  # 222 z message-id drugega clanka
         self.ostanek = ostanek  # bajti za koncem bloka (brez cevovoda jih ne sme biti)
         self.prijavljenih = 0
+        self.geslo = GESLO  # geslo racuna pri ponudniku (zamenjaj_geslo: lastnik ga zamenja med sejo)
+        self.seje = set()
         self.ustavi_dogodek = threading.Event()
         self.zaklep = threading.Lock()
         self.sprejete = self.hkrati = self.najvec_hkrati = 0
@@ -115,6 +117,18 @@ class LazniStreznik:
         self.vrata = self.vticnik.getsockname()[1]
         self.niti = [threading.Thread(target=self._sprejemaj, daemon=True)]
         self.niti[0].start()
+
+    def zamenjaj_geslo(self, novo, zapri_seje=False):
+        """Geslo zamenjano pri ponudniku: nove prijave s starim so zavrnjene; obstojece seje ostanejo zive ali jih
+        ponudnik zapre."""
+        with self.zaklep:
+            self.geslo = novo
+            seje = list(self.seje)
+        for x in seje if zapri_seje else ():
+            try:
+                socket.socket.shutdown(x, socket.SHUT_RDWR)
+            except OSError:
+                pass
 
     def ustavi(self):
         self.ustavi_dogodek.set()
@@ -153,7 +167,7 @@ class LazniStreznik:
         return v.decode("latin-1"), buf
 
     def _obdelaj(self, surov):
-        prijavljen_seja = False
+        prijavljen_seja, s = False, None
         with self.zaklep:
             self.hkrati += 1
             self.najvec_hkrati = max(self.najvec_hkrati, self.hkrati)
@@ -164,6 +178,8 @@ class LazniStreznik:
             except (ssl.SSLError, OSError):
                 return
             s.settimeout(0.2)
+            with self.zaklep:
+                self.seje.add(s)
             s.sendall(self.pozdrav.encode() + b"\r\n")
             if not self.pozdrav.startswith("20"):
                 return
@@ -183,7 +199,7 @@ class LazniStreznik:
                         time.sleep(self.zamuda_gesla)
                     if self.gesla_ne_odgovori:
                         return
-                    prijavljen = uporabnik == UPORABNIK and arg[5:] == GESLO
+                    prijavljen = uporabnik == UPORABNIK and arg[5:] == self.geslo
                     if prijavljen:
                         with self.zaklep:
                             if self.meja is not None and self.prijavljenih >= self.meja:
@@ -235,6 +251,9 @@ class LazniStreznik:
                 self.hkrati -= 1
                 if prijavljen_seja:
                     self.prijavljenih -= 1
+                self.seje.discard(s)
+            if s is not None:
+                s.close()  # seje drzijo SSLSocket - brez tega se vticnik ne zapre ob koncu seje
             surov.close()
 
 
@@ -265,7 +284,9 @@ class Nntp(unittest.TestCase):
         logging.getLogger("safeer.usenet").setLevel(logging.DEBUG)
         self.addCleanup(logging.getLogger("safeer.usenet").removeHandler, self.zajem)
         N._ZAVRNJENI.clear()  # zapah racuna velja za ves proces - vsak preizkus zacne brez njega
+        N._NEZNANE.clear()
         self.addCleanup(N._ZAVRNJENI.clear)
+        self.addCleanup(N._NEZNANE.clear)
 
     def kontekst(self):
         return ssl.create_default_context(cafile=self.ca)
@@ -542,14 +563,45 @@ class Nntp(unittest.TestCase):
         self.assertEqual(b.najvec, 3, "zavrnjena prijava ne krci bazena")
 
     def test_meja_povezav_po_uspeli_prijavi(self):
-        # Ponudnik: prevec povezav javi kot napako prijave (480/481) - po uspeli prijavi je to ZASEDEN, ne zapah.
-        s = self.streznik(meja=2, odgovor_meja="481 Authentication failed", zamuda_gesla=0.05)
+        # Ponudnik javi mejo povezav pri AUTHINFO z jasnim besedilom (481 + »too many connections«): ZASEDEN, ne zapah.
+        s = self.streznik(meja=2, odgovor_meja="481 Too many connections", zamuda_gesla=0.05)
         b = self.bazen(s, povezav=6)
         izidi = self._hkrati(b, 6, 3)
         self.assertEqual(izidi, ["ok"] * 18)
         self.assertEqual(b.najvec, 2, "bazen na sprejete povezave")
         self.assertLessEqual(self._gesel(s), 6, "vsaka povezava najvec ena prijava - brez zanke")
         self.assertLessEqual(s.najvec_hkrati, 6)
+
+    def test_menjava_gesla_med_sejo_ena_napacna_prijava(self):
+        # Grok 43 C1: lastnik zamenja geslo pri ponudniku, stare seje ostanejo zive. Prej je bil »481 Authentication
+        # failed« po uspeli prijavi meja povezav: vsaka nova povezava je poslala staro geslo (4 hkrati, nato ena na
+        # 10 min).
+        s = self.streznik(zamuda_body=0.3, zamuda_gesla=0.05)
+        b = self.bazen(s, povezav=6)
+        self.assertEqual(self._hkrati(b, 2, 1), ["ok", "ok"])
+        pred = self._gesel(s)
+        s.zamenjaj_geslo("geslo-zamenjano-pri-ponudniku")
+        with mock.patch.object(N, "RAST_BAZENA_S", 0.2), mock.patch.object(N, "PREMOR_OD_S", 0.1):
+            izidi = self._hkrati(b, 6, 3)
+        self.assertEqual(self._gesel(s) - pred, 1, "staro geslo gre k strezniku enkrat")
+        self.assertIn(N.PRIJAVA, izidi)
+        self.assertTrue(N.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO))
+        self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.PRIJAVA)
+        self.assertEqual(self._gesel(s) - pred, 1)
+
+    def test_menjava_gesla_ponudnik_zapre_seje(self):
+        # Ponudnik ob menjavi gesla zapre seje: vse niti hkrati dobijo mrtvo povezavo in odprejo svezo - geslo pa gre
+        # skozi vrata prijave ena naenkrat, zato staro geslo do streznika enkrat.
+        s = self.streznik(zamuda_gesla=0.05)
+        b = self.bazen(s, povezav=8)
+        self.assertEqual(self._hkrati(b, 8, 1), ["ok"] * 8)
+        pred = self._gesel(s)
+        s.zamenjaj_geslo("geslo-zamenjano-pri-ponudniku", zapri_seje=True)
+        time.sleep(0.1)
+        izidi = self._hkrati(b, 8, 3)
+        self.assertEqual(self._gesel(s) - pred, 1, "staro geslo gre k strezniku enkrat")
+        self.assertIn(N.PRIJAVA, izidi)
+        self.assertNotIn("ok", izidi)
 
     def test_prijava_brez_odgovora_drugic_zapah(self):
         s = self.streznik(gesla_ne_odgovori=True)
