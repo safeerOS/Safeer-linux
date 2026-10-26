@@ -75,6 +75,9 @@ class U1SamoOzjiKrog(_Dom):
         self.assertTrue(s.zeton_velja(z_ozji, zmoznost="d", oznaka="dom:Slike/morje.jpg"))
         s.dovoli_izrecno(ZUNANJI, "dom:Slike/morje.jpg")       # uporabnik ji je to datoteko sam poslal
         self.assertTrue(s.zeton_velja(z_zunanji, zmoznost="d", oznaka="dom:Slike/morje.jpg"))
+        # Pregled 97, N1: umik iz kroga preklice tudi izrecno poslano - nov zeton je ne odpre vec.
+        s.preklici_jedro(link_datoteke._jedro_naprave(ZUNANJI))
+        self.assertFalse(s.zeton_velja(s.zeton_za(ZUNANJI), zmoznost="d", oznaka="dom:Slike/morje.jpg"))
 
     def test_urejanje_domace_mape_samo_ozjemu_krogu(self):
         koda, odgovor = self.d.streznik.uredi("dom:Dokumenti/pismo.txt", {"op": "rename", "name": "b.txt"},

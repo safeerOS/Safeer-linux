@@ -1854,6 +1854,10 @@ class StreznikDatotek:
             stari = [z for z, v in self._zetoni.items() if v[0] in njene]
             for z in stari:
                 self._zetoni.pop(z, None)
+            # Pregled 97, N1 (26. 10. 2026): tudi izrecno poslane datoteke - z novim zetonom bi jih naprava po umiku iz
+            # kroga se dobila, tudi iz domace mape (pravilo: umik takoj preklice zetone in seje).
+            for k in [k for k in self._izrecno if k[0] == jedro_naprave]:
+                self._izrecno.pop(k, None)
         return len(stari)
 
     def dodaj_tok(self, lokalni_url: str, zmoznost: Optional[str] = None) -> str:
