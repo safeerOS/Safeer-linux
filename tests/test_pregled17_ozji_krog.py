@@ -315,7 +315,9 @@ class OknoLinkDomacaMapa(unittest.TestCase):
         self.assertIn('id="gumbDostopDom"', (koren / "assets" / "link" / "index.html").read_text(encoding="utf-8"))
         vir = (koren / "core" / "safeer_link.py").read_text(encoding="utf-8")
         self.assertIn('dovoliDomacoMapo: function (id) { poslji("dovoliDomacoMapo", [id]); }', vir)
-        self.assertIn('"dovoliDomacoMapo": lambda: self._dovoli_domaco_mapo(*argumenti[:1])', vir)
+        # Pregled 29, G12: zapis v ozadju, okno ne zamrzne.
+        self.assertIn('"dovoliDomacoMapo": lambda: self._v_ozadju(lambda: self._dovoli_domaco_mapo(*argumenti[:1]))',
+                      vir)
         self.assertIn('"dom": bool(link_dostop.sme_domaco_mapo(id_naprave))', vir)
 
 

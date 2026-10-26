@@ -859,7 +859,9 @@ class SafeerLink:
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
             "preimenujNapravo": lambda: self._v_ozadju(lambda: self._preimenuj_napravo(*argumenti[:2])),
             "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:2]),
-            "dovoliDomacoMapo": lambda: self._dovoli_domaco_mapo(*argumenti[:1]),
+            # V ozadju: zapis (zaklep datoteke, fsync) ne sme zamrzniti okna (pregled 29, G12). Ponovljen klik je
+            # enak prvemu, vrstni red zato ni pomemben - pri nastaviDostop je (zadnje stanje stikal mora zmagati).
+            "dovoliDomacoMapo": lambda: self._v_ozadju(lambda: self._dovoli_domaco_mapo(*argumenti[:1])),
             "shraniVzdevek": lambda: self._shrani_vzdevek(*argumenti[:2]),
             "pozabiNapravo": lambda: self._v_ozadju(self._pozabi_napravo),
             "potrdiNovNaslov": lambda: self._v_ozadju(self._potrdi_nov_naslov),
@@ -2506,7 +2508,11 @@ class SafeerLink:
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Domace mape ni bilo mogoce dovoliti: {e}")
             ok = False
-        self._po_spremembi_dostopa(id_naprave, ok)
+        if threading.current_thread() is threading.main_thread():
+            self._po_spremembi_dostopa(id_naprave, ok)
+        else:
+            # Seznam naprav in okno samo na glavni niti (kot ob odvzemu iz druge niti).
+            GLib.idle_add(lambda: (self._po_spremembi_dostopa(id_naprave, ok), False)[1])
 
     def _po_spremembi_dostopa(self, id_naprave: str, ok: bool) -> None:
         """Seznam naprav in okno dobita nov dostop naprave (po stikalih v oknu ali po »Dovoli« v obvestilu)."""
