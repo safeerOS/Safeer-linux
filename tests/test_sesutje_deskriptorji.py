@@ -94,6 +94,10 @@ class ZaganjalnikSled(unittest.TestCase):
         shutil.copy(os.path.join(KOREN, "core", "varuh_procesov.py"), os.path.join(mapa, "lib", "safeer-os", "core"))
         with open(os.path.join(mapa, "lib", "safeer-os", "safeer_os.py"), "w", encoding="utf-8") as f:
             f.write(program)
+        # Varuh zazene tudi Scit (core/scit_proces.py); brez njega je njegova napaka »can't open file« v sled.log
+        # tekmovala z vrstico preizkusa (CI 40438373432, 27. 10. 2026 - lokalno 4/6 padcev).
+        with open(os.path.join(mapa, "lib", "safeer-os", "core", "scit_proces.py"), "w", encoding="utf-8") as f:
+            f.write("")
         return zaganjalnik
 
     def _zazeni(self, mapa: str, nacin: str):
