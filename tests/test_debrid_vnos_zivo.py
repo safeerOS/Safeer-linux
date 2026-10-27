@@ -304,7 +304,7 @@ class DebridVnos(unittest.TestCase):
         _cakaj(lambda: False, 0.2)
         po = self._po("realdebrid")
         self.assertTrue(po["stanje"].startswith("Real-Debrid se ni odzval (ni povezave, omejitev zahtev ali napaka storitve), "
-                                                "zato stanje ostaja: Real-Debrid je račun zaklenil"), po["stanje"])
+                                                "zato stanje ostaja – Real-Debrid je račun zaklenil"), po["stanje"])
         self.assertTrue(po["opis"].startswith("Real-Debrid je račun zaklenil"), po["opis"])
         self.assertEqual(self.d.stanje_kljuca(P.REAL_DEBRID), P.STANJE_ZAKLENJEN)
         self._minuta()
