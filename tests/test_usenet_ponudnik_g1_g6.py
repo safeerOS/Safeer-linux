@@ -5,6 +5,7 @@ odpirajo omrezja, ne rabijo sistemske zbirke in ne posegajo v pravi usenet_nntp.
 obris, ki ga modul uporablja (zapah po gostitelju+uporabniku+geslu ali po racunu). Vsak preizkus G dobi svezo kopijo
 modula, da stanje v pomnilniku (omejitev 1/min, register bazenov) ne tece med preizkusi."""
 
+import concurrent.futures
 import hashlib
 import importlib.util
 import os
@@ -99,8 +100,14 @@ def _lazni_nntp(zapah_na_racun=False):
             self.kontekst = kontekst
             self._najvec = min(int(povezav), n.NAJVEC_POVEZAV)
             self._odprte = 0
+            self._pogoj = threading.Lock()
+            self._proste = []  # lazni bazen vrne povezavo sele ob zapri: vse odprte so v rabi
             self.ustavljen = None
             n.bazeni.append(self)
+
+        @property
+        def _v_rabi(self):
+            return range(self._odprte)
 
         def nastavi_najvec(self, povezav):
             self._najvec = min(int(povezav), n.NAJVEC_POVEZAV)
@@ -222,21 +229,13 @@ def Q(o, **k):
 
 
 def _v_niti(fn, *a, **k):
-    izid = {}
-
-    def tek():
-        try:
-            izid["v"] = fn(*a, **k)
-        except BaseException as e:  # noqa: B036 - prenesemo v glavno nit
-            izid["e"] = e
-
-    t = threading.Thread(target=tek)
-    t.start()
-    t.join(10)
-    assert not t.is_alive()
-    if "e" in izid:
-        raise izid["e"]
-    return izid["v"]
+    """Klic na delovni niti (omrezje ni dovoljeno na glavni). Future.result() izjemo niti sam prenese v klicatelja,
+    zato tu ni slepega lovljenja (naloga 116, ruff BLE001)."""
+    izvajalec = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return izvajalec.submit(fn, *a, **k).result(timeout=10)
+    finally:
+        izvajalec.shutdown(wait=False)  # po roku preizkus ne visi na niti, ki visi
 
 
 def _preveri(o, p, geslo, pot_=None):
@@ -496,12 +495,13 @@ def test_g4_posodobi_nastavitve_zmanjsa_mejo_zivega_bazena(o, pot):
 # ------------------------------------------------------------------ G5
 
 def test_g5_napaka_zbirke_ne_izgubi_starega_racuna(o, pot):
+    # Naloga 116: prava skrivnosti.shrani ne vrze (napako zbirke vrne kot False). Izjema od tam je napaka programa
+    # in gre naprej nespremenjena (ne vec ZBIRKA_NAPAKA) - stari ponudnik pa vseeno ostane cel.
     p, q = P(o), Q(o)
     o.m.shrani_ponudnika(p, PRAVO, pot)
     o.skr.napaka = True
-    with pytest.raises(o.m.NapakaPonudnika) as e:
+    with pytest.raises(RuntimeError, match="zbirka zaklenjena"):
         o.m.shrani_ponudnika(q, DRUGO, pot)
-    assert e.value.razlog == o.m.ZBIRKA_NAPAKA and "zaklenjena" not in str(e.value)
     o.skr.napaka = False
     assert o.m.preberi_ponudnika(pot) == p
     assert o.skr.zbirka == {p.kljuc_gesla: PRAVO}
@@ -600,3 +600,90 @@ def test_gesla_ni_v_nobeni_datoteki(o, pot):
         if ime.endswith(".kljuci"):
             assert b"uporabnik1" not in vsebina
             assert oct(os.stat(os.path.join(os.path.dirname(pot), ime)).st_mode & 0o777) == "0o600"
+
+
+# ------------------------------------------------------------------ naloga 116
+
+def test_n116_zavrnitev_ne_tece_v_druge_nastavitve(o, tmp_path):
+    # Zavrnitev (G1) velja za nastavitve, v katerih je bila; prej je dobila vsaka druga nastavitev istega racuna
+    # GESLO_ZAVRNJENO/ZAKLENJEN brez omrezja (lastnikovi preizkusi so padali drug za drugim).
+    p, a, b = P(o), str(tmp_path / "a" / "usenet.json"), str(tmp_path / "b" / "usenet.json")
+    _zavrni(o, p, a)
+    o.nntp.zapah.clear()  # druga shramba zapaha (kot lastnikova izolacija preizkusa)
+    o.ura[0] += 3600
+    o.m.shrani_ponudnika(p, NAPACNO, b)
+    assert _preveri(o, p, NAPACNO, b) == o.m.NE_VELJA
+    assert o.srv.poslan_pass == 2
+    assert _poskusi_shrani(o, p, NAPACNO, a) == o.m.GESLO_ZAVRNJENO  # v prvih nastavitvah ostane
+
+
+def test_n116_preverba_brez_poti_velja_za_vse_nastavitve(o, pot):
+    p = P(o)
+    assert _preveri(o, p, NAPACNO) == o.m.NE_VELJA
+    assert _poskusi_shrani(o, p, NAPACNO, pot) == o.m.GESLO_ZAVRNJENO
+    assert o.srv.poslan_pass == 1
+
+
+def test_n116_prazen_ziv_bazen_ne_ovira_preverbe(o, pot):
+    p = P(o, najvec_povezav=3)
+    o.m.shrani_ponudnika(p, PRAVO, pot)
+    b = o.m.ustvari_bazen(p)
+    meje = []
+
+    def med_prijavo():
+        meje.append(b._najvec)
+        _napolni(b)  # predvajanje med preverbo: bazen dobi samo preostala mesta
+
+    o.srv.ob_prijavi = med_prijavo
+    assert _preveri(o, p, PRAVO, pot) == o.m.VELJA
+    assert meje == [2] and o.srv.najvec_hkrati == 3
+    o.srv.ob_prijavi = None
+    assert b._najvec == 3  # mesto vrnjeno
+    b.zapri()
+
+
+def test_n116_bazen_z_mestom_ne_ovira_preverbe(o, pot):
+    p = P(o, najvec_povezav=3)
+    o.m.shrani_ponudnika(p, PRAVO, pot)
+    b = o.m.ustvari_bazen(p)
+    assert b.zahtevaj() and b.zahtevaj()
+    assert _preveri(o, p, PRAVO, pot) == o.m.VELJA
+    assert o.srv.najvec_hkrati == 3
+    b.zapri()
+
+
+def test_n116_pozabi_ne_skrije_napake_zbirke(o, pot, monkeypatch):
+    # Prej je _pozabi_kljuce slepo lovil Exception (BLE001); prava skrivnosti.pozabi ne vrze, izjema je napaka.
+    o.m.shrani_ponudnika(P(o), PRAVO, pot)
+
+    def pozabi(k):
+        raise RuntimeError("napaka programa")
+
+    monkeypatch.setattr(o.skr, "pozabi", pozabi)
+    with pytest.raises(RuntimeError):
+        o.m.pozabi_ponudnika(pot)
+    assert o.m.preberi_ponudnika(pot) == P(o)  # nastavitve ostanejo, naslednji »Pozabi« poskusi znova
+
+
+def test_n116_prave_skrivnosti_ne_vrzejo(monkeypatch):
+    # Na tej pogodbi temelji odstranitev lovljenja izjem v usenet_ponudnik: napaka zbirke je False/None, ne izjema.
+    from core.sporocila import skrivnosti
+
+    def pokvarjena():
+        raise RuntimeError("ni zbirke")
+
+    monkeypatch.setattr(skrivnosti, "_secret", pokvarjena)
+    monkeypatch.setattr(skrivnosti, "_ss", pokvarjena)
+    monkeypatch.setattr(skrivnosti, "_win", pokvarjena)
+    assert skrivnosti.shrani("usenet-n116", "x") is False
+    assert skrivnosti.preberi("usenet-n116") is None
+    assert skrivnosti.pozabi("usenet-n116") is None
+
+
+def test_n116_ne_pusti_sledi_v_sys_modules(monkeypatch):
+    # Lazni paket se po preizkusu umakne (monkeypatch): sosednji preizkusi v istem delu hitrih vrat ga ne vidijo.
+    pred = set(sys.modules)
+    with monkeypatch.context() as mp:
+        _nalozi(mp)
+        assert _PAKET + ".usenet_ponudnik" in sys.modules
+    assert not {m for m in set(sys.modules) - pred if m.startswith(_PAKET)}

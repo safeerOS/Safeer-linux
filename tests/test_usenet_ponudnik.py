@@ -644,3 +644,44 @@ def test_geslo_in_uporabnik_nikjer(izolacija, streznik, odjemalec, caplog):
     assert "usenet ponudnik: preverba" in caplog.text  # dnevnik je bil res zajet
     # Streznik je geslo res prejel (sicer bi bil preizkus prazen).
     assert any(GESLO in v for v in streznik.prejeto)
+
+
+# ------------------------------------------------------------------ naloga 116: zavrnitev ne tece med nastavitvami
+
+def test_zavrnitev_ne_tece_v_druge_nastavitve(izolacija, streznik, odjemalec):
+    # Odtis zavrnjenega gesla (G1) je bil za ves proces: naslednji preizkus z istim racunom in svezimi nastavitvami
+    # je dobil GESLO_ZAVRNJENO/ZAKLENJEN brez omrezja (CI 40454036242, hitra-vrata 3).
+    p = lokalni(streznik)
+    up.shrani_ponudnika(p, NAPACNO, izolacija["pot"])
+    assert preveri(izolacija, streznik, odjemalec, NAPACNO) == up.NE_VELJA
+    # Kot nov preizkus: druga shramba zapaha, prazen pomnilnik procesa, druge nastavitve.
+    nntp.nastavi_shrambo_zapaha(str(izolacija["mapa"] / "stanje2" / "usenet-zapah"))
+    for m in (nntp._ZAVRNJENI, nntp._NEZNANE, up._PREVERBE):
+        m.clear()
+    druga = str(izolacija["mapa"] / "nast2" / "usenet.json")
+    up.shrani_ponudnika(p, NAPACNO, druga)
+    assert v_niti(up.preveri_ponudnika, p, NAPACNO, pot_nastavitev=druga, kontekst=odjemalec) == up.NE_VELJA
+    assert streznik.n("pass") == 2
+    with pytest.raises(up.NapakaPonudnika) as e:  # v prvih nastavitvah zavrnitev ostane
+        up.shrani_ponudnika(p, NAPACNO, izolacija["pot"])
+    assert e.value.razlog == up.GESLO_ZAVRNJENO
+
+
+def test_ziv_bazen_s_prostim_mestom_ne_ovira_preverbe(izolacija, streznik, odjemalec):
+    p = lokalni(streznik, najvec_povezav=2)
+    up.shrani_ponudnika(p, GESLO, izolacija["pot"])
+    bazen = up.ustvari_bazen(p, kontekst=odjemalec)
+    assert v_niti(bazen.stat, "<n116@primer.invalid>") is True  # ena prosta povezava ostane odprta
+    assert preveri(izolacija, streznik, odjemalec) == up.VELJA
+    assert streznik.najvec_hkrati <= 2
+    bazen.zapri()
+
+
+def test_poln_bazen_preverba_v_uporabi(izolacija, streznik, odjemalec):
+    p = lokalni(streznik, najvec_povezav=1)
+    up.shrani_ponudnika(p, GESLO, izolacija["pot"])
+    bazen = up.ustvari_bazen(p, kontekst=odjemalec)
+    assert v_niti(bazen.stat, "<n116@primer.invalid>") is True
+    assert preveri(izolacija, streznik, odjemalec) == up.V_UPORABI
+    assert streznik.najvec_hkrati == 1 and streznik.n("pass") == 1
+    bazen.zapri()

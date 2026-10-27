@@ -30,6 +30,50 @@ class OknoQml(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         cls.app = QApplication.instance() or QApplication(["test"])
 
+    def setUp(self):
+        # Namizje QML ob nalaganju poklice Most.klic (zacetek, programiNamizja ...); klic se postavi v zanko GLib
+        # (GLib.idle_add), casovniki QML pa so viri istega privzetega konteksta GLib (dispecer Qt na Linuxu). Tu
+        # zanke ni, zato so ostajali v kontekstu: prvi kasnejsi preizkus, ki ga vrti (test_varuh_procesov
+        # ::test_notify_po_vodilu_seje), jih je izvedel - _lastna uvozi safeer_os in z njim WebKit, Straza hitrih
+        # vrat pa je padec pripisala njemu (CI 40454036242, hitra-vrata 6; naloga 116). Preizkus zato sam pospravi:
+        # okna QML izbrise, neizvedene klice odstrani (ne izvede - to bi nalozilo WebKit tu).
+        from unittest import mock
+        from gi.repository import GLib
+        self.viri_glib, self.namizja = [], []
+        pravi_idle_add, pravo_namizje, test = GLib.idle_add, os_lupina.Namizje, self
+
+        def idle_add(*a, **k):
+            vir = pravi_idle_add(*a, **k)
+            test.viri_glib.append(vir)
+            return vir
+
+        class Namizje(pravo_namizje):
+            def __init__(self, *a, **k):
+                test.namizja.append(self)  # pred __init__: tudi namizje, ki se na pol nalozi, se pospravi
+                super().__init__(*a, **k)
+
+        for zakrpa in (mock.patch.object(GLib, "idle_add", idle_add), mock.patch.object(os_lupina, "Namizje", Namizje)):
+            zakrpa.start()
+            self.addCleanup(zakrpa.stop)
+        self.addCleanup(self._pospravi)  # addCleanup: LIFO - pospravi pred koncem zakrp
+
+    def _pospravi(self):
+        import shiboken6
+        from gi.repository import GLib
+        from PySide6.QtCore import QUrl
+        for n in self.namizja:
+            okno = getattr(n, "okno", None)
+            if okno is not None and shiboken6.isValid(okno):
+                # Prazen vir unici koren QML in z njim casovnike (vire GLib). Brisanje celega pogleda
+                # (shiboken6.delete) je po test_os_linux sprozilo GLib kriticno opozorilo g_main_context_pop_thread_default.
+                okno.setSource(QUrl())
+        kontekst = GLib.MainContext.default()
+        for vir in self.viri_glib:
+            s = kontekst.find_source_by_id(vir)
+            if s is not None and not s.is_destroyed():
+                s.destroy()
+        self.namizja, self.viri_glib = [], []
+
     def _namizje(self, v_oknu):
         class Os:
             shramba = {}
@@ -65,6 +109,29 @@ class Zaprtje(OknoQml):
         n.okno.show()
         n.okno.close()
         self.assertEqual(klici, [1])
+
+
+class Pospravljanje(unittest.TestCase):
+    # Ne deduje od OknoQml: sicer bi se njegovi preizkusi tu izvedli se enkrat.
+    @classmethod
+    def setUpClass(cls):
+        OknoQml.setUpClass()  # isti QApplication; brez PySide6 preskok
+
+    def test_po_preizkusu_v_kontekstu_glib_ni_klicev_namizja(self):
+        """Regresija naloga 116: po preizkusu z namizjem QML vrtenje privzetega konteksta GLib ne izvede nobenega
+        klica namizja (prej: uvoz safeer_os z WebKitom v naslednjem preizkusu, ki vrti zanko)."""
+        import time
+        from unittest import mock
+        from gi.repository import GLib
+        izvedeni = []
+        with mock.patch.object(os_lupina.Namizje, "_lastna", lambda _s, _i, metoda, _a: izvedeni.append(metoda) or True):
+            izid = unittest.TestResult()
+            unittest.TestSuite([KratkaPot("test_domaca_mapa_kot_tilda"), OknoQml("test_okno_ima_rob_namizje_ne")]).run(izid)
+            self.assertTrue(izid.wasSuccessful(), izid.errors + izid.failures)
+            kontekst, konec = GLib.MainContext.default(), time.monotonic() + 1.0
+            while time.monotonic() < konec:
+                kontekst.iteration(False) or time.sleep(0.01)
+        self.assertEqual(izvedeni, [])
 
 
 class Zagon(unittest.TestCase):
