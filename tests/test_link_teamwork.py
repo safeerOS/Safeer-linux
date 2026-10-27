@@ -738,7 +738,10 @@ class StreznikPopravkov(unittest.TestCase):
                             "oddaja se je zacela (zacasna datoteka)")
             self.assertTrue(self._pocakaj(lambda: threading.active_count() <= niti_prej),
                             "niti obravnave so ostale: %d > %d" % (threading.active_count(), niti_prej))
-            self.assertEqual([i for i in os.listdir(zacasno) if i.startswith(".popravek-")], [])
+            # Stevilo niti lahko pade ze zaradi niti drugih preizkusov, preden obravnava v finally pobrise datoteko
+            # (CI 40431910395, 27. 10. 2026): cakamo na samo datoteko.
+            self.assertTrue(self._pocakaj(lambda: not [i for i in os.listdir(zacasno) if i.startswith(".popravek-")]),
+                            "zacasna datoteka popravka je ostala")
             for v in tihi:
                 v.close()
             if fd_prej is not None:
