@@ -15,6 +15,7 @@ class LogFileTests(unittest.TestCase):
     def test_print_lines_land_in_the_rotating_log_and_still_reach_the_terminal(self):
         from core import log
         importlib.reload(log)
+        stanje = _stanje_dnevnika()
         original_out, original_err = sys.stdout, sys.stderr
         captured = io.StringIO()
         sys.__stdout__ = captured  # what the launcher's terminal (or /dev/null) would receive
@@ -35,9 +36,64 @@ class LogFileTests(unittest.TestCase):
         finally:
             sys.stdout, sys.stderr = original_out, original_err
             sys.__stdout__ = original_out
-            for handler in list(__import__("logging").getLogger("safeer").handlers):
-                __import__("logging").getLogger("safeer").removeHandler(handler)
-                handler.close()
+            _obnovi_dnevnik(stanje, log)
+
+    def test_po_preizkusu_dnevnik_safeer_spet_pride_do_korena(self):
+        """27. 10. 2026 (CI 40470529143, hitra-vrata 1): log.install() je pustil beleznik »safeer« na propagate=False,
+        zato je kasnejsi preizkus v istem procesu (test_usenet_ponudnik.test_geslo_in_uporabnik_nikjer) s caplog dobil
+        prazen dnevnik - odvisno od razdelitve preizkusov v CI. Preizkus dnevnika mora vse vrniti, kot je bilo."""
+        import logging
+        prej = _stanje_dnevnika()
+        self.test_print_lines_land_in_the_rotating_log_and_still_reach_the_terminal()
+        self.assertEqual(_stanje_dnevnika(), prej)
+        zajeto = []
+
+        class Ujemi(logging.Handler):
+            def emit(self, zapis):
+                zajeto.append(zapis.getMessage())
+        koren = logging.getLogger()
+        h = Ujemi(level=logging.DEBUG)
+        koren.addHandler(h)
+        raven = koren.level
+        koren.setLevel(logging.DEBUG)
+        try:
+            logging.getLogger("safeer.usenet").warning("do korena")
+        finally:
+            koren.removeHandler(h)
+            koren.setLevel(raven)
+        self.assertIn("do korena", zajeto)
+
+
+def _stanje_dnevnika():
+    import faulthandler
+    import logging
+    import threading
+    lg = logging.getLogger("safeer")
+    return (lg.propagate, lg.level, tuple(lg.handlers), sys.excepthook, threading.excepthook, faulthandler.is_enabled())
+
+
+def _obnovi_dnevnik(stanje, log):
+    """Vse, kar log.install() spremeni za ves proces: handlerji, propagate in raven beleznika, kljuke izjem, faulthandler."""
+    import faulthandler
+    import logging
+    import threading
+    propagate, raven, handlerji, kljuka, kljuka_niti, fh = stanje
+    lg = logging.getLogger("safeer")
+    for handler in list(lg.handlers):
+        if handler not in handlerji:
+            lg.removeHandler(handler)
+            handler.close()
+    lg.propagate, lg.level = propagate, raven
+    sys.excepthook, threading.excepthook = kljuka, kljuka_niti
+    if not fh:
+        faulthandler.disable()
+    sled = getattr(log, "_sled", None)
+    if sled is not None:
+        try:
+            sled.close()
+        except OSError:
+            pass
+        log._sled = None
 
 
 if __name__ == "__main__":
