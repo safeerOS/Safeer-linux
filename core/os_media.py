@@ -2075,7 +2075,9 @@ class MediaCenter:
             return []
 
     def _usenet_razreseno(self, item_id: str, item: dict, t: dict, izid, rezerve: list) -> dict:
-        tok = {"url": izid.url, "vir": "Usenet · " + debrid_pravila.ime(izid.ponudnik), "opis": str(t.get("opis") or "")}
+        # Naloga 114: lasten pogon nima imena storitve (debrid_pravila.ime pozna samo debride).
+        ime = "NNTP" if izid.ponudnik == debrid.LASTNI_USENET else debrid_pravila.ime(izid.ponudnik)
+        tok = {"url": izid.url, "vir": "Usenet · " + ime, "opis": str(t.get("opis") or "")}
         razlicice = [tok] + list(rezerve[:9])
         resolved = dict(item, url=izid.url, razlicice=razlicice, stevilo_razlicic=len(razlicice), debrid=izid.ponudnik,
                         usenet=True)
@@ -2088,6 +2090,14 @@ class MediaCenter:
         hitrost, placan. Rok [rok] skupaj z iskanjem pri indeksatorju (preverba ⚡ tece hkrati), prve tri izdaje."""
         konec = time.monotonic() + rok
         zadetki = self._usenet_zadetki(item_id, item, ident, rok)
+        if zadetki and self.debrid.lastni_usenet_na_voljo():
+            # Naloga 114: z lastnim ponudnikom NNTP je vsaka izdaja »takoj« (pretakamo neposredno, brez prenosa pri
+            # TorBoxu); po vrsti kakovosti, najvec dva poskusa do 15 GB kot pri TorBoxu. En film naenkrat (vezava).
+            for i in usenet_pravila.za_samodejno([float(t.get("gb") or 0.0) for t in zadetki]):
+                t = zadetki[i]
+                izid = self.debrid.usenet_tok(str(t["url"]), str(t.get("naslov") or ""), lastni=True)
+                if izid.url:
+                    return self._usenet_razreseno(item_id, item, t, izid, rezerve)
         ostane = konec - time.monotonic()
         if not zadetki or ostane <= 0.2:
             return None
@@ -2104,10 +2114,13 @@ class MediaCenter:
         if not self._usenet_mogoc(tip, ident):
             return None
         zadetki = self._usenet_zadetki(item_id, item, ident)
+        # Lasten pogon je ze poskusil prvi korak (naloga 114): tu samo TorBox, sicer dvakrat isto izdajo prek NNTP.
+        # Brez lastnega pogona klic ostane enak kot prej (obstojeci nadomestki usenet_tok nimajo argumenta lastni).
+        samo_torbox = {"lastni": False} if self.debrid.lastni_usenet_na_voljo() else {}
         for i in usenet_pravila.za_samodejno([float(t.get("gb") or 0.0) for t in zadetki]):
             t = zadetki[i]
             izid = self.debrid.usenet_tok(str(t["url"]), str(t.get("naslov") or ""), samo_takoj=samo_takoj,
-                                          rok_cakanja=debrid_pravila.CAKAJ_NOVEGA_S)
+                                          rok_cakanja=debrid_pravila.CAKAJ_NOVEGA_S, **samo_torbox)
             if izid.url:
                 return self._usenet_razreseno(item_id, item, t, izid, rezerve)
         return None
@@ -4600,7 +4613,16 @@ class MediaCenter:
                              **({"javni": True} if v.get("javni") is True else {})))
         if neznani:
             self._spoznaj_dodatke(neznani)
-        return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]))
+        return viri_sink.razdeli_izvoz([v for v in viri if viri_sink.cist_vir(v)], dict(stanje["izbrisani"]),
+                                       self._usenet_za_krog())
+
+    def _usenet_za_krog(self) -> Optional[dict]:
+        """Naloga 114: lasten ponudnik Usenet (brez gesla) za ozji krog; razdeli_izvoz ga da samo v del »ozji«."""
+        l = getattr(self.debrid, "lastni_usenet", None)
+        try:
+            return l.za_krog() if l is not None else None
+        except Exception:  # noqa: BLE001 - zapis virov za naprave ne sme pasti zaradi ponudnika
+            return None
 
     #: Enkratna selitev virov z racunom (pregled 46, Ö3); zapis "racuni_preseljeni" v media.json.
     PRESELITEV_RACUNOV = 1
@@ -4794,6 +4816,15 @@ class MediaCenter:
         except Exception:  # noqa: BLE001
             return False
 
+    def _usenet_iz_kroga(self, zapis: object, v_krogu: bool) -> bool:
+        l = getattr(self.debrid, "lastni_usenet", None)
+        if zapis is None or l is None:
+            return False
+        try:
+            return bool(l.prejmi_iz_kroga(zapis, v_krogu))
+        except Exception:  # noqa: BLE001
+            return False
+
     def viri_uskladi(self, kazalo: object, posiljatelj: str = "") -> bool:
         """Moji viri z ene naprave v Linku (kazalo odgovora `lists.get {}`): izbrisi, nato novi viri. Racunalnik
         prevzame samo, kar zna predvajati; zasebnega dodatka nikoli. Klic iz delovne niti (omrezje). Vrne True, ce
@@ -4810,9 +4841,10 @@ class MediaCenter:
             ozji_odgovor = False
         surovi = kazalo.get("sources") if isinstance(kazalo.get("sources"), list) else []
         tuji = [c for c in (viri_sink.cist_vir(o) for o in surovi[:viri_sink.NAJVEC_VIROV]) if c]
+        # Naloga 114: ponudnik Usenet (brez gesla) samo od naprave v ozjem krogu v obe smeri; lokalnega ne prepise.
+        spremenjeno = self._usenet_iz_kroga(kazalo.get(viri_sink.USENET_PONUDNIK), ozji_odgovor is True)
         if not tuji_izbrisi and not tuji:
-            return False
-        spremenjeno = False
+            return spremenjeno
         # 1) Izbrisi: vir, izbrisan na drugi napravi, izgine tudi tukaj, ce ga tu nismo dodali pozneje.
         za_izbris = []
         with self._lock:

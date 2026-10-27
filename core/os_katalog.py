@@ -30,6 +30,7 @@ from typing import Any, Callable, Optional
 
 from . import debrid, jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
 from . import nazadnje_predvajano, os_vgrajeni_viri, plakati_predpomnilnik, skrivni_dodatki, uporabniske_skripte
+from . import usenet_vezava
 from core import shramba_json
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
@@ -422,6 +423,12 @@ class Katalog:
                 self._mc.twitch.brez_oglasov = lambda: bool(self.twitch_brez_oglasov())
                 # Kategorija »Zasebno« (vsebina za odrasle): privzeto izklopljena.
                 self._mc.zasebno = bool(self._nastavitve().get("media_zasebno"))
+                # Naloga 114: lasten ponudnik Usenet - ista vezava za okno (mediaUsenetPonudnik) in predvajanje NZB,
+                # da velja en film naenkrat in »Pozabi« ustavi tudi predvajanje. Po spremembi se znova zapise
+                # viri_za_naprave.json (Safeer Control ga da samo ozjemu krogu, brez gesla).
+                vezava = usenet_vezava.za_pot(str(self.config_dir / usenet_vezava.IME_DATOTEKE))
+                vezava.ob_spremembi = self._mc._viri_zapisi_izvoz
+                self._mc.debrid.lastni_usenet = vezava
             return self._mc
 
     def _motor_napredek(self, preneseno: int, vse: int) -> None:
@@ -501,6 +508,7 @@ class Katalog:
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
         "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi", "mediaDebrid": "_debrid",
+        "mediaUsenetPonudnik": "_usenet_ponudnik",
         "mediaPolice": "_police", "mediaOdkrivanje": "_odkrivanje", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
         "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
         "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
@@ -1493,6 +1501,11 @@ class Katalog:
     def _debrid(self, a: list) -> Any:
         """Naloga 131: debrid storitve - stanje, izbira ob zvrsteh, kljuci (core/debrid.most)."""
         return debrid.most(self.mc.debrid, list(a or []))
+
+    def _usenet_ponudnik(self, a: list) -> Any:
+        """Naloga 114: okno »Moji viri -> Usenet ponudnik« (core/usenet_vezava.most: stanje, shrani, preveri, odstrani).
+        safeer_os.py klic po preverbi ZETON_MOSTU izvede v delovni niti - preverba ne sme na glavno nit."""
+        return usenet_vezava.most(self.mc.debrid.lastni_usenet, list(a or []))
 
     def _tokovi(self, a: list) -> Any:
         return self.mc.tokovi_postaje(self._niz(a, 0))

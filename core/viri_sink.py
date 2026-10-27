@@ -315,14 +315,44 @@ def _oznacen(v: object) -> bool:
     return isinstance(v, dict) and v.get("javni") is True
 
 
-def razdeli_izvoz(viri: list, izbrisani: dict) -> dict:
+#: Ponudnik Usenet za ozji krog (naloga 114, core/usenet_vezava.za_krog): samo ta polja, nikoli gesla. Kljuc v
+#: odgovoru `lists.get` je USENET_PONUDNIK; zunaj ozjega kroga ga ni.
+USENET_PONUDNIK = "usenet_ponudnik"
+_USENET_POLJA = {"gostitelj": str, "uporabnik": str, "vrata": int, "tls": bool, "najvec_povezav": int, "ime": str}
+_USENET_DOLZINE = {"gostitelj": 253, "uporabnik": 400, "ime": 80}
+
+
+def cist_usenet(o: object) -> Optional[dict]:
+    """Zapis ponudnika Usenet z druge naprave ali za njo: tocno znana polja prave vrste, samo TLS. Polje, ki ga ne
+    poznamo (tudi »geslo«), zapis zavrne v celoti - ne samo odrezemo: tuj ali spremenjen zapis ne pride naprej.
+    Brez uvoza core/usenet_ponudnik: modul uporablja tudi Safeer Control (core/link_seznami.py)."""
+    if not isinstance(o, dict) or set(o) != set(_USENET_POLJA):
+        return None
+    for k, vrsta in _USENET_POLJA.items():
+        v = o[k]
+        if not isinstance(v, vrsta) or (vrsta is int and isinstance(v, bool)):
+            return None
+        if isinstance(v, str) and (len(v) > _USENET_DOLZINE[k] or any(c < " " or c == "\x7f" for c in v)):
+            return None
+    if o["tls"] is not True or not o["gostitelj"] or not o["uporabnik"]:
+        return None
+    if not 1 <= o["vrata"] <= 65535 or not 1 <= o["najvec_povezav"] <= 100:
+        return None
+    return {k: o[k] for k in _USENET_POLJA}
+
+
+def razdeli_izvoz(viri: list, izbrisani: dict, usenet: object = None) -> dict:
     """Zapis virov za naprave (viri_za_naprave.json): zgoraj samo pozitivno znani javni viri in njihovi izbrisi (oznaka
-    »javni« ostane v zapisu za viri_za), vse drugo pod »ozji«."""
+    »javni« ostane v zapisu za viri_za), vse drugo pod »ozji«. Ponudnik Usenet ([usenet], brez gesla) je samo pod
+    »ozji« (naloga 114)."""
     javni = [v for v in viri if znan_javen(v.get("naslov"), _oznacen(v))]
     javni_izbrisi = {k: c for k, c in izbrisani.items() if znan_javen(str(k).partition("|")[2])}
-    return {"sources": javni[:NAJVEC_VIROV], "sources_deleted": javni_izbrisi,
-            "ozji": {"sources": [v for v in viri if not znan_javen(v.get("naslov"), _oznacen(v))][:NAJVEC_VIROV],
-                     "sources_deleted": {k: c for k, c in izbrisani.items() if k not in javni_izbrisi}}}
+    ozji = {"sources": [v for v in viri if not znan_javen(v.get("naslov"), _oznacen(v))][:NAJVEC_VIROV],
+            "sources_deleted": {k: c for k, c in izbrisani.items() if k not in javni_izbrisi}}
+    u = cist_usenet(usenet)
+    if u is not None:
+        ozji[USENET_PONUDNIK] = u
+    return {"sources": javni[:NAJVEC_VIROV], "sources_deleted": javni_izbrisi, "ozji": ozji}
 
 
 def viri_za(izvoz: object, ozji: bool = False) -> dict:
@@ -335,14 +365,20 @@ def viri_za(izvoz: object, ozji: bool = False) -> dict:
         return [(c, _oznacen(o)) for c, o in ((cist_vir(o), o) for o in surovi[:NAJVEC_VIROV]) if c]
     viri = cisti(izvoz.get("sources"))
     izbrisi = cisti_izbrisi(izvoz.get("sources_deleted"))
+    usenet = None
     if ozji:
         o = izvoz.get("ozji") if isinstance(izvoz.get("ozji"), dict) else {}
         viri += cisti(o.get("sources"))
         izbrisi.update(cisti_izbrisi(o.get("sources_deleted")))
+        # Samo iz dela »ozji«: ponudnik v javnem delu (zapis, ki ga je kdo spremenil) ne gre nikomur.
+        usenet = cist_usenet(o.get(USENET_PONUDNIK))
     else:
         viri = [(c, z) for c, z in viri if znan_javen(c["naslov"], z)]
         izbrisi = {k: c for k, c in izbrisi.items() if znan_javen(k.partition("|")[2])}
-    return {"sources": [c for c, _z in viri][:NAJVEC_VIROV], "sources_deleted": izbrisi}
+    izid = {"sources": [c for c, _z in viri][:NAJVEC_VIROV], "sources_deleted": izbrisi}
+    if usenet is not None:
+        izid[USENET_PONUDNIK] = usenet
+    return izid
 
 
 #: Gostitelji slik, ki so pozitivno javni (ovitki YouTube in Spotify iz uvoza seznamov, core/uvoz_seznama.py): taka

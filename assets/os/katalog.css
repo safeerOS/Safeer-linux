@@ -367,6 +367,21 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .vgr-vir.izklopljen b, .vgr-vir.izklopljen small { color: var(--tise); }
 .vgr-vir .gumb.potrdi, .vgr-vir .gumb-ikona.potrdi { width: auto; padding: 0 10px; background: var(--rdeca); color: var(--zelena-temna); }
 @media (max-width: 720px) { .vgr-obrazec { grid-template-columns: 1fr; } }
+/* Usenet ponudnik (naloga 114): barve samo iz tokens.css; fokus viden za tipkovnico. */
+.unp-obrazec { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; margin: 12px 0 6px; }
+.unp-obrazec [hidden] { display: none; }
+.unp-polje { display: grid; gap: 4px; min-width: 0; color: var(--medlo); font-size: 13px; }
+.unp-polje input { min-width: 0; padding: 10px 13px; border: 1px solid var(--rob); border-radius: 11px; background: var(--kartica-trdna); color: var(--besedilo); font: inherit; font-size: 14px; outline: 0; color-scheme: dark; }
+.unp-polje input:focus { border-color: var(--zelena); }
+.unp-polje input:focus-visible, .unp-obrazec .gumb:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+.unp-siroko { grid-column: 1 / -1; margin: 0; }
+.unp-obrazec .gumbi { margin-top: 4px; }
+.unp-opozorilo { margin: 0 0 6px; color: var(--opozorilo); }
+.unp-stanje { margin: 0; color: var(--besedilo); }
+.unp-stanje.slabo { color: var(--opozorilo); }
+.unp-stanje.dobro { color: var(--ok); }
+.unp-obrazec .gumb.potrdi { background: var(--rdeca); color: var(--zelena-temna); }
+@media (max-width: 720px) { .unp-obrazec { grid-template-columns: 1fr; } }
 /* Spotify v Medijskem centru (core/spotify_racun.py): trenutna skladba in upravljanje skritega Safeer DRM. */
 .kat-sp-racun h4 { margin: 6px 0 0; font-size: 16px; color: var(--medlo); }
 .kat-sp-predvajalnik { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--rob); border-radius: 14px; background: var(--kartica); }
