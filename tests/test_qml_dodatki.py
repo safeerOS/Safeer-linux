@@ -27,6 +27,23 @@ class Osnova(unittest.TestCase):
 
     def setUp(self):
         from PySide6.QtCore import qInstallMessageHandler
+        # 27. 10. 2026: kot NamizjeQml (test_qml_enakost) - viri GLib namizja se po preizkusu unicijo, sicer jih izvede
+        # naslednji preizkus, ki vrti zanko (test_kanali_sporocil: »Seznam« naprav, varovalo programov).
+        from unittest import mock
+        from gi.repository import GLib
+        self.viri_glib = []
+        test = self
+        for ime in ("idle_add", "timeout_add", "timeout_add_seconds"):
+            pravi = getattr(GLib, ime)
+
+            def zabelezi(*a, _pravi=pravi, **k):
+                vir = _pravi(*a, **k)
+                test.viri_glib.append(vir)
+                return vir
+            zakrpa = mock.patch.object(GLib, ime, zabelezi)
+            zakrpa.start()
+            self.addCleanup(zakrpa.stop)
+        self.addCleanup(self._pospravi_glib)
         self.mapa = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.mapa, True)
         self.DOM = os.path.join(self.mapa, "dom")
@@ -137,12 +154,23 @@ class Osnova(unittest.TestCase):
                   and "Cannot read property 'klic' of null" not in s]
         n = getattr(self, "n", None)
         if n is not None:
+            from PySide6.QtCore import QUrl
+            n.okno.setSource(QUrl())      # prazen vir unici koren QML in njegove casovnike (naloga 116)
             n.okno.close()
             n.okno.deleteLater()
         self.n = self.koren = None
         self._pocakaj(lambda: False, 0.1)
         gc.collect()
         self.assertEqual(napake, [], "QML je izpisal napako")
+
+    def _pospravi_glib(self):
+        from gi.repository import GLib
+        kontekst = GLib.MainContext.default()
+        for vir in self.viri_glib:
+            s = kontekst.find_source_by_id(vir)
+            if s is not None and not s.is_destroyed():
+                s.destroy()
+        self.viri_glib = []
 
     def _pocakaj(self, pogoj, cas=4.0):
         from gi.repository import GLib

@@ -188,6 +188,25 @@ class NamizjeQml(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(["test"])
 
     def setUp(self):
+        # 27. 10. 2026: namizje QML je v privzetem kontekstu GLib pustilo cakajoce klice (idle_add, timeout_add), ki so se
+        # izvedli sele v naslednjem preizkusu, ki vrti zanko (test_kanali_sporocil: »Seznam« naprav zazene namesceni
+        # safeer-control - varovalo programov). Kot OknoQml v test_qml_aplikacija_v_oknu (naloga 116): vire zabelezimo in
+        # jih po preizkusu unicimo.
+        from unittest import mock
+        from gi.repository import GLib
+        self.viri_glib = []
+        test = self
+        for ime in ("idle_add", "timeout_add", "timeout_add_seconds"):
+            pravi = getattr(GLib, ime)
+
+            def zabelezi(*a, _pravi=pravi, **k):
+                vir = _pravi(*a, **k)
+                test.viri_glib.append(vir)
+                return vir
+            zakrpa = mock.patch.object(GLib, ime, zabelezi)
+            zakrpa.start()
+            self.addCleanup(zakrpa.stop)
+        self.addCleanup(self._pospravi_glib)   # addCleanup: LIFO - pospravi pred koncem zakrp
         D = self.DOM
         self.odgovori = {
             "nosilci": [{"ime": "USB", "pot": "/media/u/USB", "naprava": "/dev/sdb1", "velikost": 32e9, "prosto": 2e9, "odstranljiv": True}],
@@ -274,12 +293,24 @@ class NamizjeQml(unittest.TestCase):
         self.assertTrue(self._pocakaj(lambda: self.koren.property("platforma") == "linux"))
         return n
 
+    def _pospravi_glib(self):
+        from gi.repository import GLib
+        kontekst = GLib.MainContext.default()
+        for vir in self.viri_glib:
+            s = kontekst.find_source_by_id(vir)
+            if s is not None and not s.is_destroyed():
+                s.destroy()
+        self.viri_glib = []
+
     def tearDown(self):
         # Okno QML pospravimo v glavni niti: sicer ga lahko pobere gc.collect() v drugi niti (threat_intel) med
         # kasnejsim preizkusom in proces se sesuje (izmerjeno v skupini gtk4, 15. 10. 2026).
         import gc
+        from PySide6.QtCore import QUrl
         n = getattr(self, "n", None)
         if n is not None:
+            # Prazen vir unici koren QML in z njim casovnike (kot OknoQml._pospravi, naloga 116).
+            n.okno.setSource(QUrl())
             n.okno.close()
             n.okno.deleteLater()
         self.n = self.koren = None
