@@ -9,3 +9,6 @@ tests/test_os_scit.py
 tests/test_popravki_132d.py
 tests/test_popravki_138.py
 tests/test_predvajaj_na.py
+# 27. 10. 2026, CI 40540795447 (Iskalec 117): QML preizkusi nalozijo namizje (test_qml_enakost._namizje -> safeer_os) lenobno.
+tests/test_o_racunalniku.py
+tests/test_predogled_brez_dekodirnika.py

@@ -78,7 +78,8 @@ def _varno_ovrednoti(vozel, imena: dict):
 
 def beri_safeer(pot: str):
     """KATALOG in PRESELJENI iz core/spletni_klepeti.py (brez uvoza modula)."""
-    drevo = ast.parse(open(os.path.join(pot, "core", "spletni_klepeti.py"), encoding="utf-8").read())
+    with open(os.path.join(pot, "core", "spletni_klepeti.py"), encoding="utf-8") as f:
+        drevo = ast.parse(f.read())
     imena, izid = {}, {}
     for v in drevo.body:
         cilji = v.targets if isinstance(v, ast.Assign) else [v.target] if isinstance(v, ast.AnnAssign) else []
@@ -124,7 +125,8 @@ def gostitelj(url: str) -> str:
 def izdelaj(recepti: str, safeer: str = "", vse: bool = False) -> dict:
     commit = _git(recepti, "rev-parse", "HEAD")
     datum = _git(recepti, "log", "-1", "--format=%cI")
-    licenca = open(os.path.join(recepti, "LICENSE.md"), encoding="utf-8").read().strip()
+    with open(os.path.join(recepti, "LICENSE.md"), encoding="utf-8") as f:
+        licenca = f.read().strip()
     katalog_safeer, preseljeni = beri_safeer(safeer) if safeer else ([], {})
     safeer_po_id = {k["id"]: k for k in katalog_safeer}
     safeer_po_gost = {}
@@ -160,7 +162,8 @@ def izdelaj(recepti: str, safeer: str = "", vse: bool = False) -> dict:
         ikona, opomba, izvirnik_sha = "", "", ""
         pot_ikone = os.path.join(pot, "icon.svg")
         if os.path.isfile(pot_ikone):
-            surovo = open(pot_ikone, "rb").read()
+            with open(pot_ikone, "rb") as f:
+                surovo = f.read()
             izvirnik_sha = hashlib.sha256(surovo).hexdigest()
             try:
                 ikona = ocisti(surovo)
