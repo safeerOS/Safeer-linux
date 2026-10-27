@@ -65,6 +65,36 @@ class Ciscenje(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(mapa, "settings.json.pred-ciscenjem-preizkusov")))
 
 
+class Enkrat(unittest.TestCase):
+    """CI 40474119558: ciscenje ob VSAKEM nalaganju je preizkusu Sporocil pobrisalo namerne nastavitve (zaprt posrednik 9
+    brez omrezja, dovoljenje za klepet.primer.invalid) - obvestilo ni prislo. Ciscenje velja samo enkrat, za datoteko stare
+    razlicice (brez oznake ostanki_preizkusov_pregledani)."""
+
+    def test_namerne_nastavitve_v_svezi_mapi_ostanejo(self):
+        mapa = tempfile.mkdtemp(prefix="ostanki-")
+        c = _config.ConfigManager(config_dir=mapa)          # kot setUpClass v test_kanali_sporocil
+        c.set("secure_proxy_mode", "custom")
+        c.set("secure_proxy_url", "http://127.0.0.1:9")
+        c.set("dovoljenja_strani", {"klepet.primer.invalid": {"obvestila": "dovoli"}})
+        d = _config.ConfigManager(config_dir=mapa)          # drugo nalaganje (drug del kode, drug proces)
+        self.assertEqual(d.get("secure_proxy_url"), "http://127.0.0.1:9")
+        self.assertEqual(d.get("secure_proxy_mode"), "custom")
+        self.assertIn("klepet.primer.invalid", d.get("dovoljenja_strani"))
+
+    def test_po_ciscenju_ponovno_nastavljeno_ostane(self):
+        mapa, c = _nalozi(ONESNAZENO)                       # stara razlicica: enkrat pocisceno
+        self.assertEqual(c.get("secure_proxy_mode"), "disabled")
+        c.set("secure_proxy_mode", "custom")
+        c.set("secure_proxy_url", "http://127.0.0.1:9")
+        d = _config.ConfigManager(config_dir=mapa)
+        self.assertEqual(d.get("secure_proxy_url"), "http://127.0.0.1:9")
+
+    def test_datoteka_z_oznako_se_ne_cisti(self):
+        _m, c = _nalozi(dict(ONESNAZENO, ostanki_preizkusov_pregledani=True))
+        self.assertEqual(c.get("secure_proxy_mode"), "custom")
+        self.assertFalse(c.get("doh_enabled"))
+
+
 class StranNapake(unittest.TestCase):
     def test_zavrnjen_posrednik_je_napaka_posrednika(self):
         e = GLib.Error.new_literal(Gio.io_error_quark(), "Could not connect to proxy server 127.0.0.1: Connection refused",

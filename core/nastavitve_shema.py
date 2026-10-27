@@ -98,6 +98,7 @@ SHEMA: Dict[str, Polje] = {
     "doh_lokalno_omrezje": _DA_NE,
     "secure_proxy_mode": Polje(str, izbira=("disabled", "custom")),
     "secure_proxy_url": Polje(str, dolzina=2048),
+    "ostanki_preizkusov_pregledani": Polje(bool),
     "total_ads_blocked": _STEVEC,
     "total_threats_blocked": _STEVEC,
     "hardware_acceleration": Polje(str, izbira=("on_demand", "always", "never")),

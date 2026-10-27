@@ -314,6 +314,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "doh_lokalno_omrezje": False,        # Imena, ki se prevedejo v domaci naslov (Pi-hole, usmerjevalnik), se odprejo; povratni in metapodatkovni naslovi ostanejo zavrnjeni
     "secure_proxy_mode": "disabled",     # "disabled", "custom" (Lasten šifriran proxy)
     "secure_proxy_url": "http://127.0.0.1:8080",    # URL za lasten varen SOCKS5/HTTPS proxy
+    # Datoteka nastavitev te in novejsih razlicic: ostanki preizkusov (pocisti_ostanke_preizkusov) so ze pregledani.
+    # Brez kljuca = datoteka stare razlicice: ciscenje enkrat. Kar nastavi kdo potem (tudi preizkus namerno), ostane.
+    "ostanki_preizkusov_pregledani": True,
     "total_ads_blocked": 0,              # Kumulativno število blokiranih oglasov
     "total_threats_blocked": 0,          # Kumulativno število preprečenih groženj (C2, malware, phishing)
     "hardware_acceleration": "on_demand",  # "on_demand", "always", "never"
@@ -544,7 +547,14 @@ class ConfigManager:
                         migrated = True
                     if preseli_dns_na_scit(merged, user_settings):
                         migrated = True
-                    ostanki = pocisti_ostanke_preizkusov(merged)
+                    # Samo enkrat, za datoteko stare razlicice (brez oznake): kasnejse namerne nastavitve (tudi preizkusi,
+                    # ki namenoma uporabijo zaprta vrata 9 brez omrezja) ostanejo. CI 40474119558: brez te oznake je
+                    # ciscenje ob vsakem nalaganju pobrisalo nastavitve preizkusa Sporocil.
+                    ostanki = []
+                    if "ostanki_preizkusov_pregledani" not in user_settings:
+                        ostanki = pocisti_ostanke_preizkusov(merged)
+                        merged["ostanki_preizkusov_pregledani"] = True
+                        migrated = True
                     if ostanki:
                         # Kopija pred ciscenjem (rocna obnova), enkrat - ne prepisemo prejsnje.
                         kopija = self.config_file + ".pred-ciscenjem-preizkusov"
