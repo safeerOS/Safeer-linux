@@ -4,6 +4,7 @@
 // programe (seznam naslovov datotek) in iz njih (kopija v mapo). Seznam se osvezi sam, ko se mapa spremeni zunaj.
 // Priljubljeno (skupni zapis Safeer OS, Ctrl+D), izbira vec datotek (Ctrl/Shift+klik, Ctrl+A, Shift+puscice) z dejanji
 // za vse izbrane in predogled s preslednico (Predogled.qml).
+// O tem racunalniku (Linux, ORacunalniku.qml): diski, velikost map trenutne mape, strojna in programska oprema.
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -28,6 +29,8 @@ Steklo {
     property string stanje: ""           // "", "napaka", "neDeli"
     // Metode mostu, ki jih ima Safeer OS na Linuxu (najvecje datoteke, prostor, predloge, izvrzi, razveljavi …).
     readonly property bool linux: koren.platforma === "linux"
+    // Zadnja odprta mapa tega racunalnika: »Velikost map« v O tem racunalniku steje njene podmape.
+    property string zadnjaMapa: ""
     property var prostor: ({})
     property var predloge: []
     property var odlozisce: ({ poti: [], rezi: false, ime: "" })
@@ -95,6 +98,9 @@ Steklo {
         v.push({ naslov: koren.t("mape") })
         mapeNamizja.forEach(function (m) { v.push({ oznaka: koren.t(m.vrsta) !== m.vrsta ? koren.t(m.vrsta) : m.ime, vir: { vrsta: "lokalno", pot: m.pot } }) })
         v.push({ naslov: koren.t("naprave") })
+        // O tem racunalniku (lastnik, 27. 10. 2026): diski, velikost map, strojna in programska oprema - tam, kjer uporabnik
+        // pregleduje datoteke. Samo Linux: podatke bere core/sistem_podatki.py iz /proc, /sys in statvfs.
+        if (linux) v.push({ oznaka: koren.t("racNaslov"), vir: { vrsta: "racunalnik", pot: "@racunalnik" } })
         nosilci.forEach(function (x) {
             v.push({ oznaka: x.ime + (x.ime === x.pot.replace("\\", "") ? "" : " (" + x.pot.replace("\\", "") + ")"), vir: { vrsta: "lokalno", pot: x.pot }, pogon: x })
         })
@@ -125,7 +131,12 @@ Steklo {
         koren.klic("prostorDiska", [], function (p) { panel.prostor = p || {} })
     }
 
-    function fokus() { seznam.forceActiveFocus() }
+    function fokus() { if (vir.vrsta === "racunalnik") oRacunalniku.fokus(); else seznam.forceActiveFocus() }
+    // Gumb »Velikost map« v mapi: O tem racunalniku z velikostjo podmap te mape (nit mostu, z rokom, prekinljivo).
+    function velikostMap(pot) {
+        odpri({ vrsta: "racunalnik", pot: "@racunalnik" })
+        oRacunalniku.prestej(pot)
+    }
     // Mapa tega racunalnika (npr. iz iskanja): najprej nazaj na »Ta racunalnik«, ce so bile odprte datoteke naprave.
     function odpriLokalno(pot) {
         naprava = ""; imeNaprave = ""; panel.pot = []; streznik = null; viri = lokalniViri
@@ -134,6 +145,9 @@ Steklo {
     function odpri(v) {
         // Nova mapa: meni, ki se se odpira (caka na odgovore mostu), ali odprt meni ne sme delati na prejsnji izbiri.
         zahtevaMenija++; meni.close(); meniVec.close()
+        // Iz O tem racunalniku drugam: stetje map ni vec vidno, zato ga ustavimo (ne tece zaman po disku).
+        if (vir.vrsta === "racunalnik" && v.vrsta !== "racunalnik") oRacunalniku.preklici()
+        if (v.vrsta === "lokalno") zadnjaMapa = v.pot
         vir = v; filter = ""; poljeFilter.text = ""; pocistiIzbor(); seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false)
     }
     function izberiNapravo(id, ime) {
@@ -189,6 +203,13 @@ Steklo {
             naloziSlicice()
         }
         stanje = ""
+        if (vir.vrsta === "racunalnik") {
+            // Ni seznama datotek; sveze podatke (prostor na diskih se spreminja) ob vsakem odprtju.
+            koren.klic("spremljajMapo", [""])
+            oRacunalniku.mapa = oRacunalniku.mapa || zadnjaMapa || koren.dom || "~"
+            oRacunalniku.nalozi()
+            return
+        }
         if (vir.vrsta === "naprava") {
             naslednjiDel = 0; skupajNaprave = 0; dostopNaprave = ""
             koren.klic("datotekeNaprave", [naprava, vir.pot], function (r) {
@@ -653,7 +674,7 @@ Steklo {
                 Keys.onReturnPressed: izberiVir(currentIndex)
                 Keys.onEnterPressed: izberiVir(currentIndex)
                 Keys.onSpacePressed: izberiVir(currentIndex)
-                Keys.onRightPressed: seznam.forceActiveFocus()
+                Keys.onRightPressed: panel.fokus()
                 Keys.onPressed: function (d) {
                     var m = panel.viri[currentIndex]
                     if (m && m.pogon && m.pogon.naprava && (d.key === Qt.Key_Menu || (d.key === Qt.Key_F10 && (d.modifiers & Qt.ShiftModifier)))) {
@@ -724,6 +745,7 @@ Steklo {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
+                visible: panel.vir.vrsta !== "racunalnik"
                 Gumb { besedilo: "↑"; visible: panel.stars !== "" || (panel.vir.vrsta === "naprava" && panel.pot.length > 0)
                        onKlik: {
                            if (panel.vir.vrsta === "naprava") {
@@ -745,6 +767,11 @@ Steklo {
                     Accessible.role: Accessible.StaticText; Accessible.name: text
                 }
                 Gumb { besedilo: koren.t("izprazni"); visible: panel.vir.vrsta === "smeti" && panel.elementi.length > 0; onKlik: panel.izprazniSmeti() }
+                // Ozka plosca (privzeta postavitev, posnetek 27. 10. 2026): gumb bi stisnil pot mape na »…enti« - tam je
+                // »Velikost map« v meniju ozadja in mape ter v O tem racunalniku (Prestej steje zadnjo odprto mapo).
+                Gumb { objectName: "gumbVelikostMap"; besedilo: koren.t("racVelikostMap")
+                       visible: panel.vir.vrsta === "lokalno" && panel.linux && panel.width > koren.px(640)
+                       onKlik: panel.velikostMap(panel.vir.pot) }
                 // Nova mapa ali datoteka (prazna, besedilo, dokument … ali predloga): meni kot »Novo« na delovni povrsini.
                 Gumb { id: gumbNovo; objectName: "gumbNovo"; besedilo: "+ " + koren.t("novo"); visible: panel.vir.vrsta === "lokalno" && panel.linux
                        onKlik: meniNovo.popup(gumbNovo, 0, gumbNovo.height + 4) }
@@ -766,6 +793,7 @@ Steklo {
                 id: seznam
                 objectName: "seznamDatotek"
                 Layout.fillWidth: true; Layout.fillHeight: true
+                visible: panel.vir.vrsta !== "racunalnik"
                 // Naprava v Linku: velika mapa po delih in delni dostop (Android 14 »Izberi fotografije«).
                 footer: Column {
                     width: seznam.width; spacing: 6; topPadding: visible ? 6 : 0
@@ -950,6 +978,12 @@ Steklo {
                     text: panel.prazno(); color: koren.paleta.medlo; font.pixelSize: koren.px(13)
                 }
             }
+            ORacunalniku {
+                id: oRacunalniku
+                Layout.fillWidth: true; Layout.fillHeight: true
+                visible: panel.vir.vrsta === "racunalnik"
+                onOdpriMapo: function (pot) { panel.odpri({ vrsta: "lokalno", pot: pot }) }
+            }
         }
     }
 
@@ -984,6 +1018,8 @@ Steklo {
         MeniVnos { text: koren.t("preimenuj"); visible: meni.lok; onTriggered: panel.novo({ nacin: "preimenuj", pot: meni.e.pot, ime: meni.e.ime, mapa: meni.e.mapa }) }
         MeniVnos { text: koren.t("vKos"); visible: meni.lok; onTriggered: panel.vKos(meni.e) }
         MeniVnos { text: koren.t("lastnosti"); objectName: "vnosLastnosti"; visible: meni.lok && panel.linux; onTriggered: lastnosti.pokazi(meni.e.pot) }
+        MeniVnos { text: koren.t("racVelikostMap"); objectName: "vnosVelikostMap"; visible: meni.lok && panel.linux && !!meni.e && !!meni.e.mapa
+                   onTriggered: panel.velikostMap(meni.e.pot) }
         // »Poslji na »Tablica««: prve naprave neposredno (en klik, zadnja uporabljena prva), pri vec se izbira (18. 10. 2026).
         VnosPoslji { i: 0; objectName: "vnosPoslji"; vidno: meni.lok; paket: meni.e }
         VnosPoslji { i: 1; objectName: "vnosPoslji1"; vidno: meni.lok; paket: meni.e }
@@ -1081,6 +1117,7 @@ Steklo {
         MeniVnos { text: koren.t("prilepi"); visible: panel.linux && panel.vir.vrsta === "lokalno" && panel.odlozisce.poti.length > 0; onTriggered: panel.prilepi(null) }
         MeniVnos { text: koren.t("razveljavi"); objectName: "vnosRazveljavi"; visible: panel.razveljavitve.length > 0; onTriggered: panel.razveljavi(null) }
         MeniVnos { text: koren.t("novo"); visible: panel.linux && panel.vir.vrsta === "lokalno"; onTriggered: meniNovo.popup() }
+        MeniVnos { text: koren.t("racVelikostMap"); visible: panel.linux && panel.vir.vrsta === "lokalno"; onTriggered: panel.velikostMap(panel.vir.pot) }
         MeniVnos { text: koren.t("izprazniSmeti"); visible: panel.vir.vrsta === "smeti" && panel.elementi.length > 0; onTriggered: panel.izprazniSmeti() }
         MeniVnos { text: koren.t("osvezi"); onTriggered: panel.nalozi(true) }
     }

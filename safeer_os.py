@@ -4919,7 +4919,10 @@ class SafeerOS(Gtk.Application):
             # Diski s prostim prostorom (tudi nepriklopljeni) in podatki o racunalniku (core/sistem_podatki.py).
             "diski": sistem_podatki.diski,
             "priklopiDisk": lambda: sistem_podatki.priklopi(str(a[0]) if a else ""),
-            "sistemPodatki": sistem_podatki.podatki,
+            "sistemPodatki": lambda: sistem_podatki.podatki(RAZLICICA),
+            # O tem racunalniku v Datotekah: velikost podmap (v niti, z rokom); nov klic ali preklic ustavi prejsnjega.
+            "velikostiMap": lambda: sistem_podatki.velikosti_map(str(a[0]) if a else "~"),
+            "velikostiMapPreklici": sistem_podatki.preklici_velikosti_map,
             "izvrziNosilec": lambda: os_datoteke.izvrzi(str(a[0]) if a else ""),
             "lastnostiDatoteke": lambda: os_datoteke.lastnosti(str(a[0]) if a else ""),
             "programiZaDatoteko": lambda: os_odpri_z.programi_za(str(a[0]) if a else ""),

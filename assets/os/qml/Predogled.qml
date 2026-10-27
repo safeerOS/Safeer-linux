@@ -50,6 +50,7 @@ Okno {
         if (r.prevelika) return koren.t("predogledPrevelika")
         if (r.binarno) return koren.t("predogledBinarno")
         if (r.brezOrodja) return koren.t("predogledPdfNi")
+        if (r.brezDekodirnika) return koren.t("predogledBrezDekodirnika")
         return ""
     }
     function pomakni(dy) { besedilo.contentY = Math.max(0, Math.min(besedilo.contentHeight - besedilo.height, besedilo.contentY + dy)) }
