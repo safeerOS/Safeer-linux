@@ -43,6 +43,9 @@ _VRSTE = {".mkv": "video/x-matroska", ".mp4": "video/mp4", ".m4v": "video/mp4", 
 _RANGE = re.compile(r"\Abytes=(\d{0,19})-(\d{0,19})\Z", re.I)  # enota neobcutljiva na velike crke (RFC 9110, T12)
 NAJVEC_POVEZAV = 16
 ROK_POVEZAVE_S = 60.0
+#: Pregled 118 N2: dokler povezava ne pokaze veljavnega zetona, ima za zahtevo samo toliko casa - lokalni proces brez
+#: zetona z odprtimi praznimi povezavami ne zasede vseh mest za ROK_POVEZAVE_S (predvajalnik zahtevo poslje takoj).
+ROK_PRVE_ZAHTEVE_S = 5.0
 _TRAJNE = ("luknja", "pokvarjen", "neskladno", "izven")
 NI_OBSEGA = "416"
 
@@ -181,6 +184,7 @@ class Streznik:
 
             def setup(self) -> None:
                 super().setup()
+                self.connection.settimeout(ROK_PRVE_ZAHTEVE_S)   # do veljavnega zetona (glej _odgovori)
                 # Predvajalnik ima svoj predpomnilnik; velik medpomnilnik jedra (zanka na Windows: ~8 MiB vec
                 # postrezenega kot prebranega, meritev 26. 10. 2026) bi pogon silil brati vnaprej se zanj.
                 try:
@@ -226,6 +230,7 @@ class Streznik:
                     self.close_connection = True  # zeton se preveri pred vsem ostalim; brez njega povezava ne ostane
                     self._prazno(404)
                     return
+                self.connection.settimeout(ROK_POVEZAVE_S)       # veljaven zeton: poln rok za branje filma
                 with streznik._zaklep:
                     streznik._aktivnih += 1
                     streznik._zadnja = time.monotonic()

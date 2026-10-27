@@ -452,6 +452,26 @@ def posodobi_nastavitve(pot_nastavitev: str, *, ime: Optional[str] = None,
     return nov
 
 
+#: Pregled 118 N3: koliko pozabljenih racunov si zapomnimo (odtisi, ne imena), da jih uskladitev iz kroga ne vrne.
+NAJVEC_POZABLJENIH = 32
+
+
+def _pot_pozabljenih(pot_nastavitev: str) -> str:
+    return pot_nastavitev + ".pozabljeni"
+
+
+def _odtis_pozabljenega(gostitelj: str, uporabnik: str) -> str:
+    """Odtis racuna (gostitelj in uporabnik, brez gesla) - z dolzino pred gostiteljem, da ga ni mogoce ponarediti."""
+    g = (gostitelj or "").strip().lower()
+    return hashlib.sha256(("%d:%s|%s" % (len(g), g, uporabnik or "")).encode("utf-8")).hexdigest()
+
+
+def _pozabljeni(pot_nastavitev: str) -> list:
+    d = _beri_json(_pot_pozabljenih(pot_nastavitev))
+    v = d.get("odtisi") if isinstance(d, dict) else None
+    return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+
+
 def shrani_iz_kroga(ponudnik: Ponudnik, pot_nastavitev: str) -> bool:
     """Ponudnik z naprave v ozjem krogu (naloga 114, core/usenet_vezava.prejmi_iz_kroga): BREZ gesla in samo, ce tu se
     ni ponudnika. Vrne True, ce je zapisan.
@@ -466,6 +486,9 @@ def shrani_iz_kroga(ponudnik: Ponudnik, pot_nastavitev: str) -> bool:
         raise ValueError("usenet ponudnik: brez TLS samo z nevarno_brez_tls=True")
     with _NASTAVITVE_ZAKLEP:
         if _ponudnik_iz(_beri_json(pot_nastavitev)) is not None:
+            return False
+        # Pregled 118 N3: racun, ki ga je uporabnik tu pozabil, uskladitev z druge naprave ne vrne.
+        if _odtis_pozabljenega(ponudnik.gostitelj, ponudnik.uporabnik) in _pozabljeni(pot_nastavitev):
             return False
         _pisi_json(pot_nastavitev, {"verzija": _VERZIJA, "ponudnik": ponudnik.v_slovar(), "preverba": None,
                                     "iz_kroga": True})
@@ -506,6 +529,13 @@ def pozabi_ponudnika(pot_nastavitev: str) -> None:
         p = preberi_ponudnika(pot_nastavitev)
         kljuci = _beri_kljuce(pot_nastavitev)
         if p is not None:
+            # Pregled 118 N3: odtis pozabljenega racuna - ponudnik z druge naprave v krogu se ne vrne sam.
+            odtis = _odtis_pozabljenega(p.gostitelj, p.uporabnik)
+            odtisi = [x for x in _pozabljeni(pot_nastavitev) if x != odtis] + [odtis]
+            try:
+                _pisi_json(_pot_pozabljenih(pot_nastavitev), {"verzija": _VERZIJA, "odtisi": odtisi[-NAJVEC_POZABLJENIH:]})
+            except OSError as e:
+                _log.info("usenet ponudnik: pozabljenega racuna ni mogoce zapomniti (%s)", type(e).__name__)
             kljuci.add(p.kljuc_gesla)
             geslo = _preberi_geslo(p.kljuc_gesla)
             nntp.dovoli_prijavo_znova(p.gostitelj, p.uporabnik, geslo)  # zapah v procesu in na disku

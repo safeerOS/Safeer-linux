@@ -193,8 +193,11 @@ class Vezava:
         """»Pozabi ponudnika«: najprej ustavi predvajanje (bazen racuna se zapre), nato jedro zbrise zapis, geslo in
         zapah. Usenet izgine iz izbire virov."""
         try:
-            self.ustavi_predvajanje()
-            up.pozabi_ponudnika(self.pot)
+            # Pregled 118 N1: isti zaklep kot predvajaj - film, ki se ravno pripravlja, se ne registrira po »Pozabi«
+            # (prej je tekel naprej s pozabljenim racunom in bazen s poverilnicami je ostal ziv).
+            with self._predvajanje:
+                self.ustavi_predvajanje()
+                up.pozabi_ponudnika(self.pot)
         except Exception as e:  # noqa: BLE001
             _log.info("usenet vezava: odstrani (%s)", type(e).__name__)
             return self._odgovor(False, NAPAKA)

@@ -24,6 +24,7 @@ import os
 import shutil
 import socket
 import secrets
+import signal
 import ssl
 import subprocess
 import threading
@@ -638,16 +639,30 @@ def _zapri(s) -> None:
         pass
 
 
+def _poslji_signal(proces: subprocess.Popen, ubij: bool = False) -> None:
+    """Signal samo procesu, ki ga Popen se ni pobral. Na isti zajem cakajo tudi druge niti (strazarji s poll(),
+    _koda_odpovedi z wait): ce ena ravno pobira (drzi Popen._waitpid_lock), poll() v tej niti vrne None in
+    send_signal bi poslal signal na ze sproscen PID - morda tuj proces (CPython bpo-38630; CI 40360017279 in 40471446443,
+    varovalo signalov: »kill(15) ... (?)«). Pod istim zaklepom procesa nihce ne pobere: returncode None pomeni nas PID."""
+    zaklep = getattr(proces, "_waitpid_lock", None)
+    if zaklep is None:
+        (proces.kill if ubij else proces.terminate)()
+        return
+    with zaklep:
+        if proces.returncode is None:
+            os.kill(proces.pid, signal.SIGKILL if ubij else signal.SIGTERM)
+
+
 def _koncaj(proces: Optional[subprocess.Popen]) -> None:
     """Ustavi zajem (slika ali zvok); ce se na prijazen konec ne odzove, ga ubije."""
     if proces is None or proces.poll() is not None:
         return
     try:
-        proces.terminate()
+        _poslji_signal(proces)
         proces.wait(timeout=3)
     except Exception:
         try:
-            proces.kill()
+            _poslji_signal(proces, ubij=True)
         except Exception:
             pass
 

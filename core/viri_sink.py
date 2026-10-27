@@ -23,6 +23,7 @@ Pravila:
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import urllib.parse
@@ -322,6 +323,27 @@ _USENET_POLJA = {"gostitelj": str, "uporabnik": str, "vrata": int, "tls": bool, 
 _USENET_DOLZINE = {"gostitelj": 253, "uporabnik": 400, "ime": 80}
 
 
+#: Imena, ki ne vodijo v internet (domace omrezje, ta racunalnik) - ponudnik iz ozjega kroga tja ne sme kazati.
+_USENET_DOMACA_IMENA = (".local", ".localhost", ".localdomain", ".lan", ".home", ".home.arpa", ".internal", ".intranet")
+
+
+def javni_gostitelj_usenet(gostitelj: str) -> bool:
+    """Neodvisen pregled 118 S1 (27. 10. 2026): ponudnik, ki ga poslje druga naprava, sme kazati samo na javni internet.
+    Sicer bi vdrta naprava v krogu dolocila naslov v domacem omrezju in Safeer bi tja (po uporabnikovem vpisu gesla)
+    odprl TLS in poslal prijavo. Naslov IP mora biti javen (ne domace, povratno, link-local ali rezervirano omrezje);
+    ime mora imeti piko in ne sme biti eno od domacih imen. Ime, ki se razresi v domace omrezje, ujame se jedro ob povezavi."""
+    g = (gostitelj or "").strip().lower().rstrip(".")
+    if not g:
+        return False
+    try:
+        return ipaddress.ip_address(g.strip("[]")).is_global
+    except ValueError:
+        pass
+    if "." not in g or g == "localhost" or any(g.endswith(k) for k in _USENET_DOMACA_IMENA):
+        return False
+    return True
+
+
 def cist_usenet(o: object) -> Optional[dict]:
     """Zapis ponudnika Usenet z druge naprave ali za njo: tocno znana polja prave vrste, samo TLS. Polje, ki ga ne
     poznamo (tudi »geslo«), zapis zavrne v celoti - ne samo odrezemo: tuj ali spremenjen zapis ne pride naprej.
@@ -334,7 +356,7 @@ def cist_usenet(o: object) -> Optional[dict]:
             return None
         if isinstance(v, str) and (len(v) > _USENET_DOLZINE[k] or any(c < " " or c == "\x7f" for c in v)):
             return None
-    if o["tls"] is not True or not o["gostitelj"] or not o["uporabnik"]:
+    if o["tls"] is not True or not o["gostitelj"] or not o["uporabnik"] or not javni_gostitelj_usenet(o["gostitelj"]):
         return None
     if not 1 <= o["vrata"] <= 65535 or not 1 <= o["najvec_povezav"] <= 100:
         return None

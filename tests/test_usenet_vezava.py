@@ -248,13 +248,21 @@ def test_izjema_jedra_ne_gre_na_stran(iz, monkeypatch):
 
 
 # ------------------------------------------------------------------ ozji krog
+#: Ponudnik v krogu mora biti v javnem internetu (pregled 118 S1); preizkusi kroga omrezja ne odprejo.
+JAVNI = "news.primer.si"
+
+
+def test_ponudnik_v_domacem_omrezju_ne_gre_v_krog(iz):
+    v = uv.Vezava(iz.pot)
+    uv.most(v, ["shrani", vnos(), GESLO])                                # 127.0.0.1 (lazni streznik)
+    assert v.za_krog() is None
 
 def test_za_krog_brez_gesla_in_samo_v_delu_ozji(iz):
     v = uv.Vezava(iz.pot)
     assert v.za_krog() is None
-    uv.most(v, ["shrani", vnos(), GESLO])
+    uv.most(v, ["shrani", vnos(gostitelj=JAVNI), GESLO])
     z = v.za_krog()
-    assert z == {"gostitelj": "127.0.0.1", "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4,
+    assert z == {"gostitelj": JAVNI, "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4,
                  "ime": "Moj ponudnik"}
     izvoz = viri_sink.razdeli_izvoz([], {}, z)
     assert viri_sink.USENET_PONUDNIK not in izvoz                       # zgoraj (javni del) ga ni
@@ -270,7 +278,7 @@ def test_za_krog_brez_gesla_in_samo_v_delu_ozji(iz):
     {"uporabnik": "a\nb"}, {"ime": "x" * 200},
 ])
 def test_cist_usenet_zavrne(pokvari):
-    z = {"gostitelj": "127.0.0.1", "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
+    z = {"gostitelj": JAVNI, "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
     assert viri_sink.cist_usenet(z) == z
     assert viri_sink.cist_usenet(dict(z, **pokvari)) is None
     assert viri_sink.razdeli_izvoz([], {}, dict(z, **pokvari))["ozji"].get(viri_sink.USENET_PONUDNIK) is None
@@ -282,7 +290,7 @@ def test_control_in_medijski_center_dasta_ponudnika_samo_ozjemu_krogu(iz):
     v = uv.Vezava(iz.pot)
     mc.debrid.lastni_usenet = v
     v.ob_spremembi = mc._viri_zapisi_izvoz
-    uv.most(v, ["shrani", vnos(), GESLO])
+    uv.most(v, ["shrani", vnos(gostitelj=JAVNI), GESLO])
     assert (iz.mapa / "viri_za_naprave.json").exists()
     for ozji in (False, True):
         izvoz = link_seznami.izvoz({}, str(iz.mapa), ozji=ozji)
@@ -295,7 +303,7 @@ def test_control_in_medijski_center_dasta_ponudnika_samo_ozjemu_krogu(iz):
 
 
 def test_prejem_iz_kroga_samo_od_naprave_v_ozjem_krogu_brez_prepisa(iz):
-    z = {"gostitelj": "127.0.0.1", "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": "Iz kroga"}
+    z = {"gostitelj": JAVNI, "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": "Iz kroga"}
     v = uv.Vezava(iz.pot)
     assert v.prejmi_iz_kroga(z, False) is False and up.preberi_ponudnika(iz.pot) is None
     assert v.prejmi_iz_kroga(z, "da") is False                          # samo dokaz te naprave (True)
@@ -309,18 +317,18 @@ def test_prejem_iz_kroga_samo_od_naprave_v_ozjem_krogu_brez_prepisa(iz):
                                "uporabnik": ""}, GESLO])
     assert r["ok"] and r["stanje"]["iz_kroga"] is False and v.za_krog() is not None
     # Lokalnega ponudnika zapis z druge naprave nikoli ne prepise.
-    assert v.prejmi_iz_kroga(dict(z, gostitelj="127.0.0.9", uporabnik="drug"), True) is False
-    assert up.preberi_ponudnika(iz.pot).gostitelj == "127.0.0.1"
+    assert v.prejmi_iz_kroga(dict(z, gostitelj="drug.primer.si", uporabnik="drug"), True) is False
+    assert up.preberi_ponudnika(iz.pot).gostitelj == JAVNI
 
 
 def test_prejem_iz_kroga_ne_odklene_zapaha(iz):
     # Zapah racuna (zavrnjena prijava) je zapisan na tej napravi; zapis z druge naprave ga ne sme odstraniti.
-    nntp._zapisi_zapah("127.0.0.1", UPORABNIK, GESLO)
-    assert nntp.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO) is True
-    z = {"gostitelj": "127.0.0.1", "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
+    nntp._zapisi_zapah(nntp.ponudnik(JAVNI), UPORABNIK, GESLO)          # zapah je po ponudniku (ne gostitelju)
+    assert nntp.prijava_zavrnjena(JAVNI, UPORABNIK, GESLO) is True
+    z = {"gostitelj": JAVNI, "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
     v = uv.Vezava(iz.pot)
     assert v.prejmi_iz_kroga(z, True) is True
-    assert nntp.prijava_zavrnjena("127.0.0.1", UPORABNIK, GESLO) is True
+    assert nntp.prijava_zavrnjena(JAVNI, UPORABNIK, GESLO) is True
     assert v.na_voljo() is False
 
 
@@ -328,7 +336,7 @@ def test_uskladitev_virov_prevzame_ponudnika_samo_iz_ozjega_kroga(iz, monkeypatc
     mc = os_media.MediaCenter(str(iz.mapa), roots=[])
     v = uv.Vezava(iz.pot)
     mc.debrid.lastni_usenet = v
-    z = {"gostitelj": "127.0.0.1", "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
+    z = {"gostitelj": JAVNI, "uporabnik": UPORABNIK, "vrata": 563, "tls": True, "najvec_povezav": 4, "ime": ""}
     kazalo = {"sources": [], "sources_deleted": {}, "ozji": True, viri_sink.USENET_PONUDNIK: z}
     monkeypatch.setattr(os_media.MediaCenter, "_posiljatelj_v_ozjem_krogu", staticmethod(lambda p: False))
     assert mc.viri_uskladi(kazalo, "naprava-a") is False and up.preberi_ponudnika(iz.pot) is None
