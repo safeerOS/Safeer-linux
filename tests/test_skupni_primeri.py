@@ -3,15 +3,21 @@
 Datoteka tests/skupni-primeri/debrid-serije.json je ista v repozitorijih Android-tv, Safeer-linux in Safeer-windows:
 pravilo, spremenjeno samo na eni strani, tu ali tam pade. null v primeru = ni vrednosti (None ali prazen niz).
 """
+import base64
 import json
 import unittest
 from pathlib import Path
 
 from core import debrid_pravila as P, media_servers, skrivni_dodatki as S, usenet_pravila as U, webtor as W
+from core import usenet_bralnik as UB, usenet_nntp as NN, usenet_nzb as NZ, usenet_rar as UR, usenet_tok as UT
+from core import usenet_streznik as US
+from core import usenet_yenc as Y
 
 PRIMERI = Path(__file__).resolve().parent / "skupni-primeri" / "debrid-serije.json"
 #: Webtor rezerva in dodatki z osebnim zetonom (25. 10. 2026) - ista datoteka kot na Androidu (veja webtor-rezerva).
 PRIMERI_WEBTOR = Path(__file__).resolve().parent / "skupni-primeri" / "webtor-rezerva.json"
+#: Lasten pogon Usenet (lastnik 25. 10. 2026 22:10): yEnc, NZB, kode NNTP - lastnik datoteke je Safeer-linux.
+PRIMERI_USENET = Path(__file__).resolve().parent / "skupni-primeri" / "usenet-pogon.json"
 #: Pravila iz PRIMERI_WEBTOR, ki jih namizje se nima - in zakaj. Novo pravilo v datoteki mora priti sem ali v izracunaj.
 NI_NA_NAMIZJU = {
     "uskladitev_novejsi": "usklajevanje kljucev v ozjem krogu (secrets.sync) namizje se nima",
@@ -52,8 +58,163 @@ def _ali_none(v):
     return v if v not in ("",) else None
 
 
+def _b64(b):
+    return base64.b64encode(b).decode("ascii")
+
+
+def _yenc_izhod(telo):
+    try:
+        d = Y.dekodiraj(telo)
+    except Y.NapakaYenc as e:
+        return {"izid": e.izid}
+    return {"izid": Y.OK, "ime": d.ime, "del": d.del_, "skupaj": d.skupaj, "velikost": d.velikost,
+            "zacetek": d.zacetek, "konec": d.konec, "crc32": "%08x" % d.crc32, "crc_preverjen": d.crc_preverjen,
+            "podatki_b64": _b64(d.podatki)}
+
+
+def _nzb_izhod(podatki):
+    try:
+        n = NZ.razcleni(podatki)
+    except NZ.NapakaNzb as e:
+        return {"izid": e.izid}
+    return {"izid": NZ.OK, "naslov": n.naslov, "ima_geslo": n.ima_geslo, "datoteke": [
+        {"ime": d.ime, "skupine": list(d.skupine), "bajtov_nzb": d.bajtov_nzb, "manjka": d.manjka,
+         "segmenti": [[x.stevilka, x.bajtov, x.id] for x in d.segmenti]} for d in n.datoteke]}
+
+
+def _znani(v):
+    return {int(s): (int(o), int(n)) for s, o, n in v["znani"]}
+
+
+def _rar_izhod(b, velikost):
+    izid = UR.preveri(b, velikost)
+    try:
+        z = UR.razcleni_zvezek(b, velikost)
+    except UR.NapakaRar:
+        return {"izid": izid}
+    return {"izid": izid, "rar": z.razlicica, "zvezek": z.stevilka, "vec_zvezkov": z.vec_zvezkov, "datoteke": [
+        {"ime": x.ime, "odmik": x.odmik, "dolzina": x.dolzina, "velikost": x.velikost, "pred": x.razdeljen_pred,
+         "po": x.razdeljen_po, "store": x.store, "sifriran": x.sifriran, "mapa": x.mapa} for x in z.vnosi]}
+
+
+def _tok(f, v):
+    """Korak 2 (core/usenet_tok.py, usenet_rar.py, usenet_bralnik.py; Android isto v Kotlinu)."""
+    if f == "tok_odmik":
+        try:
+            u = UT.poisci(v["velikost"], v["celota"], v["del_bajtov"], _znani(v), v["odmik"])
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+        return {"izid": UT.OK, "segment": u.stevilka, "odmik": u.odmik, "natancno": u.natancno}
+    if f == "tok_segmenti":
+        return UT.segmenti_okna(v["velikost"], v["celota"], v["del_bajtov"], _znani(v), v["odmik"], v["dolzina"])
+    if f == "tok_okno":
+        return UB.okno_vnaprej(v["zaporedno_prebrano"], v["zacetno"], v["najvec"])
+    if f == "tok_profili":
+        return {k: [p.okno_bajtov, p.zacetno_okno, p.lru_bajtov, p.vzporedno] for k, p in UB.PROFILI.items()}
+    if f == "rar_glava":
+        return _rar_izhod(base64.b64decode(v["glava_b64"]), v["velikost"])
+    if f == "rar_zvezki":
+        return UR.vrstni_red_zvezkov(v["imena"])
+    if f == "rar_sestavi":
+        try:
+            zv = [UR.razcleni_zvezek(base64.b64decode(b), n) for b, n in zip(v["zvezki_b64"], v["velikosti"])]
+            ime, velikost, kosi = UR.sestavi(zv)
+        except UR.NapakaRar as e:
+            return {"izid": e.izid}
+        return {"izid": UR.OK, "ime": ime, "velikost": velikost, "kosi": [[k.zvezek, k.odmik, k.dolzina] for k in kosi]}
+    # v6 (naloga 29, pregleda Grok 58 in 61)
+    if f == "tok_preslikava":
+        try:
+            return {"izid": UT.OK, "celota": UT.meje_preslikave(v["stevil_v_nzb"], v["manjka_v_nzb"], v["velikost"],
+                                                                  v["skupaj"])}
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+    if f == "tok_vzorec":
+        return UB.je_vzorec(v["ime"])
+    if f == "tok_izbira":
+        nzb = NZ.Nzb(None, tuple(NZ.Datoteka(ime, (), (NZ.Segment(1, n, "a@primer.invalid"),), 0) for ime, n in v["datoteke"]))
+        try:
+            vrsta, indeksi = UB.izberi_datoteke(nzb)
+        except UT.NapakaToka as e:
+            return {"izid": e.izid}
+        return {"izid": UT.OK, "vrsta": vrsta, "indeksi": indeksi}
+    if f == "tok_meje":
+        return {"segmentov_datoteke": NZ.NAJVEC_SEGMENTOV_DATOTEKE, "del_bajtov": Y.NAJVEC_DEL_BAJTOV,
+                "priprava_hkrati": UB.PRIPRAVA_HKRATI, "priprave_bajtov": UB.NAJVEC_PRIPRAVE_BAJTOV,
+                "glav_segmentov": UB.NAJVEC_GLAV_SEGMENTOV, "glav_bajtov": UB.NAJVEC_GLAV_BAJTOV,
+                "poskusov": UB.NAJVEC_POSKUSOV, "preklicev": UB.NAJVEC_PREKLICEV,
+                "streznik_povezav": US.NAJVEC_POVEZAV, "streznik_rok_s": int(US.ROK_POVEZAVE_S),
+                "vint_najvec": UR.NAJVEC_VINT, "zvezkov_najvec": UR.NAJVEC_ZVEZKOV}
+    raise KeyError("neznano pravilo: " + f)
+
+
+TOK = {"tok_odmik", "tok_segmenti", "tok_okno", "tok_profili", "rar_glava", "rar_zvezki", "rar_sestavi",
+       "tok_preslikava", "tok_vzorec", "tok_izbira", "tok_meje"}
+
+
+def _usenet(f, v):
+    """Lasten pogon Usenet (core/usenet_yenc.py, usenet_nzb.py, usenet_nntp.py; Android isto v Kotlinu)."""
+    if f == "yenc_dekodiraj":
+        return _yenc_izhod(base64.b64decode(v["telo_b64"]))
+    if f in ("nntp_telo", "yenc_iz_nntp"):
+        r = NN.odpakiraj_telo(base64.b64decode(v["surovo_b64"]))
+        if f == "yenc_iz_nntp":
+            return {"izid": Y.PRIREZANO} if r is None else _yenc_izhod(r[0])
+        return None if r is None else {"telo_b64": _b64(r[0]), "ostanek_b64": _b64(r[1])}
+    if f == "nntp_izid":
+        return NN.izid_odgovora(v["ukaz"], v["vrstica"])
+    if f == "nntp_ukrep":
+        return NN.ukrep_bazena(v["izid"], v["faza"], v["stara"], v["poskus"])
+    if f == "nntp_sme_odpreti":
+        return NN.sme_odpreti(v["ustavljen"], v["premor"], v["odprtih"], v["najvec"], v["uspela"], v["sonda"])
+    if f == "nntp_premor":
+        n, p = NN.nov_premor(v["najvec"], v["odprtih"], v["premor_s"], v["tece"], v["zmanjsaj"])
+        return {"najvec": n, "premor_s": int(p)}
+    if f == "nntp_poverilnica":
+        return NN.varna_poverilnica(v["vrednost"])
+    if f == "nntp_id_odgovora":
+        return NN.id_odgovora_ustreza(v["vrstica"], v["id"])
+    if f == "nntp_ponudnik":
+        return NN.ponudnik(v["gostitelj"])
+    if f == "nntp_zapah_odtis":
+        r, g = NN.zapah_odtis(bytes.fromhex(v["sol_hex"]), v["ponudnik"], v["uporabnik"], v["geslo"])
+        return {"racun": r, "geslo": g}
+    if f == "nntp_id":
+        return NZ.id_clanka(v["id"])
+    if f == "varno_ime":
+        return NZ.varno_ime(v["ime"])
+    if f == "nzb_ime":
+        return NZ.ime_iz_subject(v["subject"])
+    if f == "nzb_razcleni":
+        return _nzb_izhod(base64.b64decode(v["xml_b64"]) if "xml_b64" in v else v["xml"].encode("utf-8"))
+    if f == "usenet_meje":
+        return {"nzb_bajtov": U.NAJVEC_NZB_BAJTOV, "nzb_datotek": NZ.NAJVEC_DATOTEK,
+                "nzb_segmentov": NZ.NAJVEC_SEGMENTOV, "nzb_elementov": NZ.NAJVEC_ELEMENTOV,
+                "segmentov_datoteke": NZ.NAJVEC_SEGMENTOV_DATOTEKE,
+                "telo_bajtov": NN.NAJVEC_TELO_BAJTOV, "del_bajtov": Y.NAJVEC_DEL_BAJTOV,
+                "ime_znakov": NZ.NAJVEC_IME_ZNAKOV, "ime_bajtov": NZ.NAJVEC_IME_BAJTOV,
+                "naslov_znakov": NZ.NAJVEC_NASLOV_ZNAKOV, "skupin": NZ.NAJVEC_SKUPIN,
+                "vrstica_bajtov": NN.NAJVEC_VRSTICA_BAJTOV, "id_znakov": NZ.NAJVEC_ID_ZNAKOV,
+                "poverilnica_bajtov": NN.NAJVEC_POVERILNICA_BAJTOV, "povezav_privzeto": NN.PRIVZETO_POVEZAV,
+                "povezav_najvec": NN.NAJVEC_POVEZAV, "vrata": NN.VRATA, "prosta_najdlje_s": int(NN.PROSTA_NAJDLJE_S),
+                "premor_od_s": int(NN.PREMOR_OD_S), "premor_brez_odprtih_s": int(NN.PREMOR_BREZ_ODPRTIH_S),
+                "premor_do_s": int(NN.PREMOR_DO_S), "rast_bazena_s": int(NN.RAST_BAZENA_S),
+                "ziva_prijava_s": int(NN.ZIVA_PRIJAVA_S), "zapah_ponovitev": NN.ZAPAH_PONOVITEV,
+                "zapahov_najvec": NN.NAJVEC_ZAPAHOV, "napak_ukaza_zapored": NN.NAPAK_UKAZA_ZAPORED}
+    raise KeyError("neznano pravilo: " + f)
+
+
+USENET_POGON = {"yenc_dekodiraj", "nntp_telo", "yenc_iz_nntp", "nntp_izid", "nntp_id", "varno_ime", "nzb_ime",
+                "nzb_razcleni", "usenet_meje", "nntp_ukrep", "nntp_sme_odpreti", "nntp_premor", "nntp_poverilnica",
+                "nntp_id_odgovora", "nntp_zapah_odtis", "nntp_ponudnik"}
+
+
 def izracunaj(f, v):
     """Isto ime pravila kot v primerih (in v Kotlinu preslikano)."""
+    if f in USENET_POGON:
+        return _usenet(f, v)
+    if f in TOK:
+        return _tok(f, v)
     if f == "vrstni_red":
         return P.vrstni_red(set(v["z_kljucem"]), v["prednostna"])
     if f == "aktivna":
@@ -212,6 +373,12 @@ class SkupniPrimeri(unittest.TestCase):
         self._preveri(PRIMERI_KLJUCI, set(), STEVILO_KLJUCI)
         self.assertEqual(len(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["primeri"]), STEVILO_KLJUCI)
         self.assertEqual(json.loads(PRIMERI_KLJUCI.read_text(encoding="utf-8"))["verzija"], 3)
+
+    def test_usenet_pogon(self):
+        self._preveri(PRIMERI_USENET, set(), 560)  # v6 (pregleda Grok 58 in 61)
+        koren = json.loads(PRIMERI_USENET.read_text(encoding="utf-8"))
+        # Grok 58 T14: tocno stevilo, ne »najmanj« - izguba primerov pri prenosu (Android) bi sicer ostala skrita.
+        self.assertEqual((koren["verzija"], len(koren["primeri"])), (6, 560))
 
     def _preveri(self, pot, preskoci: set, najmanj: int):
         koren = json.loads(pot.read_text(encoding="utf-8"))
