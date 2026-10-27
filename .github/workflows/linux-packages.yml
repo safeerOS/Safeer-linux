@@ -577,6 +577,9 @@ jobs:
           path: build/rqbit/
           retention-days: 14
   brskalnik:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.webkit-deb.result == 'success' }}
     # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb za Linux Mint 22 / Ubuntu 24.04 naprej (kot
     # Safeer OS). Paket .deb (amd64) tece na nasem WebKitGTK in libsoup iz paketa safeer-webkit (posel webkit-deb,
     # /usr/lib/safeer-webkit). AppImage CI ne gradi (opuscen, glej zacetek datoteke).
@@ -662,6 +665,9 @@ jobs:
           name: brskalnik
           path: '*.deb'
   safeer-os:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.webkit-deb.result == 'success' && needs.rqbit-deb.result == 'success' }}
     # Safeer OS na GTK4 + WebKitGTK 6.0 z lupino v Qt Quick (en proces). Ubuntu 24.04 je osnova Linux Mint 22 - prve
     # razlicice Minta z WebKitGTK 6.0 (Mint 21 ga nima; lastnik 14. 10. 2026: .deb za Mint 22+, PySide6 v paketu).
     # Paket .deb (amd64) tece na nasem WebKitGTK in libsoup iz paketa safeer-webkit (posel webkit-deb, z dav1ddec), nas
@@ -879,6 +885,9 @@ jobs:
           path: safeer-player_*.deb
           if-no-files-found: error
   qt-xcb:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.webkit-deb.result == 'success' && needs.safeer-os.result == 'success' }}
     # Vticnik Qt xcb lupine QML (PySide6 iz paketa) nalozi libxcb-* neposredno. Posel safeer-os pred tem namesti cel
     # seznam razvojnih knjiznic, zato tam manjkajoca odvisnost paketa ne bi padla. Tu: cist vsebnik ubuntu:24.04 (osnova
     # Linux Mint 22), paket z apt --no-install-recommends (kot GDebi) in ldd vticnika brez »not found«.
@@ -903,6 +912,9 @@ jobs:
       - name: PySide6 xcb plugin finds every library (ldd, no "not found")
         run: bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor
   mint:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.brskalnik.result == 'success' && needs.safeer-os.result == 'success' }}
     # The packages are installed, started and removed on real Linux Mint - the way a user does it. The build job
     # installs them on Ubuntu 22.04, where the two look packages cannot be installed at all (mint-themes exists
     # only in Linux Mint) and dependencies are resolved by another repository than the user's. This job takes the
@@ -960,6 +972,9 @@ jobs:
       - name: Install, upgrade, start and remove all packages on Linux Mint ${{ matrix.mint }}
         run: bash tools/mint_namestitev/preizkus.sh "linuxmintd/mint${{ matrix.mint }}-amd64" paketi prejsnji
   debian:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.brskalnik.result == 'success' && needs.safeer-os.result == 'success' }}
     # Debian 13 (trixie) in Ubuntu 26.04: .deb se namesti (od 1.0.131 so knjiznice z razlicnim soname v paketu), vsaka
     # knjiznica nasega WebKita se najde in WebKit se nalozi (pregled Gemini 1.0.131: trditev opomb mora preveriti CI).
     needs: [brskalnik, safeer-os]
@@ -1577,6 +1592,9 @@ jobs:
       - name: Shield against a real systemd-resolved and NetworkManager
         run: bash tools/scit_lab/lab.sh preizkus
   paketi-izdaje:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.brskalnik.result == 'success' && needs.safeer-os.result == 'success' && needs.flatpak.result == 'success' && needs.flatpak-brskalnik.result == 'success' }}
     # Lastnik 25. 10. 2026: »Izdaja je samo to, kar preizkusim in recem, da lahko objavimo.« Oznaka v* nicesar ne gradi:
     # posel release/beta-izdaja vzame pakete zelenega teka veje za ISTI commit (tools/ci_izdaja.py). Ta posel zapise,
     # katere datoteke so to (SHA-256), in vhode teka. Rocni zagon z vhodi, ki spremenijo gradnjo (pgo, pgo_profraw_run:
@@ -1627,6 +1645,9 @@ jobs:
           retention-days: 90
           overwrite: true
   preizkusi-webkit:
+    # Brez lastnega if GitHub posel preskoci, ce je preskocen KATERIKOLI prednik (webkit-deb-profil ob ponovni rabi WebKita):
+    # tek 40433266503 (27. 10. 2026) je bil zelen brez paketov in brez preizkusov WebKita.
+    if: ${{ !cancelled() && needs.webkit-deb.result == 'success' }}
     # Enotski preizkusi, ki WebKit nalozijo (tests/razvrstitev_webkit.py --safeer-webkit=samo: ~100 datotek, ocena ~8 min),
     # z NASIM WebKitGTK in libsoup iz paketa safeer-webkit tega teka (lastnik 21. 10. 2026: preizkus s sistemskim WebKitGTK
     # ni veljaven). Sistemskega WebKitGTK in libsoup GI v vsebniku ni; vticnik pred prvim preizkusom preveri knjiznico in
