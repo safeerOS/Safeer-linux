@@ -9389,11 +9389,97 @@ function narisiKatViri() {
       if (this.classList.contains("potrdi")) { this.classList.remove("potrdi"); this.querySelector("span").textContent = t("jfZazeniZnova"); }
     });
   }
+  // ------------------------------------------------------------------ Usenet ponudnik (naloga 114)
+  // Lasten ponudnik NNTP (core/usenet_vezava.py). Stran nikoli ne dobi gesla ali uporabniskega imena nazaj: polji sta ob
+  // vsakem odprtju prazni, namig pove, da je vrednost shranjena. Odgovor mostu je samo koda (unpKoda_*), zato v
+  // sporocilu ni besedila izjeme z vnosom. Preverba je samo na klik in je onemogocena po zavrnjeni prijavi (zapah).
+  var unp = { stanje: null, dela: false };
+  var UNP_SLABO = ["ne_velja", "zaklenjen", "ni_gesla", "iz_kroga"];
+  function unpSporocilo(koda, besedilo) {
+    $("unpSporocilo").textContent = besedilo || (koda ? t("unpKoda_" + koda) : "");
+  }
+  function unpGumbi() {
+    var s = unp.stanje || {};
+    $("unpShrani").disabled = unp.dela;
+    $("unpPreveri").disabled = unp.dela || !s.vpisan || !s.geslo_shranjeno || s.kljuc === "ne_velja" || s.kljuc === "zaklenjen";
+    $("unpPozabi").disabled = unp.dela || !s.vpisan;
+    $("unpBrezTls").hidden = $("unpTls").checked;
+  }
+  function unpPozabiPonastavi() {
+    var g = $("unpPozabi");
+    if (g.classList.contains("potrdi")) { g.classList.remove("potrdi"); g.textContent = t("unpPozabi"); }
+  }
+  // [polja]: vrednosti vnosov tudi prepise (odprtje, uspesno shranjeno); ob napaki ostane, kar je uporabnik vpisal.
+  function unpNarisi(s, polja) {
+    unp.stanje = s || {};
+    var st = $("unpStanje");
+    st.textContent = s && s.kljuc ? t("unpKoda_" + s.kljuc) : "";
+    st.classList.toggle("slabo", !!s && UNP_SLABO.indexOf(s.kljuc) >= 0);
+    st.classList.toggle("dobro", !!s && s.kljuc === "velja");
+    if (polja && s) {
+      $("unpIme").value = s.ime || "";
+      $("unpStreznik").value = s.gostitelj || "";
+      $("unpVrata").value = s.vrata || 563;
+      $("unpTls").checked = s.vpisan ? s.tls !== false : true;
+      $("unpBrezTlsPotrdi").checked = false;
+      $("unpPovezav").value = s.najvec_povezav || 8;
+      $("unpUporabnik").value = "";
+      $("unpGeslo").value = "";
+    }
+    if (s) {
+      $("unpUporabnik").placeholder = s.vpisan ? t("unpUporabnikShranjen") : "";
+      $("unpGeslo").placeholder = s.geslo_shranjeno ? t("unpGesloShranjeno") : "";
+    }
+    unpPozabiPonastavi();
+    unpGumbi();
+  }
+  function naloziUsenetPonudnik() {
+    unpSporocilo("");
+    klic("mediaUsenetPonudnik", ["stanje"]).then(function (r) {
+      if (r && r.stanje) unpNarisi(r.stanje, true); else unpSporocilo("napaka");
+    }, function () { unpSporocilo("napaka"); });
+  }
+  function unpOdgovor(r, polja) {
+    unp.dela = false;
+    if (r && r.stanje) unpNarisi(r.stanje, polja && r.ok); else unpGumbi();
+    unpSporocilo((r && r.koda) || "napaka");
+  }
+  function unpShrani(event) {
+    event.preventDefault();
+    if (unp.dela) return;
+    var tls = $("unpTls").checked;
+    var vnos = {
+      ime: $("unpIme").value.trim(), gostitelj: $("unpStreznik").value.trim(), vrata: $("unpVrata").value.trim(),
+      tls: tls, najvec_povezav: $("unpPovezav").value.trim(), uporabnik: $("unpUporabnik").value,
+      nevarno_brez_tls: !tls && $("unpBrezTlsPotrdi").checked
+    };
+    unp.dela = true; unpGumbi();
+    klic("mediaUsenetPonudnik", ["shrani", vnos, $("unpGeslo").value]).then(function (r) { unpOdgovor(r, true); },
+      function () { unp.dela = false; unpGumbi(); unpSporocilo("napaka"); });
+  }
+  function unpPreveri() {
+    if (unp.dela) return;
+    unp.dela = true; unpGumbi();
+    unpSporocilo("", t("unpPreverjam"));
+    klic("mediaUsenetPonudnik", ["preveri"]).then(function (r) { unpOdgovor(r, false); },
+      function () { unp.dela = false; unpGumbi(); unpSporocilo("napaka"); });
+  }
+  // Pozabi: drugi klik potrdi (kot Zazeni znova pri Jellyfinu) - brisanje gesla ni povratno.
+  function unpPozabi() {
+    var g = $("unpPozabi");
+    if (unp.dela) return;
+    if (!g.classList.contains("potrdi")) { g.classList.add("potrdi"); g.textContent = t("unpPozabiPotrdi"); return; }
+    unpPozabiPonastavi();
+    unp.dela = true; unpGumbi();
+    klic("mediaUsenetPonudnik", ["odstrani"]).then(function (r) { unpOdgovor(r, true); },
+      function () { unp.dela = false; unpGumbi(); unpSporocilo("napaka"); });
+  }
   function odpriKatViri() {
     $("katVirSporocilo").textContent = "";
     $("slojKatViri").classList.add("viden");
     naloziKatViri();
     naloziVgrajene();
+    naloziUsenetPonudnik();
     $("mediaStreznikUrl").focus();
   }
   // Gumb "Install" na strani z dodatki Stremio (stremio://): okno Dodatki z naslovom dodatka; doda se sele na Poveži.
@@ -9478,6 +9564,11 @@ function narisiKatViri() {
     ob("medijiDodatki", "click", function () { zapriMeniDodaj(false); odpriKatViri(); });
     ob("katNalaganjeZnova", "click", function () { kat.napakaVec = false; naloziKatalog(true); });
     ob("katViriZapri", "click", zapriSloje);
+    ob("unpObrazec", "submit", unpShrani);
+    ob("unpPreveri", "click", unpPreveri);
+    ob("unpPozabi", "click", unpPozabi);
+    ob("unpPozabi", "blur", unpPozabiPonastavi);
+    ob("unpTls", "change", function () { $("unpBrezTlsPotrdi").checked = false; unpGumbi(); });
     ob("katZasebno", "click", preklopiZasebno);
     ob("katPrilepi", "click", katPrilepi);
     // Imenik dodatkov Stremio: Install na strani doda dodatek v Safeer (stremio:// -> okno Dodatki, potrdi Poveži).

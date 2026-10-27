@@ -5173,6 +5173,9 @@ class SafeerOS(Gtk.Application):
                     poslano.append(True)
                     self._odgovori(pogled, id_, False, str(e))
             return
+        # Tudi mediaUsenetPonudnik (naloga 114, okno »Moji viri -> Usenet ponudnik«): po preverbi zetona zgoraj vedno v
+        # delovni niti, ker preverba ponudnika na glavni niti ni dovoljena (core/usenet_ponudnik), in z isto vezavo,
+        # kot jo uporablja predvajanje NZB v katalogu.
         if self._katalog_most().pozna(metoda):
             if metoda == "mediaPredvajaj":
                 self._katalog_pogled = pogled     # ta stran zdaj vodi vrsto skladb (glej _dogodek)

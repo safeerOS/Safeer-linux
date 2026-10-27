@@ -452,6 +452,47 @@ def posodobi_nastavitve(pot_nastavitev: str, *, ime: Optional[str] = None,
     return nov
 
 
+def shrani_iz_kroga(ponudnik: Ponudnik, pot_nastavitev: str) -> bool:
+    """Ponudnik z naprave v ozjem krogu (naloga 114, core/usenet_vezava.prejmi_iz_kroga): BREZ gesla in samo, ce tu se
+    ni ponudnika. Vrne True, ce je zapisan.
+
+    Ne prepise lokalnega ponudnika (ta ima svoje geslo, zapah in izid preverbe), ne odklene zapaha in ne ponastavi
+    omejitve 1/min - prejem ni uporabnikov vpis. Geslo vpise uporabnik na tej napravi (shrani_ponudnika), ker namizje
+    nima sifriranega usklajevanja skrivnosti (secrets.sync); do takrat stanje pove NI_GESLA. Brez TLS ne sprejmemo:
+    izjema »samo doma« velja za omrezje naprave, ki jo je vpisala, ne za to."""
+    if not isinstance(ponudnik, Ponudnik):
+        raise ValueError("usenet ponudnik: pricakovan Ponudnik")
+    if not ponudnik.tls:
+        raise ValueError("usenet ponudnik: brez TLS samo z nevarno_brez_tls=True")
+    with _NASTAVITVE_ZAKLEP:
+        if _ponudnik_iz(_beri_json(pot_nastavitev)) is not None:
+            return False
+        _pisi_json(pot_nastavitev, {"verzija": _VERZIJA, "ponudnik": ponudnik.v_slovar(), "preverba": None,
+                                    "iz_kroga": True})
+    return True
+
+
+def je_iz_kroga(pot_nastavitev: str) -> bool:
+    """Shranjen ponudnik je prisel z druge naprave in uporabnik tu se ni vpisal gesla (shrani_ponudnika oznako zbrise).
+    Tak zapis ne gre naprej v ozji krog te naprave: ozji krog je na vsaki napravi svoj (kot viri, pregled 51 E4)."""
+    d = _beri_json(pot_nastavitev)
+    return _ponudnik_iz(d) is not None and d.get("iz_kroga") is True
+
+
+def preveri_shranjenega(pot_nastavitev: str, *, kontekst: Optional[ssl.SSLContext] = None) -> str:
+    """»Preveri« za shranjenega ponudnika z geslom iz zbirke (naloga 114): vmesnik gesla nikoli ne dobi nazaj in ga ne
+    posilja znova. Ni ponudnika: NapakaPonudnika(NI_PONUDNIKA); ni gesla: NapakaPonudnika(NI_GESLA) - brez omrezja.
+    Ostala pravila (glavna nit, TLS, zapah, 1/min, meja racuna) so v preveri_ponudnika."""
+    p = preberi_ponudnika(pot_nastavitev)
+    if p is None:
+        raise NapakaPonudnika(NI_PONUDNIKA)
+    _ne_na_glavni_niti()  # pred zbirko: branje zbirke je lahko klic D-Bus, ki caka na odklep
+    geslo = _preberi_geslo(p.kljuc_gesla)
+    if geslo is None:
+        raise NapakaPonudnika(NI_GESLA)
+    return preveri_ponudnika(p, geslo, pot_nastavitev=pot_nastavitev, kontekst=kontekst)
+
+
 def preberi_ponudnika(pot_nastavitev: str) -> Optional[Ponudnik]:
     """Shranjen ponudnik ali None (ni vpisan ali je zapis pokvarjen). Gesla ne bere."""
     return _ponudnik_iz(_beri_json(pot_nastavitev))
