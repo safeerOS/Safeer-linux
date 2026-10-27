@@ -413,6 +413,52 @@ def preseli_dns_na_scit(merged: Dict[str, Any], user_settings: Dict[str, Any]) -
     return True
 
 
+#: Vrednosti, ki so jih preizkusi pred izolacijo okolja (25. 10. 2026) zapisali v PRAVE nastavitve uporabnika
+#: (tests/test_kanali_sporocil.py, test_kanali_most_zivo.py, test_stranska_plosca.py): zaprt posrednik na vratih 9 in
+#: dovoljenje za izmisljeno stran *.invalid. Lastnik 27. 10. 2026: Splet je ob vsakem zagonu javil »Strani trenutno ni
+#: mogoce odpreti« (g-io-error-quark 39), ker je seja sla na http://127.0.0.1:9; Chrome in Firefox sta delala.
+VRATA_ZAPRTEGA_POSREDNIKA = 9          # discard: tu nikoli ne poslusa noben posrednik
+TESTNA_DOMENA = ".invalid"             # RFC 2606: ime, ki ga v omrezju ni
+
+
+def _zaprt_posrednik_preizkusov(url: Any) -> bool:
+    """http(s)/socks posrednik na povratnem naslovu z vrati 9 - nikoli ni uporaben, zapisali so ga preizkusi."""
+    try:
+        d = urllib.parse.urlsplit(str(url or "").strip())
+        if d.port != VRATA_ZAPRTEGA_POSREDNIKA or not d.hostname:
+            return False
+        return d.hostname == "localhost" or ipaddress.ip_address(d.hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def pocisti_ostanke_preizkusov(merged: Dict[str, Any]) -> List[str]:
+    """Odstrani iz nastavitev, kar so zapisali preizkusi pred izolacijo; vrne spremenjene kljuce ([] = nic).
+
+    - Lasten posrednik na zaprtih vratih 9 -> posrednik izklopljen (privzeto). Drug lasten posrednik ostane.
+    - Dovoljenja strani za *.invalid -> odstranjena (take strani ni).
+    - Samo, ce sta OBE sledi preizkusov (posrednik 9 in *.invalid), so tudi izklop DNS in EasyList delo preizkusov
+      (isti setUp jih je nastavil skupaj) -> privzete vrednosti. Sicer ju pustimo: morda ju je izklopil uporabnik.
+    """
+    spremenjeno: List[str] = []
+    posrednik = merged.get("secure_proxy_mode") == "custom" and _zaprt_posrednik_preizkusov(merged.get("secure_proxy_url"))
+    if posrednik:
+        merged["secure_proxy_mode"] = DEFAULT_SETTINGS["secure_proxy_mode"]
+        merged["secure_proxy_url"] = DEFAULT_SETTINGS["secure_proxy_url"]
+        spremenjeno += ["secure_proxy_mode", "secure_proxy_url"]
+    dovoljenja = merged.get("dovoljenja_strani")
+    testne = [k for k in dovoljenja if str(k).lower().rstrip(".").endswith(TESTNA_DOMENA)] if isinstance(dovoljenja, dict) else []
+    if testne:
+        merged["dovoljenja_strani"] = {k: v for k, v in dovoljenja.items() if k not in testne}
+        spremenjeno.append("dovoljenja_strani")
+    if posrednik and testne:
+        for k in ("doh_enabled", "doh_provider", "easylist_enabled"):
+            if k in DEFAULT_SETTINGS and merged.get(k) != DEFAULT_SETTINGS[k]:
+                merged[k] = copy.deepcopy(DEFAULT_SETTINGS[k])
+                spremenjeno.append(k)
+    return spremenjeno
+
+
 class ConfigManager:
     def __init__(self, config_dir: str | None = None):
         self.config_dir = config_dir if config_dir is not None else CONFIG_DIR
@@ -497,6 +543,17 @@ class ConfigManager:
                     if dodaj_katalog_integracijam(merged):
                         migrated = True
                     if preseli_dns_na_scit(merged, user_settings):
+                        migrated = True
+                    ostanki = pocisti_ostanke_preizkusov(merged)
+                    if ostanki:
+                        # Kopija pred ciscenjem (rocna obnova), enkrat - ne prepisemo prejsnje.
+                        kopija = self.config_file + ".pred-ciscenjem-preizkusov"
+                        if not os.path.exists(kopija):
+                            try:
+                                shramba_json.zapisi_atomsko(kopija, user_settings)
+                            except OSError as napaka:
+                                print("[Config] kopija pred ciscenjem ni zapisana: %s" % napaka, flush=True)
+                        print("[Config] odstranjene vrednosti preizkusov: %s" % ", ".join(ostanki), flush=True)
                         migrated = True
                     if preseli_razlicico(merged, stara):
                         migrated = True

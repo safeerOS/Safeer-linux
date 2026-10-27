@@ -1359,6 +1359,12 @@ class VdelaniSplet:
         """WebsiteDataManager Spleta (6.0: na seji)."""
         return self.seja.get_website_data_manager()
 
+    def _lasten_posrednik(self) -> str:
+        """Naslov lastnega posrednika, ce ga seja uporablja (stran napake ga omeni); sicer ""."""
+        if self.config.get("secure_proxy_mode", "disabled") == "custom":
+            return str(self.config.get("secure_proxy_url", "") or "").strip()
+        return ""
+
     def _nastavi_omrezje(self) -> None:
         W = self.WebKit2
         izjeme = ["localhost", "127.0.0.0/8", "::1", "10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12", ".local"]
@@ -1989,7 +1995,8 @@ class VdelaniSplet:
             pogled, self._https_seja(), W, self.GLib,
             lambda uri, p=pogled: p._safeer_napake._metoda(uri) if getattr(p, "_safeer_napake", None) else None)
         from core.network_errors import NetworkErrorHandler
-        pogled._safeer_napake = NetworkErrorHandler(pogled, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"))
+        pogled._safeer_napake = NetworkErrorHandler(pogled, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"),
+                                                    posrednik=self._lasten_posrednik)
         pogled.connect("decide-policy", self._politika)
         fc = pogled.get_find_controller()
         fc.connect("counted-matches", lambda f, n: pogled is self.trenutni() and self._najdi_stevec(f, n))
