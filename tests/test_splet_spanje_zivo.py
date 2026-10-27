@@ -345,6 +345,12 @@ class SpanjeZivo(unittest.TestCase):
         zaplata = mock.patch.object(splet_spanje, "RECIKLIRANJE_OMREZNEGA", True)   # v 1.0.129 izklopljeno
         zaplata.start()
         self.addCleanup(zaplata.stop)
+        # Recikliranje velja samo s sistemskim libsoup, ki pusca; paket safeer-webkit od 27. 10. 2026 nosi nas libsoup
+        # in proces upraviceno ostane (CI 40438940737) - tu preizkusamo pot s sistemskim libsoup.
+        from core import os_splet
+        sistemski = mock.patch.object(os_splet, "libsoup_brez_puscanja", lambda: False)
+        sistemski.start()
+        self.addCleanup(sistemski.stop)
         p = self._odpri("/piskotek")
         piskotki = os.path.join(self.s.config.config_dir, "cookies.sqlite")
         self.assertTrue(_cakaj(lambda: bool(omrezni_procesi_shrambe(piskotki)), 5))

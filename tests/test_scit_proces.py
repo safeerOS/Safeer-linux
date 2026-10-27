@@ -380,7 +380,7 @@ class Vticnica(unittest.TestCase):
                 try:
                     s.sendall(b'{"m": "stanje"}\n')
                     odgovor = s.recv(100)
-                except ConnectionResetError:      # streznik zapre brez branja zahteve
+                except (ConnectionResetError, BrokenPipeError):   # streznik zapre brez branja zahteve (CI 27. 10.: EPIPE)
                     odgovor = b""
                 self.assertEqual(odgovor, b"")
 
