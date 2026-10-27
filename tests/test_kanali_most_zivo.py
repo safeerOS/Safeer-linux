@@ -207,7 +207,10 @@ class KanaliSkoziStran(unittest.TestCase):
         # zasebnost: odprtje kataloga ne klice nobene strani storitve; ploscica brez ikone ima barvo iz tokens.css
         _cakaj(lambda: False, 1.0)
         self.assertEqual(self.prenosi_ikon, [], "katalog ne prenasa ikon")
-        self.assertIn("var(--vrsta-", self._js("(%s).querySelector('.kanal-znak').getAttribute('style')" % (vrsta % "Telegram")))
+        self.assertIn("var(--vrsta-", self._js("(%s).querySelector('.kanal-znak').getAttribute('style')" % (vrsta % "Viber")))
+        # Telegram ima prilozeno ikono iz core/ferdium_katalog (brez prenosa s strani)
+        self.assertTrue(self._js("(%s).querySelector('.kanal-znak img').getAttribute('src')" % (vrsta % "Telegram"))
+                        .startswith("data:image/svg+xml;base64,"), "prilozena ikona iz kataloga")
         # dodan kanal dobi ikono svoje strani (s to stranjo se kanal tako ali tako poveze)
         self.os._kanali().dodaj(katalog="telegram")
         telegram = spletni_klepeti.po_id("telegram")["splet"]

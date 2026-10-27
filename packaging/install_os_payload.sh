@@ -21,7 +21,7 @@ for modul in budnost otroci qt_dnevnik nastavitve_shema en_proces storitve_na_za
              link_datoteke link_delta link_nadaljuj link_teamwork link_prostori link_slicice_naprav zaslon_monitorji os_delovni_prostori prostori_gledalec link_urejanje link_posiljanje link_hub link_spremembe link_hub_streznik link_obramba link_viri link_varovalka link_hub_deljenje link_mesh link_rele link_neposredno gneca link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media kanali_iptv os_vgrajeni_viri uporabniske_skripte userscripts plakati_predpomnilnik meritve_virov knjiznica_kroga media_servers skrivni_dodatki webtor debrid debrid_pravila usenet_pravila usenet_yenc usenet_nzb usenet_nntp usenet_tok usenet_rar usenet_bralnik usenet_streznik usenet_ponudnik usenet_vezava jellyfin_vticniki tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama youtube_racun twitch twitch_hls seznami_sink viri_sink predvajalnik_moznosti podnapisi_splet spotify_racun \
              os_splet splet_spanje splet_skripte processes_page tab_monitor tab_lifecycle splet_temno splet_varuh jeziki_strani ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters scit_pravila bank_guard odlozisce_varuh ozadje_strani drm safeer_drm splet_prenosi external_apps i18n pojavna_okna network_errors https_nadgradnja zascita dovoljenja_strani \
-             spletni_klepeti os_kanali_sporocil vstavi_okno namizni_programi znacke_programov \
+             spletni_klepeti katalog_storitev varna_svg os_kanali_sporocil vstavi_okno namizni_programi znacke_programov \
              poraba_kanalov os_poraba_kanalov \
              lupina_most lupina_streznik lupina_proces varuh_procesov urejen_izhod; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
@@ -29,6 +29,8 @@ done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"
 # Dark Reader (MIT) za »vsili temno« v Spletu (core/splet_temno.py preveri SHA-256 pred uporabo).
 mkdir -p "$LIB/core/darkreader" && install -m 644 "$ROOT"/core/darkreader/darkreader.js "$ROOT"/core/darkreader/LICENSE "$LIB/core/darkreader/"
+# Katalog storitev Sporocil iz ferdium-recipes (MIT, samo podatki - core/katalog_storitev.py).
+mkdir -p "$LIB/core/ferdium_katalog" && install -m 644 "$ROOT"/core/ferdium_katalog/katalog-sporocila.json "$ROOT"/core/ferdium_katalog/LICENSE "$LIB/core/ferdium_katalog/"
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 cp -a "$ROOT/assets/os" "$LIB/assets/"
 # Safeer DRM (Widevine): izvor logike predvajalnika (main.js); v paket gre z mapo Safeer DRM na koncu te skripte.

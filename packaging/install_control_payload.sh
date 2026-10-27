@@ -13,12 +13,14 @@ cp -a "$ROOT/safeer_control.py" "$ROOT/safeerctl.py" "$LIB/"
 # Seznam varuje tests/test_packaging.py: namesti tovor in ga uvozi brez izvorne mape.
 for modul in budnost en_proces storitve_na_zahtevo poraba_zgodovina obvestila peskovnik_userns node_izvajalnik nova_razlicica pomnilnik zasebni_webkit okolje_procesa root_ukaz https_prenos video_dekoderji runtime_safety link_daljinec link_datoteke link_delta link_nadaljuj link_teamwork os_okna os_datoteke link_shramba link_pretvorba link_deljenje x11 seja_prikaza portal_zaslon zajem_pipewire link_gledalec link_urejanje link_fokus link_hub link_spremembe link_hub_streznik link_obramba link_viri link_varovalka link_hub_deljenje link_posiljanje link_prejem link_nemo link_zmoznosti link_mesh link_rele link_neposredno gneca link_pretok link_sprotno link_predvajanje link_seznami viri_sink kanali_iptv skrivni_dodatki knjiznica_kroga os_torrent_tok os_posodobitve signed_feed link_iskanje link_krog link_dostop link_e2e link_mediji link_plosek link_programi gostitelj link_ws link_vticnik link_pot sistemski_posrednik link_internet_posrednik link_internet \
              link_kripto link_seja link_sway link_tls link_vnos link_zaslon link_zaslon_meritve link_zaslon_profil link_kazalec link_prostori prostori_gledalec zaslon_monitorji link_zvok os_dvd iskalni_kljuc os_knjiznica shramba_json otroci sqlite_baza os_police os_sporocila predogled_datotek splet_prenosi os_pretvorba_datotek os_stabilnost os_deskriptorji os_torrent podnapisi safeer_link spake2 odlozisce_varuh pladenj_sni x11 \
-             spletni_klepeti poraba_kanalov nastavitve_shema varuh_procesov urejen_izhod; do
+             spletni_klepeti katalog_storitev varna_svg poraba_kanalov nastavitve_shema varuh_procesov urejen_izhod; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 # Safeer Chat: Control vpise sporocila z drugih naprav v Sporocila Safeer OS (core/sporocila).
 mkdir -p "$LIB/core/sporocila" && cp -a "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"
+# Katalog storitev Sporocil (core/katalog_storitev.py, uvozi ga spletni_klepeti.po_id): podatki iz ferdium-recipes, MIT.
+mkdir -p "$LIB/core/ferdium_katalog" && install -m 644 "$ROOT"/core/ferdium_katalog/katalog-sporocila.json "$ROOT"/core/ferdium_katalog/LICENSE "$LIB/core/ferdium_katalog/"
 # Safeer Agent (agent.ask): stavek z druge naprave -> naloge na napravah v Linku (core/agent).
 mkdir -p "$LIB/core/agent" && cp -a "$ROOT"/core/agent/*.py "$LIB/core/agent/"
 cp -a "$ROOT/assets/link" "$LIB/assets/"

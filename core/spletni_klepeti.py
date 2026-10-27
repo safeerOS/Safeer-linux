@@ -122,7 +122,13 @@ NAJVEC_KANALOV = 40
 
 
 def po_id(kid: str):
-    return next((k for k in KATALOG if k["id"] == kid), None)
+    """Vnos izmerjenega kataloga; ce ga ni, neizmerjen vnos razsirjenega kataloga (core/katalog_storitev - podatki iz
+    ferdium-recipes, brez kode). Leni uvoz: katalog_storitev uvozi ta modul."""
+    vnos = next((k for k in KATALOG if k["id"] == kid), None)
+    if vnos is None and kid:
+        from core import katalog_storitev
+        vnos = katalog_storitev.po_id(str(kid))
+    return vnos
 
 
 def vdelljiv(vnos: dict) -> bool:
@@ -159,21 +165,29 @@ def za_vmesnik(jezik: str = "sl") -> list:
 # ---------------------------------------------------------------------------------------------- neprebrano iz naslova
 #: Locila, ki locijo dele naslova strani (»Inbox (5) - ime@… - Gmail«, »(2) Chat | Microsoft Teams«).
 _LOCILO = re.compile(r"\s[-–—|·•:]\s")
-_SPREDAJ_OKLEPAJ = re.compile(r"^\s*[(\[]\s*(\d{1,5})\s*\+?\s*[)\]]")
+#: Stevilo s tisocicami (»1 234«, »1\u00a0234«, »1.234«, »1,234«, »1'234«) ali do pet stevk brez locil.
+_STEVILO = r"(\d{1,3}(?:[ \u00a0\u202f.,'’]\d{3})+|\d{1,5})"
+_SPREDAJ_OKLEPAJ = re.compile(r"^\s*[(\[]\s*" + _STEVILO + r"\s*\+?\s*[)\]]")
 _SPREDAJ_STEVILO = re.compile(r"^\s*(\d{1,5})\+?\s*[-–—|·•:]\s")
-_V_DELU_OKLEPAJ = re.compile(r"[(\[]\s*(\d{1,3})\s*\+?\s*[)\]]")
-_OZNAKA_BREZ_STEVILA = re.compile(r"^\s*[*•●!]\s")
+_V_DELU_OKLEPAJ = re.compile(r"[(\[]\s*(\d{1,3}(?:[ \u00a0\u202f.,'’]\d{3})+|\d{1,3})\s*\+?\s*[)\]]")
+_OZNAKA_BREZ_STEVILA = re.compile(r"^\s*(?:[*•●!]\s|[(\[]\s*[*•●!]\s*[)\]])")
 NAJVEC_NEPREBRANIH = 9999
+
+
+def _v_stevilo(besedilo: str) -> int:
+    return int(re.sub(r"\D", "", besedilo))
 
 
 def neprebrano(naslov) -> int:
     """Stevilo neprebranih iz naslova strani (document.title) - splosno za vse spletne aplikacije, brez znanja o
     posamezni storitvi. Pravila po vrsti:
-      1. stevilo v oklepaju na zacetku: »(3) WhatsApp«, »[12] Element«, »(99+) …«;
+      1. stevilo v oklepaju na zacetku: »(3) WhatsApp«, »[12] Element«, »(99+) …«, tudi s tisocicami »(1 234) …«
+         (presledek, trdi presledek, pika, vejica, opuscaj - FreshRSS v naslov pise trdi presledek);
       2. stevilo na zacetku, ki mu sledi locilo: »4 · Klepet«, »7 - Posta«;
       3. stevilo v oklepaju v PRVEM delu naslova (do locila » - «, » | « …): »Inbox (5) - … - Gmail«, »Klepet (2)«
          - najvec tri stevke, da letnica v imenu sobe (»Srečanje (2026)«) ni stevilo sporocil;
-      4. oznaka brez stevila na zacetku (»* Slack«, »• …«, »! …«) pomeni vsaj eno neprebrano;
+      4. oznaka brez stevila na zacetku (»* Slack«, »• …«, »! …«, tudi v oklepaju »(•) …«, »(*) …«) pomeni vsaj eno
+         neprebrano;
     sicer 0 (naslov brez vzorca = ni neprebranih)."""
     s = str(naslov or "").strip()
     if not s:
@@ -181,11 +195,11 @@ def neprebrano(naslov) -> int:
     for vzorec in (_SPREDAJ_OKLEPAJ, _SPREDAJ_STEVILO):
         m = vzorec.match(s)
         if m:
-            return min(int(m.group(1)), NAJVEC_NEPREBRANIH)
+            return min(_v_stevilo(m.group(1)), NAJVEC_NEPREBRANIH)
     prvi = _LOCILO.split(s, 1)[0]
     m = _V_DELU_OKLEPAJ.search(prvi)
     if m:
-        return int(m.group(1))
+        return min(_v_stevilo(m.group(1)), NAJVEC_NEPREBRANIH)
     if _OZNAKA_BREZ_STEVILA.match(s):
         return 1
     return 0

@@ -20,7 +20,7 @@ import threading
 import time
 from typing import Callable, Dict, Optional
 
-from core import namizni_programi, spletni_klepeti
+from core import katalog_storitev, namizni_programi, spletni_klepeti
 from core.sporocila import vklop
 
 #: Najvec kanalov, ki se hkrati nalagajo ob zagonu (lastnik: »zaporedoma ali po dva hkrati«).
@@ -101,6 +101,8 @@ class KanaliSporocil:
                 d["ikona"] = ikone_strani.iz_predpomnilnika(k["url"])
                 if not d["ikona"]:
                     manjkajo.append(k["url"])
+                    # Do prenosa ikone strani: ikona iz kataloga (core/katalog_storitev, brez omrezja).
+                    d["ikona"] = katalog_storitev.ikona(k["katalog"])
             izid.append(d)
         manjkajo = [u for u in manjkajo if u not in self._ikone_poskusene]
         if manjkajo:
@@ -110,7 +112,8 @@ class KanaliSporocil:
     def katalog(self) -> list:
         """Katalog za carovnik (spletni_klepeti.za_vmesnik) z »namescen« za namizne programe in ikono strani, ce je ze v
         predpomnilniku (core/ikone_strani). Odprtje kataloga NE klice strani storitev (zasebnost pred udobjem - lastnik,
-        15. 10. 2026): ikono kanal dobi sele, ko je dodan (seznam), sicer ploscica z zacetnico."""
+        15. 10. 2026): ikono strani kanal dobi sele, ko je dodan (seznam); do takrat ikona iz kataloga
+        (core/katalog_storitev, ze na disku), sicer ploscica z zacetnico."""
         from core import ikone_strani
         izid = []
         for v in spletni_klepeti.za_vmesnik(self.jezik()):
@@ -118,7 +121,7 @@ class KanaliSporocil:
             if v.get("program"):
                 v["namescen"] = namizni_programi.najdi(v["program"]) is not None
             if v.get("splet"):
-                v["ikona"] = ikone_strani.iz_predpomnilnika(v["splet"])
+                v["ikona"] = ikone_strani.iz_predpomnilnika(v["splet"]) or katalog_storitev.ikona(v["id"])
             izid.append(v)
         return izid
 
