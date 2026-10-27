@@ -846,7 +846,7 @@ jobs:
           desktop-file-validate /usr/share/applications/safeer-os.Player.desktop
           test -f /usr/share/icons/hicolor/scalable/apps/safeer-os.Player.svg
           [ "$(ls /usr/share/applications | grep -E '^safeer' | tr '\n' ' ')" = 'safeer-os.Player.desktop ' ]
-          [ ! -e /usr/share/xsessions/safeer-os.desktop ] && [ ! -e /etc/xdg/autostart/safeer-os.desktop ]
+          if [ -e /usr/share/xsessions/safeer-os.desktop ] || [ -e /etc/xdg/autostart/safeer-os.desktop ]; then echo "::error::Player je namestil sejo ali samodejni zagon"; exit 1; fi
           test -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-os

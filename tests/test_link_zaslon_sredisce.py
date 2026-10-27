@@ -127,8 +127,9 @@ class DeljenjeGreNaIzbranoSredisce(unittest.TestCase):
                 mock.patch.object(link_deljenje.socket, "create_connection", return_value=mock.Mock()) as povezi, \
                 mock.patch.object(link_deljenje.link_tls, "ovij", return_value=(vticnik, None)) as ovij:
             d._tok()
-        self.assertEqual(povezi.call_args[0][0], ("10.0.0.7", 8990))
-        self.assertEqual(ovij.call_args[0][1:], ("10.0.0.7", "odtis-telefona"))
+        # Druge niti (npr. intel.safeer.si) lahko med preizkusom poklicejo isti mock (CI 27. 10. 2026): gledamo samo nase klice.
+        self.assertIn(("10.0.0.7", 8990), [k[0][0] for k in povezi.call_args_list])
+        self.assertIn(("10.0.0.7", "odtis-telefona"), [tuple(k[0][1:]) for k in ovij.call_args_list])
         glava = poslano[0].decode("ascii")
         self.assertTrue(glava.startswith("POST /cast/screen/abc?k=KLJUC HTTP/1.1\r\nHost: 10.0.0.7\r\n"), glava)
         self.assertIn("x-safeer-token: seja\r\n", glava)
