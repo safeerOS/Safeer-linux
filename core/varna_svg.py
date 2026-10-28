@@ -61,7 +61,8 @@ S_SKLICEM = frozenset({"use", "linearGradient", "radialGradient", "pattern", "te
 
 _NOTRANJI_SKLIC = re.compile(r"^#[A-Za-z_][\w.:-]{0,200}$")
 _SLIKA_DATA = re.compile(r"^data:image/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=\s]+$")
-_URL = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
+# Tudi »url (« s presledkom (pregled naloge 45): sicer element <style> obdrzi zunanji »url (http://…)«.
+_URL = re.compile(r"url\s*\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
 _NEVARNO_CSS = re.compile(r"expression\s*\(|javascript:|vbscript:|-moz-binding|behavior\s*:|</", re.I)
 _IMPORT = re.compile(r"@import[^;]*;?", re.I)
 _KOMENTAR_CSS = re.compile(r"/\*.*?\*/", re.S)

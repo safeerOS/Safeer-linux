@@ -114,6 +114,12 @@ class Neprebrano(unittest.TestCase):
                        "Inbox - ime@example.org - Gmail", "Klepet | (3)", "x" * 2000, 42):
             self.assertEqual(sk.neprebrano(naslov), 0, naslov)
 
+    def test_letnica_spredaj_ni_stevilo(self):
+        # Pregled naloge 45 (28. 10. 2026): golo stevilo spredaj z locilom je najvec trimestno.
+        self.assertEqual(sk.neprebrano("2024 - Koledar"), 0)
+        self.assertEqual(sk.neprebrano("12345 · Klepet"), 0)
+        self.assertEqual(sk.neprebrano("999 · Klepet"), 999)
+
     def test_meja(self):
         self.assertEqual(sk.neprebrano("(123456) X"), 0)
         self.assertEqual(sk.neprebrano("(99999) X"), sk.NAJVEC_NEPREBRANIH)

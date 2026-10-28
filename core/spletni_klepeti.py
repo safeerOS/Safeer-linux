@@ -168,7 +168,8 @@ _LOCILO = re.compile(r"\s[-–—|·•:]\s")
 #: Stevilo s tisocicami (»1 234«, »1\u00a0234«, »1.234«, »1,234«, »1'234«) ali do pet stevk brez locil.
 _STEVILO = r"(\d{1,3}(?:[ \u00a0\u202f.,'’]\d{3})+|\d{1,5})"
 _SPREDAJ_OKLEPAJ = re.compile(r"^\s*[(\[]\s*" + _STEVILO + r"\s*\+?\s*[)\]]")
-_SPREDAJ_STEVILO = re.compile(r"^\s*(\d{1,5})\+?\s*[-–—|·•:]\s")
+# Golo stevilo spredaj z locilom: najvec tri stevke (pregled naloge 45, 28. 10. 2026: »2024 - Koledar« ni 2024 neprebranih).
+_SPREDAJ_STEVILO = re.compile(r"^\s*(\d{1,3})\+?\s*[-–—|·•:]\s")
 _V_DELU_OKLEPAJ = re.compile(r"[(\[]\s*(\d{1,3}(?:[ \u00a0\u202f.,'’]\d{3})+|\d{1,3})\s*\+?\s*[)\]]")
 _OZNAKA_BREZ_STEVILA = re.compile(r"^\s*(?:[*•●!]\s|[(\[]\s*[*•●!]\s*[)\]])")
 NAJVEC_NEPREBRANIH = 9999
@@ -183,7 +184,7 @@ def neprebrano(naslov) -> int:
     posamezni storitvi. Pravila po vrsti:
       1. stevilo v oklepaju na zacetku: »(3) WhatsApp«, »[12] Element«, »(99+) …«, tudi s tisocicami »(1 234) …«
          (presledek, trdi presledek, pika, vejica, opuscaj - FreshRSS v naslov pise trdi presledek);
-      2. stevilo na zacetku, ki mu sledi locilo: »4 · Klepet«, »7 - Posta«;
+      2. stevilo na zacetku (najvec tri stevke), ki mu sledi locilo: »4 · Klepet«, »7 - Posta« (»2024 - Koledar« ni);
       3. stevilo v oklepaju v PRVEM delu naslova (do locila » - «, » | « …): »Inbox (5) - … - Gmail«, »Klepet (2)«
          - najvec tri stevke, da letnica v imenu sobe (»Srečanje (2026)«) ni stevilo sporocil;
       4. oznaka brez stevila na zacetku (»* Slack«, »• …«, »! …«, tudi v oklepaju »(•) …«, »(*) …«) pomeni vsaj eno

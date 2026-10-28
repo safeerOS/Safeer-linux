@@ -262,7 +262,8 @@ class VelikostMap(unittest.TestCase):
         self.assertLess(velika["velikost"], 1_000_000)          # a.bin in a2.bin samo enkrat
         self.assertEqual(velika["datotek"], 3)
         self.assertLess(r["mape"][1]["velikost"], 100_000)       # povezava »nazaj« ne steje velike
-        self.assertEqual(r["mape"][2]["velikost"], 0)
+        # Prazna mapa zasede svoj blok (kot du; pregled naloge 45 - prej 0).
+        self.assertEqual(r["mape"][2]["velikost"], os.stat(os.path.join(self.d, "prazna")).st_blocks * 512)
         self.assertTrue(all(m["popolno"] for m in r["mape"]))
         self.assertGreaterEqual(r["datoteke_tu"], 50_000)
         self.assertEqual(r["vseh_map"], 3)

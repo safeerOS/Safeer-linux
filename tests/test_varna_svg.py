@@ -241,3 +241,9 @@ def test_poenoti_naslov():
     for slab in ["http://a.com", "https://{teamId}.slack.com", "https://u:p@a.com", "javascript:x", "https://a",
                  "https://a.com /x", ""]:
         assert ik.poenoti_naslov(slab) == "", slab
+
+
+def test_url_s_presledkom_v_style_ne_ostane():
+    # Pregled naloge 45: »url (« s presledkom je element <style> prej obdrzal (zunanji vir).
+    assert "zunaj" not in varna_svg.ocisti_css("rect { fill: url (http://zunaj.example/x.png) }")
+    assert varna_svg.ocisti_css("rect { fill: url (#g) }").count("#g") == 1
