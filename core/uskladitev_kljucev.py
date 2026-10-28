@@ -195,8 +195,8 @@ class Uskladitev:
             for n in self.link.naprave():
                 if str(n.get("id") or "") == ident:
                     return str(n.get("ime") or "")[:80]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001 - ime je samo za prikaz
+            _log.info("ime naprave: %s", type(e).__name__)
         return ""
 
     def _zapomni(self, ident: str, ime: str, stanje: str, usklajeno: bool) -> None:
@@ -358,8 +358,8 @@ class Uskladitev:
                 if self.ob_spremembi is not None:
                     try:
                         self.ob_spremembi(s)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as e:  # noqa: BLE001 - obvestilo ne sme podreti prejema
+                        _log.info("obvestilo o spremembi: %s", type(e).__name__)
         return n
 
     # -- posiljanje
@@ -467,8 +467,8 @@ class Uskladitev:
         if self.ob_vprasanju is not None:
             try:
                 self.ob_vprasanju(c)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001 - obvestilo ne sme podreti prejema
+                _log.info("obvestilo za potrditev: %s", type(e).__name__)
 
     def prejmi(self, od: str, ime: str, parametri: dict, zascita: str = "") -> dict:
         """`secrets.sync` z druge naprave. Samo po preverjeni seji od naprave do naprave (`zascita` = jedro
