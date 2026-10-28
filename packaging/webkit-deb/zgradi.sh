@@ -28,6 +28,9 @@
 # Odvisnosti: packaging/webkit-deb/odvisnosti.sh. Tece kot root (namesti v PREDPONO); traja 2-3 h na 4 jedrih.
 # ==============================================================================
 set -euo pipefail
+# Funkcije prenesi/razpakiraj tecejo znotraj $(...), kjer bash brez inherit_errexit izklopi set -e: napacna vsota
+# SHA-256 ali neuspel popravek gradnje bi sicer ne ustavila (pregled 28. 10. 2026). Spodaj so zato tudi izrecni izhodi.
+shopt -s inherit_errexit
 KOREN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PREDPONA="${1:?Uporaba: zgradi.sh /usr/lib/safeer-webkit [IZHOD.tar.zst]}"
 IZHOD="${2:-}"
@@ -69,19 +72,19 @@ prenesi() {
         curl -fL --retry 3 -o "$cilj.del" "$url"
         mv "$cilj.del" "$cilj"
     fi
-    echo "$sha  $cilj" | sha256sum -c --quiet -
+    echo "$sha  $cilj" | sha256sum -c --quiet - || { echo "Napacna vsota SHA-256: $cilj" >&2; exit 1; }
     echo "$cilj"
 }
 razpakiraj() {   # arhiv, popravki (vrstice) -> mapa izvora
     local arhiv="$1" popravki="$2" mapa
     mapa="$DELO/izvor/$(basename "$arhiv" .tar.xz)"
     rm -rf "$mapa" && mkdir -p "$DELO/izvor"
-    tar -xf "$arhiv" -C "$DELO/izvor"
+    tar -xf "$arhiv" -C "$DELO/izvor" || { echo "Razpakiranje $arhiv ni uspelo" >&2; exit 1; }
     [ -d "$mapa" ] || { echo "Arhiv $arhiv nima mape $(basename "$mapa")" >&2; exit 1; }
     while IFS= read -r p; do
         [ -n "$p" ] || continue
         echo "Popravek: $(basename "$p")" >&2
-        patch -d "$mapa" -p1 --forward --batch < "$p" >&2
+        patch -d "$mapa" -p1 --forward --batch < "$p" >&2 || { echo "Popravek $(basename "$p") ni uspel" >&2; exit 1; }
     done <<< "$popravki"
     echo "$mapa"
 }
