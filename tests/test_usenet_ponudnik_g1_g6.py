@@ -263,47 +263,71 @@ def _napolni(b):
 
 # ------------------------------------------------------------------ G1
 
-def test_g1a_isto_zavrnjeno_geslo_preveri_zaklenjen_en_pass(o2, pot):
+# Lastnik 28. 10. 2026 (enotno Android, Linux, Windows): vsak izrecni Shrani (tudi istega gesla) in vsak izrecni
+# »Preveri« odklene zapah za EN nov poskus. Ostane: najvec ena prijava na minuto in krog/ozadje zapaha ne odklene.
+
+def test_g1a_isto_zavrnjeno_geslo_shrani_odklene_en_poskus_na_minuto(o2, pot):
     o, p = o2, P(o2)
     _zavrni(o, p, pot)
-    _poskusi_shrani(o, p, NAPACNO, pot)  # isto zavrnjeno geslo znova
-    assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN
-    o.ura[0] += 3600  # tudi po iztekli minuti
-    assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN
+    _poskusi_shrani(o, p, NAPACNO, pot)  # isto zavrnjeno geslo znova: odklene, minute ne ponastavi
+    assert _preveri(o, p, NAPACNO, pot) == o.m.PREPOGOSTO
     assert o.srv.poslan_pass == 1
+    o.ura[0] += 61
+    assert _preveri(o, p, NAPACNO, pot) == o.m.NE_VELJA  # en nov poskus
+    assert o.srv.poslan_pass == 2
+    o.ura[0] += 3600
+    assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN  # brez novega vpisa ali klika z odklepom: zaklenjen
+    assert o.srv.poslan_pass == 2
 
 
-def test_g1b_isto_zavrnjeno_geslo_ustvari_bazen_zaklenjen(o2, pot):
+def test_g1b_isto_zavrnjeno_geslo_shrani_odklene_bazen(o2, pot):
     o, p = o2, P(o2)
     _zavrni(o, p, pot)
-    _poskusi_shrani(o, p, NAPACNO, pot)
     with pytest.raises(o.m.NapakaPonudnika) as e:
         o.m.ustvari_bazen(p)
-    assert e.value.razlog == o.m.RACUN_ZAKLENJEN
-    assert o.srv.poslan_pass == 1
+    assert e.value.razlog == o.m.RACUN_ZAKLENJEN  # brez izrecnega dejanja ostane zaklenjen
+    _poskusi_shrani(o, p, NAPACNO, pot)
+    o.m.ustvari_bazen(p).zapri()  # nov vpis: pogon sme en nov poskus
+    assert o.srv.poslan_pass == 1  # ustvarjanje bazena samo gesla ne poslje
 
 
-def test_g1_sedem_klikov_shrani_preveri_en_pass(o2, pot):
+def test_g1_sedem_klikov_shrani_preveri_najvec_en_pass_na_minuto(o2, pot):
     o, p = o2, P(o2)
     o.m.shrani_ponudnika(p, NAPACNO, pot)
     izidi = []
     for _ in range(7):
         _poskusi_shrani(o, p, NAPACNO, pot)
         izidi.append(_preveri(o, p, NAPACNO, pot))
-    assert izidi == [o.m.NE_VELJA] + [o.m.ZAKLENJEN] * 6
+    assert izidi == [o.m.NE_VELJA] + [o.m.PREPOGOSTO] * 6
     assert o.srv.poslan_pass == 1
+    for _ in range(3):
+        o.ura[0] += 61
+        _poskusi_shrani(o, p, NAPACNO, pot)
+        assert _preveri(o, p, NAPACNO, pot) == o.m.NE_VELJA
+    assert o.srv.poslan_pass == 4
 
 
-def test_g1_vpis_istega_zavrnjenega_gesla_jasen_razlog_brez_gesla(o2, pot):
+def test_g1_vpis_istega_zavrnjenega_gesla_odklene(o2, pot):
     o, p = o2, P(o2)
     _zavrni(o, p, pot)
     klici = o.nntp.klici_dovoli
+    o.m.shrani_ponudnika(p, NAPACNO, pot)  # brez GESLO_ZAVRNJENO
+    assert o.nntp.klici_dovoli == klici + 1
+    assert o.m.GESLO_ZAVRNJENO in o.m.BESEDILA_IZIDOV  # starejsi vmesnik besedilo se pozna
+
+
+def test_g1_preveri_z_odklepom_en_poskus_na_minuto(o2, pot):
+    o, p = o2, P(o2)
+    _zavrni(o, p, pot)
+    assert _v_niti(o.m.preveri_ponudnika, p, NAPACNO, pot_nastavitev=pot, odkleni=True) == o.m.PREPOGOSTO
+    assert o.srv.poslan_pass == 1
+    assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN  # PREPOGOSTO zapaha ne sprosti
+    o.ura[0] += 61
+    assert _v_niti(o.m.preveri_ponudnika, p, NAPACNO, pot_nastavitev=pot, odkleni=True) == o.m.NE_VELJA
+    assert o.srv.poslan_pass == 2
     with pytest.raises(o.m.NapakaPonudnika) as e:
-        o.m.shrani_ponudnika(p, NAPACNO, pot)
-    assert e.value.razlog == o.m.GESLO_ZAVRNJENO
-    assert NAPACNO not in str(e.value) + repr(e.value) and "uporabnik1" not in str(e.value)
-    assert o.nntp.klici_dovoli == klici  # zapah ni bil odklenjen
-    assert o.m.GESLO_ZAVRNJENO in o.m.BESEDILA_IZIDOV
+        o.m.ustvari_bazen(p)
+    assert e.value.razlog == o.m.RACUN_ZAKLENJEN  # po novi zavrnitvi spet zaklenjen
 
 
 def test_g1_drugo_geslo_odklene(o2, pot):
@@ -351,17 +375,18 @@ def test_g1_posodobi_nastavitve_neveljavno_in_brez_ponudnika(o, pot):
     assert o.m.preberi_ponudnika(pot).najvec_povezav == o.m.PRIVZETO_POVEZAV
 
 
-def test_g1_pozabi_in_isto_zavrnjeno_geslo_ne_odklene(o, pot):
+def test_g1_pozabi_in_isto_zavrnjeno_geslo_en_poskus(o, pot):
     p = P(o)
     _zavrni(o, p, pot)
     o.m.pozabi_ponudnika(pot)
     _poskusi_shrani(o, p, NAPACNO, pot)
     o.ura[0] += 3600
+    assert _preveri(o, p, NAPACNO, pot) == o.m.NE_VELJA
     assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN
-    assert o.srv.poslan_pass == 1
+    assert o.srv.poslan_pass == 2
 
 
-def test_g1_vmesno_drugo_zavrnjeno_geslo_ne_odklene_prvega(o, pot):
+def test_g1_vmesno_drugo_zavrnjeno_geslo_nato_prvo_en_poskus(o, pot):
     p = P(o)
     _zavrni(o, p, pot)
     o.m.shrani_ponudnika(p, DRUGO, pot)
@@ -369,8 +394,9 @@ def test_g1_vmesno_drugo_zavrnjeno_geslo_ne_odklene_prvega(o, pot):
     assert o.srv.poslan_pass == 2
     _poskusi_shrani(o, p, NAPACNO, pot)
     o.ura[0] += 3600
+    assert _preveri(o, p, NAPACNO, pot) == o.m.NE_VELJA
     assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN
-    assert o.srv.poslan_pass == 2
+    assert o.srv.poslan_pass == 3
 
 
 # ------------------------------------------------------------------ G2
@@ -614,13 +640,15 @@ def test_n116_zavrnitev_ne_tece_v_druge_nastavitve(o, tmp_path):
     o.m.shrani_ponudnika(p, NAPACNO, b)
     assert _preveri(o, p, NAPACNO, b) == o.m.NE_VELJA
     assert o.srv.poslan_pass == 2
-    assert _poskusi_shrani(o, p, NAPACNO, a) == o.m.GESLO_ZAVRNJENO  # v prvih nastavitvah ostane
+    assert _preveri(o, p, NAPACNO, a) == o.m.ZAKLENJEN  # v prvih nastavitvah ostane (brez izrecnega odklepa)
+    assert o.srv.poslan_pass == 2
 
 
 def test_n116_preverba_brez_poti_velja_za_vse_nastavitve(o, pot):
     p = P(o)
     assert _preveri(o, p, NAPACNO) == o.m.NE_VELJA
-    assert _poskusi_shrani(o, p, NAPACNO, pot) == o.m.GESLO_ZAVRNJENO
+    o.ura[0] += 3600
+    assert _preveri(o, p, NAPACNO, pot) == o.m.ZAKLENJEN
     assert o.srv.poslan_pass == 1
 
 

@@ -435,7 +435,7 @@ def test_napacno_geslo_zapah_brez_ponovitev(izolacija, streznik, odjemalec):
     assert streznik.n("povezav") == 1
     zapah = open(os.path.join(izolacija["mapa"], "stanje", "usenet-zapah"), "rb").read()
     assert NAPACNO.encode() not in zapah and UPORABNIK.encode() not in zapah
-    # Samo nov vpis odklene en nov poskus.
+    # Izrecen vpis (tudi istega gesla; lastnik 28. 10. 2026) odklene en nov poskus.
     up.shrani_ponudnika(p, GESLO, izolacija["pot"])
     assert preveri(izolacija, streznik, odjemalec) == up.VELJA
     assert streznik.n("povezav") == 2 and streznik.n("pass") == 2
@@ -662,9 +662,10 @@ def test_zavrnitev_ne_tece_v_druge_nastavitve(izolacija, streznik, odjemalec):
     up.shrani_ponudnika(p, NAPACNO, druga)
     assert v_niti(up.preveri_ponudnika, p, NAPACNO, pot_nastavitev=druga, kontekst=odjemalec) == up.NE_VELJA
     assert streznik.n("pass") == 2
-    with pytest.raises(up.NapakaPonudnika) as e:  # v prvih nastavitvah zavrnitev ostane
-        up.shrani_ponudnika(p, NAPACNO, izolacija["pot"])
-    assert e.value.razlog == up.GESLO_ZAVRNJENO
+    izolacija["ura"][0] += 120
+    # V prvih nastavitvah zavrnitev ostane, dokler je uporabnik izrecno ne odklene (Shrani ali Preveri).
+    assert v_niti(up.preveri_ponudnika, p, NAPACNO, pot_nastavitev=izolacija["pot"], kontekst=odjemalec) == up.ZAKLENJEN
+    assert streznik.n("pass") == 2
 
 
 def test_ziv_bazen_s_prostim_mestom_ne_ovira_preverbe(izolacija, streznik, odjemalec):

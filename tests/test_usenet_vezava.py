@@ -209,9 +209,12 @@ def test_preveri_prek_tls_velja_zavrnitev_zapah_in_1_na_minuto(iz, potrdila, kon
         assert (r["ok"], r["koda"], r["stanje"]["kljuc"]) == (False, "ne_velja", "ne_velja")
         pass_pred = sum(1 for u in srv.ukazi if str(u).startswith("AUTHINFO PASS"))
         iz.ura[0] += 120
+        r = v_niti(uv.most, v, ["preveri"])   # izrecen klik odklene en nov poskus (lastnik 28. 10. 2026)
+        assert (r["ok"], r["koda"]) == (False, "ne_velja")
+        assert sum(1 for u in srv.ukazi if str(u).startswith("AUTHINFO PASS")) == pass_pred + 1
         r = v_niti(uv.most, v, ["preveri"])
-        assert r["ok"] is False and r["koda"] in ("racun_zaklenjen", "ne_velja", "zaklenjen", "geslo_ze_zavrnjeno")
-        assert sum(1 for u in srv.ukazi if str(u).startswith("AUTHINFO PASS")) == pass_pred   # zapah: gesla ne posljemo
+        assert r["ok"] is False and r["koda"] == "prepogosto"
+        assert sum(1 for u in srv.ukazi if str(u).startswith("AUTHINFO PASS")) == pass_pred + 1  # 1/min: gesla ne posljemo
         assert NAPACNO not in json.dumps(r) and GESLO not in json.dumps(r)
     finally:
         srv.ustavi()
