@@ -18,8 +18,8 @@ English: [README.md](README.md) · Spletna stran: [safeer.si](https://safeer.si)
 
 | | |
 |---|---|
-| **Safeer Browser za Linux** | **1.0.133** — oznaka [`v1.0.133`](../../releases/tag/v1.0.133) |
-| **Safeer OS za Linux** (s Safeer Control 2.1.88) | **0.4.91** — ista izdaja |
+| **Safeer Browser za Linux** | **1.0.134** — oznaka [`v1.0.134`](../../releases/tag/v1.0.134) |
+| **Safeer OS za Linux** (s Safeer Control 2.1.89) | **0.4.92** — ista izdaja |
 | Različice v kodi | `packaging/VERSION`, `packaging/VERSION_OS`, `packaging/VERSION_CONTROL` (preveri jih `packaging/check_version.py`) |
 | Kaj je novega | [CHANGELOG.md](CHANGELOG.md) · vse različice: [docs/releases/](docs/releases/) |
 | Prenos | [safeer.si](https://safeer.si/#prenosi) · [GitHub Releases](../../releases/latest) |

@@ -1,4 +1,4 @@
-# Safeer Browser for Linux 1.0.133 · Safeer OS 0.4.91 (with Safeer Control 2.1.88)
+# Safeer Browser for Linux 1.0.134 · Safeer OS 0.4.92 (with Safeer Control 2.1.89)
 
 **Your devices, your inner circle.** Keys, tokens and sources with a password are shared only with devices in your inner circle of trust, encrypted, and never with other devices in Safeer Link. Removing a device from the circle immediately ends its sessions, tokens and files you sent it. Keys a service rejects or locks are not used again until you check them, to protect your account.
 

@@ -4,7 +4,7 @@ One file per version. Packages: [GitHub Releases](https://github.com/safeerOS/Sa
 
 ## Safeer Browser for Linux · Safeer OS · Safeer Control
 
-- [1.0.133](RELEASE_NOTES_1.0.133.md) — Safeer Browser for Linux 1.0.133 · Safeer OS 0.4.91 (with Safeer Control 2.1.88) — Security and devices release: inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, Usenet with your own provider, web chats in Messages, About this computer, our WebKit 2.54.2
+- [1.0.134](RELEASE_NOTES_1.0.134.md) — Safeer Browser for Linux 1.0.134 · Safeer OS 0.4.92 (with Safeer Control 2.1.89) — Security and devices release: inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, Usenet with your own provider, web chats in Messages, About this computer, our WebKit 2.54.2
 - [1.0.132](RELEASE_NOTES_1.0.132.md) — Safeer Browser for Linux 1.0.132 · Safeer OS 0.4.90 (with Safeer Control 2.1.87) — Security release: hardened web engine, always our own WebKit and libsoup; more stable; no AppImage for now.
 - [1.0.131](RELEASE_NOTES_1.0.131.md) — Safeer Browser for Linux 1.0.131 · Safeer OS 0.4.89 (with Safeer Control 2.1.86) — The .deb packages install on Ubuntu 26.04 LTS and Debian 13 (and the coming Linux Mint 23); smarter address bar.
 - [1.0.130](RELEASE_NOTES_1.0.130.md) — Safeer Browser for Linux 1.0.130 · Safeer OS 0.4.88 (with Safeer Control 2.1.85) — The address bar is also a search box; cleaner live results in the magnifier.

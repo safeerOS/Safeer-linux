@@ -36,7 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="0.4.91" date="2026-10-26"><description><p>Inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, our WebKit 2.54.2.</p></description></release>
+    <release version="0.4.92" date="2026-10-28"><description><p>Inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, Usenet with your own provider, web chats in Messages, About this computer, our WebKit 2.54.2.</p></description></release>
     <release version="0.4.90" date="2026-10-22"><description><p>Security and stability release: hardened web engine checked in every build, always our own WebKit and libsoup, programs you open are no longer the first to be stopped when memory runs out, orderly closing and safe settings; no AppImage for now.</p></description></release>
     <release version="0.4.89" date="2026-10-21"><description><p>Packaged with Safeer Control 2.1.86. The .deb packages now install on Ubuntu 26.04 LTS and Debian 13 (and the coming Linux Mint 23). Smarter address bar in Splet.</p></description></release>
     <release version="0.4.88" date="2026-10-21"><description><p>Packaged with Safeer Control 2.1.85. The address bar of Splet is also a search box: words are searched with your search engine, web addresses open as before. Live web results in the magnifier come only from a fully loaded page, without Startpage tracking links, and the search engine note is shown even without results.</p></description></release>
