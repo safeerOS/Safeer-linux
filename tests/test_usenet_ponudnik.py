@@ -508,10 +508,12 @@ def test_ogromen_odgovor_na_pass_drugic_zapah(izolacija, streznik, odjemalec):
     assert streznik.n("pass") == 2
 
 
-def test_ena_preverba_na_minuto(izolacija, streznik, odjemalec):
+def test_ena_preverba_na_10_s(izolacija, streznik, odjemalec):
+    # Lastnik 28. 10. 2026: 10 s (prej 1 min).
+    assert up.PREVERBA_NA_S == 10.0
     assert preveri(izolacija, streznik, odjemalec) == up.VELJA
     assert preveri(izolacija, streznik, odjemalec) == up.PREPOGOSTO
-    izolacija["ura"][0] += 59
+    izolacija["ura"][0] += 9
     assert preveri(izolacija, streznik, odjemalec) == up.PREPOGOSTO
     izolacija["ura"][0] += 2
     assert preveri(izolacija, streznik, odjemalec) == up.VELJA
