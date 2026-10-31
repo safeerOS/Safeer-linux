@@ -3242,6 +3242,9 @@ class VdelaniSplet:
     def _sporocilo(self, pogled, rezultat):
         try:
             vrednost = json.loads(_js_vrednost(rezultat).to_json(0))
+            # SafeerSplet.poslji poslje JSON kot niz (JSON.stringify): odpakiramo ga se enkrat.
+            if isinstance(vrednost, str):
+                vrednost = json.loads(vrednost)
             if not isinstance(vrednost, dict) or not hmac.compare_digest(str(vrednost.get("t") or ""), ZETON_MOSTU):
                 return
             sporocilo = razcleni_sporocilo(vrednost)

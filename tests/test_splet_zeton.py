@@ -42,3 +42,14 @@ def test_splet_zeton_zavrne_napacnega():
     splet._sporocilo(pogled, sporocilo)
     assert len(splet.odpri_klici) == 1, "Sporocilo s pravim zetonom bi moralo biti sprejeto"
     assert splet.odpri_klici[0] == "https://example.com"
+
+
+def test_splet_zeton_niz_iz_poslji():
+    """SafeerSplet.poslji poslje JSON.stringify(sporocilo) - niz, ne predmet (pregled 1. 11. 2026)."""
+    splet = MockSplet()
+    sporocilo = MockJSValue(json.dumps({"action": "navigate", "url": "https://example.com", "t": ZETON_MOSTU}))
+    splet._sporocilo(MockPogled(), sporocilo)
+    assert splet.odpri_klici == ["https://example.com"]
+    napacen = MockJSValue(json.dumps({"action": "navigate", "url": "https://example.com", "t": "x"}))
+    splet._sporocilo(MockPogled(), napacen)
+    assert splet.odpri_klici == ["https://example.com"]
