@@ -7,8 +7,10 @@ BankGuard in podpisan vir grozenj kot Safeer Browser.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import threading
@@ -30,6 +32,27 @@ from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_D
                              ustavi_doh_proxy)
 from core.os_scit import je_zanka_naprej
 from core.filter_lists import FILTER_ID
+
+
+#: Zeton mostu safeer v Spletu, ustvari se ob zagonu procesa.
+ZETON_MOSTU = secrets.token_urlsafe(32)
+
+MOST_JS = r"""
+(function () {
+  var zeton = "__ZETON__";
+  window.SafeerSplet = {
+    poslji: function (sporocilo) {
+      if (typeof sporocilo === "object" && sporocilo !== null) {
+        sporocilo.t = zeton;
+      }
+      try {
+        window.webkit.messageHandlers.safeer.postMessage(JSON.stringify(sporocilo));
+      } catch (e) {}
+      return true;
+    }
+  };
+})();
+""".replace("__ZETON__", ZETON_MOSTU)
 
 
 JEZIKI = ("sl", "en", "de", "es", "fr", "it")
@@ -1918,6 +1941,10 @@ class VdelaniSplet:
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
         registriraj_most(upravitelj, "safeer")
+        # Most z zetonom samo v zaprtju glavnega okvirja.
+        upravitelj.add_script(W.UserScript.new(
+            MOST_JS, W.UserContentInjectedFrames.TOP_FRAME,
+            W.UserScriptInjectionTime.START, ["file:///*"], None))
         # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
         ref = weakref.ref(pogled)
         upravitelj.connect("script-message-received::safeer",
@@ -3214,7 +3241,9 @@ class VdelaniSplet:
 
     def _sporocilo(self, pogled, rezultat):
         try:
-            vrednost = _js_vrednost(rezultat).to_json(0)
+            vrednost = json.loads(_js_vrednost(rezultat).to_json(0))
+            if not isinstance(vrednost, dict) or not hmac.compare_digest(str(vrednost.get("t") or ""), ZETON_MOSTU):
+                return
             sporocilo = razcleni_sporocilo(vrednost)
         except Exception: sporocilo = None
         if not sporocilo:

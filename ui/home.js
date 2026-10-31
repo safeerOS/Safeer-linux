@@ -252,7 +252,9 @@ function changeHomeLanguage(lang, notifyBackend = true) {
   updateClock();
   renderShieldMetrics();
 
-  if (notifyBackend && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
+  if (notifyBackend && window.SafeerSplet && window.SafeerSplet.poslji) {
+    window.SafeerSplet.poslji({ action: 'set_language', language: lang });
+  } else if (notifyBackend && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
     window.webkit.messageHandlers.safeer.postMessage({ action: 'set_language', language: lang });
   }
 }
@@ -355,7 +357,9 @@ function performSearch(event) {
   }
 
   // Communicate with Safeer Python Host or direct navigate
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
+  if (window.SafeerSplet && window.SafeerSplet.poslji) {
+    window.SafeerSplet.poslji({ action: 'navigate', url: targetUrl });
+  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
     window.webkit.messageHandlers.safeer.postMessage({ action: 'navigate', url: targetUrl });
   } else {
     window.location.href = targetUrl;
@@ -465,7 +469,9 @@ function renderPortals() {
 
     card.addEventListener('click', (e) => {
       e.preventDefault();
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
+      if (window.SafeerSplet && window.SafeerSplet.poslji) {
+        window.SafeerSplet.poslji({ action: 'navigate', url: portal.url });
+      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
         window.webkit.messageHandlers.safeer.postMessage({ action: 'navigate', url: portal.url });
       } else {
         window.location.href = portal.url;
@@ -491,7 +497,9 @@ function renderPortals() {
 }
 
 function openSidebar(serviceId) {
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
+  if (window.SafeerSplet && window.SafeerSplet.poslji) {
+    window.SafeerSplet.poslji({ action: 'open_sidebar', service: serviceId });
+  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
     window.webkit.messageHandlers.safeer.postMessage({ action: 'open_sidebar', service: serviceId });
   } else {
     console.log(`Open sidebar: ${serviceId}`);
@@ -507,7 +515,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setDefaultBrowser() {
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
+  if (window.SafeerSplet && window.SafeerSplet.poslji) {
+    window.SafeerSplet.poslji({ action: 'set_default_browser' });
+  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
     window.webkit.messageHandlers.safeer.postMessage({ action: 'set_default_browser' });
   }
 }

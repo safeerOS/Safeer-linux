@@ -144,6 +144,9 @@
 
   function most(sporocilo) {
     try {
+      if (window.SafeerSplet && window.SafeerSplet.poslji) {
+        return window.SafeerSplet.poslji(sporocilo);
+      }
       if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
         window.webkit.messageHandlers.safeer.postMessage(sporocilo); return true;
       }
