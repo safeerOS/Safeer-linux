@@ -147,8 +147,10 @@
       if (window.SafeerSplet && window.SafeerSplet.poslji) {
         return window.SafeerSplet.poslji(sporocilo);
       }
+      // Neposrednega postMessage na most safeer ni vec: brez zetona (ta je samo v zaprtju SafeerSplet) ga Python
+      // zavrze, zato je bolje vrniti false in opozoriti kot tiho izgubiti sporocilo.
       if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-        window.webkit.messageHandlers.safeer.postMessage(sporocilo); return true;
+        console.warn("SafeerSplet ni na voljo: sporocilo ni poslano"); return false;
       }
       if (window.SafeerAndroid && window.SafeerAndroid.sporocilo) { window.SafeerAndroid.sporocilo(JSON.stringify(sporocilo)); return true; }
       if (window.__safeerKonzolniMost) { console.log("__safeer_bridge__:" + JSON.stringify(sporocilo)); return true; }

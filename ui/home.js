@@ -254,8 +254,9 @@ function changeHomeLanguage(lang, notifyBackend = true) {
 
   if (notifyBackend && window.SafeerSplet && window.SafeerSplet.poslji) {
     window.SafeerSplet.poslji({ action: 'set_language', language: lang });
-  } else if (notifyBackend && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-    window.webkit.messageHandlers.safeer.postMessage({ action: 'set_language', language: lang });
+  } else if (notifyBackend) {
+    // Brez SafeerSplet (zeton je samo v njegovem zaprtju) bi Python sporocilo brez zetona zavrgel: ne posljemo ga.
+    console.warn('SafeerSplet ni na voljo: set_language ni poslan');
   }
 }
 
@@ -359,9 +360,9 @@ function performSearch(event) {
   // Communicate with Safeer Python Host or direct navigate
   if (window.SafeerSplet && window.SafeerSplet.poslji) {
     window.SafeerSplet.poslji({ action: 'navigate', url: targetUrl });
-  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-    window.webkit.messageHandlers.safeer.postMessage({ action: 'navigate', url: targetUrl });
   } else {
+    // Brez SafeerSplet (zeton je samo v njegovem zaprtju) bi Python sporocilo brez zetona zavrgel:
+    // namesto neposrednega postMessage navadna navigacija.
     window.location.href = targetUrl;
   }
   return false;
@@ -471,9 +472,8 @@ function renderPortals() {
       e.preventDefault();
       if (window.SafeerSplet && window.SafeerSplet.poslji) {
         window.SafeerSplet.poslji({ action: 'navigate', url: portal.url });
-      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-        window.webkit.messageHandlers.safeer.postMessage({ action: 'navigate', url: portal.url });
       } else {
+        // Brez SafeerSplet bi bilo sporocilo brez zetona zavrzeno: navadna navigacija.
         window.location.href = portal.url;
       }
     });
@@ -499,10 +499,9 @@ function renderPortals() {
 function openSidebar(serviceId) {
   if (window.SafeerSplet && window.SafeerSplet.poslji) {
     window.SafeerSplet.poslji({ action: 'open_sidebar', service: serviceId });
-  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-    window.webkit.messageHandlers.safeer.postMessage({ action: 'open_sidebar', service: serviceId });
   } else {
-    console.log(`Open sidebar: ${serviceId}`);
+    // Brez SafeerSplet (in zetona) sporocila ne posljemo, Python bi ga zavrgel.
+    console.warn(`SafeerSplet ni na voljo: open_sidebar ${serviceId} ni poslan`);
   }
 }
 
@@ -517,7 +516,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function setDefaultBrowser() {
   if (window.SafeerSplet && window.SafeerSplet.poslji) {
     window.SafeerSplet.poslji({ action: 'set_default_browser' });
-  } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-    window.webkit.messageHandlers.safeer.postMessage({ action: 'set_default_browser' });
+  } else {
+    // Brez SafeerSplet (in zetona) sporocila ne posljemo, Python bi ga zavrgel.
+    console.warn('SafeerSplet ni na voljo: set_default_browser ni poslan');
   }
 }

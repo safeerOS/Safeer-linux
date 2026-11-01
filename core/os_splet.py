@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import pathlib
 import secrets
 import shutil
 import subprocess
@@ -40,20 +41,56 @@ ZETON_MOSTU = secrets.token_urlsafe(32)
 MOST_JS = r"""
 (function () {
   var zeton = "__ZETON__";
-  window.SafeerSplet = {
+  var most = {
     poslji: function (sporocilo) {
-      if (typeof sporocilo === "object" && sporocilo !== null) {
-        sporocilo.t = zeton;
+      // Samo navaden predmet; drugo zavrnemo (prej bi niz ali stevilo slo naprej brez zetona).
+      if (typeof sporocilo !== "object" || sporocilo === null || Array.isArray(sporocilo)) {
+        console.warn("SafeerSplet.poslji: sporocilo mora biti predmet");
+        return false;
       }
       try {
-        window.webkit.messageHandlers.safeer.postMessage(JSON.stringify(sporocilo));
-      } catch (e) {}
-      return true;
+        // Zeton nikoli ne zapisemo v klicateljev predmet (setter za "t" bi ga ukradel): naredimo svez navaden
+        // predmet. JSON.stringify sicer poklice getterje/toJSON klicatelja, a takrat zeton se ni nikjer.
+        var m = JSON.parse(JSON.stringify(sporocilo));
+        if (typeof m !== "object" || m === null || Array.isArray(m)) { return false; }
+        m.t = zeton;
+        window.webkit.messageHandlers.safeer.postMessage(JSON.stringify(m));
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
   };
+  // Most je zamrznjen in ga stran ne more zamenjati ali prepisati poslji.
+  Object.freeze(most);
+  Object.defineProperty(window, "SafeerSplet", { value: most, writable: false, configurable: false, enumerable: false });
 })();
 """.replace("__ZETON__", ZETON_MOSTU)
 
+
+
+def koreni_vmesnika_uri(koren: str) -> list:
+    """URI mape vmesnika (file://<koren>/ui/) s koncno posevnico, pravilno kodiran. Ce je koren simbolna povezava,
+    vrne tudi razreseno pot (WebKit lahko porocal katerokoli)."""
+    poti = []
+    for pot in (os.path.abspath(os.path.join(koren, "ui")), os.path.realpath(os.path.join(koren, "ui"))):
+        uri = pathlib.Path(pot).as_uri().rstrip("/") + "/"
+        if uri not in poti:
+            poti.append(uri)
+    return poti
+
+
+def vzorci_mostu(koren: str) -> list:
+    """Seznam dovoljenih naslovov za skripto mostu z zetonom: samo mapa vmesnika, nikoli file:///*."""
+    return [uri + "*" for uri in koreni_vmesnika_uri(koren)]
+
+
+def je_uri_vmesnika(uri: str, koren: str) -> bool:
+    """Ali je uri strani v mapi vmesnika (stroga predpona s koncno posevnico; brez poti z ..)."""
+    uri = str(uri or "")
+    if not koren or ".." in uri.split("?", 1)[0].split("#", 1)[0].split("/"):
+        return False
+    return any(uri.startswith(p) and len(uri) > len(p) for p in koreni_vmesnika_uri(koren))
 
 JEZIKI = ("sl", "en", "de", "es", "fr", "it")
 BESEDILA = {
@@ -608,10 +645,16 @@ def besedila(jezik: str) -> dict:
 
 def razcleni_sporocilo(vrednost) -> dict | None:
     """Sprejme samo dejanji zacetne strani in njune pricakovane argumente."""
+    # Sprejme dict ali niz JSON (SafeerSplet.poslji poslje niz); bajti se dekodirajo kot UTF-8.
+    if isinstance(vrednost, (bytes, bytearray)):
+        try:
+            vrednost = bytes(vrednost).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
     if isinstance(vrednost, str):
         try:
             vrednost = json.loads(vrednost)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return None
     if not isinstance(vrednost, dict):
         return None
@@ -1941,10 +1984,11 @@ class VdelaniSplet:
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
         registriraj_most(upravitelj, "safeer")
-        # Most z zetonom samo v zaprtju glavnega okvirja.
+        # Most z zetonom samo v zaprtju glavnega okvirja in samo za strani iz mape vmesnika (ne file:///*: sicer bi
+        # zeton dobila vsaka lokalna datoteka, ki jo uporabnik odpre).
         upravitelj.add_script(W.UserScript.new(
             MOST_JS, W.UserContentInjectedFrames.TOP_FRAME,
-            W.UserScriptInjectionTime.START, ["file:///*"], None))
+            W.UserScriptInjectionTime.START, vzorci_mostu(self.koren), None))
         # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
         ref = weakref.ref(pogled)
         upravitelj.connect("script-message-received::safeer",
@@ -3240,6 +3284,12 @@ class VdelaniSplet:
             self.skripte.osvezi_znak(pogled)
 
     def _sporocilo(self, pogled, rezultat):
+        # Sporocila sprejmemo samo od strani iz mape vmesnika (isti koren kot seznam dovoljenih za MOST_JS).
+        try:
+            if not je_uri_vmesnika(pogled.get_uri() or "", self.koren):
+                return
+        except Exception:
+            return
         try:
             vrednost = json.loads(_js_vrednost(rezultat).to_json(0))
             # SafeerSplet.poslji poslje JSON kot niz (JSON.stringify): odpakiramo ga se enkrat.
@@ -3247,6 +3297,9 @@ class VdelaniSplet:
                 vrednost = json.loads(vrednost)
             if not isinstance(vrednost, dict) or not hmac.compare_digest(str(vrednost.get("t") or ""), ZETON_MOSTU):
                 return
+            # Zeton po preverjanju odstranimo, da ne gre naprej.
+            vrednost = dict(vrednost)
+            vrednost.pop("t", None)
             sporocilo = razcleni_sporocilo(vrednost)
         except Exception: sporocilo = None
         if not sporocilo:

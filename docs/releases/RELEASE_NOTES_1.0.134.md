@@ -13,3 +13,10 @@
 **About this computer.** Disks with free space (also unmounted ones), folder sizes, hardware and software - all read locally, without the network. Image preview says when a format (HEIC, AVIF, JPEG XL, RAW) cannot be shown and offers to open it.
 
 **Engine and stability.** Our WebKitGTK 2.54.2 with the hardened build, faster threat-list checks in Safeer Shield, and many stability fixes in the Media Centre and players.
+
+## Fixes
+
+- The Safeer bridge token is given only to pages from Safeer's own UI folder, no longer to every local file.
+- SVG images: `url (` with a space in a style is removed like `url(`.
+- An empty folder's size is counted like `du` does.
+- A year at the start of a chat title is no longer counted as unread messages.
