@@ -3288,7 +3288,8 @@ class VdelaniSplet:
         try:
             if not je_uri_vmesnika(pogled.get_uri() or "", self.koren):
                 return
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
+            # Brez znanega izvora sporocila ne obdelamo (zaprto ob napaki).
             return
         try:
             vrednost = json.loads(_js_vrednost(rezultat).to_json(0))
