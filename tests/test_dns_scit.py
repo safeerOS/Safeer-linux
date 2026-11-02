@@ -103,7 +103,7 @@ class PrivzetoInSelitev(unittest.TestCase):
         self.assertEqual(config.ConfigManager().get("doh_provider"), "cloudflare")
 
     def test_izrecne_izbire_ostanejo(self):
-        for prej in ({"doh_provider": "quad9"}, {"doh_provider": "custom", "custom_doh_url": "192.168.0.135"},
+        for prej in ({"doh_provider": "quad9"}, {"doh_provider": "custom", "custom_doh_url": "192.168.50.135"},
                      {"doh_provider": "cloudflare", "doh_enabled": False}, {"doh_provider": "disabled", "doh_enabled": False},
                      {"doh_provider": "cloudflare", "dns_izbira_uporabnika": True}):
             with self.subTest(prej=prej):
@@ -182,7 +182,7 @@ class DnsPoMeri(unittest.TestCase):
         R = doh_proxy.razcleni_po_meri
         self.assertEqual(R("https://dns.nextdns.io/abc123"), ("doh", "https://dns.nextdns.io/abc123"))
         self.assertEqual(R("dns.primer.si"), ("doh", "https://dns.primer.si/dns-query"))
-        self.assertEqual(R("192.168.0.135"), ("ip", "192.168.0.135"))       # Pi-hole v domacem omrezju
+        self.assertEqual(R("192.168.50.135"), ("ip", "192.168.50.135"))       # Pi-hole v domacem omrezju
         self.assertEqual(R("10.0.0.2:5353"), ("ip", "10.0.0.2:5353"))
         self.assertEqual(R("2606:4700:4700::1111"), ("ip", "2606:4700:4700::1111"))
         self.assertEqual(R("[fd00::53]:53"), ("ip", "[fd00::53]:53"))
@@ -424,11 +424,11 @@ class SistemskiScitNaprej(unittest.TestCase):
             for izbira in ("quad9", "google", "adguard", "opendns", "router"):
                 s.nastavi_naprej(izbira)
                 self.assertEqual(s.naprej()[0], izbira)
-            st = s.nastavi_naprej("custom", "192.168.0.135")
-            self.assertEqual((st["naprej"], st["naprejPoMeri"], st["napaka"]), ("custom", "192.168.0.135", ""))
+            st = s.nastavi_naprej("custom", "192.168.50.135")
+            self.assertEqual((st["naprej"], st["naprejPoMeri"], st["napaka"]), ("custom", "192.168.50.135", ""))
             self.assertEqual(s.nastavi_naprej("custom", "127.0.0.1:5354")["napaka"], "naprej_zanka")   # sam sebi ne
             self.assertEqual(s.nastavi_naprej("custom", "http://x")["napaka"], "naprej")
-            self.assertEqual(s.naprej(), ("custom", "192.168.0.135"))
+            self.assertEqual(s.naprej(), ("custom", "192.168.50.135"))
 
     def test_usmerjevalnik_ne_klice_doh(self):
         s = self._scit(scit_naprej="router")

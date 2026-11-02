@@ -219,9 +219,9 @@ class Ponudba(unittest.TestCase):
         self.deli = True
 
     def test_ponudba_z_datoteko_izvora(self):
-        o = self.p.ponudba("n-tablica", "Tablica", {"item": {"id": "media:video:5", "naslov": "Film", "zvok": "https://192.168.0.108:4433/d/media%3Avideo%3A5", "video": True},
+        o = self.p.ponudba("n-tablica", "Tablica", {"item": {"id": "media:video:5", "naslov": "Film", "zvok": "https://192.168.50.108:4433/d/media%3Avideo%3A5", "video": True},
                                                    "position_ms": 754000, "duration_ms": 5400000,
-                                                   "server": {"base_url": "https://192.168.0.108:4433", "fp": "ab", "token": "t"}, "from": "Tablica"})
+                                                   "server": {"base_url": "https://192.168.50.108:4433", "fp": "ab", "token": "t"}, "from": "Tablica"})
         self.assertEqual(o, {"queued": True, "shown": "banner"})
         self.assertEqual(len(self.prikazane), 1)
         p = self.prikazane[0]
@@ -231,7 +231,7 @@ class Ponudba(unittest.TestCase):
         self.assertIsNone(self.p.vzemi_ponudbo())
 
     def test_ponudba_tretje_naprave_in_spleta(self):
-        o = self.p.ponudba("n-tel", "", {"item": {"id": "share:0:Filmi/a.mkv", "naslov": "A", "zvok": "https://192.168.0.135:4433/d/x"},
+        o = self.p.ponudba("n-tel", "", {"item": {"id": "share:0:Filmi/a.mkv", "naslov": "A", "zvok": "https://192.168.50.135:4433/d/x"},
                                         "server_device": "n-pc", "position_ms": 1000})
         self.assertEqual(o, {"queued": True, "shown": "banner"})
         self.assertEqual(self.prikazane[-1]["server_device"], "n-pc")

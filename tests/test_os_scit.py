@@ -912,7 +912,7 @@ class VrataInZanke(unittest.TestCase):
     def test_zanka_naprej(self):
         for v in ("127.0.0.53", "127.0.0.54", "127.0.0.1:5354", "127.0.0.1:5357", "[::1]:5355", "[::ffff:127.0.0.53]:53"):
             self.assertTrue(os_scit.je_zanka_naprej(v), v)
-        for v in ("127.0.0.1:5053", "192.168.0.135", "9.9.9.9:53", "[::1]:5053", "ni-naslov"):
+        for v in ("127.0.0.1:5053", "192.168.50.135", "9.9.9.9:53", "[::1]:5053", "ni-naslov"):
             self.assertFalse(os_scit.je_zanka_naprej(v), v)
 
         class Posrednik:

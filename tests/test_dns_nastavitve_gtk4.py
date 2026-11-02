@@ -90,10 +90,10 @@ class NastavitveDNS(unittest.TestCase):
         self.assertEqual(json.loads(Path(self.datoteka).read_text())["doh_provider"], "disabled")
         besedila = [g.get_text() for g in _otroci(d) if isinstance(g, Gtk.Label)]
         self.assertTrue(any("https://" in b for b in besedila))
-        vnosi[0].set_text("192.168.0.135")
+        vnosi[0].set_text("192.168.50.135")
         self._shrani(d)
         shranjeno = json.loads(Path(self.datoteka).read_text())
-        self.assertEqual((shranjeno["doh_provider"], shranjeno["custom_doh_url"]), ("custom", "192.168.0.135"))
+        self.assertEqual((shranjeno["doh_provider"], shranjeno["custom_doh_url"]), ("custom", "192.168.50.135"))
         self.assertTrue(shranjeno["doh_enabled"])
         self.assertTrue(shranjeno["dns_izbira_uporabnika"])
 

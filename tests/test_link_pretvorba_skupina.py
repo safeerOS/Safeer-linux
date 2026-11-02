@@ -158,8 +158,8 @@ class SorazmerniDelez(unittest.TestCase):
 
 class OmrezneNapake(unittest.TestCase):
     def test_omrezna_napaka_naprave_gre_na_drugo_napravo(self):
-        # Izmerjeno 8. 10. 2026: telefon v drugem omrezju je sporocil »failed to connect to /192.168.0.135 ... after 6000ms«.
-        n = link_pretvorba.razvrsti_napako_naprave("failed to connect to /192.168.0.135 (port 46569) from /192.168.1.128 after 6000ms")
+        # Izmerjeno 8. 10. 2026: telefon v drugem omrezju je sporocil »failed to connect to /192.168.50.135 ... after 6000ms«.
+        n = link_pretvorba.razvrsti_napako_naprave("failed to connect to /192.168.50.135 (port 46569) from /192.168.1.128 after 6000ms")
         self.assertEqual(n, "naprava_ne_odgovori")
         self.assertIn(n, link_pretvorba.PONOVI_DRUGJE)
 

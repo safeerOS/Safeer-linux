@@ -25,15 +25,15 @@ ODTIS = "ab" * 32
 
 class Kandidati(unittest.TestCase):
     def test_najprej_naslov_iz_seznama_nato_nasteti(self):
-        self.assertEqual(kandidati_naslovov("192.168.0.120", ["192.168.0.120", "10.0.0.7"]),
-                         ["192.168.0.120", "10.0.0.7"])
+        self.assertEqual(kandidati_naslovov("192.168.50.120", ["192.168.50.120", "10.0.0.7"]),
+                         ["192.168.50.120", "10.0.0.7"])
 
     def test_brez_nastetih_ostane_samo_naslov_iz_seznama(self):
         for hosts in (None, [], "192.168.0.9", {"a": 1}, 7):
-            self.assertEqual(kandidati_naslovov("192.168.0.120", hosts), ["192.168.0.120"], hosts)
+            self.assertEqual(kandidati_naslovov("192.168.50.120", hosts), ["192.168.50.120"], hosts)
 
     def test_brez_naslova_iz_seznama_veljajo_nasteti(self):
-        self.assertEqual(kandidati_naslovov("", ["192.168.0.135"]), ["192.168.0.135"])
+        self.assertEqual(kandidati_naslovov("", ["192.168.50.135"]), ["192.168.50.135"])
         self.assertEqual(kandidati_naslovov(None, None), [])
         self.assertEqual(kandidati_naslovov("  ", ["  "]), [])
 
@@ -44,7 +44,7 @@ class Kandidati(unittest.TestCase):
                  "\u0661\u0669\u0662.168.0.5", "192.168.0.5:8080", "http://192.168.0.5", "", None, 5,
                  ["192.168.0.5"], "192.168.0.5 "]
         # Zadnji ("192.168.0.5 ") je veljaven po obrezu - edini, ki ostane.
-        self.assertEqual(kandidati_naslovov("192.168.0.120", slabi), ["192.168.0.120", "192.168.0.5"])
+        self.assertEqual(kandidati_naslovov("192.168.50.120", slabi), ["192.168.50.120", "192.168.0.5"])
 
     def test_naslov_brez_dhcp_velja(self):
         self.assertEqual(kandidati_naslovov("", ["169.254.10.20", "100.64.0.7", "223.255.255.254"]),
@@ -52,21 +52,21 @@ class Kandidati(unittest.TestCase):
 
     def test_najvec_stirje(self):
         hosts = ["10.0.0.%d" % i for i in range(1, 20)]
-        self.assertEqual(kandidati_naslovov("192.168.0.120", hosts),
-                         ["192.168.0.120", "10.0.0.1", "10.0.0.2", "10.0.0.3"])
+        self.assertEqual(kandidati_naslovov("192.168.50.120", hosts),
+                         ["192.168.50.120", "10.0.0.1", "10.0.0.2", "10.0.0.3"])
         self.assertEqual(len(kandidati_naslovov("", hosts)), link_gledalec.NAJVEC_KANDIDATOV)
 
     def test_odgovor_ohrani_nastete_naslove(self):
         seja = razcleni_odgovor({"ok": True, "data": {"port": 4321, "fp": ODTIS, "token": "enkraten",
-                                                      "hosts": ["192.168.0.135"]}})
-        self.assertEqual(seja["hosts"], ["192.168.0.135"])
-        g = link_gledalec.Gledalec("192.168.0.120", seja)
-        self.assertEqual(g.kandidati, ["192.168.0.120", "192.168.0.135"])
-        self.assertEqual(g.naslov, "192.168.0.120")
+                                                      "hosts": ["192.168.50.135"]}})
+        self.assertEqual(seja["hosts"], ["192.168.50.135"])
+        g = link_gledalec.Gledalec("192.168.50.120", seja)
+        self.assertEqual(g.kandidati, ["192.168.50.120", "192.168.50.135"])
+        self.assertEqual(g.naslov, "192.168.50.120")
 
     def test_star_racunalnik_brez_nastetih_naslovov(self):
-        g = link_gledalec.Gledalec("192.168.0.120", {"ok": True, "port": 4321, "fp": ODTIS, "token": "enkraten"})
-        self.assertEqual(g.kandidati, ["192.168.0.120"])
+        g = link_gledalec.Gledalec("192.168.50.120", {"ok": True, "port": 4321, "fp": ODTIS, "token": "enkraten"})
+        self.assertEqual(g.kandidati, ["192.168.50.120"])
 
     def test_brez_vsakega_naslova_je_napaka_razumljiva(self):
         g = link_gledalec.Gledalec("", {"ok": True, "port": 4321, "fp": ODTIS, "token": "enkraten",
@@ -95,10 +95,10 @@ class OdgovorRacunalnika(unittest.TestCase):
         return izidi[0]
 
     def test_screen_start_nasteje_naslove(self):
-        with mock.patch("core.link_zvok.lastni_naslovi", return_value=["192.168.0.135", "10.8.0.2"]) as klic:
+        with mock.patch("core.link_zvok.lastni_naslovi", return_value=["192.168.50.135", "10.8.0.2"]) as klic:
             izid = self._start()
         self.assertTrue(izid["ok"], izid)
-        self.assertEqual(izid["data"]["hosts"], ["192.168.0.135", "10.8.0.2"])
+        self.assertEqual(izid["data"]["hosts"], ["192.168.50.135", "10.8.0.2"])
         self.assertEqual(klic.call_args[0][0], "wss://127.0.0.1:8990/cast/ws")
         # Vse, kar je seja imela prej, ostane.
         self.assertEqual((izid["data"]["port"], izid["data"]["fp"], izid["data"]["token"]),
