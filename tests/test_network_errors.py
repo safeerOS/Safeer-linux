@@ -133,6 +133,9 @@ def test_iframe_ne_prepise_post_glavne_navigacije():
     assert h.decide_policy(v, Odlocitev("https://trgovina.si/placaj", "POST"), nav) is False
     h.decide_policy(v, Odlocitev("https://oglasi.example/okvir", "GET"), nav)
     assert h._metoda("https://trgovina.si/placaj") == "POST"
+    # Pregled Gemini 2. 11. 2026: GET iframa na ISTI naslov ne prepise POST.
+    h.decide_policy(v, Odlocitev("https://trgovina.si/placaj", "GET"), nav)
+    assert h._metoda("https://trgovina.si/placaj") == "POST"
     assert h._metoda("https://trgovina.si/hvala") is None          # neznan naslov po POST: brez ponovitve
     napaka = GLib.Error.new_literal(Gio.io_error_quark(), "Connection terminated unexpectedly", Gio.IOErrorEnum.PARTIAL_INPUT)
     from unittest.mock import patch
