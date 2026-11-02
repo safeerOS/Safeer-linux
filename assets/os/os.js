@@ -3398,12 +3398,13 @@
     if (S.razdelek === "scit") nalozScitStatistiko();
     var pod;
     if (scitZaposleno) pod = t("scitPripravljam");
-    else if (!s.mozno) pod = t(s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : "scitNiMozno");
+    else if (!s.mozno) pod = t(s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : s.razlog === "pihole_ostanek" ? "scitNapaka_pihole_ostanek" : "scitNiMozno");
     else if (s.napaka) pod = t("scitNapaka_" + s.napaka);
     else if (s.vklop && s.tece) pod = s.domen ? t("scitTece", { n: s.blokiranih, p: s.poizvedb, d: s.domen }) : t("scitSeznami");
     else pod = t("scitOpis");
     var st = stikalo("scitStikalo", "scit", !!(s.vklop && s.tece) || (scitZaposleno && !s.vklop), function (v) {
-      if (scitZaposleno || !s.mozno) { narisiScit(); return; }
+      // Brez systemd-resolved Scit nikoli ne more delati; pri drugih ovirah vklop velja in Scit zacne sam, ko ovira izgine.
+      if (scitZaposleno || (!s.mozno && (s.razlog === "ni_resolved" || !s.razlog))) { narisiScit(); return; }
       scitZaposleno = true;
       narisiScit();
       klic("scitVklop", [v]).then(function (r) {
@@ -3414,8 +3415,26 @@
         narisiScit();
       }, function () { scitZaposleno = false; nalozScit(); });
     }, pod);
-    if (!s.mozno) st.classList.add("onemogoceno");
+    if (!s.mozno && (s.razlog === "ni_resolved" || !s.razlog)) st.classList.add("onemogoceno");
     c.appendChild(st);
+    // Lastnik 2. 11. 2026: ostanek odstranjenega Pi-hole - en gumb (geslo v oknu sistema), brez terminala.
+    if (!s.mozno && s.razlog === "pihole_ostanek") {
+      var pop = el("button", "gumb", ubezi(t("scitPopravi")));
+      pop.type = "button";
+      pop.onclick = function () {
+        if (scitZaposleno) return;
+        scitZaposleno = true;
+        narisiScit();
+        klic("scitPopravi", []).then(function (r) {
+          scitZaposleno = false;
+          if (r) scitStanje = r;
+          if (r && r.napaka) obvesti(t("scitNapaka_" + r.napaka));
+          else if (r && r.mozno) obvesti(t(r.vklop ? "scitVklopljen" : "scitIzklopljen"));
+          narisiScit();
+        }, function () { scitZaposleno = false; nalozScit(); });
+      };
+      c.appendChild(pop);
+    }
     // Tiha izguba sifriranja (pregled 18. 10. 2026): mirna vrstica stanja, brez okna in brez rdece barve.
     if (s.vklop && s.tece && s.nesifrirano) {
       var ns = el("div", "scit-zadnje scit-nesifrirano", ubezi(t("scitNesifrirano")));

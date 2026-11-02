@@ -1000,6 +1000,15 @@ def vsebina_gostitelja(pot: str) -> Optional[str]:
         return None
 
 
+#: Ostanki odstranjenega Pi-hole (izmerjeno na prenosniku lastnika 2. 11. 2026) in mapa, kamor jih »Popravi« premakne.
+PIHOLE_OSTANKI = ("/etc/systemd/resolved.conf.d/pi-hole.conf",
+                  "/etc/systemd/resolved.conf.d/90-pi-hole-disable-stub-listener.conf")
+PIHOLE_ODLOZENO = "/etc/systemd/resolved-pihole-odlozeno"
+#: Fiksen ukaz za root (brez podatkov iz uporabnikovih datotek, AGENTS.md »Root prek pkexec«).
+POPRAVI_PIHOLE_UKAZ = ("mkdir -p " + PIHOLE_ODLOZENO + " && for f in " + " ".join(PIHOLE_OSTANKI) +
+                       "; do [ -f \"$f\" ] && mv -f \"$f\" " + PIHOLE_ODLOZENO + "/; done; systemctl restart systemd-resolved")
+
+
 def razlog_nemoznosti() -> str:
     """'' = Scit lahko dela; 'ni_resolved' = ni systemd-resolved ali NetworkManagerja; 'lastni_dns' = programi
     sprasujejo drug streznik DNS (ne systemd-resolved)."""
@@ -1007,6 +1016,11 @@ def razlog_nemoznosti() -> str:
             _zazeni(["systemctl", "is-active", "systemd-resolved"])[1].strip() != "active":
         return "ni_resolved"
     if not programi_uporabljajo_resolved():
+        # Lastnik 2. 11. 2026: odstranjen Pi-hole je pustil nastavitve, ki izklopijo stub resolved (DNSStubListener=no) -
+        # to ni uporabnikov streznik DNS, ampak ostanek, ki ga gumb »Popravi« pospravi.
+        if PIHOLE_OSTANKI and any(vsebina_gostitelja(p) is not None for p in PIHOLE_OSTANKI) and \
+                _zazeni(["systemctl", "is-active", "pihole-FTL"])[1].strip() != "active":
+            return "pihole_ostanek"
         return "lastni_dns"
     return ""
 
@@ -1549,7 +1563,7 @@ class Scit:
     def stanje(self) -> dict:
         r = self.razresevalnik
         razlog = self._preveri_razlog()
-        if not razlog and self.napaka in ("ni_resolved", "lastni_dns"):
+        if not razlog and self.napaka in ("ni_resolved", "lastni_dns", "pihole_ostanek"):
             self.napaka = ""      # razmere so se medtem spremenile (npr. /etc/resolv.conf spet kaze na resolved)
         s = {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata), "napaka": self.napaka,
              "vmesniki": list(self.vmesniki), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
@@ -1570,9 +1584,50 @@ class Scit:
         izklopljen, samo pospravi, kar je morda ostalo za starejso razlicico ali po sesutju."""
         threading.Thread(target=self._zagon, name="safeer-scit-zagon", daemon=True).start()
 
+    #: Kako pogosto Scit, ki je vklopljen, a trenutno ni mozen, preveri, ali je ovira izginila (systemctl: poceni).
+    CAKAJ_MOZNO_S = 30.0
+    _caka = None
+
+    def _cakaj_mozno(self) -> None:
+        """Lastnik 2. 11. 2026: Scit se mora vklopiti sam, brez terminala. Prej je ob »ni mozno« ob zagonu obstal za
+        vedno; zdaj caka in se vklopi, ko ovira izgine (npr. uporabnik odstrani Pi-hole ali pritisne »Popravi«)."""
+        if self._caka is not None and self._caka.is_alive():
+            return
+
+        def zanka() -> None:
+            while self.vklopljen:
+                razlog = razlog_nemoznosti()
+                if not razlog:
+                    self.napaka = ""
+                    try:
+                        self._zazeni()
+                    except Exception as e:  # noqa: BLE001 - straza ne sme umreti, poskusi ob naslednjem krogu
+                        print("[SafeerOS] scit: zagon po cakanju:", e)
+                    return
+                self.napaka = razlog
+                time.sleep(self.CAKAJ_MOZNO_S)
+        self._caka = threading.Thread(target=zanka, name="safeer-scit-caka", daemon=True)
+        self._caka.start()
+
+    def popravi(self) -> dict:
+        """Gumb »Popravi«: pospravi znan ostanek (Pi-hole), potem Scit nadaljuje sam. Root samo prek root_ukaz s fiksnim ukazom."""
+        if razlog_nemoznosti() == "pihole_ostanek":
+            from core import root_ukaz
+            koda, _ = _zazeni(root_ukaz.ukaz(root_ukaz.SH, "-c", POPRAVI_PIHOLE_UKAZ), cas=180.0)
+            if koda != 0:
+                self.napaka = "pravilo"
+                return self.stanje()
+            self.napaka = razlog_nemoznosti()
+            if not self.napaka and self.vklopljen:
+                self._zazeni()
+        return self.stanje()
+
     def _zagon(self) -> None:
-        # Kjer Scit ne more filtrirati (npr. uporabnik je medtem namestil svoj streznik DNS), se DNS ne dotikamo.
+        # Kjer Scit ne more filtrirati (npr. uporabnik je medtem namestil svoj streznik DNS), se DNS ne dotikamo -
+        # ce ga je uporabnik vklopil, pocakamo, da ovira izgine.
         if not self.mozno():
+            if self.vklopljen:
+                self._cakaj_mozno()
             return
         if self.vklopljen:
             self._zazeni()
@@ -1597,6 +1652,10 @@ class Scit:
             razlog = razlog_nemoznosti()
             if razlog:
                 self.napaka = razlog
+                if razlog == "pihole_ostanek":
+                    # Ostanek (ne uporabnikov streznik DNS): izbira velja, Scit zacne, ko ga »Popravi« pospravi.
+                    self.shramba.set("scit", True)
+                    self._cakaj_mozno()
                 return self.stanje()
             if not namesti_pravilo():
                 self.napaka = "pravilo"
