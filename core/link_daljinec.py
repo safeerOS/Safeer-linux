@@ -158,6 +158,8 @@ DEJANJA_PREDAJA = ["play.state", "play.stop", "play.offer"]
 DEJANJA_SEZNAMI = ["lists.get"]
 #: Safeer Agent (core/agent/storitev.py): stavek z druge naprave -> naloge na napravah v Linku. Zahteva polno zaupanje.
 DEJANJA_AGENT = ["agent.ask"]
+#: Usklajevanje kljucev in dodatkov v ozjem krogu (core/uskladitev_kljucev.py); samo zasciteno in samo ozji krog.
+DEJANJA_KLJUCI = ["secrets.sync"]
 
 
 def _safeer_os() -> str:
@@ -371,6 +373,23 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d in DEJANJA_AGENT:
             from core.agent import storitev
             storitev.vprasaj(parametri, posiljatelj, koncaj, izid)
+        elif d in DEJANJA_KLJUCI:
+            # Lastnik 28. 10. 2026: kljuci, indeksator in dodatki s poverilnico med napravami ozjega kroga. Storitev
+            # preveri zascito (jedro preverjenega kljuca) in ozji krog sama; prejeti kljuci se preverijo pri storitvi
+            # (omrezje) - zato v svoji niti, odgovor prek koncaj kot pri drugih ukazih v nitih.
+            import threading
+            from core import uskladitev_kljucev
+            usk = uskladitev_kljucev.storitev()
+            if usk is None:
+                koncaj(izid(False, "Usklajevanje ključev tu ni na voljo", koda="neznano_dejanje"))
+                return
+
+            def kljuci() -> None:
+                try:
+                    koncaj(izid(True, "Usklajevanje ključev", usk.prejmi(posiljatelj, "", parametri, zascita=zascita)))
+                except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne izteka casa
+                    koncaj(_izid_napake("Usklajevanje ključev ni uspelo", e))
+            threading.Thread(target=kljuci, name="safeer-kljuci-ukaz", daemon=True).start()
         elif d in DEJANJA_TOK_TORRENTA:
             if datoteke is None:
                 koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))

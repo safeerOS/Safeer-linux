@@ -1990,6 +1990,7 @@ class SafeerControl(_OSNOVA):
         )
         self.link.ob_povezavi = self._na_povezavo
         self.link.ob_brez_povezave = self.odpri_safeer_os
+        self._zacni_uskladitev_kljucev()
         self.link.ob_seznanitvi = self._po_seznanitvi
         self.link.datoteke = self.datoteke
         self.link.programi = self.programi
@@ -2308,6 +2309,88 @@ class SafeerControl(_OSNOVA):
         if self.link is None:
             self._pripravi_link()
         self.link.dodaj_deljeno_mapo()
+
+    def _zacni_uskladitev_kljucev(self) -> None:
+        """secrets.sync (lastnik 28. 10. 2026): debrid kljuci, indeksator Usenet in dodatki s poverilnico gredo sami na
+        naprave v ozjem krogu (in z njih sem). Samo, ce je namescen Safeer OS (Medijski center). Nova naprava se potrdi
+        enkrat z obvestilom (Sprejmi / Zavrni); zamenjavo z druge naprave se da razveljaviti."""
+        try:
+            from core import link_daljinec
+            if not link_daljinec._safeer_os():
+                return
+            from core import os_programi, uskladitev_kljucev as UK, uskladitev_kljucev_mediji as UM
+            mapa = os.path.join(os_programi.MAPA_NASTAVITEV, "media")
+            lastni: list = []
+
+            def dobi_mc():
+                # V istem procesu kot Safeer OS isti Medijski center (en zaklep za media.json); sicer svoj.
+                from core import en_proces
+                app = en_proces.os_app()
+                kat = getattr(app, "_katalog", None) if app is not None else None
+                if kat is not None:
+                    return kat.mc
+                if not lastni:
+                    from core import os_katalog, os_media
+                    lastni.append(os_media.MediaCenter(mapa, roots=[], secret_encryptor=os_katalog.skrij,
+                                                       secret_decryptor=os_katalog.razkrij, secret_forget=os_katalog.pozabi))
+                return lastni[0]
+            usk = UK.Uskladitev(UK.Shramba(os.path.join(mapa, "kljuci-sinh.json")), UM.VirMedijev(dobi_mc),
+                                UM.LinkSafeer(self.link))
+            usk.ob_vprasanju = lambda c: self._vprasaj_za_kljuce(usk, c)
+            usk.ob_spremembi = lambda s: self._sprememba_kljucev(usk, s)
+            UK.nastavi(usk)
+            prej = self.link.ob_povezavi
+
+            def ob_povezavi(povezan: bool) -> None:
+                if prej is not None:
+                    prej(povezan)
+                if povezan:
+                    usk.sprozi(5.0)
+            self.link.ob_povezavi = ob_povezavi
+            casi = {"zadnjic": time.monotonic(), "mtime": None}
+            datoteke = [os.path.join(mapa, "debrid.json"), os.path.join(mapa, "media.json")]
+
+            def pazi() -> bool:
+                # Sprememba kljuca ali dodatka (mtime nastavitev) ali vsakih UK.SAMODEJNO_S - brez branja vrednosti.
+                try:
+                    mt = tuple(os.stat(p).st_mtime_ns if os.path.exists(p) else 0 for p in datoteke)
+                except OSError:
+                    mt = None
+                zdaj = time.monotonic()
+                if (casi["mtime"] is not None and mt != casi["mtime"]) or zdaj - casi["zadnjic"] >= UK.SAMODEJNO_S:
+                    casi["zadnjic"] = zdaj
+                    usk.sprozi()
+                casi["mtime"] = mt
+                return True
+            GLib.timeout_add_seconds(30, pazi)
+        except Exception as e:  # noqa: BLE001 - brez usklajevanja kljucev Control dela kot prej
+            print(f"[SafeerControl] Usklajevanje ključev ni na voljo: {type(e).__name__}")
+
+    def _besedilo_kljucev(self, kljuc: str) -> str:
+        sl = {"vprasaj": "Naprava v ožjem krogu želi uskladiti ključe", "sprejmi": "Sprejmi", "zavrni": "Zavrni",
+              "spremenjeno": "Ključi spremenjeni z druge naprave", "razveljavi": "Razveljavi", "vredu": "V redu"}
+        en = {"vprasaj": "A device in your inner circle wants to sync keys", "sprejmi": "Accept", "zavrni": "Decline",
+              "spremenjeno": "Keys changed from another device", "razveljavi": "Undo", "vredu": "OK"}
+        jezik = str(getattr(self.link, "_jezik", "") or os.environ.get("LANG", "sl"))[:2]
+        return (sl if jezik == "sl" else en)[kljuc]
+
+    def _vprasaj_za_kljuce(self, usk, c) -> None:
+        from core import obvestila
+        b = self._besedilo_kljucev
+        opis = ", ".join(usk.opis_zapisov(c)) or "-"
+        obvestila.poslji(b("vprasaj"), "%s: %s" % (c.ime or c.id, opis), "kljuci-sinh-" + c.kljuc,
+                         gumbi=[("da", b("sprejmi"), lambda: usk.potrdi(c.kljuc, True)),
+                                ("ne", b("zavrni"), lambda: usk.potrdi(c.kljuc, False))],
+                         prioriteta="high", app=self.link._aplikacija())
+
+    def _sprememba_kljucev(self, usk, s) -> None:
+        from core import obvestila
+        b = self._besedilo_kljucev
+        obvestila.poslji(b("spremenjeno"), "%s: %s" % (s.ime or s.id, ", ".join(usk.opis_spremembe(s)) or "-"),
+                         "kljuci-sprememba-" + s.kljuc,
+                         gumbi=[("razveljavi", b("razveljavi"), lambda: usk.potrdi_spremembo(s, True)),
+                                ("vredu", b("vredu"), lambda: usk.potrdi_spremembo(s, False))],
+                         app=self.link._aplikacija())
 
     def _na_povezavo(self, povezan: bool) -> None:
         if self.pladenj is not None:

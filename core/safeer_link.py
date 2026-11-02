@@ -153,6 +153,12 @@ def _magnet_na_voljo() -> bool:
     return bool(link_daljinec._safeer_os())
 
 
+def _kljuci_na_voljo() -> bool:
+    """Ali ta Control usklajuje kljuce in dodatke v ozjem krogu (storitev je nastavljena, Safeer OS je namescen)."""
+    from core import uskladitev_kljucev
+    return uskladitev_kljucev.storitev() is not None
+
+
 def secrets_token() -> str:
     import secrets
     return secrets.token_urlsafe(9)
@@ -1686,7 +1692,9 @@ class SafeerLink:
             # Seznami predvajanja Medijskega centra (Safeer OS): Control jih drugim napravam da v branje (lists.get).
             + (["lists"] if self.control and _magnet_na_voljo() else [])
             # Safeer Agent (agent.ask): racunalnik razume stavek z druge naprave, ce je nastavljen jezikovni model.
-            + (["agent"] if self.control and _agent_na_voljo() else []),
+            + (["agent"] if self.control and _agent_na_voljo() else [])
+            # secrets.sync: kljuci in dodatki s poverilnico v ozjem krogu (core/uskladitev_kljucev.py).
+            + (["secrets"] if self.control and _kljuci_na_voljo() else []),
             # Kataloga programov v prijavi ni vec: seznam naprav dobi VSAKA naprava v Linku, imena programov pa sme
             # videti samo naprava, ki ji je uporabnik tu odprl programe (apps.list, core/link_dostop).
             katalog=None,

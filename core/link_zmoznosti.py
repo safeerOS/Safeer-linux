@@ -32,6 +32,8 @@ ZMOZNOSTI: Dict[str, Tuple[str, str]] = {
     "torrent": ("prenaša torrente in jih pretaka drugim napravam", "downloads torrents and streams them to other devices"),
     "lists": ("usklajuje sezname predvajanja", "syncs playlists"),
     "agent": ("Safeer Agent: razume povedano in izvede naloge na napravah", "Safeer Agent: understands what you say and does it on your devices"),
+    "secrets": ("usklajuje ključe storitev in dodatke z osebnim žetonom v ožjem krogu (šifrirano)",
+                "syncs service keys and add-ons with a personal token within the inner circle (encrypted)"),
     "sync": ("usklajuje zaznamke", "syncs bookmarks"),
     "internet.gateway": ("deli svojo internetno povezavo", "shares its internet connection"),
     "e2e1": ("ukaze in odgovore sprejema in pošilja zaščitene od naprave do naprave",
