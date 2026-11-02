@@ -109,7 +109,7 @@ jobs:
       - name: Failed tests of the previous run of this branch (this part)
         # Lastnik 25. 10. 2026 (»nadaljuj od tam, kjer je preizkus padel«): seznam padlih preizkusov tega dela iz
         # prejsnjega teka iste veje (tudi »Re-run failed jobs«); predpomnilnik veje, datoteka JSON z node id.
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/padli.json
           key: padli-${{ github.ref_name }}-vrata-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -149,9 +149,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
           overwrite: true
+      - name: Names of failed tests on the run page
+        # Tek 41426158034 (2. 11. 2026): stran teka je kazala samo »exit code 1«, ime padlega preizkusa je bilo samo v
+        # dnevniku (prenos samo s prijavo). Zdaj gre seznam v opombo in povzetek teka.
+        if: always() && hashFiles('build/padli.json') != ''
+        env:
+          DEL: ${{ matrix.del }}
+        run: |
+          if python3 -c 'import json, sys; sys.exit(0 if json.load(open("build/padli.json")) else 1)'; then
+            echo "::error::Padli preizkusi (del $DEL): $(python3 -c 'import json; print(", ".join(json.load(open("build/padli.json"))))')"
+            {
+              echo "### Padli preizkusi, del $DEL"
+              echo '```json'
+              cat build/padli.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Failed tests for the next run of this branch (this part)
         if: always() && hashFiles('build/padli.json') != ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/padli.json
           key: padli-${{ github.ref_name }}-vrata-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -249,7 +265,7 @@ jobs:
       - name: Restore the PGO profile (recorded earlier from the same files)
         id: profil
         if: needs.webkit-kljuc.outputs.profil_run == ''
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/pgo/profraw
           key: webkit-deb-profil-${{ needs.webkit-kljuc.outputs.profil }}
@@ -266,7 +282,7 @@ jobs:
         run: bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-webkit build/pgo/profraw
       - name: Save the PGO profile
         if: needs.webkit-kljuc.outputs.profil_run == '' && steps.profil.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/pgo/profraw
           key: webkit-deb-profil-${{ needs.webkit-kljuc.outputs.profil }}
@@ -340,7 +356,7 @@ jobs:
       - name: Restore our WebKitGTK (built earlier from the same files and profile)
         id: wk
         if: needs.webkit-kljuc.outputs.webkit_run == ''
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/safeer-webkit.tar.zst
           key: webkit-deb-pgo-bolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.webkit }}
@@ -350,7 +366,7 @@ jobs:
         # BOLT (bolt.sh, bolt_trening.py) pomeni samo nadaljuj.sh, ne novega prevajanja.
         id: predbolt
         if: needs.webkit-kljuc.outputs.webkit_run == '' && steps.wk.outputs.cache-hit != 'true'
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/webkit-predbolt.tar.zst
           key: webkit-deb-predbolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.profil }}
@@ -385,7 +401,7 @@ jobs:
           fi
       - name: Save the pre-BOLT state of our WebKitGTK (also when BOLT failed)
         if: always() && steps.wk.outputs.cache-hit != 'true' && steps.predbolt.outputs.cache-hit != 'true' && hashFiles('build/webkit-predbolt.tar.zst') != ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/webkit-predbolt.tar.zst
           key: webkit-deb-predbolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.profil }}
@@ -396,7 +412,7 @@ jobs:
         # Samo po uspesni gradnji in preverbi arhiva (prej always(): prirezan arhiv bi ostal pod koncnim kljucem za vedno).
         # Arhiv iz artefakta drugega teka ne gre v predpomnilnik veje (prostor 10 GB je za Flatpak).
         if: success() && steps.wk.outputs.cache-hit != 'true' && needs.webkit-kljuc.outputs.webkit_run == ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/safeer-webkit.tar.zst
           key: webkit-deb-pgo-bolt-safeer-webkit-${{ needs.webkit-kljuc.outputs.webkit }}
@@ -507,7 +523,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Restore dav1ddec (built earlier from the same script)
         id: dav1d
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/dav1d
           key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}
@@ -519,7 +535,7 @@ jobs:
           bash packaging/webkit-deb/dav1d.sh build/dav1d
       - name: Save dav1ddec
         if: steps.dav1d.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/dav1d
           key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}
@@ -550,7 +566,7 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends musl-tools python3-seccomp
       - name: Restore rqbit (built earlier from the same source and patches)
         id: rqbit
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/rqbit
           key: rqbit-deb-${{ hashFiles('packaging/rqbit/**') }}
@@ -559,7 +575,7 @@ jobs:
         run: python3 packaging/rqbit/rqbit_paket.py zgradi build/rqbit
       - name: Save rqbit
         if: success() && steps.rqbit.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/rqbit
           key: rqbit-deb-${{ hashFiles('packaging/rqbit/**') }}
@@ -1078,7 +1094,7 @@ jobs:
       - name: Restore flatpak-builder cache (instrumented WebKitGTK)
         # Ob ponovnem ucnem teku (padec po gradnji) instrumentirano gradnjo vzamemo iz predpomnilnika te veje.
         id: pgo-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1092,7 +1108,7 @@ jobs:
       - name: Save flatpak-builder cache (instrumented WebKitGTK)
         # Samo po uspesni instrumentirani gradnji (pregled N6); padec ucnega teka kasneje gradnje ne izgubi.
         if: steps.pgo-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1209,7 +1225,7 @@ jobs:
       - name: Restore flatpak-builder cache (WebKitGTK with PGO)
         id: webkit-cache
         if: steps.fb.outputs.run_id == ''
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1232,7 +1248,7 @@ jobs:
         # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Samo po uspesni
         # gradnji (pregleda M13, N6): nepopoln predpomnilnik ob padcu ali preklicu bi zaprl koncni kljuc.
         if: steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1444,7 +1460,7 @@ jobs:
       - name: Restore flatpak-builder cache (WebKitGTK with PGO)
         id: webkit-cache
         if: steps.fb.outputs.run_id == ''
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1465,7 +1481,7 @@ jobs:
         # Takoj po gradnji (tudi ce kasnejsi preizkus pade), da se WebKitGTK ne gradi znova ob vsakem pushu. Samo po uspesni
         # gradnji (pregleda M13, N6): nepopoln predpomnilnik ob padcu ali preklicu bi zaprl koncni kljuc.
         if: steps.webkit-cache.outputs.cache-hit != 'true' && steps.fb.outputs.run_id == ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             .flatpak-builder/cache
@@ -1696,7 +1712,7 @@ jobs:
       - name: Failed tests of the previous run of this branch (this part)
         # Lastnik 25. 10. 2026 (»nadaljuj od tam, kjer je preizkus padel«): seznam padlih preizkusov tega dela iz
         # prejsnjega teka iste veje (tudi »Re-run failed jobs«); predpomnilnik veje, datoteka JSON z node id.
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/padli.json
           key: padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -1741,9 +1757,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
           overwrite: true
+      - name: Names of failed tests on the run page
+        # Tek 41426158034 (2. 11. 2026): stran teka je kazala samo »exit code 1«, ime padlega preizkusa je bilo samo v
+        # dnevniku (prenos samo s prijavo). Zdaj gre seznam v opombo in povzetek teka.
+        if: always() && hashFiles('build/padli.json') != ''
+        env:
+          DEL: ${{ matrix.del }}
+        run: |
+          if python3 -c 'import json, sys; sys.exit(0 if json.load(open("build/padli.json")) else 1)'; then
+            echo "::error::Padli preizkusi (del $DEL): $(python3 -c 'import json; print(", ".join(json.load(open("build/padli.json"))))')"
+            {
+              echo "### Padli preizkusi, del $DEL"
+              echo '```json'
+              cat build/padli.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Failed tests for the next run of this branch (this part)
         if: always() && hashFiles('build/padli.json') != ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: build/padli.json
           key: padli-${{ github.ref_name }}-webkit-${{ matrix.del }}-${{ github.run_id }}-${{ github.run_attempt }}

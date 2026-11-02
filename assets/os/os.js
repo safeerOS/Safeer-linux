@@ -10065,6 +10065,8 @@ function narisiKatViri() {
     if (EN_RAZDELEK || !$("slojProstori")) return;
     if (prostoriOdprto()) { premakniProstor(smer || 1); return; }
     PR.prej = document.activeElement;
+    // Vsako odprtje je nov rod: pozen odgovor prostorOdpri iz prejsnjega odprtja ga ne zapre (CI 41426158034, 2. 11. 2026).
+    PR.rod = (PR.rod || 0) + 1;
     PR.stanje = PR.nalozeno ? (PR.seznam.length ? "" : t("prostoriPrazno")) : "";
     PR.cakaSmer = PR.nalozeno ? 0 : (smer || 0);
     PR.izbran = !PR.nalozeno ? 0 : prostorZacetni(smer || 0);
@@ -10213,6 +10215,7 @@ function narisiKatViri() {
     if (!p.povezana) { PR.stanje = t("prostorBrezPovezave", { ime: prostorIme(p) }); $("prostoriStanje").textContent = PR.stanje; return; }
     if (PR.odpira) return;
     PR.odpira = p.id;
+    var rod = PR.rod;
     PR.stanje = t("prostorOdpiram", { ime: prostorIme(p) });
     narisiProstore(true);
     klic("prostorOdpri", kako ? [p.id, prikaz || "zrcaljenje", kako] : [p.id, prikaz || "zrcaljenje"]).then(function (r) {
@@ -10223,7 +10226,8 @@ function narisiKatViri() {
         return;
       }
       PR.stanje = "";
-      zapriProstore();
+      // Uporabnik je medtem preklopnik zaprl in znova odprl: novega odprtja ne zapremo pod njim.
+      if (PR.rod === rod) zapriProstore();
       // Android: na napravi se pokaze sistemska potrditev deljenja zaslona (zahteva jo za vsako sejo).
       obvesti(r.nacin === "zaslon" ? t("prostorPotrdi", { ime: prostorIme(p) }) : t("prostorOdpiram", { ime: prostorIme(p) }));
     }, function (e) {

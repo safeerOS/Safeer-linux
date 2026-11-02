@@ -8,6 +8,7 @@ GI_TYPELIB_PATH=/usr/lib/safeer-webkit/lib/girepository-1.0 LD_LIBRARY_PATH=/usr
 xvfb-run -a python3 -m pytest -q tests/test_prostori_zivo.py"""
 import json
 import os
+import threading
 import tempfile
 import unittest
 from unittest import mock
@@ -125,6 +126,7 @@ def _os_razred(jezik):
 
 class Prostori(unittest.TestCase):
     JEZIK = "sl"
+    PISARNA = "2"      # data-prostor racunalnika Pisarna (pc-1-control)
     NI_NASLOVA = "neposredno"
 
     def setUp(self):
@@ -254,6 +256,33 @@ class Prostori(unittest.TestCase):
         self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "pc-1-control", "", "1") in self.klici, 10), self.klici)
         self.assertTrue(_cakaj(lambda: self.odprto() is False, 5))
         self.assertIn("Pisarna", self._js("document.getElementById('obvestilo').textContent"))
+
+    def test_pozen_odgovor_ne_zapre_novega_odprtja(self):
+        """CI 41426158034 (2. 11. 2026): odgovor prostorOdpri pride iz niti pozneje. Ce je uporabnik medtem preklopnik
+        zaprl in znova odprl, ga pozen odgovor prejsnjega odprtja ne sme zapreti."""
+        spusti, prispel = threading.Event(), threading.Event()
+        izvirni = so._control_naprave.side_effect
+
+        def pocasen(metoda, *a):
+            if metoda == "ProstorOdpri":
+                prispel.set()
+                spusti.wait(10)
+            return izvirni(metoda, *a)
+        so._control_naprave.side_effect = pocasen
+        self.addCleanup(spusti.set)
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.pocakaj_naprave()
+        self._js("document.querySelector('[data-prostor=\"%s\"]').click(), 1" % self.PISARNA)
+        self.assertTrue(_cakaj(prispel.is_set, 10))
+        self._js("document.getElementById('prostoriZapri').click(), 1")
+        self._js("document.getElementById('gumbProstori').click(), 1")
+        self.assertTrue(self.odprto())
+        spusti.set()
+        self.assertTrue(_cakaj(lambda: ("ProstorOdpri", "pc-1-control", "", "1") in self.klici, 5), self.klici)
+        # Obvestilo o odpiranju se pokaze, preklopnik pa ostane odprt.
+        self.assertTrue(_cakaj(lambda: "Pisarna" in (self._js("document.getElementById('obvestilo').textContent") or ""), 5))
+        _cakaj(lambda: False, 0.5)
+        self.assertTrue(self.odprto())
 
     def test_android_cel_zaslon_s_potrditvijo(self):
         self.odgovori["ProstorOdpri"] = {"ok": True, "tu": True}
@@ -407,6 +436,7 @@ class Prostori(unittest.TestCase):
 class ProstoriKrog2(Prostori):
     """Krog 2: lokalna namizja v istem preklopniku, slicice racunalnikov v zivo samo med odprtim preklopnikom, meni »+«
     z nacini, Super+Alt+puscica do sosednjega prostora (tudi iz gledalca), zgornji rob, starejsi Control."""
+    PISARNA = "4"      # pred napravami so tri namizja
 
     def setUp(self):
         super().setUp()
