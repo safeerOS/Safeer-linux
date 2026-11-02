@@ -391,6 +391,16 @@
       klic("odpriRazdelek", [razdelek]).catch(function () {});
       return;
     }
+    if (S.zacetek && S.zacetek.mostOkna && !EN_RAZDELEK) {
+      if (razdelek === "media") {
+        klic("odpriPredvajalnik", []).catch(function () {});
+        return;
+      }
+      if (razdelek === "zapiski" || razdelek === "sporocila" || razdelek === "nastavitve" || razdelek === "scit") {
+        klic("odpriOknoRazdelka", [razdelek]).catch(function () {});
+        return;
+      }
+    }
     S.razdelek = razdelek;
     vrsticaUredi();                 // po nacinu Splet (tam je vrstica vedno razsirjena) spet trak, ce je izbran
     zapriMeniSporocila();
@@ -6064,6 +6074,10 @@
     izbira.innerHTML = "";
     if (!z.length) izbira.add(new Option(t("debridDodaj"), ""));
     z.forEach(function (x) { izbira.add(new Option((s.oznaka || "⚡") + " " + x.ime, x.id)); });
+    var u_idx = (s.usenet && s.usenet.gostitelj) ? t("usenetIme") : "";
+    var u_unp = (unp.stanje && unp.stanje.vpisan) ? (unp.stanje.ime || unp.stanje.gostitelj) : "";
+    var u_text = u_idx && u_unp ? u_unp + " + " + u_idx : u_idx || u_unp || t("dodajPonudnikaUsenet");
+    izbira.add(new Option(u_text, "usenet"));
     if (z.length) izbira.add(new Option(t("debridBrez"), "brez"));
     izbira.add(new Option(t("debridNastavitve"), "nastavitve"));
     izbira.value = z.length ? (s.aktivna || "brez") : "";
@@ -6072,6 +6086,13 @@
   }
   function izbranDebrid(v) {
     if (v === "nastavitve" || v === "") { narisiDebrid(true); odpriDebrid(); return; }
+    if (v === "usenet") {
+      narisiDebrid(true);
+      odpriKatViri();
+      var usenetEl = $("unpIme");
+      if (usenetEl) { usenetEl.scrollIntoView({ behavior: "smooth", block: "center" }); usenetEl.focus(); }
+      return;
+    }
     klic("mediaDebrid", ["aktivna", v === "brez" ? "" : v]).then(function (s) { debridStanje = s; narisiDebrid(true); })
       .catch(function () {});
   }
@@ -6256,6 +6277,8 @@
     });
     // Usenet prek TorBoxa: uporabnikov indeksator (Newznab). Naslov in kljuc ostaneta sifrirana na tem racunalniku;
     // nazaj dobimo samo gostitelja.
+    var ui = $("unpIndeksator");
+    if (ui) ui.innerHTML = "";
     var u = s.usenet || {}, uv = el("div", "debrid-vrstica"); uv.dataset.id = "usenet";
     var uo = el("div", "debrid-opis");
     uo.appendChild(el("strong", "", ubezi(t("usenetIme"))));
@@ -6281,13 +6304,13 @@
         klic("mediaDebrid", ["pozabi_usenet"]).then(function (o) {
           $("debridStanjeVnosa").textContent = t("usenetOdstranjen");
           narisiDebridOkno(o);
-          var cilj = document.querySelector('#debridSeznam [data-id="usenet"] input');
+          var cilj = document.querySelector('#unpIndeksator [data-id="usenet"] input');
           if (cilj) cilj.focus();
         }).catch(function () {});
       });
       uv.appendChild(uod);
     }
-    sez.appendChild(uv);
+    if (ui) ui.appendChild(uv); else sez.appendChild(uv);
     $("debridSamoTakoj").checked = !!s.samo_takoj;
   }
 
