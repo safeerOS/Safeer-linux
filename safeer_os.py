@@ -4797,6 +4797,8 @@ class SafeerOS(Gtk.Application):
                                                              a[1] if len(a) > 1 and isinstance(a[1], (int, float)) else 0),
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
+            "odpriOknoRazdelka": lambda: self._odpri_okno_razdelka(str(a[0]) if a else ""),
+            "odpriPredvajalnik": lambda: self._odpri_predvajalnik(str(a[0]) if a else ""),
             "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
             "nastavitveOzadja": lambda: sistemske_nastavitve("backgrounds"),
             "lupaUcenje": self.lupa.podatki,
@@ -5316,6 +5318,7 @@ class SafeerOS(Gtk.Application):
                 self.shramba.set("spletne", ciste_spletne)
             shranjene_spletne = ciste_spletne
         izid = {
+            "mostOkna": True,
             "jezik": _jezik(),
             "ime": GLib.get_real_name() if GLib.get_real_name() not in ("", "Unknown") else GLib.get_user_name(),
             "racunalnik": socket.gethostname(),
