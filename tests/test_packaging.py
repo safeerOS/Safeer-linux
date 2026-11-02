@@ -14,6 +14,9 @@ ROOT=Path(__file__).resolve().parents[1]
 
 # Moduli, ki so samo interni poskus in jih uradni paket namerno nima (uvoz je neobvezen).
 NAMERNO_IZPUSCENI={'os_jbl'}
+# Control jih uvozi samo v procesu Safeer OS (core/en_proces.py) in pod try/except ImportError (secrets.sync,
+# 2. 11. 2026) - samostojni Control jih ne potrebuje, v paketu Safeer OS pa so.
+SAMO_V_PROCESU_OS={'os_katalog','os_media','os_programi'}
 
 class PackagingTests(unittest.TestCase):
     def test_check_version_preveri_tudi_safeer_os(self):
@@ -90,7 +93,7 @@ class PackagingTests(unittest.TestCase):
                     for m in vzorec.finditer(datoteka.read_text(encoding='utf-8')):
                         imena=[i.strip() for i in (m.group(1) or '').split(',') if i.strip()]+[g for g in m.group(2,3) if g]
                         for ime in imena:
-                            if ime in NAMERNO_IZPUSCENI:
+                            if ime in NAMERNO_IZPUSCENI or (skripta == 'install_control_payload.sh' and ime in SAMO_V_PROCESU_OS):
                                 continue
                             if (ROOT/'core'/f'{ime}.py').exists() and not (lib/'core'/f'{ime}.py').exists():
                                 manjka.add(f'{datoteka.name} -> {ime}')

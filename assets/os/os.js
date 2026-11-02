@@ -6277,8 +6277,6 @@
     });
     // Usenet prek TorBoxa: uporabnikov indeksator (Newznab). Naslov in kljuc ostaneta sifrirana na tem racunalniku;
     // nazaj dobimo samo gostitelja.
-    var ui = $("unpIndeksator");
-    if (ui) ui.innerHTML = "";
     var u = s.usenet || {}, uv = el("div", "debrid-vrstica"); uv.dataset.id = "usenet";
     var uo = el("div", "debrid-opis");
     uo.appendChild(el("strong", "", ubezi(t("usenetIme"))));
@@ -6304,13 +6302,13 @@
         klic("mediaDebrid", ["pozabi_usenet"]).then(function (o) {
           $("debridStanjeVnosa").textContent = t("usenetOdstranjen");
           narisiDebridOkno(o);
-          var cilj = document.querySelector('#unpIndeksator [data-id="usenet"] input');
+          var cilj = document.querySelector('#debridSeznam [data-id="usenet"] input');
           if (cilj) cilj.focus();
         }).catch(function () {});
       });
       uv.appendChild(uod);
     }
-    if (ui) ui.appendChild(uv); else sez.appendChild(uv);
+    sez.appendChild(uv);
     $("debridSamoTakoj").checked = !!s.samo_takoj;
   }
 
