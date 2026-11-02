@@ -815,7 +815,7 @@ class UporabiTest(unittest.TestCase):
         self.assertLess(ob_namizju.index("self.scit.zacni_ce_vklopljen()"), ob_namizju.index("\n    def "))
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
             js = f.read()
-        self.assertIn('s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : "scitNiMozno"', js)
+        self.assertIn('s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : s.razlog === "pihole_ostanek" ? "scitNapaka_pihole_ostanek" : "scitNiMozno"', js)
         self.assertIn('.scit-zadnje:hover, .scit-zadnje button:focus', js)
         with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
             self.assertEqual(f.read().count('scitNapaka_lastni_dns: "'), 6)
