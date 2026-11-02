@@ -115,11 +115,14 @@ def test_iframe_ne_prepise_post_glavne_navigacije():
         def get_http_method(self): return self.m
 
     class Odlocitev:
-        def __init__(self, u, m): self.z = Zahteva(u, m)
+        def __init__(self, u, m, preusmeritev=False, uporabnik=False):
+            self.z, self.p, self.u = Zahteva(u, m), preusmeritev, uporabnik
         def get_navigation_action(self):
-            z = self.z
+            z, p, u = self.z, self.p, self.u
             class A:
                 def get_request(self): return z
+                def is_redirect(self): return p
+                def is_user_gesture(self): return u
             return A()
 
     class Pogled:
@@ -142,6 +145,12 @@ def test_iframe_ne_prepise_post_glavne_navigacije():
     with patch("core.network_errors.GLib.timeout_add", side_effect=AssertionError("POST se ne sme ponoviti")):
         h.load_failed(v, WebKit2.LoadEvent.STARTED, "https://trgovina.si/placaj", napaka)
     assert not hasattr(v, "nalozen") and v.napaka == "https://trgovina.si/placaj"
+    # Pregled Grok 2. 11. 2026: preusmeritev POST->GET (303) in navigacija uporabnika na isti naslov sta nova GET.
+    h.decide_policy(v, Odlocitev("https://trgovina.si/placaj", "GET", preusmeritev=True), nav)
+    assert h._metoda("https://trgovina.si/placaj") == "GET"
+    h.decide_policy(v, Odlocitev("https://trgovina.si/kosarica", "POST"), nav)
+    h.decide_policy(v, Odlocitev("https://trgovina.si/kosarica", "GET", uporabnik=True), nav)
+    assert h._metoda("https://trgovina.si/kosarica") == "GET"
     from core import network_errors as ne
     for i in range(ne.NAJVEC_ZAHTEV + 5):
         h.decide_policy(v, Odlocitev("https://a.si/%d" % i, "GET"), nav)
