@@ -2318,7 +2318,11 @@ class SafeerControl(_OSNOVA):
             from core import link_daljinec
             if not link_daljinec._safeer_os():
                 return
-            from core import os_programi, uskladitev_kljucev as UK, uskladitev_kljucev_mediji as UM
+            try:
+                # Moduli Medijskega centra so v paketu Safeer OS (install_os_payload.sh); brez njega ni cesa usklajevati.
+                from core import os_programi, uskladitev_kljucev as UK, uskladitev_kljucev_mediji as UM
+            except ImportError:
+                return
             mapa = os.path.join(os_programi.MAPA_NASTAVITEV, "media")
             lastni: list = []
 
@@ -2330,7 +2334,10 @@ class SafeerControl(_OSNOVA):
                 if kat is not None:
                     return kat.mc
                 if not lastni:
-                    from core import os_katalog, os_media
+                    try:
+                        from core import os_katalog, os_media
+                    except ImportError:
+                        return None
                     lastni.append(os_media.MediaCenter(mapa, roots=[], secret_encryptor=os_katalog.skrij,
                                                        secret_decryptor=os_katalog.razkrij, secret_forget=os_katalog.pozabi))
                 return lastni[0]
