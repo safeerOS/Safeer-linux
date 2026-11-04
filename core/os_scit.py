@@ -38,6 +38,7 @@ import os
 import re
 import shutil
 import socket
+import stat as _stat
 import struct
 import subprocess
 import threading
@@ -1328,55 +1329,111 @@ def v_flatpaku() -> bool:
     return bool(os.environ.get("FLATPAK_ID")) or os.path.exists("/.flatpak-info")
 
 
-def _rootov(pot: str) -> bool:
+def _predniki(pot: str) -> List[str]:
+    """Vse mape nad `pot` do korena (/usr/local/lib/safeer-os, /usr/local/lib, /usr/local, /usr, /)."""
+    izid: List[str] = []
+    p = os.path.dirname(pot)
+    while True:
+        izid.append(p)
+        visje = os.path.dirname(p)
+        if visje == p:
+            return izid
+        p = visje
+
+
+def _varen_vnos(uid: int, nacin: int, mapa: bool) -> bool:
+    """Rootov, brez pisanja za skupino in druge, ne simbolna povezava; mapa je mapa, program navadna datoteka."""
+    if uid != 0 or nacin & 0o022 or _stat.S_ISLNK(nacin):
+        return False
+    return _stat.S_ISDIR(nacin) if mapa else _stat.S_ISREG(nacin)
+
+
+def _rootov(pot: str, mapa: bool = False) -> bool:
     try:
-        st = os.stat(pot)
+        st = os.lstat(pot)          # povezave ne sledimo: njen cilj bi lahko bil uporabnikov
     except OSError:
         return False
-    return st.st_uid == 0 and not st.st_mode & 0o022 and os.access(pot, os.X_OK)
+    return _varen_vnos(st.st_uid, st.st_mode, mapa) and (mapa or os.access(pot, os.X_OK))
 
 
-_gostitelj_pomocnik: Optional[Tuple[float, bool]] = None
+def _rootova_pot(pot: str) -> bool:
+    """Program in VSI predniki do / so rootovi in nespremenljivi za druge (pregled 4. 11. 2026, NIZKA): prej sta se
+    preverjala samo datoteka in njena mapa - kdor sme pisati v /usr/local (npr. skupina staff), bi mapo zamenjal."""
+    return _rootov(pot) and all(_rootov(p, mapa=True) for p in _predniki(pot))
+
+
+#: Stanje pomocnika na gostitelju: »ok« (nas, varen), »star« (datoteka je, a ni nasa razlicica ali je ne smemo zagnati
+#: kot root - nova namestitev jo zamenja), »nevaren« (mapa nad njim ni rootova: namestitev tega ne popravi), »ni«.
+_gostitelj_pomocnik: Optional[Tuple[float, str]] = None
 #: Kako dolgo velja preverba pomocnika na gostitelju (s): v Flatpaku je to podproces na gostitelju.
 POMOCNIK_GOSTITELJA_S = 30.0
+#: Lupina na gostitelju (Flatpak): stat brez sledenja povezavam za program in vse prednike, nato vsota. Koda 7 = ni.
+_PREVERI_GOSTITELJA = '[ -e "$1" ] || [ -L "$1" ] || exit 7; stat -c "%u %f" -- "$@" && sha256sum -- "$1"'
 
 
-def _pomocnik_gostitelja() -> bool:
-    """Ali je na gostitelju NAS pomocnik (rootov, mapa rootova, vsebina = SHA_POMOCNIKA). Starejsa razlicica ne velja:
-    ob vklopu se namesti nova (geslo)."""
+def _stanje_gostitelja() -> str:
     global _gostitelj_pomocnik
     zdaj = time.monotonic()
     if _gostitelj_pomocnik is not None and zdaj - _gostitelj_pomocnik[0] < POMOCNIK_GOSTITELJA_S:
         return _gostitelj_pomocnik[1]
-    ok = False
+    predniki = _predniki(POMOCNIK_GOSTITELJA)
+    stanje = "ni"
     if v_flatpaku():
-        koda, izpis = _zazeni(["flatpak-spawn", "--host", "/bin/sh", "-c",
-                               'stat -c "%u %a" "$0" "${0%/*}" && sha256sum "$0"', POMOCNIK_GOSTITELJA], cas=10.0)
-        vrstice = izpis.split("\n") if koda == 0 else []
-        ok = (len(vrstice) >= 3 and vrstice[0].split() == ["0", "755"] and vrstice[1].split() == ["0", "755"]
-              and vrstice[2].split()[:1] == [SHA_POMOCNIKA])
-    else:
-        try:
-            with open(POMOCNIK_GOSTITELJA, "rb") as f:
-                vsebina = f.read(262145)
-            ok = (_rootov(POMOCNIK_GOSTITELJA) and _rootov(os.path.dirname(POMOCNIK_GOSTITELJA))
-                  and hashlib.sha256(vsebina).hexdigest() == SHA_POMOCNIKA)
-        except OSError:
-            ok = False
-    _gostitelj_pomocnik = (zdaj, ok)
-    return ok
+        koda, izpis = _zazeni(["flatpak-spawn", "--host", "/bin/sh", "-c", _PREVERI_GOSTITELJA, "safeer-scit",
+                               POMOCNIK_GOSTITELJA] + predniki, cas=10.0)
+        vrstice = [v.split() for v in izpis.splitlines()] if koda == 0 else []
+        if koda == 0 and len(vrstice) == len(predniki) + 2:
+            try:
+                vnosi = [(int(v[0]), int(v[1], 16)) for v in vrstice[:-1]]
+            except (ValueError, IndexError):
+                vnosi = []
+            if len(vnosi) != len(predniki) + 1 or not all(_varen_vnos(u, n, True) for u, n in vnosi[1:]):
+                stanje = "nevaren"
+            elif _varen_vnos(vnosi[0][0], vnosi[0][1], False) and vrstice[-1][:1] == [SHA_POMOCNIKA]:
+                stanje = "ok"
+            else:
+                stanje = "star"
+        elif koda != 7:
+            stanje = "nevaren" if koda == 0 else "ni"
+    elif os.path.lexists(POMOCNIK_GOSTITELJA):
+        if not all(_rootov(p, mapa=True) for p in predniki):
+            stanje = "nevaren"
+        else:
+            stanje = "star"
+            if _rootov(POMOCNIK_GOSTITELJA):
+                try:
+                    with open(POMOCNIK_GOSTITELJA, "rb") as f:
+                        vsebina = f.read(262145)
+                    if hashlib.sha256(vsebina).hexdigest() == SHA_POMOCNIKA:
+                        stanje = "ok"
+                except OSError:
+                    pass
+    _gostitelj_pomocnik = (zdaj, stanje)
+    return stanje
+
+
+def _pomocnik_gostitelja() -> bool:
+    """Ali je na gostitelju NAS pomocnik (rootov, vsi predniki rootovi, vsebina = SHA_POMOCNIKA). Starejsa razlicica
+    ne velja: Scit ponudi posodobitev (Scit.posodobi_dovoljenje, geslo enkrat)."""
+    return _stanje_gostitelja() == "ok"
 
 
 def pot_pomocnika() -> Optional[str]:
     """Pot root pomocnika: paket .deb, sicer (Flatpak, AppImage) pomocnik na gostitelju; None, ce ga ni."""
-    if not v_flatpaku() and _rootov(POMOCNIK):
+    if not v_flatpaku() and _rootova_pot(POMOCNIK):
         return POMOCNIK
     return POMOCNIK_GOSTITELJA if _pomocnik_gostitelja() else None
 
 
 def pomocnik() -> bool:
     """Ali DNS nastavlja root pomocnik. Pomocnik mora biti rootov in nespremenljiv za druge - sicer ga ne zaganjamo kot
-    root. Brez njega Scit DNS ne nastavlja (pregled 4. 11. 2026: sirokega pravila za resolve1 ni vec)."""
+    root. Brez njega Scit DNS ne nastavlja (pregled 4. 11. 2026: sirokega pravila za resolve1 ni vec).
+
+    Preostalo tveganje (posteno, neodvisni pregled 4. 11. 2026): ozko pravilo dovoli pomocnika VSAKEMU programu
+    skrbnikove seje, ne samo Scitu - polkit ju ne loci. Pomocnik zahteva, da na 127.0.0.1:<vrata> (5354-5357) poslusa
+    proces ISTEGA uporabnika; program tega uporabnika, ki vrata zasede (npr. ko Scit ne tece), lahko DNS racunalnika
+    preusmeri nase. Poljubnega zunanjega streznika ne more nastaviti (samo 127.0.0.1 in strezniki NetworkManagerja),
+    imena pa vidi. Pred programom, ki ze tece kot ta uporabnik, Scit racunalnika ne varuje."""
     return pot_pomocnika() is not None
 
 
@@ -1416,6 +1473,42 @@ def pravilo_namesceno() -> bool:
                     "--process", str(os.getpid())], cas=10.0)[0] == 0
 
 
+_siroko: Optional[Tuple[float, bool]] = None
+
+
+def siroko_pravilo_velja() -> bool:
+    """Ali na tem racunalniku se velja staro siroko pravilo (PRAVILO: vsak program skrbnika sme brez gesla poljuben
+    DNS prek resolve1). Flatpak in AppImage sta ga namescala do 4. 11. 2026; odstrani ga sele pomocnik (`scit-dns
+    dovoli`), ki ga dobi Scit ob ponovnem vklopu. Polkit vprasamo naravnost (pkcheck brez interakcije: 0 = dovoljeno
+    brez gesla), ker mape pravil uporabnik ne more brati. Samo, ce nasega pomocnika ni - ta staro pravilo ze odstrani
+    (.deb: postinst ga prepise z ozkim)."""
+    global _siroko
+    if pot_pomocnika() is not None:
+        return False
+    zdaj = time.monotonic()
+    if _siroko is not None and zdaj - _siroko[0] < POMOCNIK_GOSTITELJA_S:
+        return _siroko[1]
+    if v_flatpaku():
+        koda = _zazeni(["flatpak-spawn", "--host", "/bin/sh", "-c", 'exec pkcheck --action-id "$0" --process $$',
+                        AKCIJA_DNS], cas=10.0)[0]
+    elif shutil.which("pkcheck") is None:
+        koda = 1
+    else:
+        koda = _zazeni(["pkcheck", "--action-id", AKCIJA_DNS, "--process", str(os.getpid())], cas=10.0)[0]
+    _siroko = (zdaj, koda == 0)
+    return koda == 0
+
+
+def dovoljenje_za_posodobitev() -> str:
+    """Kaj Scit ponudi posodobiti (geslo enkrat, Scit.posodobi_dovoljenje): »siroko« = staro siroko pravilo se velja,
+    »pomocnik« = pomocnik na gostitelju je star (druga SHA_POMOCNIKA); »« = nic. Oboje resi namestitev pomocnika."""
+    if siroko_pravilo_velja():
+        return "siroko"
+    if pot_pomocnika() is None and _stanje_gostitelja() == "star":
+        return "pomocnik"
+    return ""
+
+
 def _vsebina_pomocnika() -> Optional[str]:
     """Pomocnik iz tovora, samo ce se ujema s SHA_POMOCNIKA (sicer je paket pokvarjen - nic ne namescamo)."""
     try:
@@ -1435,8 +1528,12 @@ def namesti_pravilo() -> bool:
     """Ob vklopu Scita, z geslom (pkexec), enkrat: dovoljenje, da Scit nastavlja DNS brez gesla.
     .deb: pomocnik namesti svoje ozko pravilo (`scit-dns dovoli`, vsebina je v njem): od nas ne dobi nicesar.
     Flatpak in AppImage: isti pomocnik gre na gostitelja (NAMESTI_POMOCNIKA_KOT_ROOT) in namesti svoje ozko pravilo;
-    sirokega pravila za resolve1 ne namescamo vec (pregled 4. 11. 2026)."""
-    global _gostitelj_pomocnik
+    sirokega pravila za resolve1 ne namescamo vec (pregled 4. 11. 2026).
+
+    Kaj vsota SHA-256 dokazuje: da root namesti natanko pomocnika iz tega paketa (celovitost prenosa od nas do roota,
+    mimo uporabnikovih datotek). Izvora NE dokazuje - vsota je vgrajena v isti paket; izvor jamci podpis paketa
+    (Flatpak, AppImage, .deb), ne ta preverba."""
+    global _gostitelj_pomocnik, _siroko
     pot = pot_pomocnika()
     if pot is not None:
         return pravilo_namesceno() or _pomocnik("dovoli", cas=180.0)
@@ -1447,7 +1544,7 @@ def namesti_pravilo() -> bool:
     # vsota je v ukazni vrstici, ki jo polkit pokaze ob geslu. V Flatpaku vhod do gostitelja prenese flatpak-spawn.
     koda, _ = _zazeni_z_vhodom([root_ukaz.pkexec(), root_ukaz.SH, "-c", NAMESTI_POMOCNIKA_KOT_ROOT,
                                 "safeer-scit", SHA_POMOCNIKA], vsebina, cas=180.0)
-    _gostitelj_pomocnik = None
+    _gostitelj_pomocnik = _siroko = None
     return koda == 0
 
 
@@ -1742,6 +1839,48 @@ class Scit:
         self._razlog = (time.monotonic(), razlog)
         return razlog
 
+    #: Kaj Scit ponuja posodobiti (dovoljenje_za_posodobitev): »siroko«, »pomocnik« ali »«. Preveri se ob zagonu, ob
+    #: pregledu straze in v stanje(); pult bere samo zadnjo vrednost (brez podprocesa).
+    _dovoljenje = ""
+    #: Napaka v vmesniku in pultu za posodobitev dovoljenja (besedili scitNapaka_siroko, scitNapaka_pomocnik_star).
+    NAPAKA_DOVOLJENJA = {"siroko": "siroko", "pomocnik": "pomocnik_star"}
+
+    def _preveri_dovoljenje(self) -> str:
+        try:
+            self._dovoljenje = dovoljenje_za_posodobitev()
+        except Exception as e:  # noqa: BLE001 - preverba ne sme ustaviti Scita; zadnja vrednost ostane
+            print("[SafeerOS] scit: dovoljenje:", e, flush=True)
+        return self._dovoljenje
+
+    def _napaka_vmesnika(self) -> str:
+        """Napaka za vmesnik: staro siroko pravilo ali star pomocnik ni tiha - prekrije »pravilo« in praznino."""
+        d = self.NAPAKA_DOVOLJENJA.get(self._dovoljenje, "")
+        return d if d and self.napaka in ("", "pravilo") else self.napaka
+
+    def _stanje_dovoljenja(self) -> dict:
+        d = self._dovoljenje
+        return {"dovoljenje": d, "dovoljenjePonudi": bool(d) and self.shramba.get("scit_dovoljenje_ponujeno") != d,
+                "napaka": self._napaka_vmesnika()}
+
+    def posodobi_dovoljenje(self, da: bool = True) -> dict:
+        """Ponudba ob zagonu Safeer OS (enkrat) ali gumb v oknu Scita: namesti pomocnika (geslo enkrat); ta staro
+        siroko pravilo odstrani, star pomocnik se zamenja. »Ne zdaj« (da=False) ponudbe ne ponovi, opozorilo v oknu
+        Scita in v pultu pa ostane - nikoli tiho (neodvisni pregled 4. 11. 2026, SREDNJA)."""
+        d = self._preveri_dovoljenje()
+        if d:
+            self.shramba.set("scit_dovoljenje_ponujeno", d)
+        if da and d:
+            ok = namesti_pravilo()
+            self._preveri_dovoljenje()
+            if not ok:
+                self.napaka = "pravilo"
+            elif self.vklopljen and self.mozno():
+                self.napaka = ""
+                self._zazeni()
+            elif self.napaka == "pravilo":
+                self.napaka = ""
+        return self.stanje()
+
     def razlog_svez(self) -> bool:
         """Ali stanje_pulta() ne bo zagnalo podprocesa (zadnja preverba razloga je mlajsa od RAZLOG_PULTA_S)."""
         return self._razlog is not None and time.monotonic() - self._razlog[0] < self.RAZLOG_PULTA_S
@@ -1756,8 +1895,8 @@ class Scit:
         if not razlog and self.napaka in ("ni_resolved", "lastni_dns"):
             self.napaka = ""
         return {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata),
-                "napaka": self.napaka, "blokiranih": r.blokiranih if r else 0, "poizvedb": r.poizvedb if r else 0,
-                "premor": self.premor_se(), "vrata": r.vrata if r else 0,
+                "blokiranih": r.blokiranih if r else 0, "poizvedb": r.poizvedb if r else 0,
+                "premor": self.premor_se(), "vrata": r.vrata if r else 0, **self._stanje_dovoljenja(),
                 # Splet v Safeer OS (Scit v svojem procesu) oznako »DNS nesifriran« dobi iz tega hitrega stanja.
                 "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
                                     and r.nesifrirano())}
@@ -1779,6 +1918,8 @@ class Scit:
              "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
                                  and r.nesifrirano()),
              "twitchOglasi": self.twitch_brez_oglasov()}
+        self._preveri_dovoljenje()
+        s.update(self._stanje_dovoljenja())
         if self.seznami is not None:
             s.update(self.seznami.stanje())
         return s
@@ -1827,6 +1968,8 @@ class Scit:
         return self.stanje()
 
     def _zagon(self) -> None:
+        # Staro siroko pravilo ali star pomocnik: pult in okno Scita to pokazeta takoj, tudi ce je Scit izklopljen.
+        self._preveri_dovoljenje()
         # Kjer Scit ne more filtrirati (npr. uporabnik je medtem namestil svoj streznik DNS), se DNS ne dotikamo -
         # ce ga je uporabnik vklopil, pocakamo, da ovira izgine.
         if not self.mozno():
@@ -1983,6 +2126,7 @@ class Scit:
                     self._uporabi()
             except Exception:
                 pass
+            self._preveri_dovoljenje()       # npr. pravilo je kdo namestil ali odstranil medtem (do 30 s predpomnjeno)
             zadnjic, znak = time.monotonic(), nov_znak
 
     def _ustavi(self) -> None:

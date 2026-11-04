@@ -83,7 +83,8 @@ class EnVirNaprej(unittest.TestCase):
                 self[k] = v
         with tempfile.TemporaryDirectory() as m, mock.patch.object(os_scit, "izprazni_predpomnilnik"), \
                 mock.patch.object(os_scit, "pravilo_namesceno", return_value=False), \
-                mock.patch.object(os_scit, "razlog_nemoznosti", return_value="ni_resolved"):
+                mock.patch.object(os_scit, "razlog_nemoznosti", return_value="ni_resolved"), \
+                mock.patch.object(os_scit, "dovoljenje_za_posodobitev", lambda: ""):   # brez polkit gostitelja
             scit = os_scit.Scit(Shramba(scit_naprej="quad9"), mapa=m)
             config = Config(scit_naprej="google")
             with mock.patch.object(doh_proxy, "_vir_naprej", None):

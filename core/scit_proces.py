@@ -43,6 +43,10 @@ METODE: Dict[str, Callable[..., Any]] = {
     "dovoli": lambda s, domena="", dovoli=True: s.dovoli(str(domena or ""), bool(dovoli)),
     "premor": lambda s, minut=0: s.premor(minut if isinstance(minut, (int, float)) and not isinstance(minut, bool) else 0),
     "nastavi_twitch": lambda s, vklop=True: s.nastavi_twitch(bool(vklop)),
+    # Gumb »Popravi« (ostanek Pi-hole) in posodobitev dovoljenja (staro siroko pravilo, star pomocnik): geslo v oknu
+    # sistema, zato dolg rok v core/scit_odjemalec.py (ROK_VKLOPA_S).
+    "popravi": lambda s: s.popravi(),
+    "posodobi_dovoljenje": lambda s, da=True: s.posodobi_dovoljenje(bool(da)),
 }
 #: Najvecja zahteva (bajtov) in najvec hkratnih povezav na vticnici.
 NAJVEC_ZAHTEVA = 4096

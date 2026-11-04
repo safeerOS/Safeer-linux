@@ -422,6 +422,10 @@ class SistemskiScitNaprej(unittest.TestCase):
     def _scit(self, **kw):
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
+        # Brez klica polkit na racunalniku, kjer preizkus tece (staro siroko pravilo preizkusa tests/test_scit_pomocnik.py).
+        p = mock.patch.object(os_scit, "dovoljenje_za_posodobitev", lambda: "")
+        p.start()
+        self.addCleanup(p.stop)
         return os_scit.Scit(self.Shramba(kw), mapa=d.name)
 
     def test_privzeto_krajevni_in_izbira(self):

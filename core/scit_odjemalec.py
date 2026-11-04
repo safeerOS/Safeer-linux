@@ -107,6 +107,12 @@ class ScitOdjemalec:
     def nastavi(self, vklop: bool) -> dict:
         return self._stanje_iz(self._klic("nastavi", ROK_VKLOPA_S, vklop=bool(vklop)), True)
 
+    def popravi(self) -> dict:
+        return self._stanje_iz(self._klic("popravi", ROK_VKLOPA_S), True)
+
+    def posodobi_dovoljenje(self, da: bool = True) -> dict:
+        return self._stanje_iz(self._klic("posodobi_dovoljenje", ROK_VKLOPA_S, da=bool(da)), True)
+
     def dovoli(self, domena, dovoli: bool = True) -> dict:
         return self._stanje_iz(self._klic("dovoli", domena=str(domena or ""), dovoli=bool(dovoli)), True)
 

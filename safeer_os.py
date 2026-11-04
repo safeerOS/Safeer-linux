@@ -5071,6 +5071,7 @@ class SafeerOS(Gtk.Application):
             "scitTwitch": lambda: self._po_scitu(self.scit.nastavi_twitch(bool(a[0]) if a else True)),
             "scitPremor": lambda: self._po_scitu(self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0)),
             "scitPopravi": lambda: self._po_scitu(self.scit.popravi()),
+            "scitDovoljenje": lambda: self._po_scitu(self.scit.posodobi_dovoljenje(bool(a[0]) if a else True)),
             "scitStatistika": self._scit_statistika,
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),

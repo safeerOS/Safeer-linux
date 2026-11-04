@@ -3400,6 +3400,44 @@
     var b = $("blokScit"), m = $(mesto);
     if (b && m && b.parentNode !== m && vodnikKorak < 0) m.appendChild(b);
   }
+  // Posodobitev dovoljenja Scita (geslo enkrat v oknu sistema): pomocnik zamenja staro siroko pravilo ali star pomocnik.
+  // da=false: »Ne zdaj« - ponudba ob zagonu se ne ponovi, opozorilo v oknu Scita ostane.
+  function posodobiScitDovoljenje(da) {
+    if (scitZaposleno) return;
+    scitZaposleno = !!da;
+    if (da) narisiScit();
+    klic("scitDovoljenje", [!!da]).then(function (r) {
+      scitZaposleno = false;
+      if (r) scitStanje = r;
+      if (da && r) {
+        if (r.dovoljenje) obvesti(t("scitNapaka_" + (r.dovoljenje === "siroko" ? "siroko" : "pomocnik_star")));
+        else if (r.napaka) obvesti(t("scitNapaka_" + r.napaka));
+        else obvesti(t(r.vklop ? "scitVklopljen" : "scitIzklopljen"));
+      }
+      narisiScit();
+    }, function () { scitZaposleno = false; nalozScit(); });
+  }
+  // Enkratna ponudba ob zagonu Safeer OS (neodvisni pregled 4. 11. 2026): Flatpak/AppImage z ze vklopljenim Scitom ima
+  // lahko se staro siroko pravilo. Obvestilo z gumboma ostane, dokler uporabnik ne izbere (brez roka, brez kraje fokusa).
+  function ponudiScitDovoljenje() {
+    setTimeout(function () {
+      klic("scit").then(function (s) {
+        if (s) scitStanje = s;
+        if (!s || !s.dovoljenjePonudi) return;
+        var o = $("obvestilo");
+        o.textContent = "";
+        o.appendChild(el("span", "", ubezi(t("scitNapaka_" + (s.dovoljenje === "siroko" ? "siroko" : "pomocnik_star")))));
+        var da = el("button", "", ubezi(t("scitDovoljenjePosodobi"))); da.type = "button";
+        var ne = el("button", "", ubezi(t("scitDovoljenjeNeZdaj"))); ne.type = "button";
+        function izberi(v) { o.classList.remove("viden", "z-gumbom"); posodobiScitDovoljenje(v); }
+        da.addEventListener("click", function () { izberi(true); });
+        ne.addEventListener("click", function () { izberi(false); });
+        o.appendChild(da); o.appendChild(ne);
+        clearTimeout(obvestiloCas);
+        o.classList.add("z-gumbom", "viden");
+      }, function () {});
+    }, 4000);
+  }
   function narisiScit() {
     var c = $("blokScit");
     c.innerHTML = "";
@@ -3444,6 +3482,19 @@
         }, function () { scitZaposleno = false; nalozScit(); });
       };
       c.appendChild(pop);
+    }
+    // Pregled 4. 11. 2026: staro siroko pravilo (vsak program sme DNS brez gesla) ali star pomocnik - opozorilo in
+    // gumb ostaneta, dokler dovoljenje ni posodobljeno (tudi po »Ne zdaj«); nikoli tiho.
+    if (s.dovoljenje) {
+      var dovNapaka = s.dovoljenje === "siroko" ? "siroko" : "pomocnik_star";
+      var vPodnapisu = !scitZaposleno && s.mozno && s.napaka === dovNapaka;
+      var dv = el("div", "scit-zadnje scit-dovoljenje", vPodnapisu ? "" : ubezi(t("scitNapaka_" + dovNapaka)) + " ");
+      dv.setAttribute("role", "alert");
+      var pg = el("button", "gumb", ubezi(t("scitDovoljenjePosodobi")));
+      pg.type = "button";
+      pg.onclick = function () { posodobiScitDovoljenje(true); };
+      dv.appendChild(pg);
+      c.appendChild(dv);
     }
     // Tiha izguba sifriranja (pregled 18. 10. 2026): mirna vrstica stanja, brez okna in brez rdece barve.
     if (s.vklop && s.tece && s.nesifrirano) {
@@ -11657,6 +11708,7 @@ function narisiKatViri() {
       if (z.vodnik) odpriVodnik(); else if (z.vrnitev) odpriVrnitev();
       osveziStanje();
       osveziOkna();
+      ponudiScitDovoljenje();
       narisiNedavneDomov();
       spremljajDatoteke();          // nedavne na domacem zaslonu (ali odprti razdelek Datoteke) se osvezijo same
       klic("sporocilaSeznam").then(function (p) {

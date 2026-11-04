@@ -293,7 +293,8 @@ class IzbiraPoti(unittest.TestCase):
                 f.write("#!/bin/sh\n")
             os.chmod(pot, 0o755)
             with mock.patch.object(os_scit, "POMOCNIK", pot), mock.patch.object(os_scit, "v_flatpaku", lambda: False):
-                self.assertEqual(os_scit.pomocnik(), os.getuid() == 0, "datoteka uporabnika ni pomocnik")
+                # Datoteka uporabnika ni pomocnik; kot root tudi ne: zacasna mapa (/tmp) je zapisljiva za vse.
+                self.assertFalse(os_scit.pomocnik(), "datoteka uporabnika ali mapa, zapisljiva za druge")
             with mock.patch.object(os_scit, "POMOCNIK", os.path.join(d, "ni")), \
                     mock.patch.object(os_scit, "v_flatpaku", lambda: False):
                 self.assertFalse(os_scit.pomocnik())
@@ -397,16 +398,183 @@ class PomocnikGostitelja(unittest.TestCase):
              'exec pkcheck --action-id "$0" --detail program "$1" --process $$', "org.freedesktop.policykit.exec",
              os_scit.POMOCNIK_GOSTITELJA]])
 
+    @staticmethod
+    def _izpis_gostitelja(datoteka=(0, 0o100755), predniki=None, vsota=None):
+        """Izpis _PREVERI_GOSTITELJA: »uid nacin(hex)« za program in vse prednike do /, nato sha256sum."""
+        predniki = predniki or {}
+        vrstice = ["%d %x" % datoteka]
+        for p in os_scit._predniki(os_scit.POMOCNIK_GOSTITELJA):
+            vrstice.append("%d %x" % predniki.get(p, (0, 0o40755)))
+        vrstice.append("%s  %s" % (vsota or os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA))
+        return "\n".join(vrstice) + "\n"
+
     def test_preverba_na_gostitelju_v_flatpaku(self):
-        izpis = {"ok": "0 755\n0 755\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA),
-                 "star": "0 755\n0 755\n%s  %s\n" % ("1" * 64, os_scit.POMOCNIK_GOSTITELJA),
-                 "uporabnik": "1000 755\n0 755\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA),
-                 "mapa": "0 755\n0 777\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA)}
-        for primer, pricakovano in (("ok", True), ("star", False), ("uporabnik", False), ("mapa", False)):
+        i = self._izpis_gostitelja
+        primeri = (("ok", (0, i()), "ok"), ("star", (0, i(vsota="1" * 64)), "star"),
+                   ("uporabnik", (0, i(datoteka=(1000, 0o100755))), "star"),
+                   ("povezava", (0, i(datoteka=(0, 0o120777))), "star"),
+                   ("mapa", (0, i(predniki={"/usr/local/lib/safeer-os": (0, 0o40777)})), "nevaren"),
+                   # Pregled 4. 11. 2026 (NIZKA): predniki do / - prej se jih ni preverjalo.
+                   ("prednik", (0, i(predniki={"/usr/local": (0, 0o42775)})), "nevaren"),
+                   ("prednik_uporabnika", (0, i(predniki={"/usr": (1000, 0o40755)})), "nevaren"),
+                   ("prednik_povezava", (0, i(predniki={"/usr/local/lib": (0, 0o120777)})), "nevaren"),
+                   ("ni", (7, ""), "ni"))
+        for primer, izid, pricakovano in primeri:
             os_scit._gostitelj_pomocnik = None
+            klici = []
             with mock.patch.object(os_scit, "v_flatpaku", lambda: True), \
-                    mock.patch.object(os_scit, "_zazeni", lambda ukaz, cas=8.0, i=izpis[primer]: (0, i)):
-                self.assertEqual(os_scit._pomocnik_gostitelja(), pricakovano, primer)
+                    mock.patch.object(os_scit, "_zazeni", lambda ukaz, cas=8.0, z=izid: (klici.append(ukaz), z)[1]):
+                self.assertEqual(os_scit._stanje_gostitelja(), pricakovano, primer)
+                os_scit._gostitelj_pomocnik = None
+                self.assertEqual(os_scit._pomocnik_gostitelja(), pricakovano == "ok", primer)
+            self.assertEqual(klici[0][-6:], [os_scit.POMOCNIK_GOSTITELJA, "/usr/local/lib/safeer-os", "/usr/local/lib",
+                                             "/usr/local", "/usr", "/"], "vsi predniki do /")
+
+    def test_predniki_brez_flatpaka(self):
+        """AppImage: isti pomocnik, preverba z lstat - mapa nad /usr/local/lib/safeer-os, zapisljiva za skupino, ne
+        velja (pomocnika bi zamenjal njen clan); simbolni povezavi ne sledimo."""
+        def lazni_lstat(nacini):
+            def lstat(pot):
+                if pot not in nacini:
+                    raise FileNotFoundError(pot)
+                return os.stat_result((nacini[pot], 0, 0, 1, 0, 0, 0, 0, 0, 0))
+            return lstat
+        vse = {p: 0o40755 for p in os_scit._predniki(os_scit.POMOCNIK_GOSTITELJA)}
+        vse[os_scit.POMOCNIK_GOSTITELJA] = 0o100755
+        with mock.patch.object(os_scit.os, "lstat", lazni_lstat(vse)), \
+                mock.patch.object(os_scit.os, "access", lambda p, m: True):
+            self.assertTrue(os_scit._rootova_pot(os_scit.POMOCNIK_GOSTITELJA))
+        for pot, nacin in (("/usr/local", 0o42775), ("/usr", 0o40757), ("/usr/local/lib", 0o120777),
+                           (os_scit.POMOCNIK_GOSTITELJA, 0o120777)):
+            with mock.patch.object(os_scit.os, "lstat", lazni_lstat(dict(vse, **{pot: nacin}))), \
+                    mock.patch.object(os_scit.os, "access", lambda p, m: True):
+                self.assertFalse(os_scit._rootova_pot(os_scit.POMOCNIK_GOSTITELJA), pot)
+                os_scit._gostitelj_pomocnik = None
+                with mock.patch.object(os_scit, "v_flatpaku", lambda: False), \
+                        mock.patch.object(os_scit.os.path, "lexists", lambda p: True):
+                    self.assertIn(os_scit._stanje_gostitelja(), ("nevaren", "star"), pot)
+
+
+class Shramba(dict):
+    def get(self, k, d=None):
+        return dict.get(self, k, d)
+
+    def set(self, k, v):
+        self[k] = v
+
+
+class StaroSirokoPravilo(unittest.TestCase):
+    """Neodvisni pregled 4. 11. 2026 (SREDNJA): Flatpak/AppImage z ze vklopljenim Scitom je obdrzal staro siroko
+    pravilo (vsak program skrbnika sme brez gesla poljuben DNS), dokler uporabnik Scita ni vklopil znova - tiho."""
+
+    def setUp(self):
+        os_scit._gostitelj_pomocnik = os_scit._siroko = None
+        self.addCleanup(setattr, os_scit, "_gostitelj_pomocnik", None)
+        self.addCleanup(setattr, os_scit, "_siroko", None)
+
+    def test_pkcheck_za_resolve1_samo_brez_pomocnika(self):
+        klici = []
+
+        def zazeni(ukaz, cas=8.0):
+            klici.append(list(ukaz))
+            return 0, ""
+        with mock.patch.object(os_scit, "pot_pomocnika", lambda: None), \
+                mock.patch.object(os_scit, "_zazeni", zazeni), \
+                mock.patch.object(os_scit.shutil, "which", lambda ime, **k: "/usr/bin/" + ime):
+            with mock.patch.object(os_scit, "v_flatpaku", lambda: False):
+                self.assertTrue(os_scit.siroko_pravilo_velja())
+            os_scit._siroko = None
+            with mock.patch.object(os_scit, "v_flatpaku", lambda: True):
+                self.assertTrue(os_scit.siroko_pravilo_velja())
+        self.assertEqual(klici, [
+            ["pkcheck", "--action-id", "org.freedesktop.resolve1.set-dns-servers", "--process", str(os.getpid())],
+            ["flatpak-spawn", "--host", "/bin/sh", "-c", 'exec pkcheck --action-id "$0" --process $$',
+             "org.freedesktop.resolve1.set-dns-servers"]])
+        os_scit._siroko = None
+        with mock.patch.object(os_scit, "pot_pomocnika", lambda: os_scit.POMOCNIK_GOSTITELJA), \
+                mock.patch.object(os_scit, "_zazeni", side_effect=AssertionError("pomocnik je: brez pkcheck")):
+            self.assertFalse(os_scit.siroko_pravilo_velja())
+        os_scit._siroko = None
+        with mock.patch.object(os_scit, "pot_pomocnika", lambda: None), \
+                mock.patch.object(os_scit, "v_flatpaku", lambda: True), \
+                mock.patch.object(os_scit, "_zazeni", lambda ukaz, cas=8.0: (1, "")):
+            self.assertFalse(os_scit.siroko_pravilo_velja(), "pkcheck zahteva geslo: sirokega pravila ni")
+
+    def _scit(self, d):
+        return os_scit.Scit(Shramba(scit=True), mapa=d)
+
+    def test_ponudba_enkrat_opozorilo_ostane(self):
+        namestitve = []
+        stanje = {"siroko": True}
+
+        def namesti():
+            namestitve.append(1)
+            stanje["siroko"] = False
+            return True
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(os_scit, "siroko_pravilo_velja", lambda: stanje["siroko"]), \
+                mock.patch.object(os_scit, "pot_pomocnika", lambda: None), \
+                mock.patch.object(os_scit, "_stanje_gostitelja", lambda: "ni"), \
+                mock.patch.object(os_scit, "razlog_nemoznosti", lambda: ""), \
+                mock.patch.object(os_scit, "pravilo_namesceno", lambda: False), \
+                mock.patch.object(os_scit, "namesti_pravilo", namesti):
+            sc = self._scit(d)
+            sc.napaka = "pravilo"
+            st = sc.stanje()
+            self.assertEqual((st["dovoljenje"], st["dovoljenjePonudi"], st["napaka"]), ("siroko", True, "siroko"))
+            self.assertEqual(sc.stanje_pulta(preveri=False)["napaka"], "siroko", "pult ne sme biti miren")
+            from core import pladenj_sni
+            self.assertEqual(pladenj_sni.vrsta_scita(sc.stanje_pulta(preveri=False)), "napaka")
+            # »Ne zdaj«: ponudba se ne ponovi, opozorilo ostane; nic ne namesti.
+            st = sc.posodobi_dovoljenje(False)
+            self.assertEqual((st["dovoljenje"], st["dovoljenjePonudi"], st["napaka"]), ("siroko", False, "siroko"))
+            self.assertEqual(namestitve, [])
+            # Gumb v oknu Scita: namesti pomocnika (ta odstrani staro pravilo), Scit se zazene.
+            with mock.patch.object(sc, "_zazeni", lambda: True) as _:
+                st = sc.posodobi_dovoljenje(True)
+            self.assertEqual(namestitve, [1])
+            self.assertEqual((st["dovoljenje"], st["dovoljenjePonudi"]), ("", False))
+            self.assertNotEqual(st["napaka"], "siroko")
+
+    def test_zavrnjeno_geslo_ostane_opozorilo(self):
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(os_scit, "siroko_pravilo_velja", lambda: True), \
+                mock.patch.object(os_scit, "pot_pomocnika", lambda: None), \
+                mock.patch.object(os_scit, "razlog_nemoznosti", lambda: ""), \
+                mock.patch.object(os_scit, "pravilo_namesceno", lambda: False), \
+                mock.patch.object(os_scit, "namesti_pravilo", lambda: False):
+            sc = self._scit(d)
+            st = sc.posodobi_dovoljenje(True)
+            self.assertEqual((st["dovoljenje"], st["napaka"]), ("siroko", "siroko"))
+
+    def test_star_pomocnik_ponudi_posodobitev_ne_napake_pravilo(self):
+        """Pregled 4. 11. 2026 (NIZKA): pomocnik na gostitelju se ni posodabljal - ob drugi SHA_POMOCNIKA je Scit
+        javil »pravilo«. Zdaj ponudi posodobitev pomocnika; namestitev starega zamenja (mv -f)."""
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(os_scit, "siroko_pravilo_velja", lambda: False), \
+                mock.patch.object(os_scit, "pot_pomocnika", lambda: None), \
+                mock.patch.object(os_scit, "_stanje_gostitelja", lambda: "star"), \
+                mock.patch.object(os_scit, "razlog_nemoznosti", lambda: ""), \
+                mock.patch.object(os_scit, "pravilo_namesceno", lambda: False):
+            sc = self._scit(d)
+            sc.napaka = "pravilo"
+            st = sc.stanje()
+            self.assertEqual((st["dovoljenje"], st["dovoljenjePonudi"], st["napaka"]),
+                             ("pomocnik", True, "pomocnik_star"))
+        self.assertIn('mv -f "$cilj/.scit-dns.novo" "$cilj/scit-dns"', os_scit.NAMESTI_POMOCNIKA_KOT_ROOT)
+
+    def test_proces_scit_pozna_nove_metode(self):
+        from core import scit_odjemalec, scit_proces
+        for m in ("popravi", "posodobi_dovoljenje"):
+            self.assertIn(m, scit_proces.METODE)
+            self.assertTrue(callable(getattr(scit_odjemalec.ScitOdjemalec, m, None)), m)
+        os_vir = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
+        self.assertIn('"scitDovoljenje": lambda: self._po_scitu(self.scit.posodobi_dovoljenje(', os_vir)
+        js = (KOREN / "assets" / "os" / "os.js").read_text(encoding="utf-8")
+        self.assertIn('klic("scitDovoljenje"', js)
+        besedila = (KOREN / "assets" / "os" / "besedila.js").read_text(encoding="utf-8")
+        for k in ("scitNapaka_siroko", "scitNapaka_pomocnik_star", "scitDovoljenjePosodobi", "scitDovoljenjeNeZdaj"):
+            self.assertEqual(besedila.count(k + ":"), 6, k)
 
 
 class PomocnikNaGostiteljuPravilo(unittest.TestCase):

@@ -600,9 +600,12 @@ class LastniDns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m:
             sc = os_scit.Scit(IzjemeInPremor.Shramba(), mapa=m)
             sc.napaka = "lastni_dns"
-            with Zamenjave(razlog_nemoznosti=lambda: "lastni_dns", pravilo_namesceno=lambda: False):
+            # Brez klica polkit na racunalniku, kjer preizkus tece (staro siroko pravilo preizkusa tests/test_scit_pomocnik.py).
+            with Zamenjave(razlog_nemoznosti=lambda: "lastni_dns", pravilo_namesceno=lambda: False,
+                           dovoljenje_za_posodobitev=lambda: ""):
                 self.assertEqual(sc.stanje()["napaka"], "lastni_dns")
-            with Zamenjave(razlog_nemoznosti=lambda: "", pravilo_namesceno=lambda: False):
+            with Zamenjave(razlog_nemoznosti=lambda: "", pravilo_namesceno=lambda: False,
+                           dovoljenje_za_posodobitev=lambda: ""):
                 self.assertEqual(sc.stanje()["napaka"], "")
 
 
