@@ -645,14 +645,17 @@ class ConfigManager:
             return False
 
     def _zapisi(self) -> None:
-        """Zdruzi in zapise nastavitve skupaj s cakajocimi povecanji stevcev; ob ZaklepZaseden ostane vse cakajoce."""
-        with shramba_json.ZAKLEP_NITI:
+        """Zdruzi in zapise nastavitve skupaj s cakajocimi povecanji stevcev; ob ZaklepZaseden ostane vse cakajoce.
+        Na flock caka brez ZAKLEP_NITI (shramba_json.zaklep_zapisa, pregled 4. 11. 2026): vmesnik ne zamrzne."""
+        with shramba_json.zaklep_zapisa(self.config_file) as drzi:
+            if not drzi:
+                raise shramba_json.ZaklepZaseden("zaklep %s ni na voljo" % self.config_file)
             cakajoce = getattr(self, "_cakajoce_stetje", None)
             if cakajoce is None:
                 cakajoce = self._cakajoce_stetje = {}
-            self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
-                                                           getattr(self, "_na_disku", {}), indent=4,
-                                                           pristej=dict(cakajoce) or None)
+            self._na_disku = shramba_json.zdruzi_zaklenjeno(self.config_file, self.settings,
+                                                            getattr(self, "_na_disku", {}), indent=4,
+                                                            pristej=dict(cakajoce) or None)
             cakajoce.clear()
 
     def _ponovi_kasneje(self) -> None:
@@ -668,17 +671,17 @@ class ConfigManager:
     def _ponovi(self) -> None:
         with shramba_json.ZAKLEP_NITI:
             self._ponovitev = None
-            self.save_settings()
+        self.save_settings()            # cakanje na flock brez ZAKLEP_NITI (vmesnik ne sme zamrzniti)
 
     def get(self, key: str, default=None):
         return self.settings.get(key, default)
 
     def set(self, key: str, value: Any) -> bool:
-        # Dodelitev in zapis pod istim zaklepom niti: sicer ju zapis druge niti (zdruzi_in_zapisi prevzame kljuce z
-        # diska) lahko loci in vrednost se izgubi (neodvisni pregled 1.0.129).
+        # Dodelitev pod zaklepom niti: zdruzitev druge niti (pod istim zaklepom) je ne prepise s staro z diska
+        # (neodvisni pregled 1.0.129). Zapis brez ZAKLEP_NITI v roki - na flock ne cakamo z globalnim zaklepom.
         with shramba_json.ZAKLEP_NITI:
             self.settings[key] = value
-            return self.save_settings()
+        return self.save_settings()
 
     def _povecaj(self, kljuc: str, n: int) -> bool:
         """Stevec povecaj na vrednosti z diska pod zaklepom (shramba_json.zdruzi_in_zapisi, pristej): stejeta ga
@@ -694,16 +697,16 @@ class ConfigManager:
             if cakajoce is None:
                 cakajoce = self._cakajoce_stetje = {}
             cakajoce[kljuc] = cakajoce.get(kljuc, 0) + n
-            try:
-                os.makedirs(self.config_dir, exist_ok=True)
-                self._zapisi()
-                return True
-            except shramba_json.ZaklepZaseden:
-                self._ponovi_kasneje()      # povecanje caka v _cakajoce_stetje
-                return False
-            except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
-                print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
-                return False
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            self._zapisi()
+            return True
+        except shramba_json.ZaklepZaseden:
+            self._ponovi_kasneje()      # povecanje caka v _cakajoce_stetje
+            return False
+        except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
+            print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
+            return False
 
     def increment_ads_blocked(self, count: int = 1):
         """Increments the cumulative blocked ads counter and saves settings."""

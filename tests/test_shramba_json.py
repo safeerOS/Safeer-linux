@@ -173,5 +173,43 @@ class TestShrambaJson(unittest.TestCase):
         cfg.increment_ads_blocked(2)
         self.assertEqual(shramba_json.preberi_slovar(self.pot)["total_ads_blocked"], zacetek + 5)
 
+    def _cakanje_ne_drzi_zaklepa_niti(self, zapisi):
+        """Pregled 4. 11. 2026: ponovitev zapisa (nit v ozadju) je med cakanjem na flock drzala globalni ZAKLEP_NITI
+        - vsak set() druge shrambe na glavni niti je zamrznil do 2 s. Zdaj ZAKLEP_NITI med cakanjem ostane prost."""
+        import threading
+        fd = self._drzi_zaklep_v_drugem_procesu()
+        caka = threading.Thread(target=zapisi, name="ponovitev", daemon=True)
+        caka.start()
+        time.sleep(0.3)                       # nit zdaj caka na flock (rok 2 s)
+        self.assertTrue(caka.is_alive())
+        zacetek = time.monotonic()
+        dobil = shramba_json.ZAKLEP_NITI.acquire(timeout=0.5)
+        if dobil:
+            shramba_json.ZAKLEP_NITI.release()
+        druga = shramba_json.Shramba(os.path.join(self.mapa, "druga.json"))
+        druga.set("x", 1)                     # druga datoteka: ne sme cakati na tuj flock
+        trajalo = time.monotonic() - zacetek
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        caka.join(5)
+        self.assertTrue(dobil, "ZAKLEP_NITI je drzala nit, ki caka na flock")
+        self.assertLess(trajalo, 1.0)
+        self.assertEqual(shramba_json.preberi_slovar(os.path.join(self.mapa, "druga.json")), {"x": 1})
+
+    def test_ponovitev_shrambe_ne_drzi_zaklepa_niti_med_cakanjem(self):
+        s = shramba_json.Shramba(self.pot)
+        s.podatki["a"] = 1
+        self._cakanje_ne_drzi_zaklepa_niti(s._ponovi)
+
+    def test_ponovitev_nastavitev_ne_drzi_zaklepa_niti_med_cakanjem(self):
+        from unittest import mock
+        from core.config import ConfigManager
+        cfg = ConfigManager(config_dir=self.mapa)
+        self.pot = cfg.config_file
+        cfg.settings["virtual_keyboard_enabled"] = True
+        with mock.patch.object(ConfigManager, "_ponovi_kasneje", lambda self: None, create=True):
+            self._cakanje_ne_drzi_zaklepa_niti(cfg._ponovi)
+
+
 if __name__ == "__main__":
     unittest.main()

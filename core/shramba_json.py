@@ -33,6 +33,8 @@ except ImportError:  # Windows: en proces, brez zaklepa med procesi
 _NI = object()
 #: Zapisi v enem procesu (vec niti) - med procesi je zaklep flock na <pot>.lock. RLock: set() klice shrani().
 ZAKLEP_NITI = threading.RLock()
+#: Pravilo (pregled 4. 11. 2026): na flock se NIKOLI ne caka z ZAKLEP_NITI v roki. Ponovitev v ozadju je med
+#: cakanjem (do 2 s) drzala globalni zaklep in vsak set() katerekoli shrambe na glavni niti je zamrznil vmesnik.
 
 
 def zapisi_atomsko(pot: str, podatki: Any, *, indent: Optional[int] = 1, nacin: int = 0o600) -> None:
@@ -123,6 +125,25 @@ def zaklep(pot: str, rok: float = 2.0):
             os.close(fd)
 
 
+@contextlib.contextmanager
+def zaklep_zapisa(pot: str, rok: float = 2.0):
+    """Najprej zaklep datoteke med procesi (cakanje BREZ ZAKLEP_NITI), nato ZAKLEP_NITI za kratko zdruzitev in zapis.
+    Tudi ZAKLEP_NITI caka najvec `rok`: nit, ki ga drzi in caka na isti flock, ne sme zastaviti obeh. Vrne (as) True,
+    ce drzi oba - sicer klicatelj ne sme pisati."""
+    with zaklep(pot, rok) as drzi:
+        if not drzi:
+            yield False
+            return
+        if not ZAKLEP_NITI.acquire(timeout=rok):
+            print("[Shramba] zaklep niti zaseden, zapis %s odlozen" % pot, flush=True)
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            ZAKLEP_NITI.release()
+
+
 def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *,
                      indent: Optional[int] = 1, pristej: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """Zapise kljuce, ki so v `lokalno` drugacni kot v `znano` (zadnje stanje datoteke, ki ga ta proces pozna), na
@@ -131,32 +152,39 @@ def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *
 
     `pristej` {kljuc: n}: stevec povecaj za n glede na vrednost NA DISKU pod istim zaklepom - sicer bi proces s staro
     kopijo (Safeer OS in Safeer Browser stejeta isti stevec Scita) povecanja drugega procesa prepisal."""
-    with ZAKLEP_NITI, zaklep(pot) as drzi:
+    with zaklep_zapisa(pot) as drzi:
         if not drzi:
             # Brez zaklepa ne beremo ne pisemo: drug proces bi zapis povozil ali mi njegovega. `lokalno` ostane
             # nespremenjen (tudi `pristej` ne), zato isti klic kasneje zapise isto.
             raise ZaklepZaseden("zaklep %s ni na voljo" % pot)
-        disk = preberi_slovar(pot)
-        for k, n in (pristej or {}).items():
-            osnova = (disk or {}).get(k, lokalno.get(k, 0))
-            if not isinstance(osnova, int) or isinstance(osnova, bool):
-                osnova = 0
-            lokalno[k] = osnova + int(n)
-        spremenjeno = {k for k in set(lokalno) | set(znano) if lokalno.get(k, _NI) != znano.get(k, _NI)}
-        if disk is None:
-            izid = copy.deepcopy(lokalno)
-        else:
-            izid = disk
-            for k in spremenjeno:
-                if k in lokalno:
-                    izid[k] = copy.deepcopy(lokalno[k])
-                else:
-                    izid.pop(k, None)
-        zapisi_atomsko(pot, izid, indent=indent)
-        for k, v in izid.items():
-            if k not in spremenjeno and lokalno.get(k, _NI) != v:
-                lokalno[k] = copy.deepcopy(v)
-        return copy.deepcopy(lokalno)
+        return zdruzi_zaklenjeno(pot, lokalno, znano, indent=indent, pristej=pristej)
+
+
+def zdruzi_zaklenjeno(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *,
+                      indent: Optional[int] = 1, pristej: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    """Jedro zdruzi_in_zapisi: klicatelj ze drzi zaklep_zapisa(pot) (tako lahko pod istim zaklepom shrani se novo
+    znano stanje - sicer bi ga nit, ki pise za njim, prebrala staro)."""
+    disk = preberi_slovar(pot)
+    for k, n in (pristej or {}).items():
+        osnova = (disk or {}).get(k, lokalno.get(k, 0))
+        if not isinstance(osnova, int) or isinstance(osnova, bool):
+            osnova = 0
+        lokalno[k] = osnova + int(n)
+    spremenjeno = {k for k in set(lokalno) | set(znano) if lokalno.get(k, _NI) != znano.get(k, _NI)}
+    if disk is None:
+        izid = copy.deepcopy(lokalno)
+    else:
+        izid = disk
+        for k in spremenjeno:
+            if k in lokalno:
+                izid[k] = copy.deepcopy(lokalno[k])
+            else:
+                izid.pop(k, None)
+    zapisi_atomsko(pot, izid, indent=indent)
+    for k, v in izid.items():
+        if k not in spremenjeno and lokalno.get(k, _NI) != v:
+            lokalno[k] = copy.deepcopy(v)
+    return copy.deepcopy(lokalno)
 
 
 class Shramba:
@@ -184,15 +212,19 @@ class Shramba:
         return privzeto if v is None else v
 
     def set(self, kljuc: str, vrednost) -> None:
-        # Dodelitev in zapis skupaj pod zaklepom niti: zapis druge niti med njima bi vrednost prepisal s staro z diska
-        # (neodvisni pregled 1.0.129, preverjeno s prepletanjem).
+        # Dodelitev pod zaklepom niti: zdruzitev druge niti (tudi pod ZAKLEP_NITI) je ne more prekiniti in vrednosti
+        # prepisati s staro z diska (neodvisni pregled 1.0.129). Zapis sledi BREZ ZAKLEP_NITI v roki: na flock ne
+        # cakamo z globalnim zaklepom (pregled 4. 11. 2026); ce je druga nit medtem ze zapisala, je zapis prazen.
         with ZAKLEP_NITI:
             self.podatki[kljuc] = vrednost
-            self.shrani()
+        self.shrani()
 
     def shrani(self) -> bool:
         try:
-            self._znano = zdruzi_in_zapisi(self.pot, self.podatki, self._znano)
+            with zaklep_zapisa(self.pot) as drzi:
+                if not drzi:
+                    raise ZaklepZaseden("zaklep %s ni na voljo" % self.pot)
+                self._znano = zdruzi_zaklenjeno(self.pot, self.podatki, self._znano)
             return True
         except ZaklepZaseden:
             # Spremembe ostanejo umazane (podatki != _znano); zapis ponovimo, ne da bi cakali na naslednji set().
@@ -214,7 +246,7 @@ class Shramba:
     def _ponovi(self) -> None:
         with ZAKLEP_NITI:
             self._ponovitev = None
-            self.shrani()
+        self.shrani()            # cakanje na flock brez ZAKLEP_NITI (vmesnik ne sme zamrzniti)
 
     def osvezi(self) -> None:
         """Prevzame kljuce, ki jih je spremenil drug proces (brez zapisa); lastne nezapisane spremembe ostanejo."""
