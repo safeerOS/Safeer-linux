@@ -2341,7 +2341,9 @@ class SafeerControl(_OSNOVA):
                     lastni.append(os_media.MediaCenter(mapa, roots=[], secret_encryptor=os_katalog.skrij,
                                                        secret_decryptor=os_katalog.razkrij, secret_forget=os_katalog.pozabi))
                 return lastni[0]
-            usk = UK.Uskladitev(UK.Shramba(os.path.join(mapa, "kljuci-sinh.json")), UM.VirMedijev(dobi_mc),
+            # Ponudnik Usenet z geslom (lastnik 4. 11. 2026): ista datoteka kot core/os_katalog (usenet_vezava.IME_DATOTEKE).
+            pot_usenet = os.path.join(mapa, "usenet-ponudnik.json")
+            usk = UK.Uskladitev(UK.Shramba(os.path.join(mapa, "kljuci-sinh.json")), UM.VirMedijev(dobi_mc, pot_usenet),
                                 UM.LinkSafeer(self.link))
             usk.ob_vprasanju = lambda c: self._vprasaj_za_kljuce(usk, c)
             usk.ob_spremembi = lambda s: self._sprememba_kljucev(usk, s)
@@ -2355,7 +2357,7 @@ class SafeerControl(_OSNOVA):
                     usk.sprozi(5.0)
             self.link.ob_povezavi = ob_povezavi
             casi = {"zadnjic": time.monotonic(), "mtime": None}
-            datoteke = [os.path.join(mapa, "debrid.json"), os.path.join(mapa, "media.json")]
+            datoteke = [os.path.join(mapa, "debrid.json"), os.path.join(mapa, "media.json"), pot_usenet]
 
             def pazi() -> bool:
                 # Sprememba kljuca ali dodatka (mtime nastavitev) ali vsakih UK.SAMODEJNO_S - brez branja vrednosti.
