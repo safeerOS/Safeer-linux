@@ -559,7 +559,7 @@ def _zagotovi_control(vodilo) -> bool:
         aplikacija = en_proces.os_app()
         if aplikacija is not None and en_proces.na_glavni(aplikacija._vgradi_control, cas=20.0, privzeto=False):
             return True
-        ukaz = _ukaz_controla()
+        ukaz = _ukaz_locenega_controla()
         if not ukaz:
             return False
         # SAFEER_CONTROL_IZ_OS: `--ozadje` se ob delovni povrsini Safeer Cinnamon sicer konca takoj (samozagon, glej
@@ -1543,6 +1543,13 @@ def _ukaz_controla() -> Optional[list]:
     if os.path.isfile(skripta):
         return okolje_procesa.python_ukaz() + [skripta]
     return None
+
+
+def _ukaz_locenega_controla() -> Optional[list]:
+    """Ukaz za LOCEN proces Controla, kadar ga Safeer OS ne more vgraditi v svoj proces. Posebej od _ukaz_controla
+    (ta pove samo, ali Control je): preizkusi ga zamenjajo (tests/conftest.py), da zivi preizkus brez aplikacije
+    Safeer OS ne zazene Controla v ozadju - namescenega ali iz repozitorija, ki bi ostal po teku (4. 11. 2026)."""
+    return _ukaz_controla()
 
 
 #: Po negativnem izidu preverbe peskovnika jo ponovimo šele čez toliko sekund (glej SafeerOS._peskovnik_na_voljo).
@@ -8127,7 +8134,7 @@ class SafeerOS(Gtk.Application):
                 return True
         except Exception as e:  # noqa: BLE001 - locen proces kot prej
             print("[SafeerOS] Control v procesu:", e, flush=True)
-        ukaz = _ukaz_controla()
+        ukaz = _ukaz_locenega_controla()
         if not ukaz:
             return False
         try:

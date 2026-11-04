@@ -148,7 +148,8 @@ class OdpriControl(_Pocisti):
         lazna = mock.MagicMock()
         lazna._vgradi_control.return_value = False            # Control tece kot locen proces
         with mock.patch.object(so.subprocess, "Popen") as popen, \
-                mock.patch.object(so, "_ukaz_controla", return_value=["safeer-control"]):
+                mock.patch.object(so, "_ukaz_locenega_controla", return_value=["safeer-control"]):
+            # Locen proces zazene _ukaz_locenega_controla (conftest ga sicer zamenja, da tek Controla ne zazene).
             self.assertTrue(so.SafeerOS._odpri_control(lazna))
         popen.assert_called_once()
 
