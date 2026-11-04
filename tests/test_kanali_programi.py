@@ -328,11 +328,13 @@ class Zaznava(unittest.TestCase):
             popen.assert_not_called()
         with mock.patch.object(namizni_programi.gostitelj, "v_flatpaku", lambda: True), \
                 mock.patch.object(namizni_programi.shutil, "which", lambda u: "/usr/bin/" + u), \
+                mock.patch.object(namizni_programi.gostitelj, "env_zaslona", lambda: ["--env=DISPLAY=:9"]), \
                 mock.patch.object(namizni_programi.subprocess, "Popen") as popen:
+            # Zaslon iz gostitelj.env_zaslona (njegov preizkus je posebej), ne iz okolja procesa preizkusov: brez
+            # DISPLAY (seja brez X, tek prek SSH) je preizkus prej padal, ceprav je bila koda pravilna (4. 11. 2026).
             namizni_programi.zazeni({"ukaz": ["/opt/viber/Viber", "--x"]})
             argv = popen.call_args[0][0]
-            self.assertEqual(argv[:2], ["flatpak-spawn", "--host"])
-            self.assertTrue(argv[2].startswith("--env=DISPLAY="))
+            self.assertEqual(argv[:3], ["flatpak-spawn", "--host", "--env=DISPLAY=:9"])
             self.assertEqual(argv[3:], [namizni_programi.gostitelj.na_gostitelju("/opt/viber/Viber"), "--x"])
             self.assertNotIn("shell", popen.call_args[1])
 
