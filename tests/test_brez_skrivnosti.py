@@ -13,7 +13,7 @@ except ImportError:     # Windows
 
 KOREN = Path(__file__).resolve().parents[1]
 VZORCI = {
-    "zasebni kljuc": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+    "zasebni kljuc": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"),
     "GitHub zeton": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{40,}"),
     "Google API kljuc": re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),
     "AWS kljuc": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -28,7 +28,10 @@ IZJEME_KLJUC = {
     "tests/test_pregled11_ozji_krog.py": "lazna glava kljuca v .crt - preizkus, da Link taksne datoteke ne deli",
 }
 # Glava, za katero (tudi prek ubezne sekvence \\n v nizu) sledi vsaj 40 znakov base64: tako je videti pravi kljuc.
-PRAVI_KLJUC = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----(?:\s|\\n)+[A-Za-z0-9+/=]{40,}")
+# Sifriran kljuc v stari obliki OpenSSL ima med glavo in telesom vrstici Proc-Type in DEK-Info - brez njiju bi tak kljuc
+# v datoteki z izjemo usel (CodeRabbit, 4. 11. 2026); PKCS#8 sifriran ima glavo ENCRYPTED PRIVATE KEY.
+PRAVI_KLJUC = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----(?:\s|\\n)+"
+                         r"(?:Proc-Type:[^\n\\]*(?:\s|\\n)+DEK-Info:[^\n\\]*(?:\s|\\n)+)?[A-Za-z0-9+/=]{40,}")
 
 
 def _sledene_datoteke(test: unittest.TestCase) -> list:
@@ -108,6 +111,19 @@ class IzjemaKljuca(unittest.TestCase):
         self.assertTrue(PRAVI_KLJUC.search(repr(pem)))
         for lazno in ("-----BEGIN OPENSSH PRIVATE KEY-----\\nb3Blbn\\n", "-----BEGIN PRIVATE KEY-----\\nMII\\n-----END"):
             self.assertIsNone(PRAVI_KLJUC.search(lazno))
+
+    def test_sifriran_kljuc_ujet(self):
+        """Pravi sifrirani kljuci (stara oblika OpenSSL z Proc-Type/DEK-Info in PKCS#8 ENCRYPTED) - z izjemo ali brez."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        k = ec.generate_private_key(ec.SECP256R1())
+        for oblika in (serialization.PrivateFormat.TraditionalOpenSSL, serialization.PrivateFormat.PKCS8):
+            pem = k.private_bytes(serialization.Encoding.PEM, oblika,
+                                  serialization.BestAvailableEncryption(b"lazno-geslo")).decode()
+            with self.subTest(str(oblika)):
+                self.assertTrue(VZORCI["zasebni kljuc"].search(pem))
+                self.assertTrue(PRAVI_KLJUC.search(pem), pem.splitlines()[:3])
+                self.assertTrue(PRAVI_KLJUC.search(repr(pem)))
 
 
 def _zasebno_sha256() -> set:
