@@ -190,8 +190,6 @@ class Vstavljanje(unittest.TestCase):
         self.assertNotIn("safeerc", izhod)
 
 
-@unittest.skipUnless(os.environ.get("DISPLAY") and _x11() is not None, "potrebuje X11 (Xvfb)")
-
 def _koncaj_lazne(pot: str) -> None:
     """Konca procese, ki izvajajo lazni program `pot` - po PID (AGENTS.md: ne pkill -f), samo procese tega uporabnika."""
     import signal
@@ -207,6 +205,19 @@ def _koncaj_lazne(pot: str) -> None:
         except (OSError, ValueError):
             continue
 
+
+def _seja(**okolje):
+    """Seja prikaza za preizkus brez spremembe os.environ (AGENTS.md): mock.patch.dict(os.environ) v procesu z
+    nitmi GTK doda in ob koncu z clear() izbrise VSE spremenljivke (setenv/unsetenv), getenv v drugi niti pa bere
+    brez zaklepa."""
+    from unittest import mock
+    from core import seja_prikaza
+    return mock.patch.object(seja_prikaza, "_okolje", lambda o=None: dict(okolje) if o is None else o)
+
+
+# Tedenski pregled 4. 11. 2026: dekorator je stal nad _koncaj_lazne namesto nad razredom - brez prikaza (tek brez Xvfb)
+# je preizkus ustvaril Gtk.DrawingArea brez zaslona in sesul cel tek pytest (segfault v _ustvari_program).
+@unittest.skipUnless(os.environ.get("DISPLAY") and _x11() is not None, "potrebuje X11 (Xvfb)")
 class KanalProgram(unittest.TestCase):
     """Cela pot: kanal iz kataloga (lazen vnos - samo podatki), zagon ob zagonu namizja, vgradnja v Sporocila,
     stevilo neprebranih iz naslova okna, ob koncu okno nazaj na namizje (program tece naprej)."""
@@ -228,7 +239,7 @@ class KanalProgram(unittest.TestCase):
             def set(self, k, v):
                 self[k] = v
         with mock.patch.object(spletni_klepeti, "KATALOG", spletni_klepeti.KATALOG + [vnos]), \
-                mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "x11"}), \
+                _seja(XDG_SESSION_TYPE="x11", DISPLAY=os.environ["DISPLAY"]), \
                 mock.patch.object(os_kanali_sporocil.KanaliSporocil, "_uskladi_znacke"):
             k = os_kanali_sporocil.KanaliSporocil(Gtk, GLib, Gio, lambda: None, _S(), lambda: "sl", lambda *a: None,
                                                   lambda kid: None)
@@ -366,10 +377,9 @@ class Zaznava(unittest.TestCase):
                         "program v Flatpaku: PID je iz peskovnika, preverba ni mogoca")
 
     def test_wayland_ni_vgradnje(self):
-        from unittest import mock
-        with mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}):
+        with _seja(XDG_SESSION_TYPE="wayland", DISPLAY=":0"):
             self.assertFalse(namizni_programi.x11_seja())
-        with mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}):
+        with _seja(XDG_SESSION_TYPE="x11", DISPLAY=":0"):
             self.assertTrue(namizni_programi.x11_seja())
 
 
