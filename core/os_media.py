@@ -852,9 +852,12 @@ def _resolve_embed_or_direct_source(url: str, source_id: str, source_name: str) 
     # YouTube Music je spletna aplikacija, ne javni katalog JSON. V Safeer Media
     # jo odpremo kot notranji glasbeni vir; posamezne povezave do videa pa
     # pretvorimo v embed, da ostanejo znotraj našega predvajalnika.
-    if "youtube.com" in netloc or netloc == "youtu.be":
+    # Ime gostitelja, ne podniz: "youtube.com.zlobni.si" ali "neyoutube.com" ni YouTube (pregled 4. 11. 2026).
+    gostitelj = (parsed.hostname or "").lower().rstrip(".")
+    je_youtube = gostitelj == "youtube.com" or gostitelj.endswith(".youtube.com")
+    if je_youtube or gostitelj == "youtu.be":
         video_id = ""
-        if netloc == "youtu.be":
+        if gostitelj == "youtu.be":
             video_id = path.strip("/").split("/", 1)[0]
         else:
             video_id = urllib.parse.parse_qs(parsed.query).get("v", [""])[0]
@@ -869,7 +872,7 @@ def _resolve_embed_or_direct_source(url: str, source_id: str, source_name: str) 
                          source_id=source_id, source_name=source_name or "YouTube Music",
                          kind="glasba", image=image)
             return [item] if item else []
-        if "music.youtube.com" in netloc:
+        if gostitelj == "music.youtube.com":
             item = _item("YouTube Music · brskanje", url, base=url,
                          source_id=source_id, source_name=source_name or "YouTube Music",
                          kind="glasba", description="Izberi glasbo v vgrajeni aplikaciji Safeer Media.")
