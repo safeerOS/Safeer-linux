@@ -974,7 +974,7 @@ class SpletnaAplikacija:
         self.pogled.set_vexpand(True)
         self.pogled.set_hexpand(True)
         self.gradnik.append(self.pogled)
-        self.pogled.load_uri(naslov)
+        splet._nalozi_zasciteno(self.pogled, naslov)   # kanal ob zagonu: tudi pocaka na zascito zagona
 
     # -- dejanja gostitelja
     def domov(self) -> None:
@@ -1819,6 +1819,10 @@ class VdelaniSplet:
         return meni
 
     def _zazeni_zascito(self) -> None:
+        # Hladni zagon (pregled 4. 11. 2026): zunanji naslov pocaka na EasyList, vir grozenj in sledilce, najvec
+        # zascita.ROK_ZAGONA_S (core/zascita.ZascitaZagona); casovnik ne blokira glavne zanke.
+        self._zascita_zagona = zascita.ZascitaZagona(nasa_mapa=os.path.join(self.koren, "ui"))
+        self.GLib.timeout_add(50, self._preveri_zascito_zagona)
         try:
             from core.threat_intel import default_data_dir, skupna
             self._threat_service = skupna(default_data_dir("safeer-mint"))   # ista kot v Scitu
@@ -1831,6 +1835,7 @@ class VdelaniSplet:
         if self.sledilci is not None:
             self.sledilci.ob_novem(lambda _f: [self._uporabi_filter(p) for p in self._vsi_pogledi()])
         if not self.config.get("easylist_enabled", True):
+            self._zascita_zagona.pripravljena("filter")
             return
         try:
             from core.filter_lists import FilterListAgent
@@ -1851,9 +1856,33 @@ class VdelaniSplet:
             if preveden and preveden == "%s:%s" % (self.filter_agent.saved_sha256(), VERZIJA_PRETVORNIKA):
                 self.filter_agent.skip_saved = True
                 self._nalozi_preveden_filter()
+            # Sicer seznam se ni preveden (prvi zagon, nov seznam): pretvorba traja dlje od roka zagona - do
+            # _filter_koncan stran caka najvec zascita.ROK_ZAGONA_S.
             self.filter_agent.start()
         except Exception as napaka:
             print("[Safeer OS Splet] EasyList:", napaka)
+            self._zascita_zagona.pripravljena("filter")
+
+    def _preveri_zascito_zagona(self) -> bool:
+        """Casovnik GLib (50 ms) do odprtja zascite zagona: vir grozenj (nit) in sledilci (asinhrono) se preverijo
+        tu; EasyList javi _nalozi_preveden_filter/_filter_koncan. Vrne False, ko so cakajoci nalozeni."""
+        z = getattr(self, "_zascita_zagona", None)
+        if z is None:
+            return False
+        ti = getattr(self, "_threat_service", None)
+        if ti is None or not getattr(ti, "enabled", False) or ti.loaded.is_set():
+            z.pripravljena("grozenj")
+        if getattr(self, "sledilci", None) is None or self.sledilci.filter is not None:
+            z.pripravljena("sledilci")
+        return not z.preveri()
+
+    def _nalozi_zasciteno(self, pogled, uri: str) -> None:
+        """Vsako nalaganje iz odpri/odpri_povezavo/odpri_domov: ob hladnem zagonu zunanji naslov pocaka na zascito."""
+        z = getattr(self, "_zascita_zagona", None)
+        if z is None:
+            pogled.load_uri(uri)
+            return
+        z.zahtevaj(pogled, uri, lambda p, u: p.load_uri(u))
 
     def _nalozi_preveden_filter(self) -> None:
         def nalozen(shramba, rezultat, *_a):
@@ -1868,6 +1897,8 @@ class VdelaniSplet:
                     (self._filter_mapa / "list.sha256").unlink()
                 except OSError:
                     pass
+            finally:
+                self._zascita_zagona.pripravljena("filter")   # tudi ob napaki: ne cakamo do roka zaman
         try:
             self._filter_mapa.mkdir(parents=True, exist_ok=True)
             if self.filter_store is None:
@@ -1875,6 +1906,7 @@ class VdelaniSplet:
             self.filter_store.load(FILTER_ID, None, nalozen)
         except Exception as napaka:
             print("[Safeer OS Splet] preveden filter:", napaka)
+            self._zascita_zagona.pripravljena("filter")
 
     def _namesti_filter(self, pravila, _vir):
         try:
@@ -1901,6 +1933,10 @@ class VdelaniSplet:
                 self._uporabi_filter(p)
         except Exception as napaka:
             print("[Safeer OS Splet] prevajanje filtra:", napaka)
+        finally:
+            z = getattr(self, "_zascita_zagona", None)
+            if z is not None:
+                z.pripravljena("filter")
 
     def _vsi_pogledi(self) -> list:
         """Zavihki, vdelane aplikacije (z njihovimi pojavnimi okni) in skriti pogledi (sprotni zadetki lupe)."""
@@ -2256,6 +2292,9 @@ class VdelaniSplet:
         return profil_naprave.deli_proces(profil, budni, gost, kandidati, adblock.real_bank_domains())
 
     def zapri_zavihek(self, pogled):
+        z = getattr(self, "_zascita_zagona", None)
+        if z is not None:
+            z.pozabi(pogled)          # zaprt zavihek, ki je cakal na zascito zagona, se ne nalozi vec
         if len(self.zavihki) == 1:
             self.odpri_domov(); return
         z = next((x for x in self.zavihki if x["pogled"] is pogled), None)
@@ -2714,7 +2753,7 @@ class VdelaniSplet:
         return self.GLib.filename_to_uri(os.path.join(self.koren, "ui", "splet.html"), None)
 
     def odpri_domov(self):
-        if self.trenutni(): self.trenutni().load_uri(self.domaci_uri())
+        if self.trenutni(): self._nalozi_zasciteno(self.trenutni(), self.domaci_uri())
 
     def _https_seja(self):
         """Gostitelji, kjer https ni uspel - trajno na disku in za cas seje (core/https_nadgradnja.Seja)."""
@@ -2743,10 +2782,10 @@ class VdelaniSplet:
                 self.nov_zavihek(naslov, lokalno=True); return True
             self.nov_zavihek(naslov)        # po sprosti_zavihke(): prvi zavihek na novo
             return True
-        if not naslov: pogled.load_uri(self.domaci_uri()); return True
+        if not naslov: self._nalozi_zasciteno(pogled, self.domaci_uri()); return True
         normalen = (lokalni_naslov(naslov) if lokalno else "") or normalize_web_url(naslov)
         if not normalen: return False
-        pogled.load_uri(VdelaniSplet._https_pred(pogled, normalen)); return True
+        self._nalozi_zasciteno(pogled, VdelaniSplet._https_pred(pogled, normalen)); return True
 
     def odpri_povezavo(self, naslov: str, lokalno: bool = False) -> bool:
         """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
@@ -2756,7 +2795,7 @@ class VdelaniSplet:
         if not normalen: return False
         pogled = self.trenutni()
         if pogled is not None and ozadje_strani.nasa_stran(pogled.get_uri() or "", os.path.join(self.koren, "ui")):
-            pogled.load_uri(VdelaniSplet._https_pred(pogled, normalen)); return True
+            self._nalozi_zasciteno(pogled, VdelaniSplet._https_pred(pogled, normalen)); return True
         if lokalno:
             self.nov_zavihek(normalen, lokalno=True); return True
         self.nov_zavihek(normalen); return True

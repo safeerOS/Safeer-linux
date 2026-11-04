@@ -80,6 +80,97 @@ def vzorci_izjem(config) -> list:
     return izid
 
 
+# ------------------------------------------------------------------------------------------- zascita hladnega zagona
+#: Pregled 4. 11. 2026: ob hladnem zagonu se je prvi naslov (ukazna vrstica, privzeti brskalnik, obnovljeni zavihki)
+#: nalozil, preden so bili pripravljeni EasyList (UserContentFilterStore.load je asinhron), podpisani vir grozenj (nit,
+#: »Until then match() simply has nothing to match«) in filter sledilcev (asinhrono prevajanje) - prva stran je sla
+#: mimo Scita. Zunanji naslov zdaj pocaka, da so vse tri pripravljene, najvec ROK_ZAGONA_S od zacetka (kot TV:
+#: ZascitaZagona, rok 3 s). Cakanje ne zamrzne glavne zanke: zahteva se shrani, nalozi jo preveri() iz GLib casovnika.
+ROK_ZAGONA_S = 2.0
+ZASCITE_ZAGONA = ("filter", "grozenj", "sledilci")
+
+
+def je_zunanji(naslov: str, nasa_mapa: str = "") -> bool:
+    """Naslov, ki gre v omrezje ali nalozi tujo vsebino: http(s) in file:// zunaj mape nasega vmesnika."""
+    deli = urllib.parse.urlsplit(naslov or "")
+    shema = deli.scheme.lower()
+    if shema in ("http", "https"):
+        return True
+    if shema == "file":
+        pot = urllib.parse.unquote(deli.path or "")
+        if nasa_mapa:
+            mapa = nasa_mapa.rstrip("/") + "/"
+            return not pot.startswith(mapa)
+        return True
+    return False                     # about:, safeer:, data: ... ne gre v omrezje
+
+
+def mora_cakati(naslov: str, pripravljene, potrebne, pretekli_s: float, rok_s: float = ROK_ZAGONA_S,
+                nasa_mapa: str = "") -> bool:
+    """Cista odlocitev: ali mora nalaganje `naslov` pocakati na zascito zagona."""
+    if pretekli_s >= rok_s:
+        return False                 # rok: stran se nalozi tudi brez zascite, ki je ni (pokvarjen vir, prvi prevod)
+    if not (set(potrebne) - set(pripravljene)):
+        return False
+    return je_zunanji(naslov, nasa_mapa)
+
+
+class ZascitaZagona:
+    """Zunanji naslovi cakajo, da so zascite pripravljene (ali rok). Brez GTK: ura in nalagalnik sta argumenta.
+
+    zahtevaj(pogled, uri, nalozi) nalozi takoj ali si zapomni zadnjo zahtevo pogleda; preveri() (klice ga casovnik
+    GLib) ob pripravljenih zascitah ali roku nalozi vse zapomnjene v vrstnem redu zahtev. Notranja stran (zacetna) se
+    nalozi takoj in pozabi zapomnjeno zahtevo istega pogleda (uporabnik je medtem izbral drugo)."""
+
+    def __init__(self, potrebne=ZASCITE_ZAGONA, rok_s: float = ROK_ZAGONA_S, ura=None, nasa_mapa: str = "") -> None:
+        import time
+        self._ura = ura or time.monotonic
+        self._zacetek = self._ura()
+        self.rok_s = float(rok_s)
+        self.potrebne = set(potrebne)
+        self.pripravljene: set = set()
+        self.nasa_mapa = nasa_mapa
+        self.odprta = False
+        self._cakajo: dict = {}      # id(pogled) -> (pogled, uri, nalozi); vrstni red = vrstni red zahtev
+
+    def pretekli_s(self) -> float:
+        return self._ura() - self._zacetek
+
+    def pripravljena(self, ime: str) -> None:
+        self.pripravljene.add(ime)
+
+    def cakajoci(self) -> list:
+        return [(p, u) for p, u, _n in self._cakajo.values()]
+
+    def pozabi(self, pogled) -> None:
+        self._cakajo.pop(id(pogled), None)
+
+    def zahtevaj(self, pogled, uri: str, nalozi) -> bool:
+        """True: nalozeno takoj; False: caka na zascito."""
+        if not self.odprta and mora_cakati(uri, self.pripravljene, self.potrebne, self.pretekli_s(), self.rok_s,
+                                           self.nasa_mapa):
+            self._cakajo.pop(id(pogled), None)
+            self._cakajo[id(pogled)] = (pogled, uri, nalozi)
+            return False
+        self._cakajo.pop(id(pogled), None)
+        nalozi(pogled, uri)
+        return True
+
+    def preveri(self) -> bool:
+        """True, ko je zascita odprta (in so zapomnjene zahteve nalozene); casovnik se tedaj ustavi."""
+        if not self.odprta:
+            if (self.potrebne - self.pripravljene) and self.pretekli_s() < self.rok_s:
+                return False
+            self.odprta = True
+        cakajo, self._cakajo = list(self._cakajo.values()), {}
+        for pogled, uri, nalozi in cakajo:
+            try:
+                nalozi(pogled, uri)
+            except Exception as e:  # noqa: BLE001 - zaprt pogled ne sme ustaviti nalaganja drugih
+                print("[Safeer] zascita zagona, nalaganje:", type(e).__name__, e, flush=True)
+        return True
+
+
 BESEDILA = {
     "sl": {"zas_naslov": "Zaščita pred sledenjem", "zas_obicajna": "Običajna",
            "zas_obicajna_opis": "Blokira oglase, sledilce, piškotke tretjih oseb in sledilne parametre. Strani delujejo kot običajno.",
