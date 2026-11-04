@@ -5,6 +5,11 @@
 # Ubuntu 24.04 (Noble - Mint 22) naprej: GTK4 brskalnik potrebuje WebKitGTK 6.0, ki ga Jammy (Mint 21) nima.
 # ==============================================================================
 set -e
+# Zaklenjeno (tedenski pregled 4. 11. 2026, S17): pot PPA je zastarela - VERSION 1.0.7, debian/control s sistemskim
+# WebKitGTK (AGENTS.md: preizkus s sistemskim WebKitGTK ni veljaven, Safeer nosi svojega), debian/postinst brez profila
+# AppArmor. Paket iz te poti bi bil star in brez zascite. Paketi Safeer nastanejo v CI (.github/workflows/linux-packages.yml).
+echo "build_source_package.sh: pot PPA je zaklenjena - zastarela (razlicica 1.0.7, sistemski WebKitGTK, brez AppArmor). Paketi nastanejo v CI (linux-packages.yml)." >&2
+exit 2
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
