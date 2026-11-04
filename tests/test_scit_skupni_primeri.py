@@ -1,7 +1,7 @@
 """Scit proti skupnim primerom (tests/skupni-primeri/scit-pravila.json - ISTA datoteka v Android-tv, kjer jo preverja
 tests/ScitSkupniPrimeriTest.kt). Lastnik 4. 11. 2026: »ni optimalno delati vec Scitov za razlicne OS« - pravilo,
 spremenjeno samo na eni strani, tu ali tam pade. Preverja pot razresevalnika (Razresevalnik._odgovori) brez omrezja:
-streznikov naprej ni, poslano naprej vrne None.
+streznikov naprej ni, poslano naprej dobi SERVFAIL.
 
 Primer z »neujemanje« in »linux« v »razlicno_na« je znana razlika do Androida: preskocen z izpisom; ce Linux postane
 enak, preizkus pade, da se oznaka umakne (razlika ne sme ostati zapisana, ko je ni vec)."""
@@ -58,9 +58,10 @@ class ScitSkupniPrimeri(unittest.TestCase):
     @staticmethod
     def _izid(sc, ime: str) -> str:
         odgovor = sc.razresevalnik._odgovori(poizvedba(ime), False)
-        if odgovor is None:
-            return "spuscen"                      # poslano naprej (streznikov ni: None)
-        return "ustavljeno" if (odgovor[3] & 0x0F) == 3 else "rcode %d" % (odgovor[3] & 0x0F)
+        rcode = odgovor[3] & 0x0F if odgovor else None
+        if rcode in (None, 2):
+            return "spuscen"                      # poslano naprej (streznikov naprej v preizkusu ni: SERVFAIL)
+        return "ustavljeno" if rcode == 3 else "rcode %d" % rcode
 
     def _preveri(self, p: dict, dobljeno, pricakovano, opis: str):
         if p.get("neujemanje") and PLATFORMA in p.get("razlicno_na", ["android", "linux"]):
@@ -69,8 +70,14 @@ class ScitSkupniPrimeri(unittest.TestCase):
             return
         self.assertEqual(dobljeno, pricakovano, opis)
 
-    def test_verzija(self):
-        self.assertEqual(self.d["verzija"], 1)
+    def test_verzija_in_seznami_pravila(self):
+        """Krajevna imena, kanarcek, zasciteni gostitelji in trajanje izjeme so v kodi ISTI kot v skupnih primerih."""
+        self.assertEqual(self.d["verzija"], 2)
+        self.assertEqual(list(os_scit.KRAJEVNA), self.d["krajevna"])
+        self.assertEqual(list(os_scit.KRAJEVNE_KONCNICE), self.d["krajevne_koncnice"])
+        self.assertEqual(os_scit.KANAREK_DOH, self.d["kanarek_doh"])
+        self.assertEqual(list(os_scit.ZASCITENI), self.d["zasciteni"])
+        self.assertEqual(os_scit.IZJEMA_S, self.d["izjema_dni"] * 24 * 3600)
 
     def test_ustavljeno(self):
         sc = self._scit()
@@ -82,24 +89,29 @@ class ScitSkupniPrimeri(unittest.TestCase):
         for p in self.d["izjeme"]:
             with self.subTest(p["opis"]):
                 sc = self._scit()
+                ura = [1_800_000_000.0]
+                sc._ura = lambda: ura[0]
                 # Dovoliti je mogoce samo nazadnje ustavljeno ime: najprej ga vprasa aplikacija, potem uporabnik spusti.
                 self._izid(sc, p["izjema"])
                 cista = os_scit.cista_domena(p["izjema"])
                 sprejeta = bool(cista) and cista in sc.dovoli(p["izjema"])["izjeme"]
-                # Linux izjema nima casa (dan se ne uporabi).
+                ura[0] += p["dan"] * 24 * 3600
                 self._preveri(p, (sprejeta, self._izid(sc, p["poizvedba"])), (p["sprejeta"], p["izid"]), p["opis"])
 
     def test_razresevalci_naprej(self):
         for p in self.d["razresevalci_naprej"]:
             with self.subTest(p["opis"]):
-                izbira, _ = os_scit.Scit(Shramba(), mapa=self._mapa.name).naprej()
+                sc = os_scit.Scit(Shramba(), mapa=self._mapa.name)      # uporabnik se ni izbral
+                izbira, _ = sc.naprej()
                 if izbira != "router":
-                    izid = "tuj"                  # DoH k zunanjemu ponudniku (privzeto Cloudflare)
+                    izid = "tuj"                  # DoH k zunanjemu ponudniku
                 elif p["krajevni"]:
-                    izid = "krajevni"
+                    izid = "krajevni"             # samo strezniki omrezja (v preizkusu jih ne vprasamo)
                 else:
-                    r = os_scit.Razresevalnik(lambda _i: None, lambda: [])
-                    izid = "brez_odgovora" if r._odgovori(poizvedba("a.example"), False) is None else "servfail"
+                    r = os_scit.Razresevalnik(lambda _i: None, lambda: [], sc._naprej)
+                    r.sifrirano_naprej = lambda: sc.naprej()[0] != "router"
+                    o = r._odgovori(poizvedba("a.example"), False)
+                    izid = "brez_odgovora" if o is None else ("servfail" if (o[3] & 0x0F) == 2 else "rcode %d" % (o[3] & 0x0F))
                 self._preveri(p, izid, p["izid"], p["opis"])
 
 

@@ -3,12 +3,10 @@
 Safeer OS tece majhen razresevalnik DNS na 127.0.0.1 (vrata nad 1024, brez pravic). Vsako ime, ki ga
 racunalnik hoce razresiti, najprej preveri v naboru blokiranih domen - isti seznami kot pri Scitu na
 televizorju (hagezi PRO in TIF, Fake, URLhaus, Phishing Army, SI-CERT) in Safeerjev podpisani seznam
-groznj - in ga, ce je na seznamu, zavrne (NXDOMAIN); vse drugo posreduje strezniku naprej. Privzeto je to
-Cloudflare 1.1.1.1 prek sifriranega DoH (lastnik, 16. 10. 2026: strani s preverjanjem - Turnstile,
-challenges.cloudflare.com - z njim delajo bolje kot z 9.9.9.9): ponudnik interneta poizvedb ne vidi, Cloudflare pa
-vidi dovoljena imena (blokirana ne zapustijo racunalnika). Ce DoH ne odgovori, gre poizvedba na DNS, ki ga je dal
-usmerjevalnik (NetworkManager). Uporabnik lahko izbere drug streznik naprej (Quad9, Google, AdGuard, OpenDNS, svoj)
-ali »DNS usmerjevalnika« - takrat nic ne gre v oblak razen tega, kar usmerjevalnik sam poslje naprej.
+groznj - in ga, ce je na seznamu, zavrne (NXDOMAIN); vse drugo posreduje strezniku naprej. Privzeto je to DNS, ki
+ga je dal usmerjevalnik (NetworkManager) - brez tujega razresevalnika (lastnik 4. 11. 2026, en Scit za vse naprave;
+prej Cloudflare DoH). Uporabnik ob prvem vklopu izbere sam in izbiro kadarkoli spremeni: DNS usmerjevalnika ali
+sifriran DoH (Cloudflare, Quad9, Google, AdGuard, OpenDNS, svoj). Brez krajevnega DNS je odgovor SERVFAIL.
 
 Da racunalnik ta razresevalnik uporablja, Safeer OS systemd-resolved za povezano omrezje pove:
 »DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo;
@@ -76,8 +74,9 @@ ROK_NAPREJ = 0.4
 #: Prej (meja 8, 19. 10. 2026) je navadno nalaganje strani za 30 s preklopilo DNS na nesifrirano (neodvisni pregled).
 NAJVEC_CAKAJOCIH_NAPREJ = 64
 #: Strezniki naprej (isti kljuci kot core/doh_proxy.IZBIRE_NAPREJ; tu, da modul ne potrebuje libsoup ob uvozu).
-IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
-PRIVZETI_NAPREJ = "cloudflare"
+IZBIRE_NAPREJ = ("router", "cloudflare", "quad9", "google", "adguard", "opendns", "custom")
+#: Privzeto krajevni DNS (lastnik 4. 11. 2026): velja, dokler uporabnik ne izbere (shranjena izbira ostane).
+PRIVZETI_NAPREJ = "router"
 
 #: Seznami domen - isti kot pri Scitu na televizorju (ThreatFeedsUpdater). Kategorija je kljuc za besedila.
 VIRI: Tuple[Tuple[str, str, str], ...] = (
@@ -97,9 +96,16 @@ NAJMANJ_DOMEN = 1000
 PRVA_OSVEZITEV = 5.0
 OSVEZITEV = 6 * 3600.0
 PONOVNI_POSKUS = 30 * 60.0
-#: Imena, ki jih Scit nikoli ne blokira: domace omrezje in Safeer sam.
-NIKOLI = ("localhost", "safeer.si")
-NIKOLI_KONCNICE = (".local", ".lan", ".home", ".arpa", ".internal", ".safeer.si")
+#: Krajevna imena (RFC 6761, 6762, 8375; .internal): Scit jih nikoli ne ustavi, niti seznam grozenj - v javnem DNS jih
+#: ni. Isto pravilo na Androidu (ScitOdlocitev.kt), skupni primeri tests/skupni-primeri/scit-pravila.json.
+KRAJEVNA = ("localhost",)
+KRAJEVNE_KONCNICE = (".localhost", ".local", ".lan", ".home", ".internal", ".arpa")
+#: Firefox (in podobni) vprasa to ime, preden sam vklopi DoH; NXDOMAIN = ostane pri sistemskem DNS, torej pri Scitu.
+KANAREK_DOH = "use-application-dns.net"
+
+
+def je_krajevno(ime: str) -> bool:
+    return ime in KRAJEVNA or ime.endswith(KRAJEVNE_KONCNICE)
 #: Posodobitve sistema in Safeerja: pot do popravka mora ostati odprta, tudi ce bi seznam s
 #: preusmeritvijo ali okvaro na CDN-ju dobil napacne vnose. Velja tudi za poddomene (zrcala).
 POSODOBITVE = ("archive.ubuntu.com", "security.ubuntu.com", "ports.ubuntu.com", "ppa.launchpadcontent.net",
@@ -153,7 +159,9 @@ def je_zanka_naprej(vrednost: str) -> bool:
 
 
 #: Najvec domen, ki jih uporabnik dovoli sam (izjeme), in najdaljsi premor Scita.
-NAJVEC_IZJEM = 200
+NAJVEC_IZJEM = 50
+#: Uporabnikova izjema velja 30 dni (kot Android ScitPregled.IZJEMA_MS), potem Scit ime spet ustavi.
+IZJEMA_S = 30 * 24 * 3600
 NAJDALJSI_PREMOR_MIN = 60
 _DOMENA = re.compile(r"^(?=.{4,253}$)[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)+$")
 
@@ -177,6 +185,16 @@ def _je_telemetrija(ime: str) -> bool:
 
 def je_posodobitev(ime: str) -> bool:
     return any(ime == d or ime.endswith("." + d) for d in POSODOBITVE)
+
+
+#: Zasciteni gostitelji (s poddomenami): posodobitve, preverjanje cloveka in Safeer. Seznami OGLASOV jih ne ustavijo
+#: (zastrupljen ali preobsiren seznam ne sme zapreti popravkov in prijav); seznam GROZENJ jih ustavi vedno - tudi
+#: Safeerjeva stran ali zrcalo, ki ga nekdo prevzame (lastnik 4. 11. 2026; prej so bili spuscani tudi kot groznja).
+ZASCITENI = POSODOBITVE + PREVERJANJE + ("safeer.si",)
+
+
+def je_zasciten(ime: str) -> bool:
+    return any(ime == d or ime.endswith("." + d) for d in ZASCITENI)
 
 
 def _zazeni(ukaz: List[str], cas: float = 8.0) -> Tuple[int, str]:
@@ -228,14 +246,23 @@ def ime_poizvedbe(paket: bytes) -> str:
         return ""
 
 
-def odgovor_zavrnjeno(paket: bytes) -> bytes:
-    """NXDOMAIN z istim id in vprasanjem: racunalnik takoj ve, da imena ni."""
+def _odgovor_z(paket: bytes, zastavice: int) -> bytes:
     konec = 12
     while konec < len(paket) and paket[konec] != 0:
         konec += 1 + paket[konec]
     konec += 5
-    glava = paket[:2] + struct.pack("!HHHHH", 0x8183, 1, 0, 0, 0)
+    glava = paket[:2] + struct.pack("!HHHHH", zastavice, 1, 0, 0, 0)
     return glava + paket[12:konec]
+
+
+def odgovor_zavrnjeno(paket: bytes) -> bytes:
+    """NXDOMAIN z istim id in vprasanjem: racunalnik takoj ve, da imena ni."""
+    return _odgovor_z(paket, 0x8183)
+
+
+def odgovor_napaka(paket: bytes) -> bytes:
+    """SERVFAIL z istim id in vprasanjem: ni krajevnega DNS - odgovor takoj, ne molk (molk caka rok odjemalca)."""
+    return _odgovor_z(paket, 0x8182)
 
 
 #: Najvecji odgovor prek UDP (priporocilo DNS Flag Day 2020); vecji gre s TC, odjemalec vprasa prek TCP.
@@ -294,9 +321,6 @@ def nm_domene(vmesnik: str) -> List[str]:
 
 
 #: Kanarcek Firefoxa: odgovor NXDOMAIN pomeni »omrezje filtrira DNS, ne vklapljaj DoH sam«.
-KANAREK_DOH = "use-application-dns.net"
-
-
 class Razresevalnik:
     """Razresevalnik DNS (UDP in TCP) na 127.0.0.1: blokirana imena zavrne, ostala posreduje."""
 
@@ -501,8 +525,12 @@ class Razresevalnik:
         return self._vprasaj_usmerjevalnik(paket, tcp)
 
     def _vprasaj_usmerjevalnik(self, paket: bytes, tcp: bool) -> Optional[bytes]:
-        """Strezniki DNS usmerjevalnika (NetworkManager) - nesifrirano, kot brez Scita."""
-        for streznik in self.upstream() or []:
+        """Strezniki DNS usmerjevalnika (NetworkManager) - nesifrirano, kot brez Scita. Brez njih SERVFAIL takoj
+        (4. 11. 2026, kot Android): prej molk - odjemalec je cakal svoj rok, tujega razresevalnika ne izberemo."""
+        strezniki = list(self.upstream() or [])
+        if not strezniki:
+            return odgovor_napaka(paket)
+        for streznik in strezniki:
             try:
                 if tcp:
                     with socket.create_connection((streznik, 53), timeout=CAS_UPSTREAM) as s:
@@ -883,9 +911,10 @@ class Seznami:
 
     # -- preverjanje
     def kategorija(self, ime: str) -> Optional[str]:
-        if (not ime or "." not in ime or ime in NIKOLI or ime.endswith(NIKOLI_KONCNICE) or je_posodobitev(ime)
-                or je_preverjanje(ime)):
+        if not ime or "." not in ime or je_krajevno(ime):
             return None
+        if je_zasciten(ime):
+            return self.kategorija_groznje(ime)     # oglasi ne, groznja vedno (4. 11. 2026)
         with self._kljuc:
             k = self.nabor.kategorija(ime)
         if k:
@@ -902,19 +931,27 @@ class Seznami:
                 return KATEGORIJA_SEZNAMA_GROZNJ[k]
         return None
 
-    def groznja(self, ime: str) -> bool:
-        """Ime ali katera nadrejena domena je na seznamu GROZENJ (ne oglasov) - v naboru ali v podpisanem seznamu
-        grozenj. Izjema Webtor (oglasi) tako nikoli ne umakne groznje (pregled Grok N15)."""
+    def kategorija_groznje(self, ime: str) -> Optional[str]:
+        """Kategorija GROZNJE (ne oglasov) imena ali katere nadrejene domene - v naboru ali v podpisanem seznamu
+        grozenj; None, ce ni groznja."""
         with self._kljuc:
-            if any(k != KATEGORIJA_PREMORA for k in self.nabor.vse_kategorije(ime)):
-                return True
+            for k in self.nabor.vse_kategorije(ime):
+                if k != KATEGORIJA_PREMORA:
+                    return k
         s = self.storitev
         if s is not None and s.loaded.is_set():
             try:
-                return s.store.match_host(ime) in KATEGORIJA_SEZNAMA_GROZNJ
+                k = s.store.match_host(ime)
             except Exception:  # noqa: BLE001 - seznam groženj ni berljiv: raje blokirano (fail-closed)
-                return True
-        return False
+                return "groznje"
+            if k in KATEGORIJA_SEZNAMA_GROZNJ:
+                return KATEGORIJA_SEZNAMA_GROZNJ[k]
+        return None
+
+    def groznja(self, ime: str) -> bool:
+        """Ime ali nadrejena domena je na seznamu GROZENJ. Izjema (Webtor, uporabnik) nikoli ne umakne groznje
+        (pregled Grok N15; uporabnik 4. 11. 2026)."""
+        return self.kategorija_groznje(ime) is not None
 
     def stanje(self) -> dict:
         st = {"domen": len(self.nabor), "posodobljeno": float(self.meta.get("cas", 0) or 0), "napakaSeznamov": self.napaka,
@@ -1342,18 +1379,41 @@ class Scit:
         self.napaka = ""
         self._straza: Optional[threading.Thread] = None
         self._kljuc = threading.Lock()
-        #: Domene, ki jih je uporabnik dovolil sam (veljajo tudi za poddomene), in konec premora (time.monotonic).
-        self._izjeme: Tuple[str, ...] = tuple(self._preberi_izjeme())
+        #: Imena, ki jih je uporabnik spustil sam (ime -> velja do, time.time), in konec premora (time.monotonic).
+        self._izjeme: Dict[str, float] = self._preberi_izjeme()
         self._premor_do = 0.0
 
-    def _preberi_izjeme(self) -> List[str]:
+    #: Ura za izjeme (preizkusi jo zamenjajo).
+    _ura = staticmethod(time.time)
+
+    def _preberi_izjeme(self) -> Dict[str, float]:
+        """Shranjene izjeme ({"ime", "do"}). Starejsa oblika (samo ime, brez poteka) dobi 30 dni od zdaj in se zapise na
+        novo - izjema ne izgine nenadoma, a tudi ne velja vec za vedno (4. 11. 2026)."""
         shranjene = self.shramba.get("scit_izjeme", [])
-        izid: List[str] = []
-        for d in shranjene if isinstance(shranjene, list) else []:
-            cista = cista_domena(d)
-            if cista and cista not in izid:
-                izid.append(cista)
-        return izid[:NAJVEC_IZJEM]
+        zdaj = self._ura()
+        izid: Dict[str, float] = {}
+        preseljeno = False
+        for v in shranjene if isinstance(shranjene, list) else []:
+            if isinstance(v, dict):
+                d = cista_domena(v.get("ime"))
+                try:
+                    do = float(v.get("do"))
+                except (TypeError, ValueError):
+                    continue
+            else:
+                d, do, preseljeno = cista_domena(v), zdaj + IZJEMA_S, True
+            if d and d not in izid and do > zdaj and len(izid) < NAJVEC_IZJEM:
+                izid[d] = do
+        if preseljeno:
+            self._zapisi_izjeme(izid)
+        return izid
+
+    def _zapisi_izjeme(self, izjeme: Dict[str, float]) -> None:
+        self.shramba.set("scit_izjeme", [{"ime": d, "do": int(do)} for d, do in izjeme.items()])
+
+    def _veljavne_izjeme(self) -> Dict[str, float]:
+        zdaj = self._ura()
+        return {d: do for d, do in self._izjeme.items() if do > zdaj}
 
     # -- streznik naprej
     def naprej(self) -> Tuple[str, str]:
@@ -1435,11 +1495,16 @@ class Scit:
         return ime in shranjeno[1]
 
     def _kategorija(self, ime: str) -> Optional[str]:
-        """Kar razresevalnik vprasa za vsako ime. Uporabnikovih izjem ne blokiramo; med premorom ne blokiramo
-        oglasov in sledilcev (to je tisto, zaradi cesar kaksna stran ne dela) - nevarne strani ostanejo blokirane."""
-        if self._izjeme and any(ime == d or ime.endswith("." + d) for d in self._izjeme):
-            return None
+        """Kar razresevalnik vprasa za vsako ime. Uporabnikove izjeme (natanko to ime, 30 dni) in premor spustijo samo
+        oglase in sledilce (to je tisto, zaradi cesar kaksna stran ne dela) - nevarne strani ostanejo blokirane."""
         kategorija = self.seznami.kategorija(ime) if self.seznami is not None else None
+        if kategorija == KATEGORIJA_PREMORA and self._izjeme and self._izjeme.get(ime, 0) > self._ura():
+            groznja = getattr(self.seznami, "groznja", None)
+            try:
+                if groznja is not None and not groznja(ime):     # tudi nadrejena domena in podpisani seznam
+                    return None
+            except Exception:  # noqa: BLE001 - fail-closed
+                return kategorija
         if kategorija == KATEGORIJA_PREMORA and self._premor_do and time.monotonic() < self._premor_do:
             return None
         if kategorija == KATEGORIJA_PREMORA and webtor.je_stalna_izjema_scita(ime):
@@ -1455,23 +1520,30 @@ class Scit:
         return kategorija
 
     def dovoli(self, domena, dovoli: bool = True) -> dict:
-        """Uporabnik dovoli domeno, ki jo je Scit pravkar blokiral (izjema velja tudi za poddomene), ali izjemo
-        odstrani. Dovoliti je mogoce samo ime s seznama nazadnje blokiranih: stran ne more vnaprej dovoliti poljubne
-        domene."""
+        """Uporabnik spusti ime, ki ga je Scit pravkar blokiral (natanko to ime, IZJEMA_S), ali izjemo odstrani.
+        Dovoliti je mogoce samo ime s seznama nazadnje blokiranih (stran ne more vnaprej dovoliti poljubne domene) in
+        nikoli ime s seznama grozenj (»Nevarno«, kot Android ScitPregled.dodajIzjemo; prej je Linux spustil tudi
+        groznjo). Brez seznamov ali ob napaki: ne vem ni da."""
         d = cista_domena(domena)
-        izjeme = list(self._izjeme)
+        izjeme = self._veljavne_izjeme()
         r = self.razresevalnik
         if d and dovoli:
             nedavne = {z["ime"] for z in (r.zadnje if r is not None else [])}
-            if d in nedavne and d not in izjeme and len(izjeme) < NAJVEC_IZJEM:
-                izjeme.append(d)
+            groznja = getattr(self.seznami, "groznja", None)
+            try:
+                nevarno = groznja is None or bool(groznja(d))
+            except Exception:  # noqa: BLE001
+                nevarno = True
+            if d in nedavne and not nevarno and (d in izjeme or len(izjeme) < NAJVEC_IZJEM):
+                izjeme.pop(d, None)
+                izjeme[d] = self._ura() + IZJEMA_S
                 with r._kljuc:
-                    r.zadnje = [z for z in r.zadnje if z["ime"] != d and not z["ime"].endswith("." + d)]
-        elif d and not dovoli and d in izjeme:
-            izjeme.remove(d)
-        if tuple(izjeme) != self._izjeme:
-            self._izjeme = tuple(izjeme)
-            self.shramba.set("scit_izjeme", izjeme)
+                    r.zadnje = [z for z in r.zadnje if z["ime"] != d]
+        elif d and not dovoli:
+            izjeme.pop(d, None)
+        if izjeme != self._izjeme:
+            self._izjeme = izjeme
+            self._zapisi_izjeme(izjeme)
             self._osvezi_predpomnilnik()
         return self.stanje()
 
@@ -1569,8 +1641,10 @@ class Scit:
              "vmesniki": list(self.vmesniki), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
              "poizvedb": r.poizvedb if r else 0, "zadnje": list(r.zadnje) if r else [],
              "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
-             "izjeme": list(self._izjeme), "premor": self.premor_se(),
-             "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1], "rezerv": getattr(r, "rezerv", 0),
+             "izjeme": list(self._veljavne_izjeme()), "premor": self.premor_se(),
+             "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1],
+             # Uporabnik je streznik naprej ze izbral sam (shranjena izbira); sicer ga vmesnik ob vklopu vprasa.
+             "naprejIzbran": self.shramba.get("scit_naprej") is not None, "rezerv": getattr(r, "rezerv", 0),
              # DoH ni odgovoril in imena so sla nesifrirano usmerjevalniku (mirna oznaka v vmesniku, brez okna).
              "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
                                  and r.nesifrirano()),

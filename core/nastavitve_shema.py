@@ -94,6 +94,7 @@ SHEMA: Dict[str, Polje] = {
     "scit_naprej_po_meri": Polje(str, dolzina=2048),
     "dns_rezerva": _DA_NE,
     "dns_scit_selitev": _DA_NE,
+    "dns_krajevni_selitev": _DA_NE,
     "dns_izbira_uporabnika": _DA_NE,
     "doh_lokalno_omrezje": _DA_NE,
     "secure_proxy_mode": Polje(str, izbira=("disabled", "custom")),

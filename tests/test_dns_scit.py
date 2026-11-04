@@ -54,9 +54,9 @@ class LaznaZanka:
         return None if o is None else (200, "application/dns-message", o)
 
 
-def nabor(*domene):
+def nabor(*domene, kategorija="malware"):
     s = os_scit.Seznami.__new__(os_scit.Seznami)
-    s.nabor = os_scit.Nabor.iz_domen((d, "malware") for d in domene)
+    s.nabor = os_scit.Nabor.iz_domen((d, kategorija) for d in domene)
     s.storitev = None
     s._kljuc = threading.Lock()
     return s
@@ -87,9 +87,9 @@ class PrivzetoInSelitev(unittest.TestCase):
         self._profil()
         c = config.ConfigManager()
         self.assertEqual(c.get("doh_provider"), "scit")
-        self.assertEqual(c.get("scit_naprej"), "cloudflare")
+        self.assertEqual(c.get("scit_naprej"), "router")         # krajevni DNS (lastnik 4. 11. 2026)
         self.assertTrue(c.get("doh_enabled"))
-        self.assertTrue(c.get("dns_rezerva"))
+        self.assertFalse(c.get("dns_rezerva"))                   # brez tujega rezervnega razresevalnika
         self.assertEqual(doh_proxy.IZBIRE_DNS[0], "scit")
         self.assertEqual(doh_proxy.IZBIRE_DNS[-2:], ("custom", "disabled"))
 
@@ -97,7 +97,8 @@ class PrivzetoInSelitev(unittest.TestCase):
         pot = self._profil({"doh_enabled": True, "doh_provider": "cloudflare"})
         c = config.ConfigManager()
         self.assertEqual(c.get("doh_provider"), "scit")
-        self.assertEqual(c.get("scit_naprej"), "cloudflare")     # razresuje isti ponudnik kot prej
+        self.assertEqual(c.get("scit_naprej"), "router")         # privzeti Cloudflare preide na krajevni DNS (4. 11. 2026)
+        self.assertFalse(c.get("dns_rezerva"))
         self.assertTrue(json.loads(pot.read_text())["dns_scit_selitev"])
         c.set("doh_provider", "cloudflare")                      # izbere ga znova: selitev se ne ponovi
         self.assertEqual(config.ConfigManager().get("doh_provider"), "cloudflare")
@@ -148,7 +149,7 @@ class PetPonudnikov(unittest.TestCase):
             doh_proxy.doh_iz_nastavitev({"doh_provider": "neznan"})
         self.assertEqual((klici[0]["provider"], klici[0]["rezerva"]), ("opendns", False))
         self.assertEqual(klici[1], {"enabled": False})
-        self.assertEqual((klici[2]["provider"], klici[2]["naprej"]), ("scit", "cloudflare"))
+        self.assertEqual((klici[2]["provider"], klici[2]["naprej"]), ("scit", "router"))     # privzeto krajevni (4. 11. 2026)
 
 
 class StreznikDNS:
@@ -229,7 +230,7 @@ class ScitVBrskalniku(unittest.TestCase):
     def test_blokirano_zavrne_dovoljeno_razresi_prek_cloudflare(self):
         zanka = LaznaZanka(lambda u, ime, q: odgovor(ime, "93.184.215.14", qtype=q))
         with okolje(zanka, nabor("zlo.example")):
-            r = DoHResolver("scit")
+            r = DoHResolver("scit", naprej="cloudflare")              # uporabnikova izbira (privzeto je krajevni DNS)
             self.assertIsNone(r.resolve("cdn.zlo.example"))
             self.assertEqual(r.blokiral_scit("cdn.zlo.example"), "malware")
             self.assertEqual(r.resolve("example.com"), "93.184.215.14")
@@ -248,7 +249,7 @@ class ScitVBrskalniku(unittest.TestCase):
         zanka = LaznaZanka(lambda u, ime, q: None)                  # cas potece
         with okolje(zanka, nabor()), \
                 mock.patch.object(socket, "getaddrinfo", return_value=[(socket.AF_INET, 1, 6, "", ("198.51.100.4", 443))]):
-            r = DoHResolver("scit", rezerva=True)
+            r = DoHResolver("scit", naprej="cloudflare", rezerva=True)
             self.assertEqual(r.resolve("example.com"), "198.51.100.4")
             self.assertEqual(r.stevci["rezerva"], 1)
 
@@ -302,15 +303,21 @@ class ScitVBrskalniku(unittest.TestCase):
 
 
 class PreverjanjeVednoDela(unittest.TestCase):
-    """Strani s preverjanjem (Turnstile, hCaptcha, reCAPTCHA) Scit nikoli ne blokira, tudi ce so na seznamu."""
+    """Strani s preverjanjem (Turnstile, hCaptcha, reCAPTCHA) seznami OGLASOV ne blokirajo; seznam grozenj jih blokira
+    (4. 11. 2026, en Scit z Androidom)."""
 
     def test_seznami_ne_blokirajo_preverjanja(self):
-        s = nabor("cloudflare.com", "challenges.cloudflare.com", "hcaptcha.com", "google.com", "gstatic.com",
-                  "recaptcha.net", "zlo.example")
-        for ime in ("challenges.cloudflare.com", "cloudflare.com", "www.cloudflare.com", "hcaptcha.com",
-                    "newassets.hcaptcha.com", "js.hcaptcha.com", "www.google.com", "www.gstatic.com", "www.recaptcha.net"):
+        imena = ("challenges.cloudflare.com", "cloudflare.com", "www.cloudflare.com", "hcaptcha.com",
+                 "newassets.hcaptcha.com", "js.hcaptcha.com", "www.google.com", "www.gstatic.com", "www.recaptcha.net")
+        oglasi = nabor("cloudflare.com", "challenges.cloudflare.com", "hcaptcha.com", "google.com", "gstatic.com",
+                       "recaptcha.net", kategorija="oglasi")
+        for ime in imena:
             with self.subTest(ime=ime):
-                self.assertIsNone(s.kategorija(ime))
+                self.assertIsNone(oglasi.kategorija(ime))
+        s = nabor("cloudflare.com", "hcaptcha.com", "google.com", "gstatic.com", "recaptcha.net", "zlo.example")
+        for ime in imena:
+            with self.subTest(groznja=ime):
+                self.assertEqual(s.kategorija(ime), "malware")
         self.assertEqual(s.kategorija("zlo.example"), "malware")
         self.assertEqual(s.kategorija("cloudflare.com.zlo.example"), "malware")    # ne samo po koncnici niza
 
@@ -417,9 +424,12 @@ class SistemskiScitNaprej(unittest.TestCase):
         self.addCleanup(d.cleanup)
         return os_scit.Scit(self.Shramba(kw), mapa=d.name)
 
-    def test_privzeto_cloudflare_in_izbira(self):
+    def test_privzeto_krajevni_in_izbira(self):
         s = self._scit()
-        self.assertEqual(s.naprej(), ("cloudflare", ""))
+        self.assertEqual(s.naprej(), ("router", ""))                  # krajevni DNS, dokler uporabnik ne izbere (4. 11. 2026)
+        self.assertFalse(s.stanje()["naprejIzbran"])
+        self.assertEqual(self._scit(scit_naprej="cloudflare").naprej(), ("cloudflare", ""))   # shranjena izbira ostane
+        self.assertTrue(self._scit(scit_naprej="cloudflare").stanje()["naprejIzbran"])
         with mock.patch.object(os_scit, "izprazni_predpomnilnik"), mock.patch.object(os_scit, "pravilo_namesceno", return_value=False):
             for izbira in ("quad9", "google", "adguard", "opendns", "router"):
                 s.nastavi_naprej(izbira)
@@ -462,7 +472,10 @@ class SistemskiScitNaprej(unittest.TestCase):
 
     def test_razresevalnik_ob_odpovedi_vprasa_usmerjevalnik(self):
         r = os_scit.Razresevalnik(lambda ime: None, lambda: [], lambda paket: None)
-        self.assertIsNone(r._posreduj(b"\x00" * 30, False))
+        paket0 = b"\x77\x88" + DoHResolver._build_dns_wire_query("example.com")[2:]
+        o = r._posreduj(paket0, False)
+        # Brez krajevnega DNS: SERVFAIL takoj z istim ID (4. 11. 2026; prej molk - odjemalec je cakal svoj rok).
+        self.assertEqual((o[:2], o[3] & 0x0F), (b"\x77\x88", 2))
         self.assertEqual(r.rezerv, 1)
         velik = os_scit.Razresevalnik(lambda ime: None, lambda: [], lambda paket: paket[:2] + b"\x81\x80" + b"\x00" * 2000)
         paket = b"\x55\x66" + DoHResolver._build_dns_wire_query("example.com")[2:]
@@ -473,7 +486,7 @@ class SistemskiScitNaprej(unittest.TestCase):
     def test_opis_pove_kdo_vidi_poizvedbe(self):
         vir = Path(os_scit.__file__).read_text(encoding="utf-8")
         self.assertNotIn("Nic ne gre v oblak, noben tuj streznik ne vidi poizvedb", vir)
-        self.assertIn("Cloudflare pa\nvidi dovoljena imena", vir)
+        self.assertIn("brez tujega razresevalnika", vir)
         js = (Path(os_scit.__file__).parents[1] / "assets" / "os" / "besedila.js").read_text(encoding="utf-8")
         self.assertNotIn("nič ne gre v oblak.", js)
         self.assertEqual(js.count("scitKdo_ponudnik:"), 6)

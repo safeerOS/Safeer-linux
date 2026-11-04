@@ -306,10 +306,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "doh_enabled": True,                 # Šifriran DNS (DNS-over-HTTPS) za zaščito pred ISP cenzuro in prisluškovanjem
     "doh_provider": "scit",              # "scit" (privzeto: Safeer Ščit + naprej), "quad9", "cloudflare", "google", "adguard", "opendns", "custom", "disabled"
     "custom_doh_url": "https://1.1.1.1/dns-query",  # DNS po meri: naslov DoH (https://…/dns-query) ali IP strežnika (tudi Pi-hole)
-    "scit_naprej": "cloudflare",         # Ščit v brskalniku pošlje dovoljena imena naprej: ponudnik, "custom" ali "router" (DNS usmerjevalnika)
+    "scit_naprej": "router",             # Ščit pošlje dovoljena imena naprej: "router" (krajevni DNS, privzeto 4. 11. 2026), ponudnik DoH ali "custom"
     "scit_naprej_po_meri": "",           # strežnik naprej po meri (DoH ali IP)
-    "dns_rezerva": True,                 # SERVFAIL/časovna odpoved/lažna blokada ponudnika -> drug ponudnik (Ščitove blokade ostanejo)
+    "dns_rezerva": False,                # SERVFAIL/časovna odpoved/lažna blokada ponudnika -> drug ponudnik; privzeto izklopljeno (4. 11. 2026: brez tujega rezervnega razreševalnika)
     "dns_scit_selitev": True,            # nove namestitve: selitev na Ščit ni potrebna
+    "dns_krajevni_selitev": True,        # nove namestitve: selitev na krajevni DNS ni potrebna
     "dns_izbira_uporabnika": False,      # True, ko uporabnik sam shrani izbiro DNS (prihodnje spremembe privzetega je ne povozijo)
     "doh_lokalno_omrezje": False,        # Imena, ki se prevedejo v domaci naslov (Pi-hole, usmerjevalnik), se odprejo; povratni in metapodatkovni naslovi ostanejo zavrnjeni
     "secure_proxy_mode": "disabled",     # "disabled", "custom" (Lasten šifriran proxy)
@@ -413,6 +414,19 @@ def preseli_dns_na_scit(merged: Dict[str, Any], user_settings: Dict[str, Any]) -
             and not user_settings.get("dns_izbira_uporabnika")):
         merged["doh_provider"] = "scit"
         merged["scit_naprej"] = "cloudflare"
+    return True
+
+
+def preseli_dns_na_krajevni(merged: Dict[str, Any], user_settings: Dict[str, Any]) -> bool:
+    """Enkratna selitev (lastnik 4. 11. 2026): privzeto krajevni DNS, brez tujega rezervnega razresevalnika. Kdor je
+    DNS izbral sam (dns_izbira_uporabnika), obdrzi svojo izbiro; kjer je bil Cloudflare in rezerva samo privzeta
+    (save_settings zapise vse privzete vrednosti), preide na krajevni DNS brez rezerve."""
+    if user_settings.get("dns_krajevni_selitev"):
+        return False
+    merged["dns_krajevni_selitev"] = True
+    if not user_settings.get("dns_izbira_uporabnika"):
+        merged["scit_naprej"] = "router"
+        merged["dns_rezerva"] = False
     return True
 
 
@@ -546,6 +560,8 @@ class ConfigManager:
                     if dodaj_katalog_integracijam(merged):
                         migrated = True
                     if preseli_dns_na_scit(merged, user_settings):
+                        migrated = True
+                    if preseli_dns_na_krajevni(merged, user_settings):
                         migrated = True
                     # Samo enkrat, za datoteko stare razlicice (brez oznake): kasnejse namerne nastavitve (tudi preizkusi,
                     # ki namenoma uporabijo zaprta vrata 9 brez omrezja) ostanejo. CI 40474119558: brez te oznake je

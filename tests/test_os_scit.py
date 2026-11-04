@@ -79,8 +79,9 @@ class SeznamiTest(unittest.TestCase):
             "phishing-army": "phish.example\n",
             "si-cert": "cert.example CNAME .\n",
         }
-        # Zastrupljen seznam (npr. prek CDN-ja) bi zaprl posodobitve - te ostanejo odprte.
-        vsebine["phishing-army"] += "archive.ubuntu.com\ngithub.com\npackages.linuxmint.com\n"
+        # Zastrupljen seznam OGLASOV (npr. prek CDN-ja) bi zaprl posodobitve - te ostanejo odprte. Seznam grozenj jih
+        # ustavi (4. 11. 2026, en Scit z Androidom; tests/skupni-primeri/scit-pravila.json).
+        vsebine["hagezi-pro"] += "\narchive.ubuntu.com\ngithub.com\npackages.linuxmint.com\n"
         klici = []
 
         def prenesi(url, etag, cas=60.0):
@@ -93,7 +94,7 @@ class SeznamiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m:
             s = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertTrue(s.osvezi())
-            self.assertEqual(len(s.nabor), 1200 + 1100 + 1050 + 6)
+            self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 3)
             self.assertEqual(s.kategorija("ad7.example"), "oglasi")
             self.assertEqual(s.kategorija("x.mal.example"), "malware")
             self.assertEqual(s.kategorija("cert.example"), "phishing")
@@ -102,6 +103,11 @@ class SeznamiTest(unittest.TestCase):
             self.assertIsNone(s.kategorija("ad7.example.safeer.si"))
             for ime in ("archive.ubuntu.com", "si.archive.ubuntu.com", "github.com", "packages.linuxmint.com"):
                 self.assertIsNone(s.kategorija(ime), ime)
+            # Seznam grozenj zascitenega gostitelja ustavi (prevzeto zrcalo ali stran), oglasi ne.
+            s.nabor = os_scit.Nabor.iz_domen([("github.com", "phishing"), ("archive.ubuntu.com", "oglasi")])
+            self.assertEqual(s.kategorija("objects.github.com"), "phishing")
+            self.assertIsNone(s.kategorija("archive.ubuntu.com"))
+            s.nabor = os_scit.Nabor.nalozi(os.path.join(m, "domene.bin"))
             # Drugi zagon iz iste mape: nabor je na disku, brez prenosa; osvezitev vrne 304 in nic ne prezida.
             s2 = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertEqual(len(s2.nabor), len(s.nabor))
@@ -302,6 +308,9 @@ class IzjemeInPremor(unittest.TestCase):
                 return "phishing"
             return "oglasi" if ime.endswith("ads.example") or ime.endswith("dovoljena.example") else None
 
+        def groznja(self, ime):
+            return self.kategorija(ime) not in (None, "oglasi")
+
         def stanje(self):
             return {}
 
@@ -313,30 +322,42 @@ class IzjemeInPremor(unittest.TestCase):
             self.assertEqual(os_scit.cista_domena(slabo), "", slabo)
 
     def test_izjeme(self):
+        """Izjema velja NATANKO za to ime, 30 dni in nikoli za groznjo (4. 11. 2026, kot Android ScitPregled)."""
         with tempfile.TemporaryDirectory() as m:
+            ura = [1_800_000_000.0]
+            os_scit.Scit._ura = staticmethod(lambda: ura[0])
+            self.addCleanup(setattr, os_scit.Scit, "_ura", staticmethod(os_scit.time.time))
+            # Starejsa oblika (samo ime) dobi 30 dni od zdaj in se zapise na novo.
             shramba = self.Shramba({"scit_izjeme": ["Dovoljena.Example.", "ni domena", 5, "dovoljena.example"]})
             sc = os_scit.Scit(shramba, mapa=m)
             sc.seznami = self.Seznami()
+            self.assertEqual(shramba["scit_izjeme"], [{"ime": "dovoljena.example", "do": int(ura[0]) + os_scit.IZJEMA_S}])
             self.assertEqual(sc.stanje()["izjeme"], ["dovoljena.example"])
             self.assertEqual(sc._kategorija("x.ads.example"), "oglasi")
             self.assertIsNone(sc._kategorija("dovoljena.example"))
-            self.assertIsNone(sc._kategorija("cdn.dovoljena.example"), "izjema velja tudi za poddomene")
-            self.assertEqual(sc._kategorija("nedovoljena.example"), "oglasi", "ne pa za ime, ki se samo konča enako")
-            # Dovoliti je mogoče samo ime, ki je bilo pravkar blokirano.
+            self.assertEqual(sc._kategorija("cdn.dovoljena.example"), "oglasi", "izjema ne velja za poddomene")
+            self.assertEqual(sc._kategorija("nedovoljena.example"), "oglasi", "ne za ime, ki se samo konča enako")
+            # Dovoliti je mogoče samo ime, ki je bilo pravkar blokirano - in nikoli groznje.
             sc.razresevalnik = os_scit.Razresevalnik(sc._kategorija, lambda: [])
             sc.razresevalnik.zadnje = [{"ime": "y.x.ads.example", "kategorija": "oglasi", "cas": 2.0},
                                        {"ime": "x.ads.example", "kategorija": "oglasi", "cas": 1.0},
-                                       {"ime": "z.ads.example", "kategorija": "oglasi", "cas": 0.5}]
+                                       {"ime": "z.lazna-banka.example", "kategorija": "phishing", "cas": 0.5}]
             self.assertEqual(sc.dovoli("poljubna.example")["izjeme"], ["dovoljena.example"])
             self.assertEqual(sc.dovoli("ni domena")["izjeme"], ["dovoljena.example"])
+            self.assertEqual(sc.dovoli("z.lazna-banka.example")["izjeme"], ["dovoljena.example"], "groznja: Nevarno")
+            self.assertEqual(sc._kategorija("z.lazna-banka.example"), "phishing")
             st = sc.dovoli("X.ADS.example.")
             self.assertEqual(st["izjeme"], ["dovoljena.example", "x.ads.example"])
-            self.assertEqual([z["ime"] for z in st["zadnje"]], ["z.ads.example"], "dovoljena in njene poddomene gredo s seznama")
-            self.assertEqual(shramba["scit_izjeme"], ["dovoljena.example", "x.ads.example"])
-            self.assertIsNone(sc._kategorija("y.x.ads.example"))
-            self.assertEqual(sc._kategorija("z.ads.example"), "oglasi")
+            self.assertEqual([z["ime"] for z in st["zadnje"]], ["y.x.ads.example", "z.lazna-banka.example"],
+                             "s seznama gre samo dovoljeno ime")
+            self.assertEqual(sc._kategorija("y.x.ads.example"), "oglasi")
             # Nov zagon prebere shranjene izjeme.
             self.assertEqual(os_scit.Scit(shramba, mapa=m).stanje()["izjeme"], ["dovoljena.example", "x.ads.example"])
+            # Po 30 dneh izjema poteče.
+            ura[0] += os_scit.IZJEMA_S
+            self.assertEqual(sc._kategorija("x.ads.example"), "oglasi")
+            self.assertEqual(sc.stanje()["izjeme"], [])
+            ura[0] -= 1
             # »Blokiraj spet« izjemo odstrani.
             self.assertEqual(sc.dovoli("x.ads.example", False)["izjeme"], ["dovoljena.example"])
             self.assertEqual(sc._kategorija("x.ads.example"), "oglasi")
@@ -370,10 +391,13 @@ class IzjemeInPremor(unittest.TestCase):
         self.assertIn('klic("scitDovoli", [x.ime, true])', js)
         self.assertIn('klic("scitDovoli", [d, false])', js)
         self.assertIn('klic("scitPremor", [s.premor > 0 ? 0 : 15])', js)
-        self.assertIn('if (x.kategorija !== "oglasi" && !gd.dataset.potrdi) {', js)   # nevarna domena: drugi klik
+        self.assertIn('if (x.kategorija === "oglasi") {', js)   # groznja: gumba Dovoli ni (4. 11. 2026)
+        self.assertNotIn("scitDovoliRes", js)
+        self.assertIn('s.naprejIzbran === false', js)          # prvi vklop: uporabnik izbere streznik naprej
+        self.assertIn('klic("scitNaprej", ["router", ""])', js)
         with open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8") as f:
             besedila = f.read()
-        for kljuc in ("scitDovoli", "scitDovoliRes", "scitDovoljeno", "scitIzjeme", "scitBlokirajSpet", "scitPremor", "scitNadaljuj", "scitPremorTece"):
+        for kljuc in ("scitDovoli", "scitDovoljeno", "scitIzbiraNaslov", "scitIzbiraOpis", "scitIzbiraKrajevni", "scitIzbiraDrug", "scitIzjeme", "scitBlokirajSpet", "scitPremor", "scitNadaljuj", "scitPremorTece"):
             self.assertEqual(besedila.count(kljuc + ': "'), 6, "%s mora biti v vseh šestih jezikih" % kljuc)
 
 

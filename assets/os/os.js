@@ -3463,6 +3463,20 @@
       klic("scitTwitch", [v]).then(function (r) { obvesti(t(v ? "scitTwitchVklopljen" : "scitTwitchIzklopljen")); poScitu(r); },
                                    function () { nalozScit(); });
     }, t("scitTwitchOpis")));
+    // Prvi vklop (4. 11. 2026): uporabnik sam izbere, kam gredo dovoljena imena; dokler ne izbere, velja krajevni DNS.
+    if (s.mozno && s.vklop && s.naprejIzbran === false) {
+      var iz0 = el("div", "scit-zadnje scit-izbira", "<b>" + ubezi(t("scitIzbiraNaslov")) + "</b> " + ubezi(t("scitIzbiraOpis")) + " ");
+      iz0.setAttribute("role", "group");
+      iz0.setAttribute("aria-label", t("scitIzbiraNaslov"));
+      var gk = el("button", "", ubezi(t("scitIzbiraKrajevni")));
+      gk.type = "button";
+      gk.addEventListener("click", function () { klic("scitNaprej", ["router", ""]).then(poScitu, function () {}); });
+      var gdr = el("button", "", ubezi(t("scitIzbiraDrug")));
+      gdr.type = "button";
+      gdr.addEventListener("click", function () { var sel = c.querySelector(".scit-naprej select"); if (sel) sel.focus(); });
+      iz0.appendChild(gk); iz0.appendChild(gdr);
+      c.appendChild(iz0);
+    }
     if (s.mozno) c.appendChild(scitNaprej(s, poScitu));
     if (s.vklop && s.tece) {
       // Premor: ko stran ali program brez blokirane domene ne dela, uporabniku ni treba izklopiti celega Scita.
@@ -3478,23 +3492,19 @@
       var z = el("div", "scit-zadnje", "<b>" + ubezi(t("scitZadnje")) + "</b>");
       s.zadnje.slice(0, 6).forEach(function (x) {
         var vr = el("span", "", ubezi(x.ime) + " <i>" + ubezi(t("scitKat_" + x.kategorija)) + "</i> ");
-        // Dovoli: izjema za to domeno in njene poddomene (odstrani se spodaj, med dovoljenimi).
-        var gd = el("button", "", ubezi(t("scitDovoli")));
-        gd.type = "button";
-        gd.addEventListener("click", function () {
-          // Lazna stran, zlonamerna koda ...: en sam klik je premalo.
-          if (x.kategorija !== "oglasi" && !gd.dataset.potrdi) {
-            gd.dataset.potrdi = "1";
-            gd.textContent = t("scitDovoliRes");
-            gd.classList.add("nevarno");
-            return;
-          }
-          klic("scitDovoli", [x.ime, true]).then(function (r) {
-            if (r && (r.izjeme || []).indexOf(x.ime) >= 0) obvesti(t("scitDovoljeno", { ime: x.ime }));
-            poScitu(r);
-          }, function () {});
-        });
-        vr.appendChild(gd);
+        // Dovoli: izjema 30 dni za NATANKO to ime (odstrani se spodaj, med dovoljenimi). Groznje (lazna stran,
+        // zlonamerna koda ...) se ne spustijo nikoli - zanje gumba ni (4. 11. 2026, kot Scit na TV).
+        if (x.kategorija === "oglasi") {
+          var gd = el("button", "", ubezi(t("scitDovoli")));
+          gd.type = "button";
+          gd.addEventListener("click", function () {
+            klic("scitDovoli", [x.ime, true]).then(function (r) {
+              if (r && (r.izjeme || []).indexOf(x.ime) >= 0) obvesti(t("scitDovoljeno", { ime: x.ime }));
+              poScitu(r);
+            }, function () {});
+          });
+          vr.appendChild(gd);
+        }
         z.appendChild(vr);
       });
       c.appendChild(z);
@@ -3543,10 +3553,10 @@
     });
   }
   // Streznik naprej: kam Scit poslje dovoljena imena (privzeto Cloudflare prek DoH) in kdo jih vidi - po resnici.
-  var SCIT_NAPREJ = ["cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router"];
+  var SCIT_NAPREJ = ["router", "cloudflare", "quad9", "google", "adguard", "opendns", "custom"];
   var SCIT_IMENA = { cloudflare: "Cloudflare", quad9: "Quad9", google: "Google", adguard: "AdGuard", opendns: "Cisco OpenDNS" };
   function scitNaprej(s, poScitu) {
-    var izbrano = SCIT_NAPREJ.indexOf(s.naprej) >= 0 ? s.naprej : "cloudflare";
+    var izbrano = SCIT_NAPREJ.indexOf(s.naprej) >= 0 ? s.naprej : "router";
     var o = el("div", "scit-zadnje scit-naprej", "<b>" + ubezi(t("scitNaprej")) + "</b>");
     var izbor = el("select");
     izbor.setAttribute("aria-label", t("scitNaprej"));

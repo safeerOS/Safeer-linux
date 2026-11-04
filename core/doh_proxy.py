@@ -50,13 +50,13 @@ DOH_PROVIDERS = {
 }
 
 #: Izbire DNS v vrstnem redu vmesnika (lastnik, 16. 10. 2026: »DNS naj bo prevzeto od Safeer Scita; top 5 izbir«).
-#: "scit" = imena najprej preveri Safeer Scit (blokirana zavrne), ostala razresi strezniki naprej (privzeto Cloudflare).
+#: "scit" = imena najprej preveri Safeer Scit (blokirana zavrne), ostala razresi strezniki naprej (privzeto krajevni DNS).
 IZBIRE_DNS = ("scit", "quad9", "cloudflare", "google", "adguard", "opendns", "custom", "disabled")
 PRIVZETI_DNS = "scit"
-#: Streznik naprej za Scit: Cloudflare je prevzet namenoma - strani s preverjanjem (Turnstile, challenges.cloudflare.com)
-#: z njim delajo bolje kot z 9.9.9.9 (lastnik). "router" = DNS usmerjevalnika, nic v oblak.
-IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
-PRIVZETI_NAPREJ = "cloudflare"
+#: Streznik naprej za Scit. "router" = DNS usmerjevalnika, nic v oblak - privzeto na vseh napravah (lastnik 4. 11. 2026;
+#: prej Cloudflare). DoH ponudnika uporabnik izbere sam (ob prvem vklopu Scita ali v nastavitvah).
+IZBIRE_NAPREJ = ("router", "cloudflare", "quad9", "google", "adguard", "opendns", "custom")
+PRIVZETI_NAPREJ = "router"
 
 #: Ponudniki, ki namenoma blokirajo: njihov »ni imena« je lahko blokada (lazno pozitivni zadetki). Izmerjeno 16. 10. 2026:
 #: Quad9 blokirano = NXDOMAIN brez SOA (pravi NXDOMAIN ima SOA), AdGuard = 0.0.0.0, OpenDNS = 146.112.61.104-110.
@@ -1622,7 +1622,7 @@ def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalD
     return get_doh_proxy(provider=izbira, custom_url=config.get("custom_doh_url", "") or "", enabled=True,
                          lokalno=bool(config.get("doh_lokalno_omrezje", False)) if lokalno is None else lokalno,
                          naprej=naprej, naprej_po_meri=naprej_po_meri,
-                         rezerva=bool(config.get("dns_rezerva", True)))
+                         rezerva=bool(config.get("dns_rezerva", False)))
 
 
 def preizkusi_dns(besedilo: str, timeout: float = 3.5) -> Tuple[bool, str]:

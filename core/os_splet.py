@@ -4442,7 +4442,7 @@ class VdelaniSplet:
         okvir_lasten, lasten, izid_lasten = polje_po_meri(self.config.get("custom_doh_url", "") or "")
         okvir_naprej, naprej_lasten, izid_naprej = polje_po_meri(zdaj_po_meri)
         rezerva = Gtk.CheckButton(label=self._ti("doh_rezerva_lbl"))
-        rezerva.set_active(bool(self.config.get("dns_rezerva", True)))
+        rezerva.set_active(bool(self.config.get("dns_rezerva", False)))
         # »DNS v lokalnem omrezju« (GTK3 brskalnik, doh_lokalno_omrezje): ime, ki ga DNS prevede v domaci naslov
         # (Pi-hole, usmerjevalnik, NAS), se odpre; privzeto izklopljeno (doh_proxy.je_dovoljen_cilj - DNS rebinding).
         lokalno = Gtk.CheckButton(label=self._ti("doh_lokalno_lbl"))
