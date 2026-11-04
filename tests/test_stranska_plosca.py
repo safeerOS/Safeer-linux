@@ -62,6 +62,11 @@ class Plosca(unittest.TestCase):
         a = p.aplikacije["whatsapp"]
         self.assertIn(a.pogled, splet.aplikacije, "ista seja in zascita kot zavihki")
         self.assertTrue(p.razkrij.get_reveal_child())
+        # Hladni zagon (aa0d2d7): web.whatsapp.com caka na zascito zagona (najvec 2 s) in se nalozi pozneje - brez
+        # cakanja je ta zakasnjena stran (napaka posrednika 127.0.0.1:9) prepisala load_html spodaj (4. 11. 2026).
+        z = getattr(splet, "_zascita_zagona", None)
+        self.assertTrue(_cakaj(lambda: (z is None or all(pg is not a.pogled for pg, _u in z.cakajoci()))
+                               and not a.pogled.is_loading()), "zakasnjeno nalaganje storitve se ni koncalo")
         a.pogled.load_html("<title>(3) WhatsApp</title>", "https://web.whatsapp.com/")
         self.assertTrue(_cakaj(lambda: "3" in (p.gumbi["whatsapp"].get_label() or "")),
                         "znacka %r, naslov %r, nalaganje %r" % (p.gumbi["whatsapp"].get_label(), a.pogled.get_title(),
