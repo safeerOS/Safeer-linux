@@ -444,6 +444,20 @@ class SistemskiScitNaprej(unittest.TestCase):
             self.assertEqual(s.nastavi_naprej("custom", "http://x")["napaka"], "naprej")
             self.assertEqual(s.naprej(), ("custom", "192.0.2.75"))
 
+    def test_napaka_naprej_ne_spremeni_stanja_scita(self):
+        """Napacen naslov naprej je samo v odgovoru; stanje (npr. »pravilo«, BREZ_REZERVE) ostane - prej ga je klic
+        pobrisal ali pustil »naprej« pod stikalom (pregled 4. 11. 2026)."""
+        s = self._scit()
+        with mock.patch.object(os_scit, "izprazni_predpomnilnik"), mock.patch.object(os_scit, "pravilo_namesceno", return_value=False):
+            for stanje in ("pravilo", os_scit.BREZ_REZERVE):
+                s.napaka = stanje
+                self.assertEqual(s.nastavi_naprej("custom", "http://x")["napaka"], "naprej")
+                self.assertEqual(s.nastavi_naprej("custom", "127.0.0.1:5354")["napaka"], "naprej_zanka")
+                self.assertEqual(s.nastavi_naprej("ni-izbira")["napaka"], "naprej")
+                self.assertEqual(s.napaka, stanje)
+                self.assertEqual(s.nastavi_naprej("quad9")["napaka"], stanje)
+                self.assertEqual(s.napaka, stanje)
+
     def test_usmerjevalnik_ne_klice_doh(self):
         s = self._scit(scit_naprej="router")
         with mock.patch.object(doh_proxy, "posreduj_paket", side_effect=AssertionError):

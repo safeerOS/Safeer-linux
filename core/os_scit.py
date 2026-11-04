@@ -1652,19 +1652,19 @@ class Scit:
         """Uporabnik izbere streznik naprej. Naslov po meri (DoH ali IP, tudi Pi-hole) se preveri samo po obliki."""
         izbira = str(izbira or "")
         po_meri = str(po_meri or "").strip()
-        self.napaka = ""
+        # Napaka oblike gre samo v odgovor. self.napaka je stanje Scita (pravilo, BREZ_REZERVE, ni_omrezja), ki ga
+        # nastavi _uporabi: prej ga je ta klic pobrisal ali prepisal z »naprej«, ki je nato obvisel pod stikalom
+        # (pregled 4. 11. 2026, isto kot Windows 76e8491).
         if izbira not in IZBIRE_NAPREJ:
-            self.napaka = "naprej"
-            return self.stanje()
+            return dict(self.stanje(), napaka="naprej")
         if izbira == "custom":
             from core.doh_proxy import razcleni_po_meri
             vrsta, vrednost = razcleni_po_meri(po_meri)
             if vrsta == "ip" and je_zanka_naprej(vrednost):
-                self.napaka = "naprej_zanka"       # Scit ne sme posredovati sam sebi (ne prek resolved, ne prek Spleta)
-                return self.stanje()
+                # Scit ne sme posredovati sam sebi (ne prek resolved, ne prek Spleta)
+                return dict(self.stanje(), napaka="naprej_zanka")
             if not vrsta:
-                self.napaka = "naprej"
-                return self.stanje()
+                return dict(self.stanje(), napaka="naprej")
             self.shramba.set("scit_naprej_po_meri", po_meri)
         self.shramba.set("scit_naprej", izbira)
         self._zagonska_imena = None
