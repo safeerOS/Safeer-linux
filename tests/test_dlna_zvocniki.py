@@ -72,6 +72,25 @@ class DlnaTests(unittest.TestCase):
         self.assertEqual(z.rendering_url, f"http://127.0.0.1:{self.server.server_port}/control/rc")
         self.assertEqual(z.podprti_formati(), {"audio/mpeg", "audio/flac"})
 
+    def test_lokalni_url_privzeta_vrata_in_velike_crke(self):
+        """Pregled 4. 11. 2026: http://h/ in http://h:80/ sta ista naprava; drug gostitelj ali druga vrata ne."""
+        self.assertEqual(dlna._lokalni_url("http://192.0.2.10/", "http://192.0.2.10:80/ctl"),
+                         "http://192.0.2.10:80/ctl")
+        self.assertEqual(dlna._lokalni_url("http://192.0.2.10:80/opis.xml", "http://192.0.2.10/ctl"),
+                         "http://192.0.2.10/ctl")
+        self.assertEqual(dlna._lokalni_url("http://Zvocnik.LAN/", "http://zvocnik.lan:80/ctl"),
+                         "http://zvocnik.lan:80/ctl")
+        self.assertEqual(dlna._lokalni_url("https://192.0.2.10/", "https://192.0.2.10:443/ctl"),
+                         "https://192.0.2.10:443/ctl")
+        for base, ctl in (("http://192.0.2.10/", "http://192.0.2.10:49152/ctl"),
+                          ("http://192.0.2.10:49152/", "http://192.0.2.10/ctl"),
+                          ("http://192.0.2.10/", "http://192.0.2.11/ctl"),
+                          ("http://192.0.2.10/", "https://192.0.2.10:80/ctl"),
+                          ("http://192.0.2.10/", "http://192.0.2.10:99999/ctl"),
+                          ("ftp://192.0.2.10/", "/ctl")):
+            with self.assertRaises(dlna.DlnaNapaka, msg=(base, ctl)):
+                dlna._lokalni_url(base, ctl)
+
     def test_ssdp_response_validation(self):
         sample = "HTTP/1.1 200 OK\r\nlocation: http://192.0.2.4:80/desc.xml\r\nST: test\r\n\r\n"
         self.assertEqual(dlna.razcleni_ssdp(sample, "192.0.2.4"), "http://192.0.2.4:80/desc.xml")
