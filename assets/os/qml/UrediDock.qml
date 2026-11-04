@@ -43,10 +43,19 @@ Okno {
         var d = dock.slice(), x = d[i]; d[i] = d[j]; d[j] = x
         dock = d
         seznam.currentIndex = j
+        // nalozi() z okno.dock = … zamenja model in ListView ponastavi currentIndex na 0 - izbira bi skocila na prvi
+        // program (pregled 4. 11. 2026). Po nalaganju jo vrnemo na premaknjeni program, tudi ce ga streznik ni premaknil.
+        var obnovi = function () { okno.izberi(x.id, j) }
         koren.klic("dockRazvrsti", [d.map(function (y) { return y.dockitem })], function (r) {
             if (!r || r.ok === false) koren.obvesti(koren.t("niUspelo"))
-            okno.nalozi(null)
-        }, function () { koren.obvesti(koren.t("niUspelo")); okno.nalozi(null) })
+            okno.nalozi(obnovi)
+        }, function () { koren.obvesti(koren.t("niUspelo")); okno.nalozi(obnovi) })
+    }
+    function izberi(id, privzeto) {
+        var k = -1
+        for (var n = 0; n < dock.length; n++) if (dock[n].id === id) { k = n; break }
+        if (k < 0) k = Math.min(privzeto, dock.length - 1)
+        if (k >= 0) seznam.currentIndex = k
     }
     function preklopi(id, ime, dodaj, potem) {
         koren.klic(dodaj ? "dockDodaj" : "dockOdstrani", [id], function (r) {

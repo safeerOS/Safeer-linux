@@ -453,6 +453,17 @@ class NamizjeQml(unittest.TestCase):
         self.assertTrue(self._pocakaj(lambda: dock.property("visible")))
         self._js("premakni(0, 1)", dock)
         self.assertTrue(self._klicano("dockRazvrsti", [["b.dockitem", "a.dockitem"]]))
+        # Izbira po ponovnem nalaganju ostane na premaknjenem programu (B je po odgovoru streznika na indeksu 1), ne
+        # skoci na prvega, ko nalozi() zamenja model (pregled 4. 11. 2026).
+        self.assertTrue(self._pocakaj(lambda: self._js("dock.dock[0].id", dock) == "a.desktop"))  # nalozi() po prvem
+        seznam = self._obj("seznamDocka")
+        self.klici.clear()
+        seznam.setProperty("currentIndex", 1)
+        self._js("premakni(1, -1)", dock)
+        self.assertTrue(self._klicano("dockRazvrsti", [["b.dockitem", "a.dockitem"]]))
+        self.assertTrue(self._klicano("dock", []))
+        self.assertTrue(self._pocakaj(lambda: seznam.property("currentIndex") == 1 and
+                                      self._js("dock.dock[1].id", dock) == "b.desktop", 1.5))
         self._js("close()", dock)
         # Igre v oblaku med programi; klik pokaze meni z namestitvijo.
         self.assertTrue(self._pocakaj(lambda: any(p["id"] == "oblak:gfn" for p in self._js("programi.prikazani"))))
