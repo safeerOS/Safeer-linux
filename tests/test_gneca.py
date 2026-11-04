@@ -442,13 +442,16 @@ class PotiOddaj(unittest.TestCase):
             tcp.close()
             dogodek.set()
         rele._kanal = kanal
+        # Odjemalec ostane odprt, dokler rele povezave ne preda kanalu: zaprta odjemalceva vticnica je v
+        # /proc/net/tcp v TIME_WAIT z uid 0, zato bi jo _nas_proces zavrnil kot tujega uporabnika (padec ob
+        # obremenjenem racunalniku, 4. 11. 2026).
         try:
             gneca.nastavi_odpiralnik(lambda h, p, r: None)
-            gneca.odpri_oddajo(("127.0.0.1", rele.vrata), 2.0).close()
-            self.assertTrue(dogodek.wait(3))
+            with gneca.odpri_oddajo(("127.0.0.1", rele.vrata), 2.0):
+                self.assertTrue(dogodek.wait(3), rele.zadnja_napaka)
             dogodek.clear()
-            socket.create_connection(("127.0.0.1", rele.vrata), 2.0).close()
-            self.assertTrue(dogodek.wait(3))
+            with socket.create_connection(("127.0.0.1", rele.vrata), 2.0):
+                self.assertTrue(dogodek.wait(3), rele.zadnja_napaka)
         finally:
             rele.zapri()
         self.assertEqual(kanali, [True, False])
