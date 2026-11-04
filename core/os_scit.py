@@ -12,8 +12,9 @@ Da racunalnik ta razresevalnik uporablja, Safeer OS systemd-resolved za povezano
 »DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo.
 V paketu .deb to naredi root pomocnik /usr/lib/safeer-os/scit-dns (packaging/scit-dns) s fiksnimi dejanji (usmeri na
 Scit, vrni streznike NetworkManagerja); ob prvem vklopu enkrat z geslom (pkexec) namesti pravilo polkit, ki skrbniku
-dovoli brez gesla samo tega pomocnika - kot namestitev programa: geslo enkrat, potem dela samo. Kjer pomocnika ni
-(Flatpak: na gostitelja ga ne moremo namestiti; AppImage), ostane prejsnja pot: pravilo za tri klice resolve1.
+dovoli brez gesla samo tega pomocnika - kot namestitev programa: geslo enkrat, potem dela samo. V Flatpaku in
+AppImage isti pomocnik ob prvem vklopu (geslo enkrat) gre na gostitelja v /usr/local/lib/safeer-os (POMOCNIK_GOSTITELJA);
+sirokega pravila za resolve1 ne namescamo vec (pregled 4. 11. 2026).
 Ob izklopu vmesnik spet dobi streznike, ki jih je dolocil NetworkManager; ob zagonu Safeer OS se, ce je Scit vklopljen, uporabi znova.
 
 Spreminjamo SAMO seznam streznikov DNS vmesnika. Iskalnih domen (»lan«), privzete poti in nastavitev VPN se
@@ -54,6 +55,8 @@ from core.signed_feed import _atomic_write, isti_gostitelj
 NASLOV = "127.0.0.1"
 VRATA = (5354, 5355, 5356, 5357)
 PRAVILO_POT = "/etc/polkit-1/rules.d/49-safeer-os-scit.rules"
+#: STARO siroko pravilo (do 4. 11. 2026): ne namesca se vec in ne velja kot dovoljenje; pomocnik (scit-dns dovoli) ga
+#: na gostitelju odstrani. Ostane samo za prepoznavo v preizkusih.
 PRAVILO = """// Safeer OS - Scit (filtriranje DNS): skrbnik sme systemd-resolved nastaviti streznik DNS brez gesla.
 polkit.addRule(function (action, subject) {
     if ((action.id == "org.freedesktop.resolve1.set-dns-servers" ||
@@ -1282,12 +1285,42 @@ def trenutni_streznik(vmesnik: str) -> str:
     return m.group(1) if m else ""
 
 
+#: Dejanje starega sirokega pravila (samo za prepoznavo; dovoljenje zanj ne velja vec).
 AKCIJA_DNS = "org.freedesktop.resolve1.set-dns-servers"
 #: Root pomocnik v paketu .deb (tedenski pregled 4. 11. 2026, S15): prejsnje pravilo (PRAVILO) je VSAKEMU programu
 #: skrbnika dovolilo poljuben DNS brez gesla. Pomocnik sprejme samo fiksna dejanja in naslov 127.0.0.1 na vratih Scita;
 #: streznike usmerjevalnika in domene prebere sam iz NetworkManagerja. Pravilo zanj dovoli samo AKCIJA_POMOCNIKA.
 POMOCNIK = "/usr/lib/safeer-os/scit-dns"
 AKCIJA_POMOCNIKA = "si.safeer.os.scit"
+#: Flatpak in AppImage (pregled 4. 11. 2026): sirokega pravila za resolve1 NE namescamo vec. Ob prvem vklopu Scita
+#: (geslo enkrat) isti pomocnik gre na gostitelja v POMOCNIK_GOSTITELJA; tam ni .policy, zato ga pravilo dovoli kot
+#: pkexec TEGA programa (packaging/scit-dns, PRAVILO_GOSTITELJA). Vsebina gre rootu po standardnem vhodu, root preveri
+#: SHA-256 SVOJE kopije proti SHA_POMOCNIKA (vgrajena v paket; tests/test_scit_pomocnik.py jo primerja z datoteko).
+POMOCNIK_GOSTITELJA = "/usr/local/lib/safeer-os/scit-dns"
+SHA_POMOCNIKA = "01225919da27251f40ef3acf2c2d61a5b3201e0abf7cb6743ee35669f08cc919"
+#: Pomocnik v tovoru (packaging/install_os_payload.sh: <lib>/packaging/scit-dns; v repozitoriju packaging/scit-dns).
+VIR_POMOCNIKA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packaging", "scit-dns")
+AKCIJA_PKEXEC = "org.freedesktop.policykit.exec"
+#: Kar root naredi ob namestitvi na gostitelja ($1 = SHA-256). Samo navadna vsebina z vhoda (najvec 256 KiB) v rootovo
+#: zacasno mapo, preverba vsote KOPIJE, mapa cilja rootova 0755, zamenjava atomsko (mv), nato pomocnik sam namesti
+#: svoje ozko pravilo in odstrani staro siroko (scit-dns dovoli).
+NAMESTI_POMOCNIKA_KOT_ROOT = r"""set -eu
+umask 022
+d="$(mktemp -d)"
+trap 'rm -rf "$d"' EXIT
+head -c 262144 > "$d/scit-dns"
+printf '%s  %s\n' "$1" "$d/scit-dns" | sha256sum -c --quiet - || { echo "SHA-256 se ne ujema" >&2; exit 3; }
+cilj=/usr/local/lib/safeer-os
+install -d -m 755 -o root -g root "$cilj"
+[ ! -L "$cilj" ] && [ "$(stat -c '%u %a' "$cilj")" = "0 755" ] || { echo "mapa $cilj ni rootova" >&2; exit 4; }
+install -m 755 -o root -g root "$d/scit-dns" "$cilj/.scit-dns.novo"
+mv -f "$cilj/.scit-dns.novo" "$cilj/scit-dns"
+exec "$cilj/scit-dns" dovoli
+"""
+#: Izhodna koda pomocnika: Scit usmerjen, rezerve ni (packaging/scit-dns usmeri).
+KODA_BREZ_REZERVE = 4
+#: Napaka usmeri(), ko Scit dela, rezerve pa ni (besedilo scitNapaka_brez_rezerve).
+BREZ_REZERVE = "brez_rezerve"
 
 
 def v_flatpaku() -> bool:
@@ -1295,81 +1328,130 @@ def v_flatpaku() -> bool:
     return bool(os.environ.get("FLATPAK_ID")) or os.path.exists("/.flatpak-info")
 
 
-def pomocnik() -> bool:
-    """Ali DNS nastavlja root pomocnik (.deb). V Flatpaku ga na gostitelja ne moremo namestiti (tam in v AppImage brez
-    paketa ostane prejsnja pot). Pomocnik mora biti rootov in nespremenljiv za druge - sicer ga ne zaganjamo kot root."""
-    if v_flatpaku():
-        return False
+def _rootov(pot: str) -> bool:
     try:
-        st = os.stat(POMOCNIK)
+        st = os.stat(pot)
     except OSError:
         return False
-    return st.st_uid == 0 and not st.st_mode & 0o022 and os.access(POMOCNIK, os.X_OK)
+    return st.st_uid == 0 and not st.st_mode & 0o022 and os.access(pot, os.X_OK)
+
+
+_gostitelj_pomocnik: Optional[Tuple[float, bool]] = None
+#: Kako dolgo velja preverba pomocnika na gostitelju (s): v Flatpaku je to podproces na gostitelju.
+POMOCNIK_GOSTITELJA_S = 30.0
+
+
+def _pomocnik_gostitelja() -> bool:
+    """Ali je na gostitelju NAS pomocnik (rootov, mapa rootova, vsebina = SHA_POMOCNIKA). Starejsa razlicica ne velja:
+    ob vklopu se namesti nova (geslo)."""
+    global _gostitelj_pomocnik
+    zdaj = time.monotonic()
+    if _gostitelj_pomocnik is not None and zdaj - _gostitelj_pomocnik[0] < POMOCNIK_GOSTITELJA_S:
+        return _gostitelj_pomocnik[1]
+    ok = False
+    if v_flatpaku():
+        koda, izpis = _zazeni(["flatpak-spawn", "--host", "/bin/sh", "-c",
+                               'stat -c "%u %a" "$0" "${0%/*}" && sha256sum "$0"', POMOCNIK_GOSTITELJA], cas=10.0)
+        vrstice = izpis.split("\n") if koda == 0 else []
+        ok = (len(vrstice) >= 3 and vrstice[0].split() == ["0", "755"] and vrstice[1].split() == ["0", "755"]
+              and vrstice[2].split()[:1] == [SHA_POMOCNIKA])
+    else:
+        try:
+            with open(POMOCNIK_GOSTITELJA, "rb") as f:
+                vsebina = f.read(262145)
+            ok = (_rootov(POMOCNIK_GOSTITELJA) and _rootov(os.path.dirname(POMOCNIK_GOSTITELJA))
+                  and hashlib.sha256(vsebina).hexdigest() == SHA_POMOCNIKA)
+        except OSError:
+            ok = False
+    _gostitelj_pomocnik = (zdaj, ok)
+    return ok
+
+
+def pot_pomocnika() -> Optional[str]:
+    """Pot root pomocnika: paket .deb, sicer (Flatpak, AppImage) pomocnik na gostitelju; None, ce ga ni."""
+    if not v_flatpaku() and _rootov(POMOCNIK):
+        return POMOCNIK
+    return POMOCNIK_GOSTITELJA if _pomocnik_gostitelja() else None
+
+
+def pomocnik() -> bool:
+    """Ali DNS nastavlja root pomocnik. Pomocnik mora biti rootov in nespremenljiv za druge - sicer ga ne zaganjamo kot
+    root. Brez njega Scit DNS ne nastavlja (pregled 4. 11. 2026: sirokega pravila za resolve1 ni vec)."""
+    return pot_pomocnika() is not None
+
+
+def _pomocnik_koda(*argumenti: str, cas: float = 60.0) -> int:
+    """Pomocnik kot root: pkexec in pomocnik z absolutno potjo (core/root_ukaz.py), argumenti samo fiksna dejanja."""
+    pot = pot_pomocnika()
+    if pot is None:
+        return 127
+    return _zazeni(root_ukaz.ukaz(pot, *argumenti), cas=cas)[0]
 
 
 def _pomocnik(*argumenti: str, cas: float = 60.0) -> bool:
-    """Pomocnik kot root: pkexec in pomocnik z absolutno potjo (core/root_ukaz.py), argumenti samo fiksna dejanja."""
-    return _zazeni(root_ukaz.ukaz(POMOCNIK, *argumenti), cas=cas)[0] == 0
+    return _pomocnik_koda(*argumenti, cas=cas) == 0
 
 
 def pravilo_namesceno() -> bool:
     """Ali smemo nastaviti DNS brez gesla. Mape /etc/polkit-1/rules.d uporabnik ne more brati (0750
     root:polkitd), zato pravila ne iscemo po datoteki, ampak polkit vprasamo naravnost (pkcheck brez
-    interakcije: 0 = dovoljeno, sicer bi zahteval geslo)."""
-    if pomocnik():
-        # Samo nase dejanje: staro pravilo za resolve1 pomocniku ne pomaga (in ga postinst zamenja).
+    interakcije: 0 = dovoljeno, sicer bi zahteval geslo). Staro siroko pravilo za resolve1 ne velja vec."""
+    pot = pot_pomocnika()
+    if pot is None:
+        return False
+    if pot == POMOCNIK:
         if shutil.which("pkcheck") is None:
             return False
         return _zazeni(["pkcheck", "--action-id", AKCIJA_POMOCNIKA, "--process", str(os.getpid())], cas=10.0)[0] == 0
-    try:
-        with open(PRAVILO_POT, encoding="utf-8") as f:
-            if AKCIJA_DNS in f.read():
-                return True
-    except OSError:
-        pass
+    # Pomocnik na gostitelju: pkexec tega programa (detail »program«, kot ga pkexec poda pravilu).
     if v_flatpaku():
         # V peskovniku pkcheck ne obstaja, nas PID pa gostitelju nic ne pomeni: polkit vprasamo na gostitelju, za
         # lupino, ki jo tam - v isti seji - zazene flatpak-spawn (exec: pkcheck dobi njen PID).
-        return _zazeni(["flatpak-spawn", "--host", "sh", "-c", 'exec pkcheck --action-id "$0" --process $$', AKCIJA_DNS],
+        return _zazeni(["flatpak-spawn", "--host", "/bin/sh", "-c",
+                        'exec pkcheck --action-id "$0" --detail program "$1" --process $$', AKCIJA_PKEXEC, pot],
                        cas=10.0)[0] == 0
     if shutil.which("pkcheck") is None:
         return False
-    koda, _ = _zazeni(["pkcheck", "--action-id", AKCIJA_DNS, "--process", str(os.getpid())], cas=10.0)
-    return koda == 0
+    return _zazeni(["pkcheck", "--action-id", AKCIJA_PKEXEC, "--detail", "program", pot,
+                    "--process", str(os.getpid())], cas=10.0)[0] == 0
 
 
-def _znak_pravila() -> str:
-    return os.path.join((os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")), "safeer-os", "scit-pravilo")
+def _vsebina_pomocnika() -> Optional[str]:
+    """Pomocnik iz tovora, samo ce se ujema s SHA_POMOCNIKA (sicer je paket pokvarjen - nic ne namescamo)."""
+    try:
+        with open(VIR_POMOCNIKA, "rb") as f:
+            vsebina = f.read(262145)
+    except OSError:
+        return None
+    if hashlib.sha256(vsebina).hexdigest() != SHA_POMOCNIKA:
+        return None
+    try:
+        return vsebina.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def namesti_pravilo() -> bool:
-    """Enkrat, z geslom (pkexec): pravilo polkit, ki skrbniku dovoli nastaviti DNS brez gesla.
-    Uspeh si zapomnimo v uporabnikovi mapi (znak), ker same datoteke pravila ne moremo brati.
-    S pomocnikom (.deb) pravilo namesti pomocnik sam (`scit-dns dovoli`, vsebina je v njem): od nas ne dobi nicesar."""
-    if pomocnik():
+    """Ob vklopu Scita, z geslom (pkexec), enkrat: dovoljenje, da Scit nastavlja DNS brez gesla.
+    .deb: pomocnik namesti svoje ozko pravilo (`scit-dns dovoli`, vsebina je v njem): od nas ne dobi nicesar.
+    Flatpak in AppImage: isti pomocnik gre na gostitelja (NAMESTI_POMOCNIKA_KOT_ROOT) in namesti svoje ozko pravilo;
+    sirokega pravila za resolve1 ne namescamo vec (pregled 4. 11. 2026)."""
+    global _gostitelj_pomocnik
+    pot = pot_pomocnika()
+    if pot is not None:
         return pravilo_namesceno() or _pomocnik("dovoli", cas=180.0)
-    if os.path.exists(_znak_pravila()) and pravilo_namesceno():
-        return True
-    if shutil.which("pkexec") is None:
+    vsebina = _vsebina_pomocnika()
+    if vsebina is None or not root_ukaz.na_voljo():
         return False
-    # Vsebina gre rootu po standardnem vhodu (install /dev/stdin), ne iz zacasne datoteke: datoteka bi bila v lasti
-    # uporabnika in program, ki ze tece kot uporabnik, bi jo lahko po vpisu gesla zamenjal s poljubnim pravilom polkit -
-    # to je root (neodvisni pregled 19. 10. 2026). V Flatpaku vhod do gostitelja prenese flatpak-spawn (/app/host-bin).
-    koda, _ = _zazeni_z_vhodom(root_ukaz.ukaz(root_ukaz.INSTALL, "-m", "644", "-o", "root", "-g", "root", "/dev/stdin",
-                                              PRAVILO_POT),
-                               PRAVILO, cas=180.0)
-    if koda != 0:
-        return False
-    try:
-        os.makedirs(os.path.dirname(_znak_pravila()), mode=0o700, exist_ok=True)
-        with open(_znak_pravila(), "w", encoding="utf-8") as f:
-            f.write(hashlib.sha256(PRAVILO.encode()).hexdigest() + "\n")
-    except OSError:
-        pass
-    return True
+    # Vsebina gre rootu po standardnem vhodu, ne iz datoteke uporabnika (AGENTS.md, »Root in datoteke uporabnika«);
+    # vsota je v ukazni vrstici, ki jo polkit pokaze ob geslu. V Flatpaku vhod do gostitelja prenese flatpak-spawn.
+    koda, _ = _zazeni_z_vhodom([root_ukaz.pkexec(), root_ukaz.SH, "-c", NAMESTI_POMOCNIKA_KOT_ROOT,
+                                "safeer-scit", SHA_POMOCNIKA], vsebina, cas=180.0)
+    _gostitelj_pomocnik = None
+    return koda == 0
 
 
-def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> bool:
+def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> str:
     """DNS vmesnika: nas razresevalnik prvi, strezniki usmerjevalnika za njim kot rezerva. Rezerva je
     nujna: Docker in podobni bereta /run/systemd/resolve/resolv.conf, kjer resolved nas 127.0.0.1 izpusti
     (loopback brez vrat) - brez rezerve bi vsebniki ostali brez DNS; in ce Safeer OS nenadoma ugasne, DNS dela
@@ -1381,15 +1463,19 @@ def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> boo
 
     Iskalnih domen in privzete poti se ne dotikamo.
 
-    S pomocnikom (.deb) oba koraka naredi pomocnik; rezervo prebere sam iz NetworkManagerja (isto kot `rezerva`)."""
+    S pomocnikom oba koraka naredi pomocnik; rezervo prebere sam iz NetworkManagerja (isto kot `rezerva`).
+
+    Vrne napako: "" = uspeh, "pravilo" = DNS ni nastavljen, BREZ_REZERVE = Scit je usmerjen, rezerve pa ni (drugi
+    korak je padel). Prej je to vrnilo uspeh in rezerva se je tiho izgubila (pregled 4. 11. 2026)."""
     if pomocnik():
-        return _pomocnik("usmeri", vmesnik, str(int(vrata)))
+        koda = _pomocnik_koda("usmeri", vmesnik, str(int(vrata)))
+        return "" if koda == 0 else BREZ_REZERVE if koda == KODA_BREZ_REZERVE else "pravilo"
     nas = "%s:%d" % (NASLOV, vrata)
     if _zazeni(NASTAVI + ["dns", vmesnik, nas], cas=30.0)[0] != 0:
-        return False
-    if rezerva:
-        _zazeni(NASTAVI + ["dns", vmesnik, nas] + list(rezerva), cas=30.0)
-    return True
+        return "pravilo"
+    if rezerva and _zazeni(NASTAVI + ["dns", vmesnik, nas] + list(rezerva), cas=30.0)[0] != 0:
+        return BREZ_REZERVE
+    return ""
 
 
 def povrni(vmesnik: str) -> bool:
@@ -1416,6 +1502,8 @@ class Scit:
         self.seznami: Optional[Seznami] = None
         self.razresevalnik: Optional[Razresevalnik] = None
         self.vmesniki: List[str] = []
+        #: Vmesniki, kjer je Scit usmerjen, rezerve (strezniki usmerjevalnika) pa ni bilo mogoce dodati.
+        self.brez_rezerve: set = set()
         self.strezniki: List[str] = []
         self.napaka = ""
         self._straza: Optional[threading.Thread] = None
@@ -1679,7 +1767,7 @@ class Scit:
         if not razlog and self.napaka in ("ni_resolved", "lastni_dns", "pihole_ostanek"):
             self.napaka = ""      # razmere so se medtem spremenile (npr. /etc/resolv.conf spet kaze na resolved)
         s = {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata), "napaka": self.napaka,
-             "vmesniki": list(self.vmesniki), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
+             "vmesniki": list(self.vmesniki), "brezRezerve": sorted(self.brez_rezerve), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
              "poizvedb": r.poizvedb if r else 0, "zadnje": list(r.zadnje) if r else [],
              "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
              "izjeme": list(self._veljavne_izjeme()), "premor": self.premor_se(),
@@ -1776,7 +1864,7 @@ class Scit:
                 self.napaka = "pravilo"
                 return self.stanje()
             self._zazeni()
-            if self.napaka in ("", "ni_omrezja"):
+            if self.napaka in ("", "ni_omrezja", BREZ_REZERVE):
                 # Brez omrezja ob vklopu nastavitev vseeno velja: straza zacne filtrirati, ko se racunalnik poveze.
                 self.shramba.set("scit", True)
         else:
@@ -1837,14 +1925,22 @@ class Scit:
                 continue
             # Nastavimo (znova), ce nas ni na prvem mestu (NetworkManager je po novi povezavi poslal svoje) ali ce
             # je resolved presel na rezervo (nas razresevalnik mu ni odgovoril pravocasno).
-            if not dns.startswith(cilj) or trenutni_streznik(v) not in ("", cilj, NASLOV):
+            # Brez rezerve (drugi korak je zadnjic padel): poskusimo znova ob vsakem pregledu straze.
+            if (not dns.startswith(cilj) or trenutni_streznik(v) not in ("", cilj, NASLOV)
+                    or v in self.brez_rezerve):
                 if smemo is None:
                     smemo = pravilo_namesceno()
-                if not smemo or not usmeri(v, r.vrata, lastni[v]):
+                napaka = usmeri(v, r.vrata, lastni[v]) if smemo else "pravilo"
+                if napaka == BREZ_REZERVE:
+                    self.brez_rezerve.add(v)       # Scit filtrira, a ob padcu Safeer OS ali za Docker DNS ne dela
+                elif napaka:
                     zavrnjeno = True
+                    self.brez_rezerve.discard(v)
                     if v in self.vmesniki:
                         self.vmesniki.remove(v)
                     continue
+                else:
+                    self.brez_rezerve.discard(v)
                 novo = True
             if v not in self.vmesniki:
                 self.vmesniki.append(v)
@@ -1853,8 +1949,12 @@ class Scit:
                 if smemo:
                     uredi_domene(v)
         self.vmesniki = [v for v in self.vmesniki if v in povezani]
+        self.brez_rezerve &= set(self.vmesniki)
         if self.vmesniki or tuje:
-            if self.napaka in ("ni_omrezja", "pravilo"):
+            if self.brez_rezerve:
+                if self.napaka in ("", "ni_omrezja", "pravilo"):
+                    self.napaka = BREZ_REZERVE
+            elif self.napaka in ("ni_omrezja", "pravilo", BREZ_REZERVE):
                 self.napaka = ""
         else:
             # Povezan vmesnik, ki ga ne smemo nastaviti = ni dovoljenja (pravilo polkit); sicer ni omrezja.
@@ -1892,6 +1992,7 @@ class Scit:
                 for v in list(self.vmesniki):
                     povrni(v)
             self.vmesniki = []
+            self.brez_rezerve = set()
             if self.razresevalnik is not None:
                 self.razresevalnik.ustavi()
             if self.seznami is not None:

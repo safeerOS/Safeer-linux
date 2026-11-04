@@ -7,6 +7,13 @@ si.safeer.os.scit, packaging/si.safeer.os.scit.policy), ob nadgradnji paketa pa 
     scit-dns domene <vmesnik>           iskalne domene vmesnika, kot jih je dolocil NetworkManager
     scit-dns dovoli                     namesti ozko pravilo polkit: skrbnik sme brez gesla samo ta pomocnik
 
+Izhodne kode: 0 uspeh, 1 napaka, 2 napacna uporaba ali ni root, 3 na vratih ne poslusa Scit klicatelja,
+4 Scit je usmerjen, rezerve (strezniki usmerjevalnika) ni bilo mogoce dodati.
+
+Za Flatpak in AppImage (pregled 4. 11. 2026) Safeer OS isti pomocnik enkrat z geslom polozi na gostitelja v
+/usr/local/lib/safeer-os/scit-dns (core/os_scit.NAMESTI_POMOCNIKA_KOT_ROOT, preverjena SHA-256 kopije). Tam ni
+datoteke .policy, zato pravilo dovoli samo pkexec TEGA programa (org.freedesktop.policykit.exec + program).
+
 ZAKAJ (tedenski pregled 4. 11. 2026, S15): prejsnje pravilo je VSAKEMU programu skrbnika dovolilo poljuben DNS
 (org.freedesktop.resolve1.*) brez gesla - program, ki tece kot uporabnik, bi racunalnik poslal na svoj streznik DNS.
 Pomocnik zato sprejme samo fiksna dejanja: nas naslov je vedno 127.0.0.1 na vratih Scita (in tam mora poslusati proces
@@ -29,6 +36,22 @@ NASLOV = "127.0.0.1"
 VRATA = (5354, 5355, 5356, 5357)
 AKCIJA = "si.safeer.os.scit"
 PRAVILO_POT = "/etc/polkit-1/rules.d/49-safeer-os-scit.rules"
+#: Pomocnik na gostitelju za Flatpak in AppImage (glej zgoraj) in njegovo pravilo v svoji datoteki: .deb (postinst
+#: »dovoli«) ga ne povozi.
+POT_GOSTITELJA = "/usr/local/lib/safeer-os/scit-dns"
+PRAVILO_GOSTITELJA_POT = "/etc/polkit-1/rules.d/49-safeer-os-scit-gostitelj.rules"
+PRAVILO_GOSTITELJA = """// Safeer OS (Flatpak, AppImage) - Scit: skrbnik sme brez gesla zagnati SAMO pomocnika Scita
+// (/usr/local/lib/safeer-os/scit-dns), ki DNS vmesnika nastavi na Scit (127.0.0.1) ali vrne streznike NetworkManagerja.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/lib/safeer-os/scit-dns" &&
+        subject.local && subject.active && subject.isInGroup("sudo")) {
+        return polkit.Result.YES;
+    }
+});
+"""
+#: Ta program (pot, s katere tece). Preizkusi jo zamenjajo.
+JAZ = os.path.realpath(__file__)
 #: Isto ime datoteke kot staro pravilo: »dovoli« ga povozi. Samo nase dejanje (pkexec ga poveze s tem programom prek
 #: org.freedesktop.policykit.exec.path), samo krajevna aktivna seja skrbnika - kot prej, a brez resolve1.
 PRAVILO = """// Safeer OS - Scit (filtriranje DNS): skrbnik sme brez gesla zagnati SAMO pomocnika Scita
@@ -142,8 +165,9 @@ def usmeri(ime, vrata_):
     if _zazeni([RESOLVECTL, "dns", ime, nas])[0] != 0:
         return 1
     rezerva = nm_strezniki(ime)
-    if rezerva:
-        _zazeni([RESOLVECTL, "dns", ime, nas] + rezerva)
+    if rezerva and _zazeni([RESOLVECTL, "dns", ime, nas] + rezerva)[0] != 0:
+        # Scit dela, rezerve pa ni: Docker in padec Safeer OS bi ostala brez DNS. Ne tiho - klicatelj to pokaze.
+        return 4
     return 0
 
 
@@ -169,14 +193,39 @@ def povrni(ime):
     return 0 if ok else 1
 
 
-def dovoli(pot=PRAVILO_POT):
-    """Ozko pravilo atomsko (zacasna datoteka v isti mapi, brez koncnice .rules, da je polkit ne nalozi napol)."""
+def dovoli(pot=None):
+    """Ozko pravilo atomsko (zacasna datoteka v isti mapi, brez koncnice .rules, da je polkit ne nalozi napol).
+    Pomocnik na gostitelju (Flatpak, AppImage) namesti svoje pravilo in odstrani staro siroko pravilo za resolve1."""
+    if pot is None and JAZ == POT_GOSTITELJA:
+        _zapisi_pravilo(PRAVILO_GOSTITELJA_POT, PRAVILO_GOSTITELJA)
+        odstrani_siroko()
+        return 0
+    return _zapisi_pravilo(pot or PRAVILO_POT, PRAVILO)
+
+
+def odstrani_siroko(pot=None):
+    """Staro pravilo Safeer (vsak program skrbnika sme brez gesla poljuben DNS) odstrani - samo, ce je res nase in
+    siroko (resolve1); ozko pravilo paketa .deb ostane."""
+    pot = pot or PRAVILO_POT
+    try:
+        with open(pot, encoding="utf-8") as f:
+            vsebina = f.read()
+    except OSError:
+        return
+    if "Safeer OS - Scit" in vsebina and "org.freedesktop.resolve1" in vsebina:
+        try:
+            os.unlink(pot)
+        except OSError:
+            pass
+
+
+def _zapisi_pravilo(pot, pravilo):
     mapa = os.path.dirname(pot)
     os.makedirs(mapa, mode=0o755, exist_ok=True)
     fd, zacasna = tempfile.mkstemp(dir=mapa, prefix=".safeer-os-scit-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(PRAVILO)
+            f.write(pravilo)
             f.flush()
             os.fsync(f.fileno())
         os.chmod(zacasna, 0o644)

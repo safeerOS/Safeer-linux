@@ -39,6 +39,9 @@ cp -a "$ROOT/assets/safeer_drm" "$LIB/assets/"
 mkdir -p "$LIB/ui" && cp -a "$ROOT"/ui/splet.html "$ROOT"/ui/splet.css "$ROOT"/ui/splet.js "$ROOT"/ui/splet-gore.webp "$LIB/ui/"
 for dat in banks.json bank_guard_page.js; do [ -f "$ROOT/core/$dat" ] && cp -a "$ROOT/core/$dat" "$LIB/core/"; done
 cp -a "$ROOT/packaging/VERSION_OS" "$LIB/packaging/"
+# Pomocnik Scita: Flatpak in AppImage ga ob prvem vklopu Scita (geslo) polozita na gostitelja (core/os_scit.namesti_pravilo,
+# SHA-256 preveri root). Brez izvrsljivega bita: tu ga nihce ne zaganja.
+install -m 644 "$ROOT/packaging/scit-dns" "$LIB/packaging/scit-dns"
 # En proces (core/en_proces.py): Safeer OS zazene Safeer Control v svojem procesu, zato ima ves tovor Controla
 # (safeer_control.py, moduli Linka, stran assets/link). Iz istega izvora - nicesar ne prepisemo (cp -n).
 TOVOR_CONTROL="$(mktemp -d)"

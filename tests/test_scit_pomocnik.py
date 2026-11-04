@@ -243,7 +243,7 @@ class OsScitPrekPomocnika(unittest.TestCase):
 
     def setUp(self):
         self.klici = []
-        zamenjave = {"pomocnik": lambda: True, "_zazeni": self._lazno}
+        zamenjave = {"pomocnik": lambda: True, "pot_pomocnika": lambda: os_scit.POMOCNIK, "_zazeni": self._lazno}
         self.stare = {k: getattr(os_scit, k) for k in zamenjave}
         for k, v in zamenjave.items():
             setattr(os_scit, k, v)
@@ -266,7 +266,7 @@ class OsScitPrekPomocnika(unittest.TestCase):
         return 0, ""
 
     def test_usmeri_povrni_domene(self):
-        self.assertTrue(os_scit.usmeri("eth0", 5354, ["192.168.1.1"]))
+        self.assertEqual(os_scit.usmeri("eth0", 5354, ["192.168.1.1"]), "")
         self.assertTrue(os_scit.povrni("eth0"))
         os_scit.uredi_domene("eth0")
         pk = "/usr/bin/pkexec"
@@ -297,8 +297,167 @@ class IzbiraPoti(unittest.TestCase):
             with mock.patch.object(os_scit, "POMOCNIK", os.path.join(d, "ni")), \
                     mock.patch.object(os_scit, "v_flatpaku", lambda: False):
                 self.assertFalse(os_scit.pomocnik())
-        with mock.patch.object(os_scit, "v_flatpaku", lambda: True):
-            self.assertFalse(os_scit.pomocnik(), "Flatpak: prejsnja pot")
+        with mock.patch.object(os_scit, "v_flatpaku", lambda: True), \
+                mock.patch.object(os_scit, "_pomocnik_gostitelja", lambda: False):
+            self.assertFalse(os_scit.pomocnik(), "Flatpak brez pomocnika na gostitelju")
+        with mock.patch.object(os_scit, "v_flatpaku", lambda: True), \
+                mock.patch.object(os_scit, "_pomocnik_gostitelja", lambda: True):
+            self.assertEqual(os_scit.pot_pomocnika(), os_scit.POMOCNIK_GOSTITELJA, "Flatpak: pomocnik na gostitelju")
+
+
+class PomocnikGostitelja(unittest.TestCase):
+    """Pregled 4. 11. 2026: Flatpak in AppImage sta namescala siroko pravilo za resolve1 (vsak program skrbnika sme
+    poljuben DNS brez gesla). Zdaj gre isti pomocnik enkrat z geslom na gostitelja, root preveri SHA-256 kopije."""
+
+    def setUp(self):
+        os_scit._gostitelj_pomocnik = None
+        self.addCleanup(setattr, os_scit, "_gostitelj_pomocnik", None)
+
+    def test_vsota_pomocnika_je_vsota_datoteke(self):
+        import hashlib
+        self.assertEqual(os_scit.SHA_POMOCNIKA, hashlib.sha256(POMOCNIK_VIR.read_bytes()).hexdigest(),
+                         "po spremembi packaging/scit-dns posodobi core/os_scit.SHA_POMOCNIKA")
+        self.assertEqual(Path(os_scit.VIR_POMOCNIKA).resolve(), POMOCNIK_VIR.resolve())
+        self.assertIn('install -m 644 "$ROOT/packaging/scit-dns" "$LIB/packaging/scit-dns"',
+                      (KOREN / "packaging" / "install_os_payload.sh").read_text(encoding="utf-8"))
+
+    def _namesti(self, flatpak):
+        klici = []
+
+        def z_vhodom(ukaz, vhod, cas=8.0):
+            klici.append((list(ukaz), vhod))
+            return 0, ""
+        with mock.patch.object(os_scit, "v_flatpaku", lambda: flatpak), \
+                mock.patch.object(root_ukaz, "v_flatpaku", lambda: flatpak), \
+                mock.patch.object(root_ukaz, "na_voljo", lambda: True), \
+                mock.patch.object(os_scit, "POMOCNIK", "/ni/te/poti/scit-dns"), \
+                mock.patch.object(os_scit, "_zazeni", lambda ukaz, cas=8.0: (1, "")), \
+                mock.patch.object(os_scit, "_zazeni_z_vhodom", z_vhodom):
+            self.assertTrue(os_scit.namesti_pravilo())
+        return klici
+
+    def test_namestitev_na_gostitelja_po_vhodu_s_preverbo(self):
+        for flatpak in (False, True):
+            klici = self._namesti(flatpak)
+            pkexec = "/app/host-bin/pkexec" if flatpak else "/usr/bin/pkexec"
+            self.assertEqual(len(klici), 1)
+            ukaz, vhod = klici[0]
+            self.assertEqual(ukaz, [pkexec, "/bin/sh", "-c", os_scit.NAMESTI_POMOCNIKA_KOT_ROOT, "safeer-scit",
+                                    os_scit.SHA_POMOCNIKA])
+            self.assertEqual(vhod, POMOCNIK_VIR.read_text(encoding="utf-8"), "vsebina pomocnika po vhodu")
+            self.assertNotIn("resolve1", vhod.split("PRAVILO_GOSTITELJA = ")[1].split('"""')[1])
+            self.assertNotIn(os_scit.PRAVILO, vhod)
+            self.assertNotIn(os_scit.PRAVILO, ukaz, "sirokega pravila ne namescamo vec")
+
+    def test_pokvarjen_tovor_se_ne_namesti(self):
+        with mock.patch.object(os_scit, "SHA_POMOCNIKA", "0" * 64), \
+                mock.patch.object(os_scit, "POMOCNIK", "/ni/te/poti/scit-dns"), \
+                mock.patch.object(os_scit, "v_flatpaku", lambda: False), \
+                mock.patch.object(os_scit, "_zazeni_z_vhodom", side_effect=AssertionError("nic rootu")):
+            self.assertFalse(os_scit.namesti_pravilo())
+
+    def test_root_skripta_zavrne_napacno_vsoto(self):
+        """Ob napacni vsoti root skripta konca (koda 3), preden kaj namesti. Tece kot uporabnik: nic ne zapise."""
+        if os.getuid() == 0:
+            self.skipTest("kot root bi skripta ob pravi vsoti namescala")
+        r = subprocess.run(["/bin/sh", "-c", os_scit.NAMESTI_POMOCNIKA_KOT_ROOT, "safeer-scit", "0" * 64],
+                           input=POMOCNIK_VIR.read_bytes(), capture_output=True, timeout=30)
+        self.assertEqual(r.returncode, 3, r.stderr)
+
+    def test_staro_siroko_pravilo_ne_velja(self):
+        with tempfile.TemporaryDirectory() as d:
+            pot = os.path.join(d, "49-safeer-os-scit.rules")
+            with open(pot, "w", encoding="utf-8") as f:
+                f.write(os_scit.PRAVILO)
+            for flatpak in (False, True):
+                with mock.patch.object(os_scit, "PRAVILO_POT", pot), \
+                        mock.patch.object(os_scit, "v_flatpaku", lambda f=flatpak: f), \
+                        mock.patch.object(os_scit, "POMOCNIK", "/ni/te/poti/scit-dns"), \
+                        mock.patch.object(os_scit, "_pomocnik_gostitelja", lambda: False), \
+                        mock.patch.object(os_scit, "_zazeni", side_effect=AssertionError("brez pkcheck")):
+                    self.assertFalse(os_scit.pravilo_namesceno())
+
+    def test_dovoljenje_za_pomocnika_gostitelja(self):
+        klici = []
+
+        def zazeni(ukaz, cas=8.0):
+            klici.append(list(ukaz))
+            return 0, ""
+        with mock.patch.object(os_scit, "pot_pomocnika", lambda: os_scit.POMOCNIK_GOSTITELJA), \
+                mock.patch.object(os_scit, "_zazeni", zazeni), \
+                mock.patch.object(os_scit.shutil, "which", lambda ime, **k: "/usr/bin/" + ime):
+            with mock.patch.object(os_scit, "v_flatpaku", lambda: False):
+                self.assertTrue(os_scit.pravilo_namesceno())
+            with mock.patch.object(os_scit, "v_flatpaku", lambda: True):
+                self.assertTrue(os_scit.pravilo_namesceno())
+        self.assertEqual(klici, [
+            ["pkcheck", "--action-id", "org.freedesktop.policykit.exec", "--detail", "program",
+             os_scit.POMOCNIK_GOSTITELJA, "--process", str(os.getpid())],
+            ["flatpak-spawn", "--host", "/bin/sh", "-c",
+             'exec pkcheck --action-id "$0" --detail program "$1" --process $$', "org.freedesktop.policykit.exec",
+             os_scit.POMOCNIK_GOSTITELJA]])
+
+    def test_preverba_na_gostitelju_v_flatpaku(self):
+        izpis = {"ok": "0 755\n0 755\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA),
+                 "star": "0 755\n0 755\n%s  %s\n" % ("1" * 64, os_scit.POMOCNIK_GOSTITELJA),
+                 "uporabnik": "1000 755\n0 755\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA),
+                 "mapa": "0 755\n0 777\n%s  %s\n" % (os_scit.SHA_POMOCNIKA, os_scit.POMOCNIK_GOSTITELJA)}
+        for primer, pricakovano in (("ok", True), ("star", False), ("uporabnik", False), ("mapa", False)):
+            os_scit._gostitelj_pomocnik = None
+            with mock.patch.object(os_scit, "v_flatpaku", lambda: True), \
+                    mock.patch.object(os_scit, "_zazeni", lambda ukaz, cas=8.0, i=izpis[primer]: (0, i)):
+                self.assertEqual(os_scit._pomocnik_gostitelja(), pricakovano, primer)
+
+
+class PomocnikNaGostiteljuPravilo(unittest.TestCase):
+    def setUp(self):
+        self.p = _pomocnik_modul()
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+
+    def test_pravilo_gostitelja_samo_za_ta_program(self):
+        pravilo = self.p.PRAVILO_GOSTITELJA
+        self.assertNotIn("resolve1", pravilo)
+        self.assertEqual(re.findall(r'action\.id == "([^"]+)"', pravilo), ["org.freedesktop.policykit.exec"])
+        self.assertEqual(re.findall(r'action\.lookup\("program"\) == "([^"]+)"', pravilo), [os_scit.POMOCNIK_GOSTITELJA])
+        for pogoj in ("subject.local", "subject.active", 'subject.isInGroup("sudo")'):
+            self.assertIn(pogoj, pravilo)
+        self.assertEqual(self.p.POT_GOSTITELJA, os_scit.POMOCNIK_GOSTITELJA)
+
+    def test_dovoli_na_gostitelju_zamenja_siroko(self):
+        rules = os.path.join(self.mapa.name, "rules.d")
+        os.makedirs(rules)
+        staro = os.path.join(rules, "49-safeer-os-scit.rules")
+        with open(staro, "w", encoding="utf-8") as f:
+            f.write(os_scit.PRAVILO)
+        self.p.JAZ = self.p.POT_GOSTITELJA
+        self.p.PRAVILO_GOSTITELJA_POT = os.path.join(rules, "49-safeer-os-scit-gostitelj.rules")
+        with mock.patch.object(self.p, "PRAVILO_POT", staro):
+            self.assertEqual(self.p.dovoli(), 0)
+        self.assertEqual(os.listdir(rules), ["49-safeer-os-scit-gostitelj.rules"], "siroko pravilo odstranjeno")
+        with open(self.p.PRAVILO_GOSTITELJA_POT, encoding="utf-8") as f:
+            self.assertEqual(f.read(), self.p.PRAVILO_GOSTITELJA)
+
+    def test_dovoli_ne_odstrani_ozkega_pravila_paketa(self):
+        pot = os.path.join(self.mapa.name, "49-safeer-os-scit.rules")
+        with open(pot, "w", encoding="utf-8") as f:
+            f.write(self.p.PRAVILO)
+        self.p.odstrani_siroko(pot)
+        self.assertTrue(os.path.exists(pot))
+
+    def test_usmeri_brez_rezerve_koda_4(self):
+        mapa = tempfile.mkdtemp(dir=self.mapa.name)
+        os.mkdir(os.path.join(mapa, "eth0"))
+        self.p.SISTEM_NET = mapa
+
+        def lazno(ukaz):
+            if ukaz[:2] == [self.p.NMCLI, "-g"]:
+                return 0, "192.168.1.1\n"
+            if ukaz[0] == self.p.RESOLVECTL and len(ukaz) > 4:
+                return 1, ""                       # drugi korak (Scit + rezerva) pade
+            return 0, ""
+        self.p._zazeni = lazno
+        self.assertEqual(self.p.usmeri("eth0", 5354), 4)
 
 
 if __name__ == "__main__":

@@ -217,17 +217,22 @@ class UsmeriTest(unittest.TestCase):
         izvirni = os_scit._zazeni
         os_scit._zazeni = zazeni
         try:
-            self.assertTrue(os_scit.usmeri("eth9", 5354, ["192.168.0.1", "1.1.1.1"]))
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1", "1.1.1.1"]), "")
             self.assertEqual(klici, [["resolvectl", "dns", "eth9", "127.0.0.1:5354"],
                                      ["resolvectl", "dns", "eth9", "127.0.0.1:5354", "192.168.0.1", "1.1.1.1"]])
             del klici[:]
-            self.assertTrue(os_scit.usmeri("eth9", 5355, []))
+            self.assertEqual(os_scit.usmeri("eth9", 5355, []), "")
             self.assertEqual(klici, [["resolvectl", "dns", "eth9", "127.0.0.1:5355"]])
             # Prvi korak ne uspe (ni dovoljenja): drugega ni.
             del klici[:]
             os_scit._zazeni = lambda ukaz, cas=8.0: (klici.append(ukaz), (1, ""))[1]
-            self.assertFalse(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]))
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), "pravilo")
             self.assertEqual(len(klici), 1)
+            # Drugi korak (rezerva) pade: ne uspeh, ampak BREZ_REZERVE (pregled 4. 11. 2026 - prej tiho uspeh).
+            del klici[:]
+            os_scit._zazeni = lambda ukaz, cas=8.0: (klici.append(ukaz), (0, "") if len(klici) == 1 else (1, ""))[1]
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), os_scit.BREZ_REZERVE)
+            self.assertEqual(len(klici), 2)
         finally:
             os_scit._zazeni = izvirni
         self.assertFalse([k for k in klici if "domain" in k or "revert" in k])
@@ -526,55 +531,8 @@ class Flatpak(unittest.TestCase):
     """V peskovniku Flatpak sistemska orodja tecejo na gostitelju (flatpak-spawn --host). Dvoje je tam drugace:
     pkcheck v peskovniku ne obstaja (in nas PID gostitelju nic ne pomeni), /tmp pa je zaseben."""
 
-    def test_dovoljenje_vprasamo_na_gostitelju(self):
-        s = Sistem([(["flatpak-spawn"], (0, ""))])
-        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
-            self.assertTrue(os_scit.pravilo_namesceno())
-        self.assertEqual(s.klici, [["flatpak-spawn", "--host", "sh", "-c", 'exec pkcheck --action-id "$0" --process $$',
-                                    "org.freedesktop.resolve1.set-dns-servers"]])
-        s = Sistem([(["flatpak-spawn"], (2, ""))])
-        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
-            self.assertFalse(os_scit.pravilo_namesceno())
-
-    def test_pravilo_rootu_po_vhodu_brez_datoteke(self):
-        """Neodvisni pregled 19. 10. 2026: pravilo polkit gre rootu po standardnem vhodu. Zacasna datoteka bi bila v
-        lasti uporabnika in jo bi program, ki tece kot uporabnik, po vpisu gesla zamenjal s poljubnim pravilom."""
-        klici = []
-
-        def z_vhodom(ukaz, vhod, cas=8.0):
-            klici.append((list(ukaz), vhod))
-            return 0, ""
-        with tempfile.TemporaryDirectory() as m:
-            okolje = {"XDG_CACHE_HOME": os.path.join(m, "cache"), "XDG_CONFIG_HOME": os.path.join(m, "config")}
-            stare = {k: os.environ.get(k) for k in okolje}
-            os.environ.update(okolje)
-            izvirni_which = os_scit.shutil.which
-            os_scit.shutil.which = lambda ime: "/app/host-bin/" + ime
-            try:
-                for flatpak in (False, True):
-                    klici.clear()
-                    znak = os.path.join(m, "config", "safeer-os", "scit-pravilo")
-                    if os.path.exists(znak):
-                        os.remove(znak)
-                    from core import root_ukaz
-                    with Zamenjave(_zazeni_z_vhodom=z_vhodom, v_flatpaku=lambda f=flatpak: f,
-                                   PRAVILO_POT="/ni/te/poti.rules"), \
-                            mock.patch.object(root_ukaz, "v_flatpaku", lambda f=flatpak: f):
-                        self.assertTrue(os_scit.namesti_pravilo())
-                    # pkexec in program z absolutno potjo (core/root_ukaz.py); v Flatpaku ovoj gostitelja.
-                    pkexec = "/app/host-bin/pkexec" if flatpak else "/usr/bin/pkexec"
-                    self.assertEqual(klici, [([pkexec, "/usr/bin/install", "-m", "644", "-o", "root", "-g", "root",
-                                               "/dev/stdin", "/ni/te/poti.rules"], os_scit.PRAVILO)])
-                    self.assertTrue(os.path.isfile(znak))
-            finally:
-                os_scit.shutil.which = izvirni_which
-                for k, v in stare.items():
-                    if v is None:
-                        os.environ.pop(k, None)
-                    else:
-                        os.environ[k] = v
-            self.assertFalse(os.path.exists(os.path.join(m, "cache")) and os.listdir(os.path.join(m, "cache")),
-                             "nobene vmesne datoteke")
+    # Dovoljenje in namestitev v Flatpaku in AppImage (pomocnik na gostitelju namesto sirokega pravila za resolve1,
+    # pregled 4. 11. 2026): tests/test_scit_pomocnik.py, PomocnikGostitelja.
 
     def test_nastavitve_gostitelja_beremo_na_gostitelju(self):
         """Zrcalo /etc/resolv.conf v peskovniku zamuja, nsswitch.conf pa je tam od runtime-a: oboje preberemo zunaj."""
@@ -589,17 +547,6 @@ class Flatpak(unittest.TestCase):
             self.assertTrue(os_scit.programi_uporabljajo_resolved())
         with Zamenjave(_zazeni=Sistem([(["flatpak-spawn"], (1, ""))]), v_flatpaku=lambda: True):
             self.assertFalse(os_scit.programi_uporabljajo_resolved(), "ce gostitelja ne moremo vprasati, se DNS ne dotikamo")
-
-    def test_zunaj_peskovnika_kot_prej(self):
-        s = Sistem([(["pkcheck"], (0, ""))])
-        izvirni_which = os_scit.shutil.which
-        os_scit.shutil.which = lambda ime: "/usr/bin/" + ime
-        try:
-            with Zamenjave(_zazeni=s, v_flatpaku=lambda: False, PRAVILO_POT="/ni/te/poti.rules"):
-                self.assertTrue(os_scit.pravilo_namesceno())
-        finally:
-            os_scit.shutil.which = izvirni_which
-        self.assertEqual(s.klici, [["pkcheck", "--action-id", "org.freedesktop.resolve1.set-dns-servers", "--process", str(os.getpid())]])
 
 
 class LastniDns(unittest.TestCase):
@@ -633,7 +580,7 @@ class LastniDns(unittest.TestCase):
                 razlog_nemoznosti=lambda: "lastni_dns", pravilo_namesceno=lambda: True,
                 namesti_pravilo=lambda: klici.append("pravilo") or True,
                 vmesniki_povezani=lambda: klici.append("vmesniki") or ["eth9"],
-                usmeri=lambda *a: klici.append("usmeri") or True, povrni=lambda v: klici.append("povrni") or True):
+                usmeri=lambda *a: klici.append("usmeri") or "", povrni=lambda v: klici.append("povrni") or True):
             shramba = IzjemeInPremor.Shramba({"scit": True})
             sc = os_scit.Scit(shramba, mapa=m)
             st = sc.stanje()
@@ -686,7 +633,7 @@ class UporabiTest(unittest.TestCase):
             klici.append(("usmeri", v, vrata, tuple(rezerva)))
             dns[v] = "127.0.0.1:%d %s" % (vrata, " ".join(rezerva))
             trenutni[v] = ""
-            return True
+            return ""
         with tempfile.TemporaryDirectory() as m, Zamenjave(
                 vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1", "fe80::1"],
                 dns_vmesnika=lambda v: dns[v], trenutni_streznik=lambda v: trenutni[v], usmeri=usmeri,
@@ -717,7 +664,7 @@ class UporabiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m, Zamenjave(
                 vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1"],
                 dns_vmesnika=lambda v: "192.168.0.1", trenutni_streznik=lambda v: "192.168.0.1",
-                usmeri=lambda *a: klici.append("usmeri") or True, povrni=lambda v: klici.append("povrni") or True,
+                usmeri=lambda *a: klici.append("usmeri") or "", povrni=lambda v: klici.append("povrni") or True,
                 pravilo_namesceno=lambda: False, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m, scit=True)
             sc._uporabi()
@@ -737,7 +684,7 @@ class UporabiTest(unittest.TestCase):
                 dns_vmesnika=lambda v: dns[v], trenutni_streznik=lambda v: "127.0.0.1:5355",
                 nekdo_poslusa=lambda vrata: poslusa.get(vrata, False),
                 lastniki_vrat=lambda vrata: {os.getuid() + 1001}, _odgovori_kanarcku=lambda vrata, cas: True,
-                usmeri=lambda *a: klici.append("usmeri") or True, pravilo_namesceno=lambda: True,
+                usmeri=lambda *a: klici.append("usmeri") or "", pravilo_namesceno=lambda: True,
                 uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m, scit=True)
             sc._uporabi()
@@ -750,11 +697,41 @@ class UporabiTest(unittest.TestCase):
         self.assertFalse(os_scit.tuj_scit("192.168.0.1", 5354))
         self.assertFalse(os_scit.tuj_scit("", 5354))
 
+    def test_brez_rezerve_ni_uspeh(self):
+        """Pregled 4. 11. 2026: drugi resolvectl (Scit + strezniki usmerjevalnika) je padel, Scit pa je vrnil uspeh -
+        rezerva se je tiho izgubila (Docker in padec Safeer OS brez DNS). Zdaj: napaka brez_rezerve v stanju (vmesnik
+        jo pokaze), Scit filtrira naprej, straza poskusi znova; ko rezerva uspe, napaka izgine."""
+        izidi = [os_scit.BREZ_REZERVE, os_scit.BREZ_REZERVE, ""]
+        klici = []
+
+        def usmeri(*a):
+            klici.append(a[0])
+            return izidi.pop(0)
+        with tempfile.TemporaryDirectory() as m, Zamenjave(
+                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.1.1"],
+                dns_vmesnika=lambda v: "127.0.0.1:5354", trenutni_streznik=lambda v: "127.0.0.1:5354", usmeri=usmeri,
+                pravilo_namesceno=lambda: True, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None,
+                razlog_nemoznosti=lambda: ""):
+            sc = self._scit(m)
+            sc.vmesniki = []
+            # Prvi vklop: dns se ni nas
+            with Zamenjave(dns_vmesnika=lambda v: "192.168.1.1"):
+                sc._uporabi()
+            self.assertEqual((sc.vmesniki, sc.napaka, sorted(sc.brez_rezerve)), (["eth9"], "brez_rezerve", ["eth9"]))
+            self.assertEqual(sc.stanje()["napaka"], "brez_rezerve")
+            self.assertEqual(sc.stanje()["brezRezerve"], ["eth9"])
+            sc._uporabi()                         # straza: nas je ze prvi, a rezerve ni - poskusi znova
+            self.assertEqual(sc.napaka, "brez_rezerve")
+            sc._uporabi()                         # tokrat uspe
+            self.assertEqual((sc.napaka, sc.brez_rezerve, klici), ("", set(), ["eth9"] * 3))
+            sc._uporabi()                         # vse v redu: nic vec ne klice
+            self.assertEqual(len(klici), 3)
+
     def test_brez_omrezja_in_pozneje_povezan(self):
         povezani = []
         with tempfile.TemporaryDirectory() as m, Zamenjave(
                 vmesniki_povezani=lambda: list(povezani), upstream_strezniki=lambda v: ["192.168.0.1"],
-                dns_vmesnika=lambda v: "192.168.0.1", trenutni_streznik=lambda v: "", usmeri=lambda *a: True,
+                dns_vmesnika=lambda v: "192.168.0.1", trenutni_streznik=lambda v: "", usmeri=lambda *a: "",
                 pravilo_namesceno=lambda: True, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m)
             sc._uporabi()
