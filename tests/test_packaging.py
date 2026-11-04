@@ -1860,7 +1860,7 @@ sys.exit("neznan ukaz")
             r=subprocess.run(['/bin/bash',str(ROOT/'packaging/webkit-deb/zgradi.sh'),'/usr/lib/safeer-webkit'],
                              env={'PATH':d},capture_output=True,text=True)
             self.assertEqual(r.returncode,3,r.stderr)
-            self.assertIn('pripada namescenemu paketu (safeer-webkit)',r.stderr)
+            self.assertIn('pripada paketu safeer-webkit',r.stderr)   # besedilo iz varovalo_predpone.sh (2b98fe8)
             self.assertIn('docker run --rm',r.stderr)
             self.assertIn('build/safeer-webkit.tar.zst',r.stderr)
 
