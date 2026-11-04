@@ -3916,12 +3916,12 @@
       if (e.tagName === "H2") {
         zakljuci();
         naslov = e; vSkupini = 0;
-        naslovUstreza = !!niz && window.SafeerIskanje.ujemaBesede(e.textContent + " " + (BESEDILA_OS.en[e.getAttribute("data-t")] || ""), niz);
+        naslovUstreza = !!niz && window.SafeerIskanje.ujemaNastavitev(e.textContent + " " + (BESEDILA_OS.en[e.getAttribute("data-t")] || ""), niz);
         return;
       }
       var vBloku = e.parentElement && e.parentElement.closest("[data-iskanje-blok]");
       if (vBloku) return;                        // blok (npr. Scit) se iskanju kaze ali skrije v celoti
-      var ustreza = !niz || naslovUstreza || window.SafeerIskanje.ujemaBesede(besediloZaIskanje(e), niz);
+      var ustreza = !niz || naslovUstreza || window.SafeerIskanje.ujemaNastavitev(besediloZaIskanje(e), niz);
       e.classList.toggle("ni-zadetek", !ustreza);
       if (ustreza && !e.hidden) { vSkupini++; zadetkov++; }
     });
@@ -3934,7 +3934,7 @@
       function (e) { return !e.hidden && !e.classList.contains("ni-zadetek") && e.offsetParent !== null && !e.disabled; });
     // Najprej vnos, ki ustreza sam: skupina, ki ustreza po naslovu (»Zaslon in zvok«), ostane cela, a »zvok« je Zvok.
     var niz = ($("nastavitveIskanje") || {}).value || "";
-    return vidni.filter(function (e) { return window.SafeerIskanje.ujemaBesede(besediloZaIskanje(e), niz.trim()); })[0] || vidni[0] || null;
+    return vidni.filter(function (e) { return window.SafeerIskanje.ujemaNastavitev(besediloZaIskanje(e), niz.trim()); })[0] || vidni[0] || null;
   }
   function poveziIskanjeNastavitev() {
     var polje = $("nastavitveIskanje");

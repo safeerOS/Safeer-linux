@@ -22,6 +22,23 @@ var SafeerIskanje = (function (tvornica) {
     return brezNaglasa(niz).split(/\s+/).filter(Boolean).every(function (x) { return b.indexOf(x) >= 0; });
   }
 
+  // Iskanje nastavitev: beseda niza se ujema na zacetku besede besedila, sredi besede sele od 5 znakov naprej
+  // (pregled 4. 11. 2026, kot TV): »scit« je Scit, ne »uscita audio«, »tooth« pa se najde v »Bluetooth«.
+  // Datoteke in zapiski ostanejo pri ujemaBesede (tam je podniz zelen).
+  var SREDI_BESEDE_OD = 5;
+  function ujemaZacetekBesede(b, x) {
+    for (var i = b.indexOf(x); i >= 0; i = b.indexOf(x, i + 1)) {
+      if (i === 0 || !/[a-z0-9]/.test(b.charAt(i - 1))) return true;
+    }
+    return false;
+  }
+  function ujemaNastavitev(besedilo, niz) {
+    var b = brezNaglasa(besedilo);
+    return brezNaglasa(niz).split(/\s+/).filter(Boolean).every(function (x) {
+      return x.length >= SREDI_BESEDE_OD ? b.indexOf(x) >= 0 : ujemaZacetekBesede(b, x);
+    });
+  }
+
   function oceni(besedilo, niz) {
     var b = brezNaglasa(besedilo).trim(), n = brezNaglasa(niz).trim();
     if (!b || !n) return 0;
@@ -117,6 +134,7 @@ var SafeerIskanje = (function (tvornica) {
   return {
     brezNaglasa: brezNaglasa,
     ujemaBesede: ujemaBesede,
+    ujemaNastavitev: ujemaNastavitev,
     oceni: oceni,
     oceniSpletno: oceniSpletno,
     jeNaslov: jeNaslov,

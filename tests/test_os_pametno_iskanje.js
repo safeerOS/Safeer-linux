@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const { nameraIskanja, brezNaglasa, ujemaBesede } = require("../assets/os/iskanje.js");
+const { nameraIskanja, brezNaglasa, ujemaBesede, ujemaNastavitev } = require("../assets/os/iskanje.js");
 
 const podatki = {
   spletne: [
@@ -35,5 +35,17 @@ assert.ok(ujemaBesede("Žur na morju 2026.mp4", "MORJU žur"));
 assert.ok(!ujemaBesede("Žur na morju 2026.mp4", "zur hribi"));
 assert.ok(ujemaBesede("karkoli", ""), "prazen niz ustreza vsemu");
 assert.ok(ujemaBesede("karkoli", "   "));
+
+// Nastavitve: zacetek besede vedno, sredi besede sele od 5 znakov (pregled 4. 11. 2026).
+assert.ok(!ujemaNastavitev("Uscita audio", "scit"), "scit ne sme najti italijanske Uscita");
+assert.ok(ujemaNastavitev("Ščit in zasebnost", "scit"));
+assert.ok(ujemaNastavitev("Safeer Ščit", "ŠČIT"));
+assert.ok(ujemaNastavitev("Bluetooth naprave", "tooth"), "od 5 znakov tudi sredi besede");
+assert.ok(!ujemaNastavitev("Bluetooth naprave", "toot"));
+assert.ok(ujemaNastavitev("Bluetooth naprave", "blue nap"));
+assert.ok(ujemaNastavitev("Zaslon (svetlost)", "svet"), "za oklepajem je zacetek besede");
+assert.ok(!ujemaNastavitev("Zaslon", "slon"));
+assert.ok(ujemaNastavitev("karkoli", ""), "prazen niz ustreza vsemu");
+assert.ok(ujemaBesede("Uscita audio", "scit"), "datoteke in zapiski ostanejo pri podnizu");
 
 console.log("pametno iskanje: OK");
