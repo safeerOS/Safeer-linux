@@ -17,6 +17,11 @@ IZHOD="${2:?Uporaba: nadaljuj.sh /usr/lib/safeer-webkit IZHOD.tar.zst}"
 [ "$PREDPONA" = /usr/lib/safeer-webkit ] || { echo "PREDPONA mora biti /usr/lib/safeer-webkit (paket safeer-webkit)" >&2; exit 2; }
 ARHIV="${SAFEER_BOLT_PREDBOLT:?SAFEER_BOLT_PREDBOLT=arhiv stanja pred BOLT}"
 [ -f "$ARHIV" ] || { echo "nadaljuj.sh: ni $ARHIV - polna gradnja je zgradi.sh" >&2; exit 1; }
+# Ista zascita namescenega Safeerja kot v zgradi.sh: spodaj je rm -rf PREDPONA (tedenski pregled 4. 11. 2026, S16).
+# shellcheck source=packaging/webkit-deb/varovalo_predpone.sh
+. "$KOREN/packaging/webkit-deb/varovalo_predpone.sh"
+RAZLOG="$(predpona_namescena "$PREDPONA")"
+[ -z "$RAZLOG" ] || { echo "nadaljuj.sh: $PREDPONA $RAZLOG - gradnja bi jo izbrisala; gradi v cistem vsebniku (kot CI)" >&2; exit 3; }
 DELO="${SAFEER_WEBKIT_DELO:-$KOREN/build/webkit-deb}"
 LLVM=/usr/lib/llvm-22/bin
 [ -x "$LLVM/clang" ] || { echo "Ni Clanga 22 ($LLVM/clang): najprej packaging/webkit-deb/odvisnosti.sh" >&2; exit 1; }
@@ -37,9 +42,12 @@ export GI_TYPELIB_PATH="$PREDPONA/lib/girepository-1.0"
 
 # --- stanje pred BOLT ---------------------------------------------------------------------------------------------------
 Z="$DELO/predbolt"
-rm -rf "$PREDPONA" "$Z"
 zstd -q -t "$ARHIV"
-tar -C / -I zstd -xf "$ARHIV"
+# Root razpakira v /: najprej preveri vsak clan (samo PREDPONA in Z, brez absolutnih poti, »..« in povezav ven;
+# tedenski pregled 4. 11. 2026, N5), sele nato brisanje in razpakiranje.
+zstd -q -dc "$ARHIV" | python3 "$KOREN/packaging/webkit-deb/preveri_arhiv.py" "${PREDPONA#/}" "${Z#/}"
+rm -rf "$PREDPONA" "$Z"
+tar -C / -I zstd --no-same-owner -xf "$ARHIV"
 for f in "$Z/cmake.txt" "$Z/stevci.txt" "$PREDPONA/lib/libwebkitgtk-6.0.so.4" "$PREDPONA/lib/libjavascriptcoregtk-6.0.so.1"; do
     [ -e "$f" ] || { echo "nadaljuj.sh: arhiv $ARHIV nima $f" >&2; exit 1; }
 done
