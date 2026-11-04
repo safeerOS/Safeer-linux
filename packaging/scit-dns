@@ -1,0 +1,217 @@
+#!/usr/bin/python3 -I
+"""Safeer OS - pomocnik Scita (DNS). Tece kot root: klice ga core/os_scit.py prek pkexec (dejanje polkit
+si.safeer.os.scit, packaging/si.safeer.os.scit.policy), ob nadgradnji paketa pa postinst.
+
+    scit-dns usmeri <vmesnik> <vrata>   DNS vmesnika: Scit (127.0.0.1:<vrata>), za njim strezniki NetworkManagerja
+    scit-dns povrni <vmesnik>           vmesniku vrne streznike DNS, ki jih je dolocil NetworkManager
+    scit-dns domene <vmesnik>           iskalne domene vmesnika, kot jih je dolocil NetworkManager
+    scit-dns dovoli                     namesti ozko pravilo polkit: skrbnik sme brez gesla samo ta pomocnik
+
+ZAKAJ (tedenski pregled 4. 11. 2026, S15): prejsnje pravilo je VSAKEMU programu skrbnika dovolilo poljuben DNS
+(org.freedesktop.resolve1.*) brez gesla - program, ki tece kot uporabnik, bi racunalnik poslal na svoj streznik DNS.
+Pomocnik zato sprejme samo fiksna dejanja: nas naslov je vedno 127.0.0.1 na vratih Scita (in tam mora poslusati proces
+klicatelja), druge streznike in domene prebere sam iz NetworkManagerja. Od klicatelja ne vzame nobenega naslova, poti
+ali datoteke; programi z absolutno potjo, okolje podprocesov je fiksno.
+"""
+import ipaddress
+import os
+import re
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+
+RESOLVECTL = "/usr/bin/resolvectl"
+NMCLI = "/usr/bin/nmcli"
+NASLOV = "127.0.0.1"
+#: Ista vrata kot core/os_scit.VRATA (tests/test_scit_pomocnik.py preveri, da se ujemata).
+VRATA = (5354, 5355, 5356, 5357)
+AKCIJA = "si.safeer.os.scit"
+PRAVILO_POT = "/etc/polkit-1/rules.d/49-safeer-os-scit.rules"
+#: Isto ime datoteke kot staro pravilo: »dovoli« ga povozi. Samo nase dejanje (pkexec ga poveze s tem programom prek
+#: org.freedesktop.policykit.exec.path), samo krajevna aktivna seja skrbnika - kot prej, a brez resolve1.
+PRAVILO = """// Safeer OS - Scit (filtriranje DNS): skrbnik sme brez gesla zagnati SAMO pomocnika Scita
+// (/usr/lib/safeer-os/scit-dns), ki DNS vmesnika nastavi na Scit (127.0.0.1) ali vrne streznike NetworkManagerja.
+polkit.addRule(function (action, subject) {
+    if (action.id == "si.safeer.os.scit" &&
+        subject.local && subject.active && subject.isInGroup("sudo")) {
+        return polkit.Result.YES;
+    }
+});
+"""
+#: Imena vmesnikov v Linuxu: najvec 15 znakov (IFNAMSIZ), brez »/« in presledkov. Prvi znak ni »-« (ne sme biti
+#: zastavica za resolvectl ali nmcli).
+IME_VMESNIKA = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}")
+#: Iskalna domena iz NetworkManagerja (DHCP jo lahko poslje kdorkoli v omrezju): prvi znak ni »-«.
+DOMENA = re.compile(r"~?[A-Za-z0-9_.][A-Za-z0-9._-]{0,252}")
+SISTEM_NET = "/sys/class/net"
+PROC_UDP = "/proc/net/udp"
+OKOLJE = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+CAS = 30
+NAJVEC_STREZNIKOV = 8
+
+
+def vmesnik(ime):
+    """Ime obstojecega omreznega vmesnika ali None."""
+    if not isinstance(ime, str) or not IME_VMESNIKA.fullmatch(ime):
+        return None
+    return ime if os.path.isdir(os.path.join(SISTEM_NET, ime)) else None
+
+
+def vrata(besedilo):
+    """Vrata Scita ali None (samo stevke, samo VRATA)."""
+    if not isinstance(besedilo, str) or not re.fullmatch(r"[0-9]{4}", besedilo):
+        return None
+    return int(besedilo) if int(besedilo) in VRATA else None
+
+
+def razcleni(argumenti):
+    """(dejanje, argumenti) ali None. Vse drugo se zavrne, preden se karkoli zazene."""
+    a = list(argumenti)
+    if a == ["dovoli"]:
+        return ("dovoli", ())
+    if len(a) == 3 and a[0] == "usmeri":
+        v, p = vmesnik(a[1]), vrata(a[2])
+        return ("usmeri", (v, p)) if v and p else None
+    if len(a) == 2 and a[0] in ("povrni", "domene"):
+        v = vmesnik(a[1])
+        return (a[0], (v,)) if v else None
+    return None
+
+
+def poslusa(vrata_, uid, pot=PROC_UDP):
+    """Ali na 127.0.0.1:<vrata> poslusa vticnica UDP uporabnika uid (stolpca local_address in uid v /proc/net/udp).
+    Brez tega bi program klicatelja DNS racunalnika lahko usmeril na vrata, kjer ne poslusa nihce ali drug uporabnik."""
+    naslov = "%08X:%04X" % (struct.unpack("=I", socket.inet_aton(NASLOV))[0], vrata_)
+    try:
+        with open(pot, encoding="ascii", errors="replace") as f:
+            next(f, None)
+            for vrstica in f:
+                polja = vrstica.split()
+                if len(polja) > 7 and polja[1] == naslov and polja[7] == str(uid):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def _zazeni(ukaz):
+    try:
+        r = subprocess.run(ukaz, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=CAS, env=OKOLJE)
+        return r.returncode, r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+
+
+def _nmcli(polja, ime):
+    koda, izpis = _zazeni([NMCLI, "-g", polja, "device", "show", ime])
+    if koda != 0:
+        return None
+    return [v.strip().replace("\\:", ":") for v in izpis.replace("|", "\n").splitlines() if v.strip()]
+
+
+def nm_strezniki(ime):
+    """Strezniki DNS, ki jih je za vmesnik dolocil NetworkManager (kot core/os_scit.upstream_strezniki)."""
+    izid = []
+    for v in _nmcli("IP4.DNS,IP6.DNS", ime) or []:
+        try:
+            n = ipaddress.ip_address(v)
+        except ValueError:
+            continue
+        if not n.is_loopback and not n.is_unspecified and str(n) not in izid:
+            izid.append(str(n))
+    return izid[:NAJVEC_STREZNIKOV]
+
+
+def nm_domene(ime):
+    domene = _nmcli("IP4.DOMAIN,IP6.DOMAIN,IP4.SEARCHES,IP6.SEARCHES", ime)
+    if domene is None:          # starejsi NetworkManager polja SEARCHES ne pozna
+        domene = _nmcli("IP4.DOMAIN,IP6.DOMAIN", ime) or []
+    izid = []
+    for d in domene:
+        if DOMENA.fullmatch(d) and d not in izid:
+            izid.append(d)
+    return izid
+
+
+def usmeri(ime, vrata_):
+    """V dveh korakih (kot je bilo v core/os_scit.usmeri): najprej samo Scit, da ga resolved vzame za trenutnega,
+    nato Scit in strezniki usmerjevalnika kot rezerva (Docker, sesutje Safeer OS)."""
+    nas = "%s:%d" % (NASLOV, vrata_)
+    if _zazeni([RESOLVECTL, "dns", ime, nas])[0] != 0:
+        return 1
+    rezerva = nm_strezniki(ime)
+    if rezerva:
+        _zazeni([RESOLVECTL, "dns", ime, nas] + rezerva)
+    return 0
+
+
+def domene(ime):
+    """Domene popravi samo, ce jih je pobrisala ali zamenjala z »~.« starejsa razlicica (core/os_scit.uredi_domene)."""
+    koda, izpis = _zazeni([RESOLVECTL, "domain", ime])
+    trenutne = izpis.split(":", 1)[1].split() if koda == 0 and ":" in izpis else []
+    if trenutne and trenutne != ["~."]:
+        return 0
+    zelene = nm_domene(ime)
+    if zelene == trenutne:
+        return 0
+    return 0 if _zazeni([RESOLVECTL, "domain", ime] + (zelene or [""]))[0] == 0 else 1
+
+
+def povrni(ime):
+    """Samo `resolvectl revert` ni dovolj: pobrise tudi streznike od NetworkManagerja (racunalnik bi ostal brez DNS)."""
+    strezniki = nm_strezniki(ime)
+    if not strezniki:
+        return 0 if _zazeni([RESOLVECTL, "revert", ime])[0] == 0 else 1
+    ok = _zazeni([RESOLVECTL, "dns", ime] + strezniki)[0] == 0
+    domene(ime)
+    return 0 if ok else 1
+
+
+def dovoli(pot=PRAVILO_POT):
+    """Ozko pravilo atomsko (zacasna datoteka v isti mapi, brez koncnice .rules, da je polkit ne nalozi napol)."""
+    mapa = os.path.dirname(pot)
+    os.makedirs(mapa, mode=0o755, exist_ok=True)
+    fd, zacasna = tempfile.mkstemp(dir=mapa, prefix=".safeer-os-scit-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(PRAVILO)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(zacasna, 0o644)
+        os.replace(zacasna, pot)
+    except BaseException:
+        try:
+            os.unlink(zacasna)
+        except OSError:
+            pass
+        raise
+    return 0
+
+
+def main(argumenti):
+    izbira = razcleni(argumenti)
+    if izbira is None:
+        print("uporaba: scit-dns usmeri VMESNIK VRATA | povrni VMESNIK | domene VMESNIK | dovoli", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("scit-dns: tece samo kot root (pkexec)", file=sys.stderr)
+        return 2
+    dejanje, a = izbira
+    if dejanje == "dovoli":
+        return dovoli()
+    if dejanje == "usmeri":
+        # Klicatelj prek pkexec (PKEXEC_UID); usmeri samo na vrata, kjer poslusa njegov Scit.
+        uid = os.environ.get("PKEXEC_UID", "")
+        if not uid.isdigit() or not poslusa(a[1], int(uid)):
+            print("scit-dns: na %s:%d ne poslusa Scit klicatelja" % (NASLOV, a[1]), file=sys.stderr)
+            return 3
+        return usmeri(*a)
+    if dejanje == "povrni":
+        return povrni(*a)
+    return domene(*a)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

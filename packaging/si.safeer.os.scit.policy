@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!-- Safeer Scit: pomocnik /usr/lib/safeer-os/scit-dns (packaging/scit-dns). Privzeto skrbnisko geslo; ko uporabnik
+     Scit prvic vklopi (geslo enkrat), pomocnik namesti pravilo, ki skrbniku dovoli samo to dejanje brez gesla
+     (tedenski pregled 4. 11. 2026, S15: namesto splosnega dovoljenja za org.freedesktop.resolve1). -->
+<policyconfig>
+  <vendor>Safeer</vendor>
+  <vendor_url>https://safeer.si/os/</vendor_url>
+  <action id="si.safeer.os.scit">
+    <description>Turn Safeer Shield DNS filtering on or off</description>
+    <description xml:lang="sl">Vklop ali izklop filtriranja DNS (Safeer Scit)</description>
+    <description xml:lang="de">DNS-Filterung von Safeer Schild ein- oder ausschalten</description>
+    <description xml:lang="es">Activar o desactivar el filtrado DNS de Safeer Escudo</description>
+    <description xml:lang="fr">Activer ou désactiver le filtrage DNS de Safeer Bouclier</description>
+    <description xml:lang="it">Attivare o disattivare il filtro DNS di Safeer Scudo</description>
+    <message>Authentication is required to let Safeer Shield filter DNS on this computer.</message>
+    <message xml:lang="sl">Za filtriranje DNS s Safeer Scitom na tem računalniku je potrebno skrbniško geslo.</message>
+    <message xml:lang="de">Damit Safeer Schild DNS auf diesem Computer filtern kann, ist eine Authentifizierung erforderlich.</message>
+    <message xml:lang="es">Se requiere autenticación para que Safeer Escudo filtre el DNS en este equipo.</message>
+    <message xml:lang="fr">Une authentification est requise pour que Safeer Bouclier filtre le DNS sur cet ordinateur.</message>
+    <message xml:lang="it">È richiesta l'autenticazione perché Safeer Scudo filtri il DNS su questo computer.</message>
+    <icon_name>security-high</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/safeer-os/scit-dns</annotate>
+  </action>
+</policyconfig>

@@ -1,0 +1,24 @@
+# PREDLOG (tedenski pregled 4. 11. 2026, V7) - NI v paketu; v paketu je packaging/apparmor/safeer-os.
+# Safeer OS: userns samo za peskovnik bwrap, ne za vse otroke. Zdaj ima profil flags=(unconfined) z userns in ga podedujejo
+# vsi otroci (python3, programi, ki jih zazene). Tu glavni profil userns zavrne, /usr/bin/bwrap pa preide v podprofil
+# »bwrap«, ki edini sme ustvariti uporabniski imenski prostor (WebKit: spletni in omrezni procesi, xdg-dbus-proxy).
+# default_allow namesto unconfined: unconfined prehodov in zavrnitev ne uposteva (man apparmor.d), default_allow jih.
+# Drugi programi gredo s pix v svoj profil, ce ga imajo (npr. Chrome), sicer ostanejo tu - brez userns, kot ob zagonu iz
+# menija. Preden gre v paket: preizkus na Ubuntu 24.04 ali Mintu s kernel.apparmor_restrict_unprivileged_userns=1.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile safeer-os /usr/bin/safeer-os flags=(default_allow) {
+  deny userns,
+
+  /usr/bin/bwrap Cx -> bwrap,
+  /** pix,
+
+  profile bwrap flags=(default_allow) {
+    userns,
+  }
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/safeer-os>
+}

@@ -83,6 +83,10 @@ if [ "$NAMIZJE" = 1 ]; then
 fi
 # Profila AppArmor (Ubuntu 24.04+: peskovnik WebKita potrebuje uporabniske imenske prostore) - core/peskovnik_userns.py.
 bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-os safeer-control
+# Scit (DNS): root pomocnik s fiksnimi dejanji in lastno dejanje polkit (tedenski pregled 4. 11. 2026, S15) namesto
+# pravila, ki je vsakemu programu skrbnika dovolilo poljuben DNS. Samo v .deb: Flatpak in AppImage ga ne moreta namestiti.
+install -D -m 755 "$DIR/packaging/scit-dns" "$BUILD_ROOT/usr/lib/safeer-os/scit-dns"
+install -D -m 644 "$DIR/packaging/si.safeer.os.scit.policy" "$BUILD_ROOT/usr/share/polkit-1/actions/si.safeer.os.scit.policy"
 # Lupina QML (GTK4 + Qt Quick v istem procesu): PySide6, ki ga Linux Mint 22 nima v svojih paketih - ista kolesa kot v
 # Flatpaku (packaging/pyside6_vendor.py). Brez njih bi Safeer OS tekel s prejsnjo delovno povrsino v WebKitu.
 # SAFEER_DEB_BREZ_QT=1: preizkus paketa (tests/test_delovna.py) brez 80 MB prenosa - PySide6 preverja CI (job safeer-os).
@@ -218,6 +222,13 @@ if [ "${1:-}" = "configure" ] && [ -d /sys/kernel/security/apparmor ] && command
         fi
     done
 fi
+# Scit (S15, 4. 11. 2026): staro pravilo polkit je vsakemu programu skrbnika dovolilo poljuben DNS (resolve1) brez gesla.
+# Kdor ga ima (Scit je ze vklopil, z geslom), dobi namesto njega ozko pravilo samo za pomocnika - brez novega gesla.
+# Ce pomocnik ne uspe, staro pravilo vseeno odstranimo: Scit ob naslednjem vklopu enkrat vprasa za geslo.
+SCIT_PRAVILO=/etc/polkit-1/rules.d/49-safeer-os-scit.rules
+if [ "${1:-}" = "configure" ] && [ -f "$SCIT_PRAVILO" ] && grep -q 'org.freedesktop.resolve1' "$SCIT_PRAVILO"; then
+    /usr/lib/safeer-os/scit-dns dovoli >/dev/null 2>&1 || rm -f "$SCIT_PRAVILO"
+fi
 exit 0
 EOF2
 cat << 'EOF2' > "$BUILD_ROOT/DEBIAN/prerm"
@@ -284,6 +295,12 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
     fi
 fi
 if [ "${1:-}" = "purge" ] && [ "${DPKG_MAINTSCRIPT_PACKAGE:-safeer-os}" = "safeer-os" ]; then rm -rf /var/lib/safeer-cinnamon; fi
+# Pravilo polkit Scita (staro ali ozko) je nastavitev v /etc: ostane do purge (kot profil AppArmor). Brez pomocnika je
+# ozko pravilo brez ucinka (dejanje si.safeer.os.scit ne obstaja vec).
+if [ "${1:-}" = "purge" ] && [ -f /etc/polkit-1/rules.d/49-safeer-os-scit.rules ] \
+        && grep -q 'Safeer OS - Scit' /etc/polkit-1/rules.d/49-safeer-os-scit.rules; then
+    rm -f /etc/polkit-1/rules.d/49-safeer-os-scit.rules
+fi
 # AppArmor: ob odstranitvi profil umaknemo iz jedra (datoteka v /etc ostane do purge, kot vsaka nastavitev).
 if [ "${1:-}" = "remove" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
     for profil in safeer-os safeer-control; do
@@ -297,7 +314,8 @@ EOF2
 bash "$DIR/packaging/webkit-deb/vstavi_skripte.sh" "$BUILD_ROOT" "$PKG_NAME"
 chmod 755 "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_ROOT/DEBIAN/postrm"
 find "$BUILD_ROOT" -type d -exec chmod 755 {} +
-chmod 755 "$BUILD_ROOT/usr/bin/safeer-os" "$BUILD_ROOT/usr/bin/safeer-control" "$BUILD_ROOT/usr/bin/safeerctl"
+chmod 755 "$BUILD_ROOT/usr/bin/safeer-os" "$BUILD_ROOT/usr/bin/safeer-control" "$BUILD_ROOT/usr/bin/safeerctl" \
+    "$BUILD_ROOT/usr/lib/safeer-os/scit-dns"
 if [ "$NAMIZJE" = 1 ]; then
     chmod 755 "$BUILD_ROOT/usr/bin/safeer-cinnamon" "$BUILD_ROOT/usr/lib/safeer-cinnamon/izbira" "$BUILD_ROOT/usr/lib/safeer-cinnamon/od-vklopa"
 fi

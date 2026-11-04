@@ -9,10 +9,12 @@ prej Cloudflare DoH). Uporabnik ob prvem vklopu izbere sam in izbiro kadarkoli s
 sifriran DoH (Cloudflare, Quad9, Google, AdGuard, OpenDNS, svoj). Brez krajevnega DNS je odgovor SERVFAIL.
 
 Da racunalnik ta razresevalnik uporablja, Safeer OS systemd-resolved za povezano omrezje pove:
-»DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo;
-zato ob prvem vklopu enkrat (pkexec) namestimo pravilo polkit, ki skrbniku dovoli te tri klice brez
-gesla - kot namestitev programa: geslo enkrat, potem dela samo. Ob izklopu vmesnik spet dobi streznike,
-ki jih je dolocil NetworkManager; ob zagonu Safeer OS se, ce je Scit vklopljen, uporabi znova.
+»DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo.
+V paketu .deb to naredi root pomocnik /usr/lib/safeer-os/scit-dns (packaging/scit-dns) s fiksnimi dejanji (usmeri na
+Scit, vrni streznike NetworkManagerja); ob prvem vklopu enkrat z geslom (pkexec) namesti pravilo polkit, ki skrbniku
+dovoli brez gesla samo tega pomocnika - kot namestitev programa: geslo enkrat, potem dela samo. Kjer pomocnika ni
+(Flatpak: na gostitelja ga ne moremo namestiti; AppImage), ostane prejsnja pot: pravilo za tri klice resolve1.
+Ob izklopu vmesnik spet dobi streznike, ki jih je dolocil NetworkManager; ob zagonu Safeer OS se, ce je Scit vklopljen, uporabi znova.
 
 Spreminjamo SAMO seznam streznikov DNS vmesnika. Iskalnih domen (»lan«), privzete poti in nastavitev VPN se
 ne dotikamo. Kjer programi imen ne razresujejo prek systemd-resolved (lasten streznik DNS, npr. Pi-hole),
@@ -1079,6 +1081,9 @@ def uredi_domene(vmesnik: str) -> None:
     trenutne = domene_vmesnika(vmesnik)
     if trenutne and trenutne != ["~."]:
         return
+    if pomocnik():
+        _pomocnik("domene", vmesnik)          # pomocnik domene NetworkManagerja prebere sam
+        return
     zelene = nm_domene(vmesnik)
     if zelene != trenutne:
         _zazeni(NASTAVI + ["domain", vmesnik] + (zelene or [""]), cas=30.0)
@@ -1278,6 +1283,11 @@ def trenutni_streznik(vmesnik: str) -> str:
 
 
 AKCIJA_DNS = "org.freedesktop.resolve1.set-dns-servers"
+#: Root pomocnik v paketu .deb (tedenski pregled 4. 11. 2026, S15): prejsnje pravilo (PRAVILO) je VSAKEMU programu
+#: skrbnika dovolilo poljuben DNS brez gesla. Pomocnik sprejme samo fiksna dejanja in naslov 127.0.0.1 na vratih Scita;
+#: streznike usmerjevalnika in domene prebere sam iz NetworkManagerja. Pravilo zanj dovoli samo AKCIJA_POMOCNIKA.
+POMOCNIK = "/usr/lib/safeer-os/scit-dns"
+AKCIJA_POMOCNIKA = "si.safeer.os.scit"
 
 
 def v_flatpaku() -> bool:
@@ -1285,10 +1295,32 @@ def v_flatpaku() -> bool:
     return bool(os.environ.get("FLATPAK_ID")) or os.path.exists("/.flatpak-info")
 
 
+def pomocnik() -> bool:
+    """Ali DNS nastavlja root pomocnik (.deb). V Flatpaku ga na gostitelja ne moremo namestiti (tam in v AppImage brez
+    paketa ostane prejsnja pot). Pomocnik mora biti rootov in nespremenljiv za druge - sicer ga ne zaganjamo kot root."""
+    if v_flatpaku():
+        return False
+    try:
+        st = os.stat(POMOCNIK)
+    except OSError:
+        return False
+    return st.st_uid == 0 and not st.st_mode & 0o022 and os.access(POMOCNIK, os.X_OK)
+
+
+def _pomocnik(*argumenti: str, cas: float = 60.0) -> bool:
+    """Pomocnik kot root: pkexec in pomocnik z absolutno potjo (core/root_ukaz.py), argumenti samo fiksna dejanja."""
+    return _zazeni(root_ukaz.ukaz(POMOCNIK, *argumenti), cas=cas)[0] == 0
+
+
 def pravilo_namesceno() -> bool:
     """Ali smemo nastaviti DNS brez gesla. Mape /etc/polkit-1/rules.d uporabnik ne more brati (0750
     root:polkitd), zato pravila ne iscemo po datoteki, ampak polkit vprasamo naravnost (pkcheck brez
     interakcije: 0 = dovoljeno, sicer bi zahteval geslo)."""
+    if pomocnik():
+        # Samo nase dejanje: staro pravilo za resolve1 pomocniku ne pomaga (in ga postinst zamenja).
+        if shutil.which("pkcheck") is None:
+            return False
+        return _zazeni(["pkcheck", "--action-id", AKCIJA_POMOCNIKA, "--process", str(os.getpid())], cas=10.0)[0] == 0
     try:
         with open(PRAVILO_POT, encoding="utf-8") as f:
             if AKCIJA_DNS in f.read():
@@ -1312,7 +1344,10 @@ def _znak_pravila() -> str:
 
 def namesti_pravilo() -> bool:
     """Enkrat, z geslom (pkexec): pravilo polkit, ki skrbniku dovoli nastaviti DNS brez gesla.
-    Uspeh si zapomnimo v uporabnikovi mapi (znak), ker same datoteke pravila ne moremo brati."""
+    Uspeh si zapomnimo v uporabnikovi mapi (znak), ker same datoteke pravila ne moremo brati.
+    S pomocnikom (.deb) pravilo namesti pomocnik sam (`scit-dns dovoli`, vsebina je v njem): od nas ne dobi nicesar."""
+    if pomocnik():
+        return pravilo_namesceno() or _pomocnik("dovoli", cas=180.0)
     if os.path.exists(_znak_pravila()) and pravilo_namesceno():
         return True
     if shutil.which("pkexec") is None:
@@ -1344,7 +1379,11 @@ def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> boo
     »Nas + usmerjevalnik« v enem koraku bi ga zato pustil pri usmerjevalniku in Scit ne bi dobil nobene poizvedbe.
     Najprej torej samo nas (prejsnji streznik odpade), sele potem nas z rezervo (nas ostane trenutni).
 
-    Iskalnih domen in privzete poti se ne dotikamo."""
+    Iskalnih domen in privzete poti se ne dotikamo.
+
+    S pomocnikom (.deb) oba koraka naredi pomocnik; rezervo prebere sam iz NetworkManagerja (isto kot `rezerva`)."""
+    if pomocnik():
+        return _pomocnik("usmeri", vmesnik, str(int(vrata)))
     nas = "%s:%d" % (NASLOV, vrata)
     if _zazeni(NASTAVI + ["dns", vmesnik, nas], cas=30.0)[0] != 0:
         return False
@@ -1358,6 +1397,8 @@ def povrni(vmesnik: str) -> bool:
 
     Samo `resolvectl revert` NI dovolj: pobrise tudi streznike, ki jih je systemd-resolved dobil od NetworkManagerja,
     ta pa jih znova poslje sele ob naslednji povezavi - racunalnik bi do takrat ostal brez DNS."""
+    if pomocnik():
+        return _pomocnik("povrni", vmesnik)
     strezniki = upstream_strezniki(vmesnik)
     if not strezniki:
         return _zazeni(NASTAVI + ["revert", vmesnik], cas=30.0)[0] == 0
