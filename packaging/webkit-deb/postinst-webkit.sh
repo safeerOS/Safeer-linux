@@ -1,4 +1,4 @@
-# shellcheck shell=sh
+# shellcheck shell=dash
 # --- Safeer WebKit, vgrajen v paket (packaging/webkit-deb/vgradi_v_program.sh; lastnik, 20. 10. 2026) ----------------
 # Vsak program Safeer (safeer-os = namizno okolje, safeer-os-app = aplikacija, safeer-browser) nosi nas WebKitGTK v
 # /usr/lib/@PROGRAM@/webkit-vgrajen in ga namesti v skupno mapo /usr/lib/safeer-webkit (predpona, prevedena v knjiznice).

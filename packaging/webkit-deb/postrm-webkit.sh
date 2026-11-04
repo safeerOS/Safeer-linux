@@ -1,4 +1,4 @@
-# shellcheck shell=sh
+# shellcheck shell=dash
 # --- Safeer WebKit, vgrajen v paket (packaging/webkit-deb/vgradi_v_program.sh) ---------------------------------------
 # /usr/lib/safeer-webkit ni datoteka nobenega paketa: odstrani ga zadnji program Safeer, ki ga uporablja. Ne ob
 # posodobitvi in ne, ce je namescen se kateri (tudi napol) ali star paket safeer-webkit (do 1.0.128), ki mapo ima v lasti.
