@@ -123,15 +123,28 @@ class Pospravljanje(unittest.TestCase):
         import time
         from unittest import mock
         from gi.repository import GLib
-        izvedeni = []
-        with mock.patch.object(os_lupina.Namizje, "_lastna", lambda _s, _i, metoda, _a: izvedeni.append(metoda) or True):
+        # Steje samo klice namizij, ustvarjenih v tem preizkusu: v polnem teku vrtenje konteksta izvede tudi cakajoce
+        # klice namizij prejsnjih datotek (4. 11. 2026: 25 klicev napraveNamizja/povezava od drugod) - to ni
+        # regresija, ki jo ta preizkus lovi.
+        izvedeni, nasa = [], []
+        pravi_init = os_lupina.Namizje.__init__
+
+        def init(namizje, *a, **k):
+            nasa.append(namizje)
+            pravi_init(namizje, *a, **k)
+        def lastna(namizje, _i, metoda, _a):
+            izvedeni.append((namizje, metoda))
+            return True
+        with mock.patch.object(os_lupina.Namizje, "_lastna", lastna), \
+                mock.patch.object(os_lupina.Namizje, "__init__", init):
             izid = unittest.TestResult()
             unittest.TestSuite([KratkaPot("test_domaca_mapa_kot_tilda"), OknoQml("test_okno_ima_rob_namizje_ne")]).run(izid)
             self.assertTrue(izid.wasSuccessful(), izid.errors + izid.failures)
             kontekst, konec = GLib.MainContext.default(), time.monotonic() + 1.0
             while time.monotonic() < konec:
                 kontekst.iteration(False) or time.sleep(0.01)
-        self.assertEqual(izvedeni, [])
+        self.assertTrue(nasa, "preizkus ni ustvaril namizja - ne bi nicesar preveril")
+        self.assertEqual([m for n, m in izvedeni if any(n is x for x in nasa)], [])
 
 
 class Zagon(unittest.TestCase):
