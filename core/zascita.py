@@ -6,6 +6,7 @@ nastavitve (adblock_enabled ...) ostanejo veljavne in stopnja se iz njih izracun
 """
 from __future__ import annotations
 
+import posixpath
 import urllib.parse
 
 #: Kar vsaka stopnja vklopi. Kljuci so obstojece nastavitve brskalnika (+ dve novi za strogo).
@@ -99,8 +100,10 @@ def je_zunanji(naslov: str, nasa_mapa: str = "") -> bool:
     if shema == "file":
         pot = urllib.parse.unquote(deli.path or "")
         if nasa_mapa:
-            mapa = nasa_mapa.rstrip("/") + "/"
-            return not pot.startswith(mapa)
+            # Normalizirano: <ui>/../drugje.html ni v mapi vmesnika (CodeRabbit, 4. 11. 2026).
+            mapa = posixpath.normpath(nasa_mapa)
+            pot = posixpath.normpath(pot) if pot else pot
+            return not pot.startswith(mapa.rstrip("/") + "/")
         return True
     return False                     # about:, safeer:, data: ... ne gre v omrezje
 

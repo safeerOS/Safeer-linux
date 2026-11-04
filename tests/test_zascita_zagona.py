@@ -49,6 +49,8 @@ class Odlocitev(unittest.TestCase):
             self.assertFalse(zascita.mora_cakati(naslov, set(), vse, 0.0, nasa_mapa=UI), naslov)
         self.assertTrue(zascita.mora_cakati("file:///home/x/stran.html", set(), vse, 0.0, nasa_mapa=UI))
         self.assertTrue(zascita.mora_cakati("file://%s-zlo/x.html" % UI, set(), vse, 0.0, nasa_mapa=UI))
+        self.assertTrue(zascita.mora_cakati("file://%s/../zunaj.html" % UI, set(), vse, 0.0, nasa_mapa=UI))
+        self.assertTrue(zascita.mora_cakati("file://%s/%%2e%%2e/zunaj.html" % UI, set(), vse, 0.0, nasa_mapa=UI))
 
 
 class VrstniRed(unittest.TestCase):
