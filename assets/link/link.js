@@ -3444,7 +3444,11 @@
     var jeRacunalnik = !samoIme && naprava.id !== stanje.idNaprave && !!(most && most.upravljajRacunalnik) &&
       ikonaNapraveVSeznamu(naprava) === "racunalnik";
     pokazi("gumbUpravljajRacunalnik", jeRacunalnik);
-    pokazi("bliznjiceZaslona", znaDaljinec);
+    // Bliznjici samo s paketom, ki ga ta naprava ima (paketSafeerOs/paketBrskalnika); brez obeh ni vrstice.
+    var paketOs = znaDaljinec ? paketSafeerOs(naprava) : "", paketBr = znaDaljinec ? paketBrskalnika(naprava) : "";
+    pokazi("gumbOdpriSafeerOs", !!paketOs);
+    pokazi("gumbOdpriBrskalnik", !!paketBr);
+    pokazi("bliznjiceZaslona", !!(paketOs || paketBr));
     pokazi("izbireDeljenja", !samoIme);
     pokazi("opisIzbire", !samoIme);
     var izbire = document.querySelectorAll("#izbireDeljenja .izbira");
@@ -4136,13 +4140,36 @@
     meniGumbi[mi].addEventListener("click", function () { izberiRazdelek(this.getAttribute("data-razdelek")); });
   }
 
-  /** Paket Safeer OS na tej napravi: iz kataloga aplikacij (Protocol v1), sicer po platformi. */
-  function paketSafeerOs(n) {
-    var k = n.aplikacije || {};
-    if (k["si.safeer.os"]) return "si.safeer.os";
-    if (k["si.safeer.tablet"]) return "si.safeer.tablet";
-    return n.platforma === "tablet" ? "si.safeer.tablet" : "si.safeer.os";
+  /** Paketa Safeer OS in Safeer brskalnika na napravi (tedenski pregled 4. 11. 2026: prej sta gumba na telefonu
+   *  zaganjala paketa televizorja). Ce naprava javi katalog aplikacij (Protocol v1), velja samo ta; sicer po
+   *  platformi. Neznana naprava: "" - gumb se skrije, namesto da bi zagnal napacen paket. */
+  var PAKETI_ZASLONA = {
+    tv: { os: ["si.safeer.os"], brskalnik: ["si.safeer.tv"] },
+    tablet: { os: ["si.safeer.tablet"], brskalnik: ["si.safeer.tablet"] },
+    phone: { os: ["si.safeer.phone"], brskalnik: ["com.safeer.mobile.browser"] }
+  };
+  function vrstaZaslona(n) {
+    var pl = String((n && n.platforma) || "").toLowerCase(), vr = String((n && n.vrsta) || "").toLowerCase();
+    if (pl === "tablet" || pl === "tablica" || vr === "tablet") return "tablet";
+    if (pl === "phone" || pl === "telefon" || vr === "phone" || vr === "handheld") return "phone";
+    if (pl === "tv" || vr === "tv" || vr === "screen") return "tv";
+    return "";
   }
+  function paketNaZaslonu(n, kaj) {
+    var izbira = (PAKETI_ZASLONA[vrstaZaslona(n)] || {})[kaj] || [];
+    var k = n && n.aplikacije;
+    if (k && typeof k === "object") {
+      var vsi = [];
+      for (var v in PAKETI_ZASLONA) vsi = vsi.concat(PAKETI_ZASLONA[v][kaj]);
+      // Katalog: najprej paket, ki ustreza platformi, sicer katerikoli nas paket te vrste, ki ga naprava ima.
+      var kandidati = izbira.concat(vsi);
+      for (var i = 0; i < kandidati.length; i++) if (k[kandidati[i]]) return kandidati[i];
+      return "";
+    }
+    return izbira[0] || "";
+  }
+  function paketSafeerOs(n) { return paketNaZaslonu(n, "os"); }
+  function paketBrskalnika(n) { return paketNaZaslonu(n, "brskalnik"); }
 
   function odpriNaZaslonu(paket, ime) {
     var n = deljenje.naprava;
@@ -4154,12 +4181,14 @@
   var gumbOdpriSafeerOs = el("gumbOdpriSafeerOs");
   if (gumbOdpriSafeerOs) gumbOdpriSafeerOs.addEventListener("click", function () {
     var n = deljenje.naprava;
-    if (n) odpriNaZaslonu(paketSafeerOs(n), "Safeer OS");
+    var paket = n ? paketSafeerOs(n) : "";
+    if (paket) odpriNaZaslonu(paket, "Safeer OS");
   });
   var gumbOdpriBrskalnik = el("gumbOdpriBrskalnik");
   if (gumbOdpriBrskalnik) gumbOdpriBrskalnik.addEventListener("click", function () {
     var n = deljenje.naprava;
-    if (n) odpriNaZaslonu(n.platforma === "tablet" ? "si.safeer.tablet" : "si.safeer.tv", "Safeer");
+    var paket = n ? paketBrskalnika(n) : "";
+    if (paket) odpriNaZaslonu(paket, "Safeer");
   });
 
   var gumbDaljinec = el("gumbDaljinec");
