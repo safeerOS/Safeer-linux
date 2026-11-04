@@ -207,7 +207,22 @@ class Osnova(unittest.TestCase):
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
         QTest.keyClick(self.n.okno, tipka, mod or Qt.KeyboardModifier.NoModifier)
+        self._spusti_modifikatorje(mod)
         self._pocakaj(lambda: False, 0.05)
+
+    def _spusti_modifikatorje(self, mod):
+        """Uporabnik po Ctrl+D spusti tudi Ctrl; QTest.keyClick tega ne naredi in QApplication ostane pri Ctrl (na
+        zaslonu offscreen ga vrne queryKeyboardModifiers, Most.ctrl) - naslednji preizkus procesa bi vlekel s Ctrl
+        (izmerjeno 4. 11. 2026: po QTest.keyClick(Key_D, Ctrl) keyboardModifiers ostane Ctrl, po keyRelease 0)."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        if not mod:
+            return
+        for m, k in ((Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_Control),
+                     (Qt.KeyboardModifier.ShiftModifier, Qt.Key.Key_Shift),
+                     (Qt.KeyboardModifier.AltModifier, Qt.Key.Key_Alt)):
+            if mod & m:
+                QTest.keyRelease(self.n.okno, k, Qt.KeyboardModifier.NoModifier)
 
     def _klik_vrstice(self, i, mod=None, gumb=None):
         """Klik na i-to vrstico seznama Datotek (z Ctrl/Shift), kot z misko."""
@@ -218,6 +233,7 @@ class Osnova(unittest.TestCase):
         self._pocakaj(lambda: False, 0.05)
         x, y = self._js("(function () { var it = itemAtIndex(%d); var p = it.mapToItem(null, 60, it.height / 2); return [p.x, p.y] })()" % i, seznam)
         QTest.mouseClick(self.n.okno, gumb or Qt.MouseButton.LeftButton, mod or Qt.KeyboardModifier.NoModifier, QPoint(int(x), int(y)))
+        self._spusti_modifikatorje(mod)
         self._pocakaj(lambda: False, 0.05)
 
     def _odpri_dokumente(self):

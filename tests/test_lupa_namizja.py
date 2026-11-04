@@ -82,6 +82,13 @@ class LupaNamizja(unittest.TestCase):
         mod = mod or Qt.KeyboardModifier.NoModifier
         for vrsta in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
             QGuiApplication.sendEvent(self.okno, QKeyEvent(vrsta, kljuc, mod, besedilo))
+        if mod & Qt.KeyboardModifier.ControlModifier:
+            # Kot uporabnik spustimo se Ctrl. QApplication si zapomni modifikatorje dogodka (tudi sendEvent), na zaslonu
+            # offscreen jih vrne queryKeyboardModifiers (Most.ctrl); ponastavi jih sele dogodek QTest (sendEvent ne).
+            # Brez tega je Ctrl »ostal drzan« za naslednje preizkuse procesa - vlecenje v test_qml_enakost je kopiralo
+            # namesto premikalo (4. 11. 2026, izmerjeno: po LupaNamizja Most.ctrl() True).
+            from PySide6.QtTest import QTest
+            QTest.keyRelease(self.okno, Qt.Key.Key_Control, Qt.KeyboardModifier.NoModifier)
         self._pocakaj(lambda: False, 0.3)
 
     def test_zlozena_privzeto_brez_skoka_panelov(self):

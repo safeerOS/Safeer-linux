@@ -413,7 +413,8 @@ class NamizjeQml(unittest.TestCase):
         self.klici.clear()
         self._js('datoteke.vlecem = ["%s/Dokumenti/a.odt"]' % D)
         self._js('datoteke.spusti({ urls: [], accept: function () {} }, "%s/Dokumenti/Projekti")' % D)
-        self.assertTrue(self._klicano("prilepiDatoteke", [[D + "/Dokumenti/a.odt"], D + "/Dokumenti/Projekti", True]))
+        self.assertTrue(self._klicano("prilepiDatoteke", [[D + "/Dokumenti/a.odt"], D + "/Dokumenti/Projekti", True]),
+                        "klici %r, Ctrl %r" % (self.klici, self._js("Most.ctrl()")))
         # Spust v mapo, kjer datoteka ze je, ni smiseln.
         self._js('datoteke.vlecem = ["%s/Dokumenti/a.odt"]' % D)
         self.assertFalse(self._js('datoteke.spusti({ urls: [], accept: function () {} }, "%s/Dokumenti")' % D))
