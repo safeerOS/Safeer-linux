@@ -16,15 +16,31 @@ def skripte():
     return sorted({os.path.join(KOREN, d) for d in izid if d} | set(dodatne))
 
 
+def shellcheck(datoteke):
+    return subprocess.run(["shellcheck", "-S", "warning", "-f", "gcc"] + list(datoteke), capture_output=True, text=True,
+                          timeout=300, cwd=KOREN)
+
+
 class Shellcheck(unittest.TestCase):
-    def test_brez_opozoril(self):
+    def setUp(self):
         if not shutil.which("shellcheck"):
             if os.environ.get("GITHUB_ACTIONS") == "true":
                 self.fail("v CI mora biti shellcheck namescen (linux-packages.yml, hitra-vrata)")
             self.skipTest("shellcheck ni namescen")
-        izid = subprocess.run(["shellcheck", "-S", "warning", "-f", "gcc"] + skripte(), capture_output=True, text=True,
-                              timeout=300, cwd=KOREN)
+
+    def _brez_opozoril(self, izid):
         self.assertEqual(izid.stdout.replace(KOREN + "/", ""), "")
+        # Napaka orodja (datoteka manjka, ni berljiva) gre na stderr, stdout ostane prazen: brez tega bi preizkus
+        # uspel, ne da bi karkoli preveril (CodeRabbit, 4. 11. 2026).
+        self.assertEqual(izid.returncode, 0, izid.stderr)
+
+    def test_brez_opozoril(self):
+        self._brez_opozoril(shellcheck(skripte()))
+
+    def test_napaka_orodja_ni_uspeh(self):
+        izid = shellcheck([os.path.join(KOREN, "packaging", "ne-obstaja-%d.sh" % os.getpid())])
+        with self.assertRaises(AssertionError):
+            self._brez_opozoril(izid)
 
 
 if __name__ == "__main__":
