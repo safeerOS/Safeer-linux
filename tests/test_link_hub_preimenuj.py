@@ -123,7 +123,10 @@ class PreimenovanjeVZivo(unittest.TestCase):
     def test_control_preimenuje_napravo_s_sejo_iz_podpisa(self):
         from core import link_deljenje, link_hub
         streznik = link_hub_streznik.HubStreznik()
-        if not streznik.zazeni():
+        # Prosta vrata, ne 8990: tam je lahko pravi Hub lastnika in zazeni() drugega ne zazene (preskok, 4. 11. 2026).
+        with mock.patch.object(link_hub_streznik, "PRIVZETA_VRATA", 0):
+            zagnan = streznik.zazeni()
+        if not zagnan:
             self.skipTest("huba ni bilo mogoce zagnati")
         self.addCleanup(streznik.ustavi)
         naslov = "wss://127.0.0.1:%d%s" % (streznik.vrata, link_hub_streznik.POT_WS)

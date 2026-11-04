@@ -207,7 +207,10 @@ class DeljenjeVZivo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.streznik = link_hub_streznik.HubStreznik()
-        if not cls.streznik.zazeni():
+        # Prosta vrata, ne 8990: tam je lahko pravi Hub lastnika in zazeni() drugega ne zazene (preskok, 4. 11. 2026).
+        with mock.patch.object(link_hub_streznik, "PRIVZETA_VRATA", 0):
+            zagnan = cls.streznik.zazeni()
+        if not zagnan:
             raise unittest.SkipTest("huba ni bilo mogoce zagnati")
         cls.tmp = tempfile.TemporaryDirectory()
         # Prejemnik (link_deljenje._dovolj_prostora) meri pravi disk z rezervo link_viri.rezerva_diska (2 %): ta je v
