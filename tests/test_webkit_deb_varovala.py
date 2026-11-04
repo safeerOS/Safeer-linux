@@ -94,6 +94,16 @@ class PreveriArhiv(unittest.TestCase):
             with self.subTest(clan[0]):
                 self.assertEqual(_preveri(_arhiv(DOBRO + [clan])), 1)
 
+    def test_setuid_setgid_zavrnjen(self):
+        for nacin in (0o4755, 0o2755, 0o6755, 0o755):
+            with self.subTest(oct(nacin)):
+                b = io.BytesIO()
+                with tarfile.open(fileobj=b, mode="w") as t:
+                    i = tarfile.TarInfo("usr/lib/safeer-webkit/libexec/x")
+                    i.mode, i.size = nacin, 1
+                    t.addfile(i, io.BytesIO(b"x"))
+                self.assertEqual(_preveri(b.getvalue()), 1 if nacin & 0o6000 else 0)
+
     def test_prazen_ali_pokvarjen(self):
         self.assertEqual(_preveri(b""), 1)
         self.assertEqual(_preveri(b"ni arhiv" * 100), 1)

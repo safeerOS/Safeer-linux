@@ -36,6 +36,10 @@ def napaka_clana(clan: tarfile.TarInfo, mape) -> str:
         return "zunaj dovoljenih map: %r" % clan.name
     if not (clan.isreg() or clan.isdir() or clan.issym() or clan.islnk()):
         return "nedovoljena vrsta clana: %r" % clan.name
+    if clan.mode & 0o6000:
+        # Root razpakira s tar (nadaljuj.sh): datoteka setuid/setgid v /usr/lib/safeer-webkit iz zastrupljenega
+        # predpomnilnika CI bi dala lokalni root. Nasa gradnja takih datotek nima (CodeRabbit, 4. 11. 2026).
+        return "bit setuid/setgid: %r" % clan.name
     if clan.issym() or clan.islnk():
         cilj = clan.linkname
         if not cilj or "\\" in cilj:
