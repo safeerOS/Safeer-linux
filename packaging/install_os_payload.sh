@@ -42,6 +42,8 @@ cp -a "$ROOT/packaging/VERSION_OS" "$LIB/packaging/"
 # En proces (core/en_proces.py): Safeer OS zazene Safeer Control v svojem procesu, zato ima ves tovor Controla
 # (safeer_control.py, moduli Linka, stran assets/link). Iz istega izvora - nicesar ne prepisemo (cp -n).
 TOVOR_CONTROL="$(mktemp -d)"
+# Zacasna mapa izgine tudi, ce kopiranje spodaj pade (set -e; tedenski pregled 4. 11. 2026, N6).
+trap 'rm -rf "$TOVOR_CONTROL"' EXIT
 bash "$ROOT/packaging/install_control_payload.sh" "$TOVOR_CONTROL/usr" >/dev/null
 ( cd "$TOVOR_CONTROL/usr/lib/safeer-control" && find . -type f ) | while IFS= read -r dat; do
     [ -e "$LIB/$dat" ] || install -D -m 644 "$TOVOR_CONTROL/usr/lib/safeer-control/$dat" "$LIB/$dat"

@@ -15,6 +15,9 @@ cp -a "$ROOT/$VSTOP" "$ROOT/core" "$ROOT/ui" "$ROOT/assets" "$LIB/"
 cp -a "$ROOT/packaging/VERSION" "$LIB/packaging/"
 # Interni poskus (preklop vhoda JBL) ne gre v uradni paket - kot v install_os_payload.sh.
 rm -f "$LIB/core/os_jbl.py"
+# Moduli, ki jih nobena koda ne uvozi (tedenski pregled 4. 11. 2026, N7: preverjeno z grep uvozov in tests/test_tovor_uvozi.py),
+# ne gredo v paket brskalnika; v repozitoriju ostanejo z lastnimi preizkusi.
+rm -f "$LIB/core/link_data_transport.py" "$LIB/core/reader.py" "$LIB/core/youtube_fast.py"
 find "$LIB" -type d -name __pycache__ -exec rm -rf {} +
 find "$LIB" -name '*.pyc' -delete
 install -m755 "$ROOT/packaging/safeer-launcher" "$PREFIX/bin/safeer"
