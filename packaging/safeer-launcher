@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # ==============================================================================
 # Safeer Browser — shared application launcher
 # Used by all Linux distribution formats (.deb, Flatpak, AppImage).
@@ -15,8 +15,8 @@ while [ -h "$PRG" ]; do
     esac
 done
 
-BIN_DIR="$(cd "$(dirname "$PRG")" && pwd)"
-APP_DIR="$(cd "$BIN_DIR/../lib/safeer-browser" && pwd)" || {
+BIN_DIR="$(cd -P "$(dirname "$PRG")" && pwd -P)"
+APP_DIR="$(cd -P "$BIN_DIR/../lib/safeer-browser" && pwd -P)" || {
     echo "Safeer: application payload not found next to launcher." >&2
     exit 1
 }
@@ -25,7 +25,20 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-browser" && pwd)" || {
 VSTOP="$APP_DIR/safeer_brskalnik.py"
 # -s: uporabnikov site-packages (pip install --user) ne sme zamenjati sistemskih paketov programa; otroci (varuh,
 # nova razlicica) ga dobijo prek core/okolje_procesa.python_ukaz.
-PY="${PYTHON:-python3}"
+# Tolmac (tedenski pregled 4. 11. 2026): profil AppArmor z userns (packaging/apparmor) velja za /usr/bin/safeer*
+# in ga podedujejo otroci. V sistemski namestitvi je zato tolmac vedno /usr/bin/python3 - ne PYTHON ne python3 po
+# PATH (tam je ~/.local/bin pred /usr/bin) - in brez spremenljivk PYTHON* (PYTHONPATH, PYTHONSTARTUP ... bi nalozile
+# tujo kodo). PYTHON velja samo zunaj /usr/lib (zagon iz repozitorija, AppImage, Flatpak), kjer profila ni. Poti so
+# fizicne (cd -P): mapa-povezava na /usr/bin ne sme preusmeriti APP_DIR v tujo mapo.
+case "$APP_DIR" in
+    /usr/lib/*)
+        PY=/usr/bin/python3
+        for _ime in $(compgen -e); do
+            case "$_ime" in PYTHON*) unset "$_ime" ;; esac
+        done
+        unset _ime ;;
+    *) PY="${PYTHON:-python3}" ;;
+esac
 
 # Flatpak (od 1.0.127): brez ovojev /app/host-bin in brez preusmeritve XDG_* v dom - brskalnik nima dostopa do
 # gostitelja. Skupno mapo nastavitev s paketom .deb (~/.config/safeer-mint) izbere safeer_brskalnik.py.

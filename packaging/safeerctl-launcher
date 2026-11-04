@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # safeerctl - Safeer Link from the command line. Resolves the Safeer Control payload next to this launcher
 # (same rule as the safeer-control launcher) and runs safeerctl.py from it.
 PRG="$0"
@@ -9,10 +9,24 @@ while [ -h "$PRG" ]; do
         *) PRG="$(dirname "$PRG")/$link" ;;
     esac
 done
-BIN_DIR="$(cd "$(dirname "$PRG")" && pwd)"
-APP_DIR="$(cd "$BIN_DIR/../lib/safeer-control" && pwd)" || {
+BIN_DIR="$(cd -P "$(dirname "$PRG")" && pwd -P)"
+APP_DIR="$(cd -P "$BIN_DIR/../lib/safeer-control" && pwd -P)" || {
     echo "safeerctl: Safeer Control payload not found next to launcher." >&2
     exit 3
 }
 # -s: uporabnikov site-packages (pip install --user) ne vpliva na program.
-exec "${PYTHON:-python3}" -s "$APP_DIR/safeerctl.py" "$@"
+# Tolmac (tedenski pregled 4. 11. 2026): profil AppArmor z userns (packaging/apparmor) velja za /usr/bin/safeer*
+# in ga podedujejo otroci. V sistemski namestitvi je zato tolmac vedno /usr/bin/python3 - ne PYTHON ne python3 po
+# PATH (tam je ~/.local/bin pred /usr/bin) - in brez spremenljivk PYTHON* (PYTHONPATH, PYTHONSTARTUP ... bi nalozile
+# tujo kodo). PYTHON velja samo zunaj /usr/lib (zagon iz repozitorija, AppImage, Flatpak), kjer profila ni. Poti so
+# fizicne (cd -P): mapa-povezava na /usr/bin ne sme preusmeriti APP_DIR v tujo mapo.
+case "$APP_DIR" in
+    /usr/lib/*)
+        PY=/usr/bin/python3
+        for _ime in $(compgen -e); do
+            case "$_ime" in PYTHON*) unset "$_ime" ;; esac
+        done
+        unset _ime ;;
+    *) PY="${PYTHON:-python3}" ;;
+esac
+exec "$PY" -s "$APP_DIR/safeerctl.py" "$@"
