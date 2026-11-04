@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import errno
 import json
 import os
 import tempfile
@@ -165,6 +166,11 @@ class ZaklepZaseden(OSError):
     """Zaklepa datoteke ni bilo mogoce dobiti v roku - nic ni zapisano, spremembe ostanejo v pomnilniku."""
 
 
+#: Napake flock, ki pomenijo »ta datotecni sistem zaklepa ne podpira« (ne »zaseden«): CodeRabbit, 4. 11. 2026.
+_BREZ_FLOCK = frozenset(e for e in (getattr(errno, "ENOLCK", None), getattr(errno, "EOPNOTSUPP", None),
+                                     getattr(errno, "ENOTSUP", None), getattr(errno, "ENOSYS", None)) if e is not None)
+
+
 @contextlib.contextmanager
 def zaklep(pot: str, rok: float = 2.0):
     """Izkljucen zaklep datoteke `pot` med procesi (flock na <pot>.lock), najvec `rok` sekund. Vrne (as) True, ce
@@ -189,7 +195,13 @@ def zaklep(pot: str, rok: float = 2.0):
                     break
                 time.sleep(0.01)
     except OSError as e:
-        print("[Shramba] zaklep %s: %s, zapis odlozen" % (pot, e), flush=True)
+        if getattr(e, "errno", None) in _BREZ_FLOCK:
+            # Datotecni sistem flock ne podpira (NFS brez lockd ...): zaklepa med procesi ni in ga ne bo - odlaganje
+            # bi zapis za vedno ustavilo (nastavitve se nikoli ne shranijo). Velja samo ZAKLEP_NITI, kot prej.
+            print("[Shramba] %s brez flock (%s): zaklep samo v procesu" % (pot, e), flush=True)
+            drzi = True
+        else:
+            print("[Shramba] zaklep %s: %s, zapis odlozen" % (pot, e), flush=True)
     try:
         yield drzi
     finally:

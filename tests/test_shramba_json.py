@@ -155,6 +155,21 @@ class TestShrambaJson(unittest.TestCase):
         self.assertTrue(s.shrani())                 # ob naslednjem zapisu gre sprememba na disk
         self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1, "b": 2})
 
+    def test_datotecni_sistem_brez_flock_vseeno_shrani(self):
+        """ENOLCK/EOPNOTSUPP (NFS brez lockd): zaklepa med procesi ne bo nikoli - prej je bil vsak zapis odlozen in
+        nastavitve se niso shranile nikoli (CodeRabbit, 4. 11. 2026). Zdaj velja samo zaklep niti."""
+        import errno
+        from unittest import mock
+        for koda in (errno.ENOLCK, errno.EOPNOTSUPP):
+            with self.subTest(errno.errorcode[koda]):
+                s = shramba_json.Shramba(self.pot)
+                s.set("k", koda)
+                with mock.patch.object(shramba_json.fcntl, "flock", side_effect=OSError(koda, os.strerror(koda))), \
+                        mock.patch.object(shramba_json.Shramba, "_ponovi_kasneje", lambda self: None, create=True):
+                    s.podatki["k"] = -koda
+                    self.assertTrue(s.shrani())
+                self.assertEqual(shramba_json.preberi_slovar(self.pot)["k"], -koda)
+
     def test_config_stevec_ne_izgubi_povecanja_ob_zasedenem_zaklepu(self):
         import fcntl
         from unittest import mock
