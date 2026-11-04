@@ -88,6 +88,46 @@ def _brez_pravih_programov():
         pytest.fail("Varovalo programov (%d): %s" % (len(krsitve), "\n".join(krsitve[:5])), pytrace=False)
 
 
+def _brez_controla(*_a, **_k):
+    return None
+
+
+_brez_controla.preizkus = True
+
+
+def _zamenjaj_locen_control(so) -> None:
+    if hasattr(so, "_ukaz_locenega_controla") and not getattr(so._ukaz_locenega_controla, "preizkus", False):
+        so._ukaz_locenega_controla = _brez_controla
+
+
+class _OkoUvozaSafeerOs:
+    """Zivi preizkusi Safeer OS nimajo aplikacije, v katero bi se Control vgradil (en_proces.os_app() je None), zato je
+    safeer_os._zagotovi_control zagnal locen Control: namesceni /usr/bin/safeer-control (varovalo programov ga je
+    ustavilo, ~60 napak 4. 11. 2026) ali v CI safeer_control.py iz repozitorija, ki je po teku ostal v ozadju. Zamenjava
+    se zgodi takoj ob uvozu safeer_os (tudi uvoz v telesu preizkusa) in velja do konca teka - niti prejsnjih preizkusov
+    klicejo tudi pozneje. Preizkus, ki zagon locenega Controla preverja, funkcijo zamenja sam (mock.patch)."""
+
+    def find_spec(self, ime, pot=None, cilj=None):
+        if ime != "safeer_os":
+            return None
+        import importlib.machinery
+        spec = importlib.machinery.PathFinder.find_spec(ime, pot)
+        if spec is None or spec.loader is None or not hasattr(spec.loader, "exec_module"):
+            return spec
+        izvirni = spec.loader.exec_module
+
+        def exec_module(modul, _izvirni=izvirni):
+            _izvirni(modul)
+            _zamenjaj_locen_control(modul)
+        spec.loader.exec_module = exec_module
+        return spec
+
+
+if "safeer_os" in sys.modules:
+    _zamenjaj_locen_control(sys.modules["safeer_os"])
+sys.meta_path.insert(0, _OkoUvozaSafeerOs())
+
+
 @pytest.fixture(autouse=True)
 def _signali_samo_potomcem():
     zacetek = len(_signali.krsitve)
@@ -109,8 +149,62 @@ def _vmesnik_na_glavni_niti():
                     pytrace=False)
 
 
+# ------------------------------------------------------------------ brez nasega WebKita (lokalni tek)
+#: Lokalni tek brez WebKitGTK 6.0 (sistemski Python prenosnika ga nima): ~300 preizkusov je padlo z »Namespace WebKit
+#: not available« (4. 11. 2026). Datoteke, ki WebKit rabijo (tests/razvrstitev_webkit.razvrsti, ~7 s analize samo
+#: takrat), se preskocijo z jasnim razlogom in navodilom. Samo brez vticnika razvrstitev_webkit: CI izbere nacin (--safeer-webkit) in tam preskok
+#: zaradi manjkajocega WebKita postane padec, posel z WebKitom pa mora pognati vse.
+RAZLOG_BREZ_WEBKITA = ("ni WebKitGTK 6.0 (typelib WebKit-6.0): preizkus rabi nas WebKit - pozeni tools/pozeni-preizkuse.sh "
+                       "(GI_TYPELIB_PATH na /usr/lib/safeer-webkit, xvfb-run)")
+_brez_webkita = {"datoteke": None, "preskocene": set()}
+
+
+def _ima_webkit() -> bool:
+    try:
+        import gi
+        return "6.0" in gi.Repository.get_default().enumerate_versions("WebKit")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _datoteke_z_webkitom(config):
+    if _brez_webkita["datoteke"] is None:
+        _brez_webkita["datoteke"] = set()
+        ima_nacin = config.pluginmanager.hasplugin("razvrstitev_webkit") and config.getoption("safeer_webkit", None)
+        if not ima_nacin and not _ima_webkit():
+            from pathlib import Path
+            import razvrstitev_webkit
+            koren = Path(__file__).resolve().parents[1]
+            _brez_webkita["datoteke"] = {f for f, r in razvrstitev_webkit.razvrsti(koren)[0].items() if r}
+    return _brez_webkita["datoteke"]
+
+
+class _BrezWebkita(pytest.File):
+    def collect(self):
+        _brez_webkita["preskocene"].add(str(self.path))     # pytest 9 hook klice za vse datoteke mape, zbere izbrane
+        pytest.skip(RAZLOG_BREZ_WEBKITA)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(module_path, parent):
+    datoteke = _datoteke_z_webkitom(parent.config)
+    if not datoteke:
+        return None
+    from pathlib import Path
+    try:
+        rel = Path(module_path).resolve().relative_to(Path(__file__).resolve().parents[1]).as_posix()
+    except ValueError:
+        return None
+    if rel not in datoteke:
+        return None
+    return _BrezWebkita.from_parent(parent, path=Path(module_path))
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     povzetek = _varovalo.povzetek()
+    if _brez_webkita["preskocene"]:
+        terminalreporter.write_sep("-", "brez nasega WebKita")
+        terminalreporter.write_line("%d datotek preskocenih: %s" % (len(_brez_webkita["preskocene"]), RAZLOG_BREZ_WEBKITA))
     if povzetek:
         terminalreporter.write_sep("-", "varovalo niti")
         terminalreporter.write_line(povzetek)
