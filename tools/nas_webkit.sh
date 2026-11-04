@@ -8,6 +8,7 @@
 #   ./tools/nas_webkit.sh <ukaz>...  # izvede podani ukaz v okolju nasega WebKita
 
 SKRIPTA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034  # KOREN ostane v lupini, ki skripto nalozi s »source« (korenska mapa za ukaze)
 KOREN="$(cd "$SKRIPTA_DIR/.." && pwd)"
 
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then

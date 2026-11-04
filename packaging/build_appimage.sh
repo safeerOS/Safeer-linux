@@ -29,7 +29,8 @@ install -m755 packaging/AppRun "$APPDIR/AppRun"
 # Resolve ELF dependencies and emit the AppImage in one pass.
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-$ROOT/build/tools/runtime-x86_64}"
 [ -f "$LDAI_RUNTIME_FILE" ] || { echo "Run packaging/fetch_linuxdeploy.sh first" >&2; exit 1; }
-export VERSION="$(cat packaging/VERSION)"
+VERSION="$(cat packaging/VERSION)"
+export VERSION
 export OUTPUT="$ROOT/dist/Safeer-Browser-${VERSION}-x86_64.AppImage"
 "$LINUXDEPLOY" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/python3" \
     --desktop-file "$APPDIR/usr/share/applications/io.github.memelandfaner.SafeerBrowser.desktop" \

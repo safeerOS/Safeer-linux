@@ -52,7 +52,8 @@ python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-$ROOT/build/tools/runtime-x86_64}"
 [ -f "$LDAI_RUNTIME_FILE" ] || { echo "Run packaging/fetch_linuxdeploy.sh first" >&2; exit 1; }
-export VERSION="$(cat packaging/VERSION_OS)"
+VERSION="$(cat packaging/VERSION_OS)"
+export VERSION
 export OUTPUT="$ROOT/dist/Safeer-OS-${VERSION}-x86_64.AppImage"
 # Lupina QML: PySide6 kot v paketu .deb (packaging/pyside6_vendor.py), a izven usr/: Qt pride z lastnimi knjiznicami
 # (RPATH $ORIGIN) in linuxdeploy jih ne sme razresevati - moduli PySide6, ki jih lupina ne rabi (npr. Qt 3D), bi gradnjo

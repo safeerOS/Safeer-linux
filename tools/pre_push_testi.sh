@@ -4,7 +4,7 @@
 set -u
 korenin="$(git rev-parse --show-toplevel)"
 potisk=0; sha=""; oznake=""
-while read -r lokalna lsha oddaljena rsha; do
+while read -r _ lsha oddaljena _; do
   case "$oddaljena" in refs/heads/gtk4-deb-webkit|refs/heads/main|refs/tags/*) potisk=1; sha="$lsha";; esac
   case "$oddaljena" in refs/tags/v*) case "$lsha" in 0000000*) ;; *) oznake="$oznake ${oddaljena#refs/tags/}=$lsha";; esac;; esac
 done
