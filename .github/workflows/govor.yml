@@ -23,16 +23,19 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git cmake g++ make curl binutils
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Zgradi
         run: bash tools/govor/zgradi.sh ${{ matrix.razlicica }} izhod
       - name: Preizkus (model tiny, posnetek iz whisper.cpp)
         run: |
           curl -sSfL -o tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin
+          # SHA-256 je oid LFS te datoteke na Hugging Face (api/models/ggerganov/whisper.cpp/paths-info za isto revizijo,
+          # 4. 11. 2026); brez preverbe bi preizkus pognal model, ki ga je kdo med potjo zamenjal.
+          echo "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21  tiny.bin" | sha256sum -c -
           izid="$(izhod/whisper-cli-${{ matrix.razlicica }} -m tiny.bin -f izhod/jfk.wav -l en -t 2 -nt -np -nf -ac 768)"
           echo "$izid"
           echo "$izid" | grep -qi "fellow americans"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: whisper-cli-${{ matrix.razlicica }}
           path: |
@@ -45,7 +48,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: izdaja
           merge-multiple: true
