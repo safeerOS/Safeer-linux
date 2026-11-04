@@ -80,6 +80,8 @@ class Brskalnik(unittest.TestCase):
         pogled._safeer_https = None   # brez nadgradnje https (core/https_nadgradnja; https:// ostane enak)
         brskalnik = types.SimpleNamespace(koren=KOREN, trenutni=lambda: pogled if ima_zavihek else None,
                                           nov_zavihek=mock.Mock())
+        # Od 4. 11. 2026 nalaganje gre skozi zascito hladnega zagona; brez nje (_zascita_zagona ni) takoj load_uri.
+        brskalnik._nalozi_zasciteno = lambda p, u: os_splet.VdelaniSplet._nalozi_zasciteno(brskalnik, p, u)
         return brskalnik, pogled
 
     def test_v_zavihku_z_zacetno_stranjo_se_odpre_tam(self):

@@ -278,7 +278,8 @@ class TestSplet(unittest.TestCase):
         b = vir.index("NetworkErrorHandler(pogled")
         self.assertLess(a, b, "nadgradnja mora biti povezana PRED NetworkErrorHandler (signal ustavi z True)")
         odpri = vir[vir.index("    def odpri(self"):vir.index("    def _vnesi_naslov")]
-        self.assertEqual(odpri.count("load_uri(VdelaniSplet._https_pred(pogled, normalen))"), 2)
+        # Od 4. 11. 2026 nalaganje gre skozi zascito hladnega zagona (_nalozi_zasciteno), nadgradnja ostane.
+        self.assertEqual(odpri.count("_nalozi_zasciteno(pogled, VdelaniSplet._https_pred(pogled, normalen))"), 2)
         with open(os.path.join(KOREN, "safeer_brskalnik.py"), encoding="utf-8") as f:
             self.assertIn("VdelaniSplet(", f.read())
 
