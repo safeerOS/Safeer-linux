@@ -133,6 +133,17 @@ def test_neveljavna_vrednost_se_zavrne(napravi, ponudnik, geslo, dodatno):
     assert up.preberi_ponudnika(pot) is None
 
 
+def test_domaci_streznik_se_ne_poslje(napravi):
+    """TLS na naslovu domacega omrezja: prejemnik ga zavrne, zato posiljatelj vrne NEZNAN (prej VREDNOST z geslom)."""
+    na, _z = napravi
+    pot = na("a")
+    domaci = up.Ponudnik(gostitelj="10.0.0.5", uporabnik="uporabnik.primer91", vrata=563, ime="Doma")
+    up.shrani_ponudnika(domaci, GESLO, pot)
+    assert up.za_uskladitev(pot) == (up.USKLADITEV_NEZNAN, None)
+    vrednosti, neznani = _vir(pot).trenutne()
+    assert P.KLJUC_USENET_PONUDNIK not in vrednosti and P.KLJUC_USENET_PONUDNIK in neznani
+
+
 def test_brez_poti_se_ne_usklajuje(napravi):
     na, _z = napravi
     pot = na("a")

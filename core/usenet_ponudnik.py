@@ -514,6 +514,11 @@ def za_uskladitev(pot_nastavitev: str) -> tuple:
     p = preberi_ponudnika(pot_nastavitev)
     if p is None or not p.tls:
         return USKLADITEV_NEZNAN, None
+    from . import viri_sink
+    if not viri_sink.javni_gostitelj_usenet(p.gostitelj):
+        # Streznik v domacem omrezju: prejemnik ga zavrne (iz_uskladitve, pregled 118 S1) - gesla ne posiljamo zaman
+        # in drugim napravam nic ne izbrisemo (CodeRabbit, 4. 11. 2026).
+        return USKLADITEV_NEZNAN, None
     geslo = _preberi_geslo(p.kljuc_gesla)
     if geslo is None:
         return USKLADITEV_NEZNAN, None
