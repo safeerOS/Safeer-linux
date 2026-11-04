@@ -1085,8 +1085,13 @@ def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime
     if izbira["nacin"] in ("isti", "podprt"):
         izid["odprto"] = bool(os_odpri_z.odpri_z([pot], izbira["program"], zaganjalnik=zaganjalnik).get("ok"))
         if not izid["odprto"]:
-            from core import os_datoteke
-            izid["odprto"] = bool(os_datoteke.odpri(pot))
+            # Privzeti program bi datoteko z druge naprave lahko izvedel (program, .desktop, izvrsljiv bit) - isto
+            # pravilo kot files.open (tedenski pregled 4. 11. 2026, N3).
+            from core import link_datoteke, os_datoteke
+            if link_datoteke.nevarna_za_odpiranje(pot):
+                izid["nevarna"] = True
+            else:
+                izid["odprto"] = bool(os_datoteke.odpri(pot))
     elif not izid.get("izvirnik"):
         # Tu ni programa za ta format: datoteka se odpre na napravi lastnika (na locenem zaslonu, ce ga ima) in tu se
         # pokaze njen zaslon - urejas na njej.
