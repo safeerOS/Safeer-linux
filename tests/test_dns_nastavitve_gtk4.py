@@ -76,7 +76,10 @@ class NastavitveDNS(unittest.TestCase):
         self.assertFalse(naprej.get_visible())
         doh.set_active_id("scit")
         self.assertTrue(naprej.get_visible())
-        self.assertEqual(naprej.get_active_id(), "cloudflare")
+        # Privzeto naprej je DNS usmerjevalnika (lastnik 4. 11. 2026, 17751e8; prej Cloudflare).
+        self.assertEqual(naprej.get_active_id(), doh_proxy.PRIVZETI_NAPREJ)
+        self.assertEqual(doh_proxy.PRIVZETI_NAPREJ, "router")
+        naprej.set_active_id("cloudflare")
         besedila = " ".join(g.get_text() for g in _otroci(d) if isinstance(g, Gtk.Label))
         self.assertIn("Cloudflare", besedila)       # pove, kdo vidi imena
         self.assertEqual(len(vnosi), 2)
