@@ -274,10 +274,22 @@ class IzvirniJeziki:
                     self._zapisi.pop(ident, None)
             try:
                 os.makedirs(os.path.dirname(self._datoteka) or ".", exist_ok=True)
-                from core import shramba_json
-                with shramba_json.atomsko_odpri(self._datoteka) as d:
-                    for ident, zapis in self._zapisi.items():
-                        d.write(ident + "\t" + zapis + "\n")
+                # Edinstvena zacasna (mkstemp) kot core/shramba_json.atomsko_odpri - modul je brez uvozov Safeerja
+                # (Safeer OS za Windows), zato tu sam (pregled 4. 11. 2026: prej stalni <pot>.tmp).
+                import tempfile
+                rocaj, zacasna = tempfile.mkstemp(prefix="." + os.path.basename(self._datoteka) + ".", suffix=".tmp",
+                                                  dir=os.path.dirname(self._datoteka) or ".")
+                try:
+                    with os.fdopen(rocaj, "w", encoding="utf-8") as d:
+                        for ident, zapis in self._zapisi.items():
+                            d.write(ident + "\t" + zapis + "\n")
+                    os.replace(zacasna, self._datoteka)
+                except BaseException:
+                    try:
+                        os.unlink(zacasna)
+                    except OSError:
+                        pass
+                    raise
             except OSError as e:
                 _dnevnik.info("Izvirni jeziki: zapis ni uspel (%s)", type(e).__name__)
 

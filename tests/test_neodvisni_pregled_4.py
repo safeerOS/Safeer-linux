@@ -296,7 +296,8 @@ class NastavitveLinka(unittest.TestCase):
             pravi_dump = link_hub.json.dump
 
             def dump(podatki, d, **k):
-                vidno.append(os.stat(pot + ".tmp").st_mode & 0o777)     # pravice med zapisom zetona
+                # Pravice zacasne datoteke med zapisom zetona (od 4. 11. 2026 edinstveno ime: fstat odprte datoteke).
+                vidno.append(os.fstat(d.fileno()).st_mode & 0o777)
                 return pravi_dump(podatki, d, **k)
             n.podatki = {"control_token": "skrivno"}
             with mock.patch.object(link_hub.json, "dump", dump):

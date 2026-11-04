@@ -808,11 +808,25 @@ class Varuh:
         if besedilo == self._zapisano:
             return
         self._zapisano = besedilo
+        # Varuh je samostojen (zagon kot skripta, brez drugih modulov Safeerja), zato edinstveno zacasno ime sam
+        # (mkstemp: 0600, ne deduje se v otroke) - pregled 4. 11. 2026: prej stalni <pot>.tmp.
+        zacasna = ""
         try:
-            from core import shramba_json   # mkstemp odpre z O_CLOEXEC
-            shramba_json.zapisi_besedilo_atomsko(self.pot_stanja, besedilo)
+            import tempfile
+            fd, zacasna = tempfile.mkstemp(prefix="." + os.path.basename(self.pot_stanja) + ".", suffix=".tmp",
+                                           dir=os.path.dirname(self.pot_stanja) or ".")
+            with os.fdopen(fd, "w", encoding="utf-8") as d:
+                d.write(besedilo)
+            os.replace(zacasna, self.pot_stanja)
+            zacasna = ""
         except OSError:
             pass
+        finally:
+            if zacasna:
+                try:
+                    os.unlink(zacasna)
+                except OSError:
+                    pass
 
     def tek(self) -> int:
         """Glavna zanka do konca seje. Vrne 0 (konec) ali KODA_ZNOVA (nova razlicica)."""

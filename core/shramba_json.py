@@ -80,7 +80,7 @@ def atomsko_odpri(pot: str, nacin_odpiranja: str = "w", *, nacin: int = 0o600, e
     fd, zacasna = _zacasna(pot)
     try:
         if "b" in nacin_odpiranja:
-            f = os.fdopen(fd, nacin_odpiranja)
+            f = os.fdopen(fd, "wb")
         else:
             f = os.fdopen(fd, nacin_odpiranja, encoding=encoding, newline=newline)
     except BaseException:
