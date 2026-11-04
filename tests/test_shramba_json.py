@@ -114,5 +114,64 @@ class TestShrambaJson(unittest.TestCase):
         self.assertEqual(os.listdir(self.mapa), [])
 
 
+    def _drzi_zaklep_v_drugem_procesu(self):
+        """flock je po odprtem opisu datoteke: drug opis v istem procesu se obnasa kot drug proces."""
+        import fcntl
+        fd = os.open(self.pot + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        self.addCleanup(os.close, fd)
+        return fd
+
+    def test_zaseden_zaklep_ne_pise_in_ponovi(self):
+        """Pregled 4. 11. 2026: po roku 2 s je zaklep popustil in Shramba je vseeno pisala - zapis drugega procesa,
+        ki je drzal zaklep, je bil povozen. Brez zaklepa nic na disk; ko se sprosti, se zapis ponovi sam."""
+        import fcntl
+        from unittest import mock
+        s = shramba_json.Shramba(self.pot)
+        s.set("a", 1)
+        fd = self._drzi_zaklep_v_drugem_procesu()
+        pravi = shramba_json.zaklep
+        with mock.patch.object(shramba_json, "zaklep", lambda pot, rok=2.0: pravi(pot, rok=0.05)), \
+                mock.patch.object(shramba_json.Shramba, "ZAMIK_PONOVITVE", 0.1, create=True):
+            s.podatki["b"] = 2
+            self.assertFalse(s.shrani())
+            self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1})   # nic zapisano brez zaklepa
+            self.assertEqual(s.get("b"), 2)                                       # sprememba ostane v pomnilniku
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            meja = time.monotonic() + 5
+            while shramba_json.preberi_slovar(self.pot) != {"a": 1, "b": 2} and time.monotonic() < meja:
+                time.sleep(0.05)
+        self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1, "b": 2})
+
+    def test_zaklep_ob_oserror_ne_pise(self):
+        from unittest import mock
+        s = shramba_json.Shramba(self.pot)
+        s.set("a", 1)
+        with mock.patch.object(shramba_json.fcntl, "flock", side_effect=OSError("ENOLCK")), \
+                mock.patch.object(shramba_json.Shramba, "_ponovi_kasneje", lambda self: None, create=True):
+            s.podatki["b"] = 2
+            self.assertFalse(s.shrani())
+        self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1})
+        self.assertTrue(s.shrani())                 # ob naslednjem zapisu gre sprememba na disk
+        self.assertEqual(shramba_json.preberi_slovar(self.pot), {"a": 1, "b": 2})
+
+    def test_config_stevec_ne_izgubi_povecanja_ob_zasedenem_zaklepu(self):
+        import fcntl
+        from unittest import mock
+        from core.config import ConfigManager
+        cfg = ConfigManager(config_dir=self.mapa)
+        self.pot = cfg.config_file
+        zacetek = cfg.get("total_ads_blocked", 0) or 0
+        fd = self._drzi_zaklep_v_drugem_procesu()
+        pravi = shramba_json.zaklep
+        with mock.patch.object(shramba_json, "zaklep", lambda pot, rok=2.0: pravi(pot, rok=0.05)), \
+                mock.patch.object(ConfigManager, "_ponovi_kasneje", lambda self: None, create=True):
+            cfg.increment_ads_blocked(3)
+            self.assertEqual((shramba_json.preberi_slovar(self.pot) or {}).get("total_ads_blocked", 0) or 0,
+                             zacetek)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        cfg.increment_ads_blocked(2)
+        self.assertEqual(shramba_json.preberi_slovar(self.pot)["total_ads_blocked"], zacetek + 5)
+
 if __name__ == "__main__":
     unittest.main()

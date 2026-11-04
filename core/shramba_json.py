@@ -7,7 +7,9 @@ zapisano datoteko, ta pa je ob naslednjem zagonu pomenila prazne (privzete) nast
   * zapisi_atomsko: mkstemp v isti mapi, fsync, 0600, os.replace, fsync mape - bralec in sesutje nikoli ne vidita
     napol zapisane datoteke, po izpadu elektrike ostane stara ali nova vsebina.
   * preberi_slovar: vsebina ali None (ni, neberljiva, ni slovar JSON).
-  * zaklep: flock na <pot>.lock, najvec `rok` sekund - zataknjen proces ne sme ustaviti vmesnika.
+  * zaklep: flock na <pot>.lock, najvec `rok` sekund - zataknjen proces ne sme ustaviti vmesnika. Vrne, ali zaklep
+    drzi; brez njega zdruzi_in_zapisi NE pise (pregled 4. 11. 2026: zapis brez zaklepa je povozil drug proces),
+    Shramba ostane umazana in zapis ponovi kasneje.
   * zdruzi_in_zapisi: zapise samo kljuce, ki so se v tem procesu spremenili glede na zadnje znano stanje, na trenutno
     vsebino datoteke; kljuce, ki jih je spremenil drug proces, prevzame v pomnilnik.
   * Shramba: slovar v datoteki s temi pravili (os.json Safeer OS, core/os_programi.Shramba).
@@ -85,13 +87,19 @@ def umakni_pokvarjeno(pot: str, napaka: object = "") -> Optional[str]:
     return shramba
 
 
+class ZaklepZaseden(OSError):
+    """Zaklepa datoteke ni bilo mogoce dobiti v roku - nic ni zapisano, spremembe ostanejo v pomnilniku."""
+
+
 @contextlib.contextmanager
 def zaklep(pot: str, rok: float = 2.0):
-    """Izkljucen zaklep datoteke `pot` med procesi (flock na <pot>.lock), najvec `rok` sekund, nato brez njega."""
+    """Izkljucen zaklep datoteke `pot` med procesi (flock na <pot>.lock), najvec `rok` sekund. Vrne (as) True, ce
+    zaklep drzi, sicer False - klicatelj takrat ne sme pisati (pregled 4. 11. 2026)."""
     if fcntl is None:
-        yield
+        yield True               # Windows: en proces, ZAKLEP_NITI zadosca
         return
     fd = None
+    drzi = False
     try:
         os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
         fd = os.open(pot + ".lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
@@ -99,16 +107,17 @@ def zaklep(pot: str, rok: float = 2.0):
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                drzi = True
                 break
             except BlockingIOError:
                 if time.monotonic() >= meja:
-                    print("[Shramba] zaklep %s zaseden, pisem brez njega" % pot, flush=True)
+                    print("[Shramba] zaklep %s zaseden, zapis odlozen" % pot, flush=True)
                     break
                 time.sleep(0.01)
-    except OSError:
-        pass
+    except OSError as e:
+        print("[Shramba] zaklep %s: %s, zapis odlozen" % (pot, e), flush=True)
     try:
-        yield
+        yield drzi
     finally:
         if fd is not None:
             os.close(fd)
@@ -122,7 +131,11 @@ def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *
 
     `pristej` {kljuc: n}: stevec povecaj za n glede na vrednost NA DISKU pod istim zaklepom - sicer bi proces s staro
     kopijo (Safeer OS in Safeer Browser stejeta isti stevec Scita) povecanja drugega procesa prepisal."""
-    with ZAKLEP_NITI, zaklep(pot):
+    with ZAKLEP_NITI, zaklep(pot) as drzi:
+        if not drzi:
+            # Brez zaklepa ne beremo ne pisemo: drug proces bi zapis povozil ali mi njegovega. `lokalno` ostane
+            # nespremenjen (tudi `pristej` ne), zato isti klic kasneje zapise isto.
+            raise ZaklepZaseden("zaklep %s ni na voljo" % pot)
         disk = preberi_slovar(pot)
         for k, n in (pristej or {}).items():
             osnova = (disk or {}).get(k, lokalno.get(k, 0))
@@ -149,8 +162,12 @@ def zdruzi_in_zapisi(pot: str, lokalno: Dict[str, Any], znano: Dict[str, Any], *
 class Shramba:
     """Slovar nastavitev v datoteki JSON, ki ga pise vec procesov (get/set/shrani kot prej v os_programi)."""
 
+    #: Zamik ponovnega zapisa, ko je bil zaklep zaseden (s).
+    ZAMIK_PONOVITVE = 1.0
+
     def __init__(self, pot: str) -> None:
         self.pot = pot
+        self._ponovitev: Optional[threading.Timer] = None
         podatki = None
         if os.path.exists(pot):
             podatki = preberi_slovar(pot)
@@ -177,9 +194,27 @@ class Shramba:
         try:
             self._znano = zdruzi_in_zapisi(self.pot, self.podatki, self._znano)
             return True
+        except ZaklepZaseden:
+            # Spremembe ostanejo umazane (podatki != _znano); zapis ponovimo, ne da bi cakali na naslednji set().
+            self._ponovi_kasneje()
+            return False
         except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti programa
             print("[Shramba] %s: %s" % (self.pot, e), flush=True)
             return False
+
+    def _ponovi_kasneje(self) -> None:
+        with ZAKLEP_NITI:
+            if self._ponovitev is not None and self._ponovitev.is_alive():
+                return
+            t = threading.Timer(self.ZAMIK_PONOVITVE, self._ponovi)
+            t.daemon = True
+            self._ponovitev = t
+            t.start()
+
+    def _ponovi(self) -> None:
+        with ZAKLEP_NITI:
+            self._ponovitev = None
+            self.shrani()
 
     def osvezi(self) -> None:
         """Prevzame kljuce, ki jih je spremenil drug proces (brez zapisa); lastne nezapisane spremembe ostanejo."""

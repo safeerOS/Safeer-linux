@@ -10,6 +10,7 @@ import copy
 import re
 import json
 import uuid
+import threading
 import time
 import urllib.parse
 from typing import Dict, Any, List, Optional, Tuple
@@ -484,6 +485,10 @@ class ConfigManager:
         # spremenili glede na to stanje, vse drugo vzame z diska: drug proces (Safeer OS / Safeer Browser) ima svojo
         # kopijo nastavitev in je prej ob vsakem zapisu prepisal spremembe drugega (stresni preizkus 20. 10. 2026).
         self._na_disku: Dict[str, Any] = {}
+        # Povecanja stevcev, ki se niso zapisana (zaklep zaseden, pregled 4. 11. 2026): pristejejo se ob naslednjem
+        # uspesnem zapisu, sicer bi se izgubila.
+        self._cakajoce_stetje: Dict[str, int] = {}
+        self._ponovitev = None
         self.settings = self.load_settings()
 
     def _pokvarjena(self, napaka) -> None:
@@ -626,16 +631,44 @@ class ConfigManager:
             self.settings = settings
         try:
             os.makedirs(self.config_dir, exist_ok=True)
-            self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
-                                                           getattr(self, "_na_disku", {}), indent=4)
+            self._zapisi()
             # Kljuce, ki jih je zapis prevzel z diska (drug proces, rocno urejanje), preveri tudi shema - tiho,
             # popravek samo v pomnilniku (znano stanje enako pomnilniku: zapis ga ne prepise).
             if uveljavi_shemo(self.settings, tiho=True):
                 self._na_disku = copy.deepcopy(self.settings)
             return True
+        except shramba_json.ZaklepZaseden:
+            self._ponovi_kasneje()          # nastavitve ostanejo umazane, zapis ponovimo
+            return False
         except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
             print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
             return False
+
+    def _zapisi(self) -> None:
+        """Zdruzi in zapise nastavitve skupaj s cakajocimi povecanji stevcev; ob ZaklepZaseden ostane vse cakajoce."""
+        with shramba_json.ZAKLEP_NITI:
+            cakajoce = getattr(self, "_cakajoce_stetje", None)
+            if cakajoce is None:
+                cakajoce = self._cakajoce_stetje = {}
+            self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
+                                                           getattr(self, "_na_disku", {}), indent=4,
+                                                           pristej=dict(cakajoce) or None)
+            cakajoce.clear()
+
+    def _ponovi_kasneje(self) -> None:
+        with shramba_json.ZAKLEP_NITI:
+            t = getattr(self, "_ponovitev", None)
+            if t is not None and t.is_alive():
+                return
+            t = threading.Timer(shramba_json.Shramba.ZAMIK_PONOVITVE, self._ponovi)
+            t.daemon = True
+            self._ponovitev = t
+            t.start()
+
+    def _ponovi(self) -> None:
+        with shramba_json.ZAKLEP_NITI:
+            self._ponovitev = None
+            self.save_settings()
 
     def get(self, key: str, default=None):
         return self.settings.get(key, default)
@@ -657,12 +690,17 @@ class ConfigManager:
         if n <= 0:
             return False
         with shramba_json.ZAKLEP_NITI:
+            cakajoce = getattr(self, "_cakajoce_stetje", None)
+            if cakajoce is None:
+                cakajoce = self._cakajoce_stetje = {}
+            cakajoce[kljuc] = cakajoce.get(kljuc, 0) + n
             try:
                 os.makedirs(self.config_dir, exist_ok=True)
-                self._na_disku = shramba_json.zdruzi_in_zapisi(self.config_file, self.settings,
-                                                               getattr(self, "_na_disku", {}), indent=4,
-                                                               pristej={kljuc: n})
+                self._zapisi()
                 return True
+            except shramba_json.ZaklepZaseden:
+                self._ponovi_kasneje()      # povecanje caka v _cakajoce_stetje
+                return False
             except Exception as e:  # noqa: BLE001 - shranjevanje ne sme podreti brskalnika
                 print(f"[Config] Napaka pri shranjevanju: {e}", flush=True)
                 return False
