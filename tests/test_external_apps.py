@@ -24,6 +24,14 @@ class ExternalSchemeTests(unittest.TestCase):
                     "safeer://home", "view-source:https://x", "ws://x", "filesystem:https://x/temporary/a"):
             self.assertIsNone(external_scheme(uri), uri)
 
+    def test_file_and_share_locations_never_leave_the_browser(self):
+        """Weekly review 4 Nov 2026: smb:// from a web page would make the file manager mount a share chosen by the
+        page (and send the Windows sign-in to it)."""
+        for uri in ("smb://203.0.113.5/share", "SMB://x/y", "sftp://x/", "dav://x/", "davs://x/", "admin:///etc/shadow",
+                    "trash:///", "ssh://x", "nfs://x/a", "afp://x", "mtp://phone", "recent:///", "network:///",
+                    "computer:///", "archive://x", "google-drive://x"):
+            self.assertIsNone(external_scheme(uri), uri)
+
     def test_malformed_links_are_ignored(self):
         for uri in ("", None, "claude:", " claude://x", "claude://x\n", "claude://a\rb", "no scheme",
                     "1abc://x", "claude://" + "a" * 17000, "a" * 40 + "://x"):

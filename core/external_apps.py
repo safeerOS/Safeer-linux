@@ -18,6 +18,16 @@ BLOCKED_SCHEMES = frozenset({
     "http", "https", "ws", "wss", "ftp", "file", "javascript", "vbscript", "data", "blob",
     "about", "filesystem", "view-source", "safeer", "resource", "chrome", "webkit", "jar",
 })
+# File and network-share locations (GVfs backends and the like): the desktop hands them to the file manager, which
+# mounts the place a web page chose - smb:// sends the user's Windows sign-in (NTLM) to that server, sftp/dav connect
+# out, admin:// asks for root. These are places, not programs, so a web page never opens them (weekly review
+# 4 Nov 2026). Kept as a list of blocked places rather than a list of allowed programs: the user decides which
+# programs a site may open (the prompt), and any installed program (claude://, zoommtg://, steam:// ...) keeps working.
+FILE_LOCATION_SCHEMES = frozenset({
+    "smb", "smb-share", "smb-server", "cifs", "sftp", "ssh", "scp", "fish", "dav", "davs", "webdav", "webdavs",
+    "ftps", "ftpis", "tftp", "nfs", "afp", "afc", "admin", "trash", "recent", "burn", "computer", "network",
+    "archive", "mtp", "gphoto2", "cdda", "obex", "dns-sd", "google-drive", "onedrive", "wsdd", "localtest", "x-gvfs",
+})
 
 MAX_LINK_LENGTH = 16384
 MAX_REMEMBERED_SITES = 200
@@ -37,7 +47,7 @@ def external_scheme(uri):
     if not match:
         return None
     scheme = match.group(1).lower()
-    if scheme in BLOCKED_SCHEMES or len(uri) <= len(scheme) + 1:
+    if scheme in BLOCKED_SCHEMES or scheme in FILE_LOCATION_SCHEMES or len(uri) <= len(scheme) + 1:
         return None
     return scheme
 
