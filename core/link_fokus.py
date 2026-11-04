@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import select
 import subprocess
 import sys
 import threading
@@ -218,7 +217,8 @@ class Fokus:
             try:
                 p.stdin.write(json.dumps(list(okno)) + "\n")
                 p.stdin.flush()
-                pripravljen, _, _ = select.select([p.stdout], [], [], 4.0)
+                from core import os_deskriptorji
+                pripravljen = os_deskriptorji.berljivi([p.stdout], 4.0)     # brez meje 1024 (select)
                 vrstica = p.stdout.readline() if pripravljen else ""
                 if vrstica:
                     return [tuple(e) for e in json.loads(vrstica)]

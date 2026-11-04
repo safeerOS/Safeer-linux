@@ -9,7 +9,6 @@ ranges are refused.
 """
 
 import socket
-import select
 import threading
 import time
 import urllib.parse
@@ -1419,13 +1418,13 @@ class LocalDoHProxy:
 
     def _pipe_sockets(self, s1: socket.socket, s2: socket.socket):
         """Asinhrono dvosmerno posredovanje podatkov z nicelno zakasnitvijo."""
+        from core import os_deskriptorji
         sockets = [s1, s2]
         bufsize = 65536
         while self.is_running:
             try:
-                readable, _, exceptional = select.select(sockets, [], sockets, 60.0)
-                if exceptional:
-                    break
+                # Brez meje 1024 (select): napaka ali konec povezave je berljiv dogodek, recv vrne b"" ali napako.
+                readable = os_deskriptorji.berljivi(sockets, 60.0)
                 if not readable:
                     break
 

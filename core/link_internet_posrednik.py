@@ -32,7 +32,6 @@ import errno
 import ipaddress
 import json
 import os
-import select
 import socket
 import ssl
 import struct
@@ -481,7 +480,7 @@ def prenasaj_neposredno(c: socket.socket, s: socket.socket, stej: Optional[Calla
     odprti = {c: s, s: c}
     while odprti:
         try:
-            berljivi, _, _ = select.select(list(odprti), [], [], link_internet.NEDEJAVNOST_S)
+            berljivi = os_deskriptorji.berljivi(list(odprti), link_internet.NEDEJAVNOST_S)   # brez meje 1024
         except (OSError, ValueError):
             break
         if not berljivi:

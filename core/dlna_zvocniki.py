@@ -10,7 +10,6 @@ import mimetypes
 import os
 import re
 import secrets
-import select
 import socket
 import threading
 import time
@@ -276,7 +275,7 @@ def najdi(cas: float = 3.0, vmesnik: str | None = None) -> list[Zvocnik]:
         deadline = time.monotonic() + max(0.0, cas)
         locations: set[tuple[str, str]] = set()
         while socks and time.monotonic() < deadline:
-            pripravljeni, _, _ = select.select(socks, [], [], 0.2)
+            pripravljeni = os_deskriptorji.berljivi(socks, 0.2)     # brez meje 1024 (select)
             for sock in pripravljeni:
                 try:
                     data, addr = sock.recvfrom(65535)

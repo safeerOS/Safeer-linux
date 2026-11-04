@@ -837,7 +837,13 @@ class Varuh:
                     self.ustavi_vse()
                     return izid
                 try:
-                    select.select([self.vtic, self._budilka_r], [], [], self.do_roka())
+                    # poll namesto select: select() pri opisniku >= 1024 vrze ValueError (poln tek preizkusov z
+                    # dvignjeno mejo, 4. 11. 2026); varuh ostane samostojen (brez core/os_deskriptorji). Zaokrozimo
+                    # navzgor, da se zanka pred rokom ne vrti.
+                    cakaj = select.poll()
+                    cakaj.register(self.vtic, select.POLLIN)
+                    cakaj.register(self._budilka_r, select.POLLIN)
+                    cakaj.poll(int(-(-min(max(0.0, self.do_roka()), 3600.0) * 1000 // 1)))
                 except InterruptedError:
                     pass
                 try:

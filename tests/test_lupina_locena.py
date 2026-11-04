@@ -185,8 +185,8 @@ class Streznik(unittest.TestCase):
 
     @staticmethod
     def _berljiva(s):
-        import select
-        return bool(select.select([s], [], [], 0)[0])
+        from core import os_deskriptorji
+        return bool(os_deskriptorji.berljivi([s], 0))      # brez meje 1024 (poln tek, 4. 11. 2026)
 
     def test_zamrznjena_lupina_ne_zamrzne_safeer_os(self):
         """Lupina, ki ne bere (SIGSTOP), ne sme ustaviti glavne zanke Safeer OS: povezava se prekine pri meji."""

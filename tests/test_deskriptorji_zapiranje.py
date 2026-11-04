@@ -417,11 +417,27 @@ class DrugiViri(unittest.TestCase):
     def test_krajevni_naslov_brez_puscanja(self):
         from unittest import mock
         from core import link_datoteke
+        # Kot pri Scitu zgoraj: stevilo /proc/self/fd je v polnem teku nezanesljivo (niti prejsnjih preizkusov med
+        # pred in po odprejo deskriptor - 4. 11. 2026 »49 not <= 48«). Belezimo vticnice glavne niti in vse morajo
+        # biti zaprte; poleg tega 20 klicev ne sme dodati 20 deskriptorjev (puscanje po klicu).
+        import threading
+        glavna = threading.get_ident()
+        ustvarjene = []
+        izvirni_init = socket.socket.__init__
+
+        def init_z_belezenjem(vticnica, *a, **k):
+            izvirni_init(vticnica, *a, **k)
+            if threading.get_ident() == glavna:
+                ustvarjene.append(vticnica)
+
         pred = _fd()
-        with mock.patch.object(socket.socket, "connect", side_effect=OSError("ni poti")):
+        with mock.patch.object(socket.socket, "connect", side_effect=OSError("ni poti")), \
+                mock.patch.object(socket.socket, "__init__", init_z_belezenjem):
             napake = [link_datoteke.naslov_do_huba("https://127.0.0.1:8990") for _ in range(20)]
         self.assertEqual(set(napake), {"127.0.0.1"})
-        self.assertLessEqual(_fd(), pred)
+        self.assertTrue(ustvarjene, "naslov_do_huba ni ustvaril vticnice - preizkus ne bi nicesar preveril")
+        self.assertEqual([v for v in ustvarjene if v.fileno() != -1], [], "naslov_do_huba pusca vticnice")
+        self.assertLess(_fd() - pred, 20)
 
 
 @unittest.skipUnless(os.path.isdir("/proc/self/fd"), "potrebuje /proc")
@@ -513,5 +529,51 @@ class UstavitevTokov(unittest.TestCase):
 
 # Na koncu datoteke: prej je bil ta blok pred SporocilaImap/DrugiViri/UstavitevTokov, zato jih zagon
 # "python3 tests/test_deskriptorji_zapiranje.py" sploh ni pognal.
+class CakanjeBrezMeje1024(unittest.TestCase):
+    """select() pri opisniku >= 1024 vrze ValueError; Safeer OS ima mejo dvignjeno (os_stabilnost) in en proces z
+    WebKitom. Poln tek preizkusov 4. 11. 2026: varuh, deljenje zaslona in gledalec so obstali (28 padcev)."""
+
+    def test_berljivi_in_pisljivi_nad_1024(self):
+        import resource
+        mehka, trda = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if max(mehka, trda) != resource.RLIM_INFINITY and max(mehka, trda) < 1200:
+            self.skipTest("meja deskriptorjev pod 1200 - opisnika nad 1024 ni mogoce odpreti")
+        zapri = []
+        try:
+            if mehka != resource.RLIM_INFINITY and mehka < 1200:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (min(1200, trda), trda))
+                self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, (mehka, trda))
+            while True:
+                fd = os.open(os.devnull, os.O_RDONLY)
+                zapri.append(fd)
+                if fd >= 1030:
+                    break
+            a, b = socket.socketpair()
+            zapri += [a, b]
+            self.assertGreaterEqual(a.fileno(), 1024)
+            self.assertEqual(os_deskriptorji.berljivi([a], 0), [])
+            b.send(b"x")
+            self.assertEqual(os_deskriptorji.berljivi([a, a], 1.0), [a], "isti objekt dvakrat kot pri select()")
+            self.assertEqual(os_deskriptorji.pripravljeni([a], [b], 1.0), ([a], [b]))
+            self.assertEqual(os_deskriptorji.berljivi([], 0), [])
+        finally:
+            for x in zapri:
+                x.close() if hasattr(x, "close") else os.close(x)
+
+    def test_zaprta_vticnica_vrze_kot_select(self):
+        s = socket.socket()
+        s.close()
+        with self.assertRaises((ValueError, OSError)):
+            os_deskriptorji.berljivi([s], 0)
+
+    def test_nihce_vec_ne_klice_select(self):
+        """Kode, ki caka na vticnice v procesu Safeer OS, nima vec select.select (samo Windows veja link_vticnik)."""
+        import re
+        for ime in ("link_rele", "link_deljenje", "link_internet_posrednik", "link_fokus", "doh_proxy",
+                    "dlna_zvocniki", "varuh_procesov"):
+            with open(os.path.join(KOREN, "core", ime + ".py"), encoding="utf-8") as f:
+                self.assertIsNone(re.search(r"\bselect\.select\(", f.read()), ime)
+
+
 if __name__ == "__main__":
     unittest.main()

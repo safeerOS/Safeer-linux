@@ -5,7 +5,6 @@ majhnimi pravimi otroki (Python, protokol sd_notify) in kratkimi roki preverimo 
 lupino in Safeer OS ima tests/test_lupina_locena.py."""
 import json
 import os
-import select
 import signal
 import socket
 import struct
@@ -20,6 +19,7 @@ KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
 
 from core import varuh_procesov as vp  # noqa: E402
+from core import os_deskriptorji  # noqa: E402
 
 OTROK = textwrap.dedent("""
     import os, signal, sys, time
@@ -101,7 +101,7 @@ class _Osnova(unittest.TestCase):
                 return pogoj(), koda
             if pogoj():
                 return True, None
-            select.select([self.varuh.vtic], [], [], 0.05)
+            os_deskriptorji.berljivi([self.varuh.vtic], 0.05)    # brez meje 1024 (poln tek, 4. 11. 2026)
         return pogoj(), None
 
     def zagoni(self):

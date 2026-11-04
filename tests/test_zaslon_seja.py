@@ -15,7 +15,6 @@ isti kakovosti in z zvokom kot doma; napacen zeton pri Hubu ne dobi nicesar in s
 """
 import json
 import os
-import select
 import shutil
 import socket
 import ssl
@@ -27,6 +26,7 @@ import unittest
 from unittest import mock
 
 from core import link_datoteke, link_hub_streznik, link_zaslon
+from core import os_deskriptorji
 
 LAZNI_FFMPEG = '''#!/usr/bin/env python3
 import os, sys, time
@@ -138,7 +138,7 @@ class _Televizor:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", self.vrata), timeout=8))
+            s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", self.vrata), timeout=20))  # glava seje: PrekHuba
             if self.prek_huba:
                 s.sendall(("GET /cast/desktop HTTP/1.1\r\nHost: safeer\r\nConnection: Upgrade\r\n"
                            "Upgrade: safeer-desktop\r\nX-Safeer-Desktop: %s\r\n\r\n" % self.zeton).encode())
@@ -202,7 +202,8 @@ class _Televizor:
                     cakaj = max(0.0, min(cakaj, naslednji - time.monotonic()))
                 if self.odmevi:
                     cakaj = max(0.0, min(cakaj, self.odmevi[0][0] - time.monotonic()))
-                select.select([s] if self.beri else [], [s] if caka else [], [], cakaj)
+                # Brez meje 1024: poln tek preizkusov ima vec odprtih deskriptorjev (select je padel, 4. 11. 2026).
+                os_deskriptorji.pripravljeni([s] if self.beri else [], [s] if caka else [], cakaj)
         except (OSError, ssl.SSLError, ValueError):
             if not self.ustavi.is_set():
                 self.konec_toka = True
@@ -423,7 +424,10 @@ class PrekHuba(_Osnova):
             self.assertEqual(seja[kljuc], doma[kljuc], "prek Huba se %s ne sme razlikovati od seje doma" % kljuc)
         self.assertEqual(seja["quality"], "najvisja")
         tv = self.televizor(seja, vnos_na_s=200, hub_vrata=self.hub.vrata)
-        self.assertTrue(tv.povezan.wait(8), "gledalec prek Huba se ni povezal (%s)" % tv.odgovor_huba)
+        # 20 s: glava seje pride sele, ko kodirnik (ffmpeg) tece; pod polno obremenjenim racunalnikom (vec agentov,
+        # 4. 11. 2026) je 8 s enkrat ni dovolj - Hub je ze odgovoril 101. Ob padcu pove se, kako se je tok koncal.
+        self.assertTrue(tv.povezan.wait(20), "gledalec prek Huba se ni povezal (%s, konec toka %r, napaka %r)"
+                        % (tv.odgovor_huba, tv.konec_toka, tv.napaka))
         self.assertIn(" 101 ", tv.odgovor_huba)
         self.assertEqual(tv.glava["v"], 2)
         self.assertEqual(tv.glava["fps"], doma["fps"])

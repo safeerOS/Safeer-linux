@@ -13,7 +13,6 @@ import base64
 import hashlib
 import json
 import os
-import select
 import socket
 import ssl
 import struct
@@ -259,7 +258,7 @@ def _mirna(s) -> bool:
     Berljiva je lahko tudi samo zaradi notranjih zapisov TLS 1.3 (vstopnica seje po rokovanju): te prebere
     recv brez cakanja in javi SSLWantReadError - povezava je ziva."""
     try:
-        berljiva, _, _ = select.select([s], [], [], 0)
+        berljiva = os_deskriptorji.berljivi([s], 0)      # brez meje 1024 (select)
         if not berljiva and not s.pending():
             return True
         rok = s.gettimeout()
@@ -377,7 +376,7 @@ class TopleTls:
         """Do `cas` sekund ali do zbujanja ali do berljive `s` (rele jo je zaprl)."""
         bralni = [self._budilka[0]] + ([s] if s is not None else [])
         try:
-            select.select(bralni, [], [], cas)
+            os_deskriptorji.berljivi(bralni, cas)
         except (OSError, ValueError):
             time.sleep(min(cas, 0.05))      # `s` je med tem vzel in zaprl nekdo drug
         try:

@@ -21,7 +21,6 @@ import http.client
 import json
 import os
 import re
-import select
 import shutil
 import socket
 import ssl
@@ -31,6 +30,7 @@ from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import quote, urlparse
 
 from core import gneca
+from core import os_deskriptorji
 from core import link_tls
 
 KAKOVOST_JPEG = 60
@@ -567,7 +567,7 @@ class DeljenjeZaslona:
         odgovori z razlogom in zapre povezavo - po tem locimo konec deljenja od padle povezave. Vrne telo odgovora;
         {} = povezava je zaprta brez berljivega razloga."""
         try:
-            pripravljen = bool(vticnik.pending()) or bool(select.select([vticnik], [], [], cakaj_s)[0])
+            pripravljen = bool(vticnik.pending()) or bool(os_deskriptorji.berljivi([vticnik], cakaj_s))
         except Exception:  # noqa: BLE001 - vticnik brez opisnika (preizkusi) ali ze zaprt
             return None
         if not pripravljen:

@@ -8,7 +8,6 @@ Naprava v preizkusu je namenoma ena sama nit z neblokirajoco vticnico (select): 
 preizkus meri samo gledalca.
 """
 import json
-import select
 import shutil
 import socket
 import ssl
@@ -19,6 +18,7 @@ import time
 import unittest
 
 from core import link_datoteke, link_gledalec
+from core import os_deskriptorji
 
 #: Okvir slike v preizkusu (vrsta 1) in razmik med okvirji. Majhni in pogosti okvirji pomenijo, da bralna nit
 #: velikokrat izprazni vticnico - prav takrat se pokaze tekma s pisalno nitjo.
@@ -86,7 +86,9 @@ class _Naprava:
                     continue
                 except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
                     pass
-                select.select([s], [s] if caka else [], [], max(0.0, min(naslednji - time.monotonic(), 0.05)))
+                # Brez meje 1024: poln tek preizkusov ima vec odprtih deskriptorjev (select je padel, 4. 11. 2026).
+                cakaj = max(0.0, min(naslednji - time.monotonic(), 0.05))
+                os_deskriptorji.pripravljeni([s], [s] if caka else [], cakaj)
         except Exception as e:  # noqa: BLE001
             if not self.konec.is_set():
                 self.napaka = "%s: %s" % (type(e).__name__, e)
