@@ -42,6 +42,13 @@ ROK_ADB = 30.0
 # Pot zaklepa je dogovor z drugimi skriptami (flock(1) in fcntl.flock uporabljata isti flock(2), zato se izkljucujeta).
 ZAKLEP = "/tmp/safeer-naprava-{}.lock"
 PREDPONA_PAKETA = "si.safeer."
+#: Nasi paketi zunaj si.safeer.*: Safeer Browser za telefon (tedenski pregled 4. 11. 2026, N16). Tocno ime, ne predpona.
+NASI_PAKETI = ("com.safeer.mobile.browser",)
+OPIS_PAKETOV = PREDPONA_PAKETA + "* ali " + ", ".join(NASI_PAKETI)
+
+
+def nas_paket(paket: str) -> bool:
+    return paket.startswith(PREDPONA_PAKETA) or paket in NASI_PAKETI
 # Preizkusi ne smejo dobiti korena ali zagnati pravih sistemskih programov na lastnikovem racunalniku.
 PREPOVEDANI = {"sudo", "pkexec", "doas", "su", "run0"}
 PREPOVEDANA_POT = "/usr/bin/safeer-"
@@ -486,9 +493,9 @@ class Zaklep:
 
 def preizkus_android(porocilo: Porocilo, naprava: str, paket: str, apk: str, repo: str, zacasna: str, rok: float) -> None:
     ime = "android %s=%s" % (naprava, paket)
-    if not paket.startswith(PREDPONA_PAKETA):
+    if not nas_paket(paket):
         # Ovoj preizkusa samo nase aplikacije; tujih paketov na napravi ne namescamo in ne zaganjamo.
-        porocilo.najdba(NAPAKA, ime, "paket %s ni %s* - naprave se ne dotaknem" % (paket, PREDPONA_PAKETA))
+        porocilo.najdba(NAPAKA, ime, "paket %s ni %s - naprave se ne dotaknem" % (paket, OPIS_PAKETOV))
         return
     if not os.path.isfile(apk):
         porocilo.najdba(NAPAKA, ime, "APK %s ne obstaja - naprave se ne dotaknem" % apk)
@@ -515,9 +522,9 @@ def preizkus_android(porocilo: Porocilo, naprava: str, paket: str, apk: str, rep
         if not spredaj:
             iz2 = pozeni(["adb", "-s", naprava, "shell", "dumpsys", "window"], ROK_ADB, zacasna)
             spredaj = ospredje("\n".join(iz2.vrstice)) if iz2.koda == 0 else ""
-        if not spredaj.startswith(PREDPONA_PAKETA):
-            porocilo.najdba(NAPAKA, ime, "v ospredju je %s, ne %s* - preizkus preskocen, naprave se ne dotaknem"
-                            % (spredaj or "neznano", PREDPONA_PAKETA), iz.ukaz, iz.koda)
+        if not nas_paket(spredaj):
+            porocilo.najdba(NAPAKA, ime, "v ospredju je %s, ne %s - preizkus preskocen, naprave se ne dotaknem"
+                            % (spredaj or "neznano", OPIS_PAKETOV), iz.ukaz, iz.koda)
             return
         ostane = max(konec - time.monotonic(), 1.0)
         iz = pozeni([sys.executable, skripta, "%s=%s" % (naprava, paket), "--apk", apk], ostane, zacasna, cwd=repo)

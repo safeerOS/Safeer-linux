@@ -480,3 +480,10 @@ def test_relativne_poti_repo_in_apk(okolje, capsys, monkeypatch):
     assert koda == 0, capsys.readouterr().out
     assert okolje.dnevnik("android") == ["R58M=si.safeer.os --apk %s" % okolje.apk]
     assert json.loads((okolje.pot / "rel.json").read_text())["napake"] == 0
+
+
+def test_nas_paket_tudi_brskalnik_telefona():
+    """Tedenski pregled 4. 11. 2026 (N16): Safeer Browser za telefon je com.safeer.mobile.browser - tocno ime."""
+    assert pi.nas_paket("si.safeer.phone") and pi.nas_paket("com.safeer.mobile.browser")
+    for tuj in ("com.safeer.mobile.browserx", "com.safeer.mobile", "com.filmbox", "si.safeerx.app", ""):
+        assert not pi.nas_paket(tuj), tuj
