@@ -92,6 +92,20 @@ def test_vnos_na_eni_napravi_velja_na_drugi(napravi):
     assert up.preberi_ponudnika(pot_b) is None and zbirki["b"].vnosi == {}
 
 
+def test_zavrnjeno_geslo_ni_potrjeno(napravi):
+    """Zbirka gesel zavrne (zaklenjena, brez Secret Service): prejem vrne False, da ga uskladitev ne potrdi in poskusi
+    znova - prej je vrnil True in zapis je veljal za prejetega brez gesla (CodeRabbit, 4. 11. 2026)."""
+    na, zbirki = napravi
+    pot_a = na("a")
+    up.shrani_ponudnika(PONUDNIK, GESLO, pot_a)
+    v = _vir(pot_a).trenutne()[0][P.KLJUC_USENET_PONUDNIK]
+    pot_b = na("b")
+    zbirki["b"].shrani = lambda k, g: False
+    vir_b = _vir(pot_b)
+    assert vir_b.pripravi(Zapis(P.KLJUC_USENET_PONUDNIK, 5, "n-a", False, v))() is False
+    assert vir_b.obnovi(P.KLJUC_USENET_PONUDNIK, v) is False
+
+
 def test_brez_berljivega_gesla_neznan_brez_groba(napravi):
     na, zbirki = napravi
     pot = na("a")

@@ -178,7 +178,8 @@ class VirMedijev:
             if pg is None:
                 return None
             # Brez prijave (vsaka prijava steje povezave racuna; kot Android): stanje »nepreverjen« do »Preveri«.
-            return lambda: (UPN.shrani_prejetega(pg[0], pg[1], pot), True)[1]
+            # Izid shranjevanja (zbirka gesel lahko zavrne): False = metapodatki se ne potrdijo, poskus pride znova.
+            return lambda: bool(UPN.shrani_prejetega(pg[0], pg[1], pot))
         return None
 
     def _odstrani_dodatek(self, odtis: str) -> bool:
@@ -215,7 +216,7 @@ class VirMedijev:
                 UPN.pozabi_ponudnika(self._pot_usenet)
                 return True
             pg = self._usenet_iz(v)
-            return pg is not None and (UPN.shrani_prejetega(pg[0], pg[1], self._pot_usenet), True)[1]
+            return pg is not None and bool(UPN.shrani_prejetega(pg[0], pg[1], self._pot_usenet))
         return False
 
     def preveri_nepreverjene(self) -> None:
