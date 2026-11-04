@@ -12,3 +12,7 @@ tests/test_predvajaj_na.py
 # 27. 10. 2026, CI 40540795447 (Iskalec 117): QML preizkusi nalozijo namizje (test_qml_enakost._namizje -> safeer_os) lenobno.
 tests/test_o_racunalniku.py
 tests/test_predogled_brez_dekodirnika.py
+# 4. 11. 2026, lokalni tek brez WebKita: podproces zazene safeer_os.py (--delovna, --okno) z WebKitom - ukaz je v
+# nizu skripte ali v klicu pomocnika, analiza ga ne vidi (namizje je ostalo brez okna: geometrija None).
+tests/test_monitorji_zivo.py
+tests/test_wayland_hidpi_zivo.py
