@@ -3,8 +3,11 @@
 # vsa imena pozna »usmerjevalnik« (preizkus.example = blokirani oglasi, nevarno.example = blokirana lazna stran,
 # dovoljeno.example, nas.lan).
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 L=./lab.sh
+# Okolje pospravi tudi, ce preizkus prekine napaka ali Ctrl+C (AGENTS.md: vsak preizkus za sabo pospravi; tedenski
+# pregled 4. 11. 2026, N4). PUSTI=1 ga pusti za ogled.
+trap '[ "${PUSTI:-0}" = 1 ] || $L dol >/dev/null' EXIT
 napake=0
 ok()    { printf '  ok      %s\n' "$1"; }
 # Ob napaki izpise tudi, koga resolved sprasuje: ce je preklopil na rezervo (usmerjevalnik), Scit tisti hip ne blokira - CI 19. 10. 2026
@@ -126,5 +129,4 @@ docker exec scit-odj bash -c 'rm /etc/resolv.conf; ln -s ../run/systemd/resolve/
 
 echo
 if [ "$napake" -eq 0 ]; then echo "VSE V REDU"; else echo "NAPAK: $napake"; fi
-[ "${PUSTI:-0}" = 1 ] || $L dol >/dev/null
 exit "$napake"

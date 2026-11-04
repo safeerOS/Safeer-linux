@@ -28,7 +28,8 @@ case "${1:-}" in
     docker network inspect scit95 >/dev/null 2>&1 || docker network create --subnet 172.31.95.0/24 --gateway 172.31.95.1 scit95 >/dev/null
     docker rm -f scit-usm scit-odj >/dev/null 2>&1
     # Docker v omrezjih po meri posreduje DNS streznikom gostitelja; ce jih gostitelj nima, pomaga --dns.
-    docker run -d --name scit-usm --hostname usmerjevalnik --network scit95 --ip 172.31.95.2 --cap-add NET_ADMIN --cap-add NET_RAW \
+    # --rm: ustavljen vsebnik ne ostane na disku (tedenski pregled 4. 11. 2026, N4); »dol« ju ustavi in odstrani.
+    docker run -d --rm --name scit-usm --hostname usmerjevalnik --network scit95 --ip 172.31.95.2 --cap-add NET_ADMIN --cap-add NET_RAW \
       --dns "${DNS1:-1.1.1.1}" --dns "${DNS2:-9.9.9.9}" safeer-scit-usm \
       dnsmasq -k --log-queries --log-dhcp --log-facility=/var/log/dnsmasq.log \
         --dhcp-range=172.31.95.50,172.31.95.99,255.255.255.0,1h --dhcp-option=3,172.31.95.1 --dhcp-option=6,172.31.95.2 \
@@ -39,7 +40,10 @@ case "${1:-}" in
     if [ "${NACIN:-}" = flatpak ]; then
       DODATNO=(-v "${FLATPAK_GOSTITELJA:-/var/lib/flatpak}":/var/lib/flatpak:ro -v "${PAKET:?PAKET=pot do Safeer-OS-...flatpak}":/paket.flatpak:ro)
     fi
-    docker run -d --name scit-odj --hostname scit-odj --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
+    # --privileged je nujen: v vsebniku tece pravi systemd (PID 1) s systemd-resolved in NetworkManager, ki potrebujeta
+    # cgroup, priklope (tmpfs, /etc/resolv.conf) in nastavitve omrezja v svojem imenskem prostoru - Scit preizkusamo na
+    # pravem sistemu, ne na nadomestku. Vsebnik je v svojem omrezju scit95, gostitelja se ne dotakne.
+    docker run -d --rm --name scit-odj --hostname scit-odj --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
       --network scit95 --ip 172.31.95.10 -v "$KODA":/repo:ro -e PRAVI_SEZNAMI="${PRAVI_SEZNAMI:-0}" "${DODATNO[@]}" safeer-scit-lab >/dev/null
     sleep 6
     # /etc/resolv.conf kot na namizju: posrednik systemd-resolved (Docker tja priklopi svojo datoteko).
