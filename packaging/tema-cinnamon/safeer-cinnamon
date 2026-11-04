@@ -1282,7 +1282,8 @@ stanje() {
     echo "dock:         $( [ -f "$AUTOSTART" ] && echo vklopljen || echo izklopljen)"
     echo "delovna:      $( [ -f "$SEJA" ] && echo "ob prijavi (safeer-os --delovna)" || echo izklopljena)"
     echo "zapomnjeno:   $( [ -s "$PREJ" ] && echo "da ($PREJ)" || echo ne)"
-    if [ -x "$POMOCNIK" ]; then "$POMOCNIK" stanje 2>/dev/null; fi
+    # Preizkus (SAFEER_CINNAMON_KOREN): sistemskega pomocnika ne zaganjamo - lazni koren ga nima, pravi bi bral sistem.
+    if [ -z "$KOREN" ] && [ -x "$POMOCNIK" ]; then "$POMOCNIK" stanje 2>/dev/null; fi
     return 0
 }
 
