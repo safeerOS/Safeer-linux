@@ -1,7 +1,7 @@
 """Preizkusi core/usenet_ponudnik.py (naloga 74). Brez pravega omrezja: lazni streznik NNTP prek TLS na 127.0.0.1
 (socketserver v tej datoteki) in lazna zbirka skrivnosti. Varovalo zavrne vsako povezavo izven 127.0.0.1.
 
-Poverilnice in imena so izmisljena (news.primer.invalid); potrdila so samo za ta preizkus.
+Poverilnice in imena so izmisljena (news.primer.invalid); potrdila nastanejo ob teku samo za ta preizkus.
 """
 
 from __future__ import annotations
@@ -24,38 +24,46 @@ GESLO = "Lazno-Geslo-74!xyz"
 UPORABNIK = "uporabnik.primer74"
 NAPACNO = "Napacno-Geslo-74?abc"
 
-# Preizkusni CA in potrdilo za IP 127.0.0.1 (veljata do 2126; zasebni kljuc je samo za ta preizkus).
-CA_PEM = """-----BEGIN CERTIFICATE-----
-MIIBqDCCAU+gAwIBAgIUYkpjsTlNX3GSTUSEH/CHnrf2jbUwCgYIKoZIzj0EAwIw
-ITEfMB0GA1UEAwwWUHJlaXprdXNuaSBDQSBuYWxvZ2E3NDAgFw0yNjEwMjYxMzMw
-MTNaGA8yMTI2MTAwMjEzMzAxM1owITEfMB0GA1UEAwwWUHJlaXprdXNuaSBDQSBu
-YWxvZ2E3NDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABI36IYsWAXjGGNAvtg/g
-vnLTeLEeiolGHUiTho8q4rBryA+zQ5oMPTeNAxWTqIHr34jzvSxIusXKkvViEox4
-Hx6jYzBhMB8GA1UdIwQYMBaAFOWAJPFvrLF9yG0xIZ4IpeN5txwuMA8GA1UdEwEB
-/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBTlgCTxb6yxfchtMSGe
-CKXjebccLjAKBggqhkjOPQQDAgNHADBEAiB+vjAvMaboO9LyA2DZcDKkRl2ZVt/4
-YM2psClrek7JOQIgZUjVv25unxBwKDixZM3Q3NCeGDRTzzhkHNbCh68uAS4=
------END CERTIFICATE-----
-"""
-SRV_PEM = """-----BEGIN CERTIFICATE-----
-MIIBwTCCAWegAwIBAgIUXf4eLTX34ct6VpEO9rfuCWDu9vUwCgYIKoZIzj0EAwIw
-ITEfMB0GA1UEAwwWUHJlaXprdXNuaSBDQSBuYWxvZ2E3NDAgFw0yNjEwMjYxMzMw
-MTNaGA8yMTI2MTAwMjEzMzAxM1owFDESMBAGA1UEAwwJMTI3LjAuMC4xMFkwEwYH
-KoZIzj0CAQYIKoZIzj0DAQcDQgAEsgxcaMxDO7eMhPlIEdwt9LNqoqhDy/JUJPBi
-Z4+2z0eGDXJxixvDbyrgN2lfwMAG6Jch9k+IUcqpSpSuxqroOKOBhzCBhDAMBgNV
-HRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAP
-BgNVHREECDAGhwR/AAABMB0GA1UdDgQWBBRVrhj0/vtgp0CzbVF5lwrtSS9WZjAf
-BgNVHSMEGDAWgBTlgCTxb6yxfchtMSGeCKXjebccLjAKBggqhkjOPQQDAgNIADBF
-AiEAvwL4xlsJXZ6DxeQnCZUA+NY31mOonsqkVN5wImFcRs4CIEWtPtZSdkK45oit
-oF4oDXEQTQkil/ktwP7OrJ2CjjLF
------END CERTIFICATE-----
-"""
-SRV_KEY = """-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+21pdW8qIwpxDL35
-orh09GF7P/OjzyvoRdmoVMhwreahRANCAASyDFxozEM7t4yE+UgR3C30s2qiqEPL
-8lQk8GJnj7bPR4YNcnGLG8NvKuA3aV/AwAbolyH2T4hRyqlKlK7Gqug4
------END PRIVATE KEY-----
-"""
+# Preizkusni CA in potrdilo za IP 127.0.0.1 nastanejo ob teku (EC P-256, veljata 1 dan). Prej so bili CA, potrdilo
+# in zasebni kljuc vgrajeni v datoteko: tests/test_brez_skrivnosti.py v repozitoriju ne dovoli nobenega zasebnega
+# kljuca (tedenski pregled 4. 11. 2026), kljuc v repozitoriju pa bi lahko kdo uporabil zunaj preizkusa.
+
+
+def _preizkusna_potrdila():
+    """Vrne (CA_PEM, SRV_PEM, SRV_KEY) kot besedilo PEM; kljuc obstaja samo v pomnilniku in zacasni mapi teka."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    zdaj = datetime.datetime.now(datetime.timezone.utc)
+    od, do = zdaj - datetime.timedelta(minutes=5), zdaj + datetime.timedelta(days=1)
+    ca_kljuc = ec.generate_private_key(ec.SECP256R1())
+    ca_ime = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Preizkusni CA naloga74")])
+    ca = (x509.CertificateBuilder().subject_name(ca_ime).issuer_name(ca_ime).public_key(ca_kljuc.public_key())
+          .serial_number(x509.random_serial_number()).not_valid_before(od).not_valid_after(do)
+          .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+          .add_extension(x509.KeyUsage(digital_signature=True, key_cert_sign=True, crl_sign=True,
+                                       content_commitment=False, key_encipherment=False, data_encipherment=False,
+                                       key_agreement=False, encipher_only=False, decipher_only=False), critical=True)
+          .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_kljuc.public_key()), critical=False)
+          .sign(ca_kljuc, hashes.SHA256()))
+    srv_kljuc = ec.generate_private_key(ec.SECP256R1())
+    srv = (x509.CertificateBuilder()
+           .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])).issuer_name(ca_ime)
+           .public_key(srv_kljuc.public_key()).serial_number(x509.random_serial_number())
+           .not_valid_before(od).not_valid_after(do)
+           .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+           .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+                          critical=False)
+           .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+           .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_kljuc.public_key()), critical=False)
+           .sign(ca_kljuc, hashes.SHA256()))
+    pem = serialization.Encoding.PEM
+    kljuc = srv_kljuc.private_bytes(pem, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    return ca.public_bytes(pem).decode(), srv.public_bytes(pem).decode(), kljuc.decode()
 
 
 # ------------------------------------------------------------------ lazni streznik NNTP (TLS, 127.0.0.1)
@@ -178,6 +186,7 @@ class LaznaZbirka:
 @pytest.fixture(scope="session")
 def potrdila(tmp_path_factory):
     d = tmp_path_factory.mktemp("potrdila")
+    CA_PEM, SRV_PEM, SRV_KEY = _preizkusna_potrdila()
     (d / "ca.pem").write_text(CA_PEM)
     (d / "srv.pem").write_text(SRV_PEM)
     (d / "srv.key").write_text(SRV_KEY)
