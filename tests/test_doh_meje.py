@@ -85,7 +85,7 @@ class PreizkusJavnihNaslovov(unittest.TestCase):
 
     def test_ipv6_ki_nosi_ipv4_se_presoja_po_ipv4(self):
         self.assertFalse(je_javni_naslov("::ffff:127.0.0.1"))
-        self.assertFalse(je_javni_naslov("::ffff:192.168.50.1"))
+        self.assertFalse(je_javni_naslov("::ffff:192.0.2.70"))
         self.assertTrue(je_javni_naslov("::ffff:1.1.1.1"))
 
     def test_kar_ni_naslov_ni_dovoljeno(self):

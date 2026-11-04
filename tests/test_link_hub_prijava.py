@@ -135,7 +135,7 @@ class OglasSredisca(unittest.TestCase):
     OGLASI = {
         "tv": _Info("192.0.2.77", 8990, {b"tls": b"1", b"fp": b"AA11", b"name": b"Televizor", b"id": b"n-tv",
                                           b"prio": b"100", b"mesh": b"mesh1"}),
-        "pc": _Info("192.0.2.135", 8990, {b"tls": b"1", b"id": b"n-pc-control", b"prio": b"80", b"mesh": b"mesh1"}),
+        "pc": _Info("192.0.2.75", 8990, {b"tls": b"1", b"id": b"n-pc-control", b"prio": b"80", b"mesh": b"mesh1"}),
         "star": _Info("192.0.2.20", 8990, {b"tls": b"1", b"id": b"n-star"}),
         "pokvarjen": _Info("192.0.2.21", 8990, {b"tls": b"1", b"id": b"n-x", b"prio": b"visoka"}),
         "prevelik": _Info("192.0.2.22", 8990, {b"tls": b"1", b"id": b"n-y", b"prio": b"99999"}),
