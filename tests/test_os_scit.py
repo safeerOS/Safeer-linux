@@ -735,7 +735,8 @@ class UporabiTest(unittest.TestCase):
                 pravilo_namesceno=lambda: True, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m)
             sc._uporabi()
-            self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), ([], "ni_omrezja", ["1.1.1.1", "9.9.9.9"]))
+            # Brez krajevnega DNS ni tujega nadomestka (lastnik: SERVFAIL takoj, nikoli tuj razresevalnik).
+            self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), ([], "ni_omrezja", []))
             povezani.append("wlan0")
             sc._uporabi()
             self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), (["wlan0"], "", ["192.168.0.1"]))

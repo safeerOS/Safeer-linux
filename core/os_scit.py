@@ -1546,7 +1546,8 @@ class Scit:
 
     # -- streznik naprej
     def naprej(self) -> Tuple[str, str]:
-        """(izbira, naslov po meri): kam Scit posreduje dovoljena imena. Privzeto Cloudflare prek DoH."""
+        """(izbira, naslov po meri): kam Scit posreduje dovoljena imena. Privzeto krajevni DNS (PRIVZETI_NAPREJ =
+        »router«: strezniki usmerjevalnika iz NetworkManagerja) - nic k tujemu strezniku, dokler uporabnik ne izbere."""
         izbira = str(self.shramba.get("scit_naprej", PRIVZETI_NAPREJ) or PRIVZETI_NAPREJ)
         return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), str(self.shramba.get("scit_naprej_po_meri", "") or "")
 
@@ -1912,8 +1913,9 @@ class Scit:
                 if s not in strezniki:
                     strezniki.append(s)
         # Kam posredujemo, mora biti znano, PREDEN resolved poslje prvo poizvedbo: brez odgovora bi takoj presel na
-        # rezervo in Scit zaobsel.
-        self.strezniki = strezniki or ["1.1.1.1", "9.9.9.9"]
+        # rezervo in Scit zaobsel. Brez krajevnega DNS ostane seznam prazen: razresevalnik odgovori SERVFAIL takoj,
+        # tujega razresevalnika ne izberemo namesto uporabnika (lastnik; prej 1.1.1.1 in 9.9.9.9, najdba 4. 11. 2026).
+        self.strezniki = strezniki
         novo = zavrnjeno = tuje = False
         smemo: Optional[bool] = None
         for v in povezani:
