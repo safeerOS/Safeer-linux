@@ -183,20 +183,10 @@ class Priljubljeno:
             return _prazno()
 
     def _pisi(self, z: dict) -> None:
-        zacasna = "%s.%d.%d.tmp" % (self.pot, os.getpid(), threading.get_ident())
-        try:
-            # 0600: poti priljubljenih datotek so zasebne (drug uporabnik racunalnika jih ne bere).
-            with os.fdopen(os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
-                json.dump(z, f, ensure_ascii=False, indent=1)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(zacasna, self.pot)
-        finally:
-            if os.path.exists(zacasna):
-                try:
-                    os.remove(zacasna)
-                except OSError:
-                    pass
+        from core import shramba_json
+        # 0600: poti priljubljenih datotek so zasebne (drug uporabnik racunalnika jih ne bere).
+        with shramba_json.atomsko_odpri(self.pot, sinhrono=True) as f:
+            json.dump(z, f, ensure_ascii=False, indent=1)
 
     def _spremeni(self, kaj: Callable[[dict], bool]) -> dict:
         """kaj(zapis) spremeni zapis in vrne, ali se je kaj spremenilo; shrani in sporoci samo takrat."""

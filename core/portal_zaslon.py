@@ -124,11 +124,9 @@ def _pisi_zeton(pot: str, kljuc: str, zeton: str) -> None:
         j.pop(kljuc, None)
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
-        zacasna = pot + ".tmp"
-        fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(pot) as f:
             json.dump(j, f)
-        os.replace(zacasna, pot)
     except OSError as e:
         print("[portal] zeton:", e, flush=True)
 

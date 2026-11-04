@@ -319,10 +319,9 @@ class MeshPovezovalec:
             return
         try:
             os.makedirs(os.path.dirname(self._pot_znanih), exist_ok=True)
-            zacasna = self._pot_znanih + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self._pot_znanih) as d:
                 json.dump(self._znani, d)
-            os.replace(zacasna, self._pot_znanih)
         except Exception:
             pass
 
@@ -542,10 +541,9 @@ class MeshPovezovalec:
             return
         try:
             os.makedirs(os.path.dirname(self._pot_poti), exist_ok=True)
-            zacasna = self._pot_poti + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self._pot_poti) as d:
                 json.dump({"cas": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sosedje": poti}, d)
-            os.replace(zacasna, self._pot_poti)
         except Exception:
             pass
 
@@ -751,10 +749,9 @@ def shrani_pomoc(vklopljeno: bool, pot: Optional[str] = None) -> dict:
     """Uporabnikova izbira (stran Linka ali vprasanje ob seznanitvi): velja takoj, vprasanje se ne ponovi."""
     pot = pot or _pot_pomoci()
     os.makedirs(os.path.dirname(pot), exist_ok=True)
-    zacasna = pot + ".tmp"
-    with open(zacasna, "w", encoding="utf-8") as d:
+    from core import shramba_json
+    with shramba_json.atomsko_odpri(pot) as d:
         json.dump({"vklopljeno": bool(vklopljeno), "vprasano": True}, d)
-    os.replace(zacasna, pot)
     _pomoc_predpomnilnik.clear()
     return nastavitve_pomoci(pot)
 

@@ -174,10 +174,8 @@ def zapisi(naprave: List[dict], mapa: Optional[str] = None, nemo: Optional[bool]
                         continue
             except OSError:
                 pass
-            zacasna = os.path.join(mapa, "." + ime + ".tmp")
-            with open(zacasna, "w", encoding="utf-8") as f:
-                f.write(besedilo)
-            os.replace(zacasna, pot)
+            from core import shramba_json   # ime zacasne se zacne s piko: Nemo je ne vzame za dejanje
+            shramba_json.zapisi_besedilo_atomsko(pot, besedilo)
             spremenjeno = True
         for ime in obstojece:
             if ime not in zelene:

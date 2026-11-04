@@ -320,9 +320,9 @@ class Zvocniki:
         podatki[id_zvocnika] = {"ms": omeji_zakasnitev(ms), "rocno": bool(rocno)}
         try:
             os.makedirs(os.path.dirname(self._pot_zakasnitev), exist_ok=True)
-            with open(self._pot_zakasnitev + ".tmp", "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self._pot_zakasnitev) as d:
                 json.dump(podatki, d)
-            os.replace(self._pot_zakasnitev + ".tmp", self._pot_zakasnitev)
         except OSError:
             pass
 

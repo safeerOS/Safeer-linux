@@ -299,10 +299,8 @@ def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povez
     if not tip or len(podatki) > NAJVEC_BAJTOV or not podatki or _majhna(podatki):
         return ""
     pot = os.path.join(mapa, ime + _KONCNICE[tip])
-    with open(pot + ".tmp", "wb") as f:
-        f.write(podatki)
-    os.chmod(pot + ".tmp", 0o600)
-    os.replace(pot + ".tmp", pot)
+    from core import shramba_json
+    shramba_json.zapisi_besedilo_atomsko(pot, podatki)
     return pot
 
 
@@ -360,8 +358,7 @@ class DovoljeniPosiljatelji:
             vsi = set(self._beri())
             (vsi.add if dovoli else vsi.discard)(k)
             os.makedirs(os.path.dirname(self.pot) or ".", exist_ok=True)
-            with open(self.pot + ".tmp", "w", encoding="utf-8") as f:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self.pot) as f:
                 json.dump(sorted(vsi), f)
-            os.chmod(self.pot + ".tmp", 0o600)
-            os.replace(self.pot + ".tmp", self.pot)
             return sorted(vsi)

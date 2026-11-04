@@ -2507,10 +2507,9 @@ def _beri_rabo(pot: str) -> dict:
 def _pisi_rabo(pot: str, raba: dict) -> None:
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
-        zacasna = pot + ".tmp"
-        with open(zacasna, "w", encoding="utf-8") as d:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(pot) as d:
             json.dump(raba, d)
-        os.replace(zacasna, pot)
     except OSError:
         pass
 

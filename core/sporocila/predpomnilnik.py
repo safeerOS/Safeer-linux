@@ -75,10 +75,9 @@ def zapisi_prejeto(vnos: str, pot: str) -> None:
     except OSError:
         return
     cilj = os.path.join(vnos, _PREJETO)
-    with open(cilj + ".tmp", "w", encoding="utf-8") as f:
+    from core import shramba_json
+    with shramba_json.atomsko_odpri(cilj) as f:
         json.dump({"pot": os.path.abspath(pot), "velikost": velikost}, f)
-    os.chmod(cilj + ".tmp", 0o600)
-    os.replace(cilj + ".tmp", cilj)
 
 
 def prejeto(vnos: str) -> str:
@@ -170,18 +169,13 @@ def slicica(pot: str, vnos: str, velikost: int = 256) -> Optional[str]:
     try:
         from PIL import Image, ImageOps
         Image.MAX_IMAGE_PIXELS = 120_000_000
-        with Image.open(pot) as s:
+        from core import shramba_json
+        with Image.open(pot) as s, shramba_json.atomska_pot(cilj) as zacasna:   # 0600, ob napaki zacasna ne ostane
             s = ImageOps.exif_transpose(s)
             s.thumbnail((velikost, velikost))
             if s.mode not in ("RGB", "L"):
                 s = s.convert("RGB")
-            s.save(cilj + ".tmp", "JPEG", quality=82)
-        os.chmod(cilj + ".tmp", 0o600)
-        os.replace(cilj + ".tmp", cilj)
+            s.save(zacasna, "JPEG", quality=82)
         return cilj
     except Exception:  # noqa: BLE001
-        try:
-            os.remove(cilj + ".tmp")
-        except OSError:
-            pass
         return None

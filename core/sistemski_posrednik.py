@@ -100,10 +100,9 @@ class SistemskiPosrednik:
     def _zapisi_stanje(self, d: dict) -> bool:
         try:
             os.makedirs(os.path.dirname(self.pot_stanja), exist_ok=True)
-            zacasna = self.pot_stanja + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as f:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self.pot_stanja) as f:
                 json.dump(d, f, ensure_ascii=False, indent=1)
-            os.replace(zacasna, self.pot_stanja)
             return True
         except OSError:
             return False

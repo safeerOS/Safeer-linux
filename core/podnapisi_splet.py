@@ -157,9 +157,8 @@ def prenesi(rezultat: dict, mapa: str = "", odpri: Callable = _odpri) -> str:
         podatki = o.read(_pn.NAJVEC_BAJTOV + 1)
     if not podatki or len(podatki) > _pn.NAJVEC_BAJTOV:
         raise ValueError("datoteka ni podnapis")
-    with open(cilj + ".tmp", "wb") as d:
-        d.write(podatki)
-    os.replace(cilj + ".tmp", cilj)
+    from core import shramba_json
+    shramba_json.zapisi_besedilo_atomsko(cilj, podatki)
     return cilj
 
 

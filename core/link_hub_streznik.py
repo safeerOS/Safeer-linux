@@ -546,10 +546,9 @@ class Hub:
         import os
         try:
             os.makedirs(os.path.dirname(self._pot_zetonov), exist_ok=True)
-            zacasna = self._pot_zetonov + ".tmp"
-            with open(os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self._pot_zetonov) as d:
                 json.dump({z: list(v) for z, v in self._zetoni.items()}, d)
-            os.replace(zacasna, self._pot_zetonov)
         except Exception:
             pass
 
@@ -569,10 +568,9 @@ class Hub:
             return
         import os
         os.makedirs(os.path.dirname(self._pot_varovalke), exist_ok=True)
-        zacasna = self._pot_varovalke + ".tmp"
-        with open(os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as d:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(self._pot_varovalke) as d:
             json.dump(stanje, d)
-        os.replace(zacasna, self._pot_varovalke)
 
     def _odprte_kode(self) -> set:
         """Klice se pod kljucavnico: kode vabil, ki jih je odprla naprava v Linku (»Poveži naprave«)."""

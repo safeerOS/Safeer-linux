@@ -162,11 +162,9 @@ class Posiljanje:
                         os.remove(pot)
                     return
                 os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
-                zacasna = pot + ".tmp"
-                fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w", encoding="utf-8") as d:
+                from core import shramba_json
+                with shramba_json.atomsko_odpri(pot) as d:
                     json.dump({"v": 1, "posiljke": zapisi}, d, ensure_ascii=False)
-                os.replace(zacasna, pot)
             except OSError as e:
                 print("[SafeerLink] vrste posiljanja ni bilo mogoce shraniti:", e, flush=True)
 

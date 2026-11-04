@@ -60,11 +60,9 @@ class Shramba:
     def _pisi(self, d: dict) -> None:
         mapa = os.path.dirname(self.pot) or "."
         os.makedirs(mapa, exist_ok=True)
-        zacasna = "%s.%d.tmp" % (self.pot, threading.get_ident())
-        fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        from core import shramba_json   # edinstveno ime tudi med procesi (prej samo med nitmi)
+        with shramba_json.atomsko_odpri(self.pot) as f:
             json.dump(d, f, ensure_ascii=False)
-        os.replace(zacasna, self.pot)
 
     def _posodobi(self, fn: Callable[[dict], None]) -> None:
         d = self._beri()

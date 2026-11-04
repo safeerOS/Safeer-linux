@@ -343,11 +343,9 @@ def shrani_stanje(program: str, stanje: dict, ime: str = "nova-razlicica.json") 
     pot = pot_stanja(program, ime)
     try:
         os.makedirs(os.path.dirname(pot), mode=0o700, exist_ok=True)
-        zacasna = pot + ".tmp"
-        fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as d:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(pot) as d:
             json.dump(dict(stanje, cas=time.time()), d, ensure_ascii=False)
-        os.replace(zacasna, pot)
         return True
     except OSError as e:
         print("[Safeer] stanje za novo razlicico:", e, file=sys.stderr, flush=True)

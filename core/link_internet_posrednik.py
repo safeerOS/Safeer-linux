@@ -648,10 +648,9 @@ class InternetUpravitelj:
             self._shranjeno = time.monotonic()
         try:
             os.makedirs(os.path.dirname(self.pot_nastavitev), exist_ok=True)
-            zacasna = self.pot_nastavitev + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as f:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self.pot_nastavitev) as f:
                 json.dump(d, f, ensure_ascii=False, indent=1)
-            os.replace(zacasna, self.pot_nastavitev)
         except OSError:
             pass
 

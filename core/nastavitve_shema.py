@@ -189,23 +189,14 @@ def varnostna_kopija(pot: str, razlicica: int) -> Optional[str]:
     kopija = "%s.v%d.bak" % (pot, razlicica)
     if os.path.exists(kopija):
         return kopija
-    zacasna = kopija + ".tmp"
+    from core import shramba_json
     try:
         with open(pot, "rb") as vir:
             vsebina = vir.read()
-        fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as cilj:
-            cilj.write(vsebina)
-            cilj.flush()
-            os.fsync(cilj.fileno())
-        os.replace(zacasna, kopija)
+        shramba_json.zapisi_besedilo_atomsko(kopija, vsebina, sinhrono=True)   # ob napaki zacasna ne ostane
         return kopija
     except OSError as e:
         print("[Config] Varnostne kopije nastavitev ni bilo mogoce narediti: %s" % type(e).__name__, flush=True)
-        try:
-            os.unlink(zacasna)
-        except OSError as e2:
-            print("[Config] zacasna kopija ostala: %s" % type(e2).__name__, flush=True)
         return None
 
 

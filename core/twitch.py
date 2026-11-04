@@ -279,10 +279,9 @@ class Twitch:
         if self._nastavitve:
             try:
                 os.makedirs(os.path.dirname(self._nastavitve), exist_ok=True)
-                zacasna = self._nastavitve + ".tmp"
-                with open(zacasna, "w", encoding="utf-8") as f:
+                from core import shramba_json
+                with shramba_json.atomsko_odpri(self._nastavitve) as f:
                     json.dump({"kakovost": k}, f)
-                os.replace(zacasna, self._nastavitve)
             except OSError:
                 pass
         return k

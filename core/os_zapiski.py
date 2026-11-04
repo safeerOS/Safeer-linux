@@ -59,10 +59,9 @@ class Zapiski:
 
     def _shrani(self, podatki: dict) -> None:
         os.makedirs(os.path.dirname(self.pot) or ".", exist_ok=True)
-        zacasna = self.pot + ".tmp"
-        with open(zacasna, "w", encoding="utf-8") as datoteka:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(self.pot) as datoteka:
             json.dump(podatki, datoteka, ensure_ascii=False, indent=1)
-        os.replace(zacasna, self.pot)
 
     @staticmethod
     def _povzetek(zapisek: dict) -> dict:

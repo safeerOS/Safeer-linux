@@ -153,10 +153,9 @@ def _beri_json(pot: str) -> dict:
 
 
 def _pisi_json(pot: str, vrednost: dict) -> None:
-    zacasna = pot + ".tmp"
-    with open(zacasna, "w", encoding="utf-8") as d:
+    from core import shramba_json
+    with shramba_json.atomsko_odpri(pot) as d:
         json.dump(vrednost, d, separators=(",", ":"))
-    os.replace(zacasna, pot)
 
 
 def pocisti_predpomnilnik(mapa: str, najvec: int = NAJVEC_PREDPOMNILNIKA, ohrani: str = "") -> None:

@@ -486,11 +486,9 @@ def nastavi_zaupanje(zaupaj: bool) -> bool:
     p["seja_prijave"] = link_seja.trenutna_seja()
     try:
         os.makedirs(os.path.dirname(CONTROL_NASTAVITVE), exist_ok=True)
-        zacasna = CONTROL_NASTAVITVE + ".tmp"
-        with open(zacasna, "w", encoding="utf-8") as f:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(CONTROL_NASTAVITVE) as f:
             json.dump(p, f, ensure_ascii=False, indent=2)
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, CONTROL_NASTAVITVE)
         return True
     except Exception:
         return False
@@ -525,11 +523,9 @@ def nastavi_predajanje(deli: bool) -> bool:
     p["predvajanje_za_naprave"] = bool(deli)
     try:
         os.makedirs(os.path.dirname(CONTROL_NASTAVITVE_PLADNJA), exist_ok=True)
-        zacasna = CONTROL_NASTAVITVE_PLADNJA + ".tmp"
-        with open(zacasna, "w", encoding="utf-8") as f:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(CONTROL_NASTAVITVE_PLADNJA) as f:
             json.dump(p, f, ensure_ascii=False, indent=2)
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, CONTROL_NASTAVITVE_PLADNJA)
         return bool(deli)
     except Exception:
         return not deli
@@ -1328,9 +1324,8 @@ def nastavi_samozagon(vklop: bool) -> bool:
             % (_ukaz_os(), os.path.join(KOREN, "assets", "os", "znak.svg"), "true" if vklop else "false"))
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
-        with open(pot + ".tmp", "w", encoding="utf-8") as f:
-            f.write(vnos)
-        os.replace(pot + ".tmp", pot)
+        from core import shramba_json   # ime zacasne se zacne s piko: seja je ne vzame za vnos samozagona
+        shramba_json.zapisi_besedilo_atomsko(pot, vnos, nacin=0o644)
         if pot != SAMOZAGON:
             try:   # oznaka »vnosa ni bilo«: izklop Safeer Cinnamon naj zdaj vrne ta vnos, ne izbrise ga
                 os.remove(pot + ".ni")
@@ -1805,9 +1800,9 @@ def ikona_kuverte(n: int, mapa: str, velikost: int = 48) -> str:
         e = c.text_extents(oznaka)
         c.move_to(cx - e.width / 2 - e.x_bearing, cy - e.height / 2 - e.y_bearing)
         c.show_text(oznaka)
-    zacasna = pot + ".tmp"
-    p.write_to_png(zacasna)
-    os.replace(zacasna, pot)
+    from core import shramba_json
+    with shramba_json.atomska_pot(pot) as zacasna:
+        p.write_to_png(zacasna)
     return pot
 
 

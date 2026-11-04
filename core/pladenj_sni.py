@@ -537,9 +537,9 @@ def ikona_scita(vrsta: str, mapa: str, velikost: int = 48, barve: Optional[dict]
         for x in (17, 24, 31):
             c.arc(x, 24, 2.6, 0, 6.2832)
             c.fill()
-    zacasna = pot + ".tmp"
-    p.write_to_png(zacasna)
-    os.replace(zacasna, pot)
+    from core import shramba_json
+    with shramba_json.atomska_pot(pot) as zacasna:
+        p.write_to_png(zacasna)
     return pot
 
 
@@ -587,9 +587,9 @@ def ikona_linka(povezan: bool, mapa: str, velikost: int = 48) -> str:
     c.stroke()
     c.arc(16.5, 18, 3.2, 0, 6.2832)
     c.fill()
-    zacasna = pot + ".tmp"
-    p.write_to_png(zacasna)
-    os.replace(zacasna, pot)
+    from core import shramba_json
+    with shramba_json.atomska_pot(pot) as zacasna:
+        p.write_to_png(zacasna)
     return pot
 
 

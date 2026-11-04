@@ -267,11 +267,9 @@ class Nastavitve:
         self.podatki[kljuc] = vrednost
         try:
             os.makedirs(os.path.dirname(self.pot), exist_ok=True)
-            zacasna = self.pot + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self.pot) as d:
                 json.dump(self.podatki, d, ensure_ascii=False, indent=2)
-            os.chmod(zacasna, 0o600)
-            os.replace(zacasna, self.pot)
         except Exception:
             pass
 

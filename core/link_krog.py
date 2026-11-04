@@ -233,10 +233,9 @@ class Krog:
             if self.pot and zdaj - self._stiki_zapisani >= STIKI_ZAPIS_S:
                 self._stiki_zapisani = zdaj
                 try:
-                    zacasna = self._pot_stikov() + ".tmp"
-                    with open(zacasna, "w", encoding="utf-8") as d:
+                    from core import shramba_json
+                    with shramba_json.atomsko_odpri(self._pot_stikov()) as d:
                         json.dump(self.stiki, d)
-                    os.replace(zacasna, self._pot_stikov())
                 except Exception:
                     pass
 
@@ -620,11 +619,9 @@ class Krog:
             return
         try:
             os.makedirs(os.path.dirname(self.pot), exist_ok=True)
-            zacasna = self.pot + ".tmp"
-            with open(zacasna, "w", encoding="utf-8") as d:
+            from core import shramba_json
+            with shramba_json.atomsko_odpri(self.pot) as d:
                 json.dump(self.json(), d, ensure_ascii=False, indent=1)
-            os.chmod(zacasna, 0o600)
-            os.replace(zacasna, self.pot)
         except Exception:
             pass
 

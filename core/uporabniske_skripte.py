@@ -280,10 +280,7 @@ def posodobi(id_: Any, vsebina: Any) -> Dict[str, Any]:
         if x is None:
             return {"ok": False, "napaka": "ni_skripte"}
         pot = _pot_skripte(x)
-        zacasna = pot.with_suffix(".tmp")
-        zacasna.write_bytes(bajti)
-        os.chmod(zacasna, 0o600)
-        os.replace(zacasna, pot)
+        shramba_json.zapisi_besedilo_atomsko(str(pot), bytes(bajti))
     _sporoci()
     return {"ok": True, "skripta": x}
 
@@ -325,10 +322,7 @@ def _zapisi_vrednosti(id_: str, podatki: Dict[str, Any]) -> bool:
     if len(besedilo.encode("utf-8")) > NAJVEC_BAJTOV_SHRAMBE:
         return False
     pot = _pot_vrednosti(id_)
-    zacasna = pot.with_suffix(".tmp")
-    zacasna.write_text(besedilo, encoding="utf-8")
-    os.chmod(zacasna, 0o600)
-    os.replace(zacasna, pot)
+    shramba_json.zapisi_besedilo_atomsko(str(pot), besedilo)
     return True
 
 

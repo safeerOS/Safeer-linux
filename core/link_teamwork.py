@@ -682,11 +682,10 @@ class Teamwork:
         with self._zaklep:
             vnosi = [u.zapis() for u in self._udelezbe.values()]
         try:
+            from core import shramba_json
             os.makedirs(self.mapa, exist_ok=True)
-            zac = self._pot_zapisa() + ".tmp"
-            with open(zac, "w", encoding="utf-8") as d:
+            with shramba_json.atomsko_odpri(self._pot_zapisa()) as d:
                 json.dump(vnosi, d, separators=(",", ":"))
-            os.replace(zac, self._pot_zapisa())
         except OSError:
             pass
 

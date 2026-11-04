@@ -6,6 +6,8 @@ zapisano datoteko, ta pa je ob naslednjem zagonu pomenila prazne (privzete) nast
 
   * zapisi_atomsko: mkstemp v isti mapi, fsync, 0600, os.replace, fsync mape - bralec in sesutje nikoli ne vidita
     napol zapisane datoteke, po izpadu elektrike ostane stara ali nova vsebina.
+  * atomsko_odpri / atomska_pot / zapisi_besedilo_atomsko: isto za besedilo, bajte in knjiznice, ki pisejo same
+    (PNG, JPEG). Stalnega imena <pot>.tmp v core/ ni (pregled 4. 11. 2026, tests/test_zacasne_datoteke.py).
   * preberi_slovar: vsebina ali None (ni, neberljiva, ni slovar JSON).
   * zaklep: flock na <pot>.lock, najvec `rok` sekund - zataknjen proces ne sme ustaviti vmesnika. Vrne, ali zaklep
     drzi; brez njega zdruzi_in_zapisi NE pise (pregled 4. 11. 2026: zapis brez zaklepa je povozil drug proces),
@@ -37,27 +39,24 @@ ZAKLEP_NITI = threading.RLock()
 #: cakanjem (do 2 s) drzala globalni zaklep in vsak set() katerekoli shrambe na glavni niti je zamrznil vmesnik.
 
 
-def zapisi_atomsko(pot: str, podatki: Any, *, indent: Optional[int] = 1, nacin: int = 0o600) -> None:
-    """Nova vsebina v zacasno datoteko v isti mapi (edinstveno ime: dve niti ne pisete v isto zacasno datoteko),
-    fsync, chmod, os.replace in fsync mape. Ob napaki ostane stara datoteka, zacasna se pobrise."""
+def _zacasna(pot: str):
+    """Edinstvena zacasna datoteka v mapi cilja (os.replace ostane v istem datotecnem sistemu). Vrne (fd, pot).
+    Ime se zacne s piko in konca s .tmp: opazovalci mape (Nemo, autostart) je ne vzamejo za pravo datoteko."""
     mapa = os.path.dirname(pot) or "."
     os.makedirs(mapa, exist_ok=True)
-    fd, zacasna = tempfile.mkstemp(prefix="." + os.path.basename(pot) + ".", suffix=".tmp", dir=mapa)
+    return tempfile.mkstemp(prefix="." + os.path.basename(pot) + ".", suffix=".tmp", dir=mapa)
+
+
+def _pospravi(zacasna: str) -> None:
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(podatki, f, ensure_ascii=False, indent=indent)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(zacasna, nacin)
-        os.replace(zacasna, pot)
-    except BaseException:
-        try:
-            os.unlink(zacasna)
-        except OSError:
-            pass
-        raise
+        os.unlink(zacasna)
+    except OSError:
+        pass
+
+
+def _fsync_mape(pot: str) -> None:
     try:
-        dfd = os.open(mapa, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        dfd = os.open(os.path.dirname(pot) or ".", os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     except OSError:
         return                   # Windows ali mapa brez pravice branja: zapis je ze atomski
     try:
@@ -66,6 +65,79 @@ def zapisi_atomsko(pot: str, podatki: Any, *, indent: Optional[int] = 1, nacin: 
         pass
     finally:
         os.close(dfd)
+
+
+@contextlib.contextmanager
+def atomsko_odpri(pot: str, nacin_odpiranja: str = "w", *, nacin: int = 0o600, encoding: Optional[str] = "utf-8",
+                  newline: Optional[str] = None, sinhrono: bool = False):
+    """Datoteka za pisanje, ki ob uspesnem koncu bloka atomsko zamenja `pot` (ob napaki ostane stara, zacasna se
+    pobrise). Pregled 4. 11. 2026: stalno ime <pot>.tmp je pomenilo, da sta dve niti ali dva procesa pisala v ISTO
+    zacasno datoteko - prvi os.replace je lahko premaknil napol zapisano vsebino drugega. Pravice `nacin` (privzeto
+    0600) veljajo od nastanka (mkstemp). sinhrono=True doda fsync datoteke in mape (trajnost ob izpadu elektrike);
+    privzeto ne, ker so ta mesta prej pisala brez fsync in vecina tece na glavni niti."""
+    if "w" not in nacin_odpiranja:
+        raise ValueError("atomsko_odpri je samo za pisanje")
+    fd, zacasna = _zacasna(pot)
+    try:
+        if "b" in nacin_odpiranja:
+            f = os.fdopen(fd, nacin_odpiranja)
+        else:
+            f = os.fdopen(fd, nacin_odpiranja, encoding=encoding, newline=newline)
+    except BaseException:
+        os.close(fd)
+        _pospravi(zacasna)
+        raise
+    try:
+        with f:
+            yield f
+            f.flush()
+            if sinhrono:
+                os.fsync(f.fileno())
+        os.chmod(zacasna, nacin)
+        os.replace(zacasna, pot)
+    except BaseException:
+        _pospravi(zacasna)
+        raise
+    if sinhrono:
+        _fsync_mape(pot)
+
+
+@contextlib.contextmanager
+def atomska_pot(pot: str, *, nacin: int = 0o600, sinhrono: bool = False):
+    """Kot atomsko_odpri, a da POT zacasne datoteke - za knjiznice, ki pisejo same (cairo write_to_png, GdkPixbuf
+    savev, Pillow save). Zacasna datoteka ze obstaja (mkstemp, prazna, 0600)."""
+    fd, zacasna = _zacasna(pot)
+    os.close(fd)
+    try:
+        yield zacasna
+        if sinhrono:
+            with open(zacasna, "rb") as f:
+                os.fsync(f.fileno())
+        os.chmod(zacasna, nacin)
+        os.replace(zacasna, pot)
+    except BaseException:
+        _pospravi(zacasna)
+        raise
+    if sinhrono:
+        _fsync_mape(pot)
+
+
+def zapisi_besedilo_atomsko(pot: str, vsebina, *, nacin: int = 0o600, newline: Optional[str] = None,
+                            sinhrono: bool = False) -> None:
+    """Niz ali bajti v `pot` atomsko (atomsko_odpri)."""
+    binarno = isinstance(vsebina, (bytes, bytearray, memoryview))
+    with atomsko_odpri(pot, "wb" if binarno else "w", nacin=nacin, newline=newline, sinhrono=sinhrono) as f:
+        f.write(vsebina)
+
+
+def zapisi_atomsko(pot: str, podatki: Any, *, indent: Optional[int] = 1, nacin: int = 0o600,
+                   sinhrono: bool = True, **dump) -> None:
+    """JSON v `pot`: zacasna datoteka v isti mapi (edinstveno ime: dve niti ne pisete v isto zacasno datoteko),
+    fsync, chmod, os.replace in fsync mape. Ob napaki ostane stara datoteka, zacasna se pobrise. `dump` gre v
+    json.dump (npr. separators, ensure_ascii)."""
+    dump.setdefault("ensure_ascii", False)
+    with atomsko_odpri(pot, "w", nacin=nacin, sinhrono=sinhrono) as f:
+        json.dump(podatki, f, indent=indent, **dump)
 
 
 def preberi_slovar(pot: str) -> Optional[Dict[str, Any]]:

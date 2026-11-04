@@ -1769,9 +1769,7 @@ class MediaCenter:
             besedilo = json.dumps(dict(shramba, razlicica=self.RAZLICICA_KATALOGA), ensure_ascii=False, separators=(",", ":"))
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            zacasna = self.pot_predpomnilnika.with_suffix(".tmp")
-            zacasna.write_text(besedilo, encoding="utf-8")
-            os.replace(zacasna, self.pot_predpomnilnika)
+            shramba_json.zapisi_besedilo_atomsko(str(self.pot_predpomnilnika), besedilo)
         except OSError:
             pass
 
@@ -2024,13 +2022,7 @@ class MediaCenter:
 
     def _pisi_debrid(self, d: dict) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        zacasna = self.config_dir / ("debrid.json.%d.tmp" % threading.get_ident())
-        zacasna.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-        try:
-            os.chmod(zacasna, 0o600)
-        except OSError:
-            pass
-        os.replace(zacasna, self.config_dir / "debrid.json")
+        shramba_json.zapisi_besedilo_atomsko(str(self.config_dir / "debrid.json"), json.dumps(d, ensure_ascii=False))
 
     def _razresi_debrid(self, item_id: str, item: dict, t: dict, rezerve: list) -> dict:
         """Naloga 131: torrent prek debrid storitve. Uspeh: povezava CDN (brez kljuca) z oznako ⚡ in imenom storitve, za

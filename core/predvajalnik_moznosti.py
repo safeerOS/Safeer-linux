@@ -189,8 +189,8 @@ def shrani(n: dict, pot: str = "") -> None:
              "po_meri": ojacitve(PO_MERI, n.get("po_meri"))}
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
-        with open(pot + ".tmp", "w", encoding="utf-8") as d:
+        from core import shramba_json
+        with shramba_json.atomsko_odpri(pot) as d:
             json.dump(cisto, d)
-        os.replace(pot + ".tmp", pot)
     except OSError:
         pass

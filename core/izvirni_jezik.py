@@ -274,11 +274,10 @@ class IzvirniJeziki:
                     self._zapisi.pop(ident, None)
             try:
                 os.makedirs(os.path.dirname(self._datoteka) or ".", exist_ok=True)
-                zacasna = self._datoteka + ".tmp"
-                with open(zacasna, "w", encoding="utf-8") as d:
+                from core import shramba_json
+                with shramba_json.atomsko_odpri(self._datoteka) as d:
                     for ident, zapis in self._zapisi.items():
                         d.write(ident + "\t" + zapis + "\n")
-                os.replace(zacasna, self._datoteka)
             except OSError as e:
                 _dnevnik.info("Izvirni jeziki: zapis ni uspel (%s)", type(e).__name__)
 

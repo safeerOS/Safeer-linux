@@ -808,12 +808,9 @@ class Varuh:
         if besedilo == self._zapisano:
             return
         self._zapisano = besedilo
-        zacasna = self.pot_stanja + ".tmp"
         try:
-            fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as d:
-                d.write(besedilo)
-            os.replace(zacasna, self.pot_stanja)
+            from core import shramba_json   # mkstemp odpre z O_CLOEXEC
+            shramba_json.zapisi_besedilo_atomsko(self.pot_stanja, besedilo)
         except OSError:
             pass
 
