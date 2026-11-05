@@ -174,7 +174,12 @@ class RokCakanjaZahteve(unittest.TestCase):
     """Lokalni strezniki (pretok, torrent, posrednik, DLNA, zvok na zvocnik): povezava brez zahteve se zapre."""
 
     def _streznik(self, obravnava):
-        s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), obravnava)
+        # Cakalna vrsta poslusanja: socketserver ima privzeto 5, preizkus pa odpre 50 povezav naenkrat. Ob polni vrsti
+        # jedro zavrze rokovanje (TcpExtListenOverflows) in streznik povezavo sprejme sele po ponovnem SYN-ACK (1, 3 s
+        # ...), zato se njegovi deskriptorji pojavljajo se med cakanjem (izmerjeno 5. 11. 2026: 5 prelivanj v 12 tekih,
+        # tek 2,4-3,4 s namesto 1,3 s).
+        razred = type("Streznik", (http.server.ThreadingHTTPServer,), {"request_queue_size": 128})
+        s = razred(("127.0.0.1", 0), obravnava)
         threading.Thread(target=s.serve_forever, daemon=True).start()
         self.addCleanup(s.server_close)
         self.addCleanup(s.shutdown)
@@ -196,13 +201,20 @@ class RokCakanjaZahteve(unittest.TestCase):
                 self.wfile.write(b"ok")
 
         s = self._streznik(Obravnava)
-        pred = _fd()
+        vrata, poslusa = s.server_address[1], s.socket.fileno()
+        odprte = []
         for _ in range(25):
             v = socket.create_connection(s.server_address, timeout=5)
             v.close()
             v = socket.create_connection(s.server_address, timeout=5)
             self.addCleanup(v.close)
-        self.assertTrue(_pocakaj(lambda: _fd() <= pred + 25 + 1), (_fd(), pred))
+            odprte.append(v)
+        # Stejemo samo deskriptorje TEGA streznika (vticnice na njegovih vratih), ne vseh v procesu: druge niti procesa
+        # preizkusov (varovalo programov, WebKit, strezniki prejsnjih preizkusov) med cakanjem odpirajo svoje - izmerjeno
+        # 5. 11. 2026 do 6 tujih hkrati; v sirsem naboru je zato padlo »(55, 24)« ob meji pred + 26. Streznikova
+        # povezava, ki jo rok ne bi zaprl (ESTABLISHED ali CLOSE_WAIT), ostane na teh vratih in preizkus pade.
+        self.assertTrue(_pocakaj(lambda: _vticnice_na_vratih(vrata) == {poslusa}), sorted(_vticnice_na_vratih(vrata)))
+        self.assertTrue(all(v.fileno() != -1 for v in odprte))
         c = http.client.HTTPConnection(*s.server_address, timeout=5)
         c.request("GET", "/")
         self.assertEqual(c.getresponse().read(), b"ok")
