@@ -410,6 +410,7 @@
       }
     }
     S.razdelek = razdelek;
+    if (razdelek !== "zapiski") shraniZapisekZdaj();   // A5: odhod iz Zapiskov shrani takoj
     vrsticaUredi();                 // po nacinu Splet (tam je vrstica vedno razsirjena) spet trak, ce je izbran
     zapriMeniSporocila();
     if (razdelek !== "sporocila") zapriVgrajenKanal();
@@ -2377,6 +2378,7 @@
     });
   }
   function odpriZapisek(id) {
+    shraniZapisekZdaj();          // A5: zadnji znaki prejsnjega zapiska se ne izgubijo z menjavo
     klic("zapisekDobi", [id]).then(function (z) {
       if (!z) return;
       Z.aktivni = z;
@@ -2423,15 +2425,25 @@
     clearTimeout(Z.casovnik); $("zapisekStanje").textContent = "…";
     Z.casovnik = setTimeout(shraniZapisek, 600);
   }
+  // A5 (pregled 5. 11. 2026): shranjevanje caka 600 ms po zadnjem znaku. Menjava zapiska, skrito ali zaprto okno
+  // shranijo takoj; id in besedilo zajamemo zdaj, ker se Z.aktivni in polja do odgovora zamenjajo.
+  function shraniZapisekZdaj() {
+    if (!Z.casovnik) return;
+    clearTimeout(Z.casovnik); Z.casovnik = 0;
+    shraniZapisek();
+  }
   function shraniZapisek() {
-    if (!Z.aktivni) return;
+    Z.casovnik = 0;
+    var z = Z.aktivni;
+    if (!z) return;
     var naslov = $("zapisekNaslov").value, besedilo = $("zapisekBesedilo").value;
-    klic("zapisekShrani", [Z.aktivni.id, naslov, besedilo, null]).then(function () {
-      Z.aktivni.naslov = naslov; Z.aktivni.besedilo = besedilo;
+    klic("zapisekShrani", [z.id, naslov, besedilo, null]).then(function () {
+      z.naslov = naslov; z.besedilo = besedilo;
+      if (Z.aktivni !== z) return;         // uporabnik je medtem odprl drug zapisek
       $("zapisekStanje").textContent = t("zapisekShranjeno");
-      klic("zapisekDobi", [Z.aktivni.id]).then(function (z) { if (z) narisiViriZapiska(z); });
+      klic("zapisekDobi", [z.id]).then(function (d) { if (d && Z.aktivni === z) narisiViriZapiska(d); });
       naloziZapiske();
-    }, function () { $("zapisekStanje").textContent = t("zapisekNiShranjeno"); });
+    }, function () { if (Z.aktivni === z) $("zapisekStanje").textContent = t("zapisekNiShranjeno"); });
   }
   function narisiPogledZapiska() {
     var mesto = $("zapisekPrikaz"); mesto.innerHTML = "";
@@ -10872,6 +10884,9 @@ function narisiKatViri() {
     });
     $("zapiskiIskanje").addEventListener("input", function () { Z.iskano = this.value; naloziZapiske(); });
     $("zapisekNaslov").addEventListener("input", shraniZapisekKmalu);
+    // A5: okno se skrije ali zapre - zapisek se shrani takoj (ne sele po 600 ms, ki jih morda ni vec).
+    window.addEventListener("pagehide", shraniZapisekZdaj);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") shraniZapisekZdaj(); });
     $("zapisekNaslov").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("zapisekBesedilo").focus(); } });
     $("zapisekBesedilo").addEventListener("input", function () { shraniZapisekKmalu(); ponudiOmembe(); });
     $("zapisekBesedilo").addEventListener("blur", function () { setTimeout(zapriOmembe, 150); });
@@ -10899,6 +10914,8 @@ function narisiKatViri() {
         Z.izbrisPotrdi = Date.now(); $("zapisekIzbrisi").textContent = t("zapisekIzbrisiPotrdi");
         setTimeout(function () { $("zapisekIzbrisi").textContent = t("zapisekIzbrisi"); }, 4000); return;
       }
+      // Shranjevanje, ki se caka, bi izbrisan zapisek ustvarilo znova (os_zapiski.shrani z neznanim id doda nov zapisek).
+      clearTimeout(Z.casovnik); Z.casovnik = 0;
       klic("zapisekIzbrisi", [Z.aktivni.id]).then(function () {
         Z.aktivni = null; Z.izbrisPotrdi = 0; $("zapisekIzbrisi").textContent = t("zapisekIzbrisi");
         $("zapisekUrejevalnik").hidden = true; naloziZapiske();

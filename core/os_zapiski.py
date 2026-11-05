@@ -46,18 +46,36 @@ class Zapiski:
     def __init__(self, pot: str):
         self.pot = os.fspath(pot)
         self._kljuc = threading.Lock()
+        #: (oznaka datoteke, podatki) zadnjega branja - A4 (pregled 5. 11. 2026): iskanje zapiskov in omembe @ klicejo
+        #: seznam() ob vsakem znaku; prej je vsak znak prebral in razclenil celo datoteko (do 2000 zapiskov).
+        self._predpomnilnik: Optional[tuple] = None
 
-    def _nalozi(self) -> dict:
+    def _oznaka(self) -> Optional[tuple]:
+        try:
+            st = os.stat(self.pot)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+    def _nalozi(self, za_pisanje: bool = False) -> dict:
+        """Branje samo za ogled vrne predpomnjene podatke, dokler se datoteka ne spremeni (cas, velikost, inode) - teh
+        klicatelj ne sme spreminjati. Pisanje (za_pisanje) vedno bere sveze z diska in dobi svojo kopijo."""
+        oznaka = self._oznaka()
+        if not za_pisanje and oznaka is not None and self._predpomnilnik and self._predpomnilnik[0] == oznaka:
+            return self._predpomnilnik[1]
         try:
             with open(self.pot, "r", encoding="utf-8") as datoteka:
                 podatki = json.load(datoteka)
             if isinstance(podatki, dict) and isinstance(podatki.get("zapiski"), list):
+                if not za_pisanje and oznaka is not None:
+                    self._predpomnilnik = (oznaka, podatki)
                 return podatki
         except (OSError, ValueError):
             pass
         return {"zapiski": [], "zadnji": ""}
 
     def _shrani(self, podatki: dict) -> None:
+        self._predpomnilnik = None
         os.makedirs(os.path.dirname(self.pot) or ".", exist_ok=True)
         from core import shramba_json
         with shramba_json.atomsko_odpri(self.pot) as datoteka:
@@ -107,7 +125,7 @@ class Zapiski:
         naslov = str(naslov or "").strip()[:NAJVEC_NASLOVA]
         besedilo = str(besedilo or "")[:NAJVEC_BESEDILA]
         with self._kljuc:
-            podatki = self._nalozi()
+            podatki = self._nalozi(za_pisanje=True)
             zapisek = next((z for z in podatki["zapiski"] if z.get("id") == ident), None) if ident else None
             if zapisek is None:
                 if len(podatki["zapiski"]) >= NAJVEC_ZAPISKOV:
@@ -123,7 +141,7 @@ class Zapiski:
 
     def izbrisi(self, ident: str) -> bool:
         with self._kljuc:
-            podatki = self._nalozi()
+            podatki = self._nalozi(za_pisanje=True)
             prej = len(podatki["zapiski"])
             podatki["zapiski"] = [z for z in podatki["zapiski"] if z.get("id") != ident]
             if len(podatki["zapiski"]) == prej:
