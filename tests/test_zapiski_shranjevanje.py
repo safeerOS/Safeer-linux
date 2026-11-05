@@ -89,6 +89,46 @@ class ShraniTakoj(unittest.TestCase):
         self.assertEqual(vse, [["A", "A", "novo besedilo"]])
         self.assertEqual((aktivni, besedilo), ("B", "bbb"))
 
+    def test_zadetek_iskanja_ne_prepise_novega_zapiska(self):
+        # CodeRabbit 5. 11. 2026: safeerOsPojdi("zapisek:B") je nastavil Z.aktivni na B pred shranjevanjem, zato je
+        # cakajoce besedilo zapiska A slo v zapisek B.
+        from tests.test_medijski_center_videz import _node
+        veja = self.js.split('    if (kam.indexOf("zapisek:") === 0) {\n', 1)[1].split("\n    }\n", 1)[0]
+        koda = r"""
+        var polja = { zapisekNaslov: { value: "" }, zapisekBesedilo: { value: "" }, zapisekStanje: { textContent: "" },
+                      zapisekUrejevalnik: { hidden: true }, zapisekPripni: { textContent: "" } };
+        function $(id) { return polja[id]; }
+        function t(x) { return x; }
+        var casovniki = [];
+        function setTimeout(f) { casovniki.push(f); return casovniki.length; }
+        function clearTimeout(i) { if (i) casovniki[i - 1] = null; }
+        function narisiViriZapiska() {} function naloziZapiske() {} function narisiPogledZapiska() {}
+        var Z = { aktivni: null, casovnik: 0, pogled: false };
+        var shranjeno = [], baza = { A: { id: "A", naslov: "A", besedilo: "" }, B: { id: "B", naslov: "B", besedilo: "bbb" } };
+        var cakajoci = [];
+        function klic(metoda, a) {
+          if (metoda === "zapisekShrani") shranjeno.push(a.slice(0, 3));
+          var izid = metoda === "zapisekDobi" ? baza[a[0]] : {};
+          return { then: function (f) { if (metoda === "zapisekDobi") cakajoci.push(function () { f(izid); });
+                                        else f(izid); return this; } };
+        }
+        function pojdi() {}
+        """ + "".join(_funkcija(self.js, ime) for ime in ("odpriZapisek", "shraniZapisekKmalu", "shraniZapisekZdaj",
+                                                          "shraniZapisek")) + r"""
+        function pojdiZapisek(kam) {
+        """ + veja + r"""
+        }
+        odpriZapisek("A"); cakajoci.shift()();
+        polja.zapisekBesedilo.value = "besedilo A"; shraniZapisekKmalu();     // casovnik 600 ms se ni potekel
+        pojdiZapisek("zapisek:B");
+        while (cakajoci.length) cakajoci.shift()();
+        casovniki.forEach(function (f) { if (f) f(); });
+        console.log(JSON.stringify([shranjeno, Z.aktivni.id, polja.zapisekBesedilo.value]));
+        """
+        vse, aktivni, besedilo = _node(koda)
+        self.assertEqual(vse, [["A", "A", "besedilo A"]])
+        self.assertEqual((aktivni, besedilo), ("B", "bbb"))
+
     def test_izbris_skrito_okno_in_odhod(self):
         izbris = self.js.split('$("zapisekIzbrisi").addEventListener("click", function () {', 1)[1].split("\n    });", 1)[0]
         self.assertLess(izbris.index("clearTimeout(Z.casovnik)"), izbris.index('klic("zapisekIzbrisi"'))

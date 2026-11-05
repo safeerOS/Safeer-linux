@@ -507,6 +507,8 @@
     }
     if (kam.indexOf("zapisek:") === 0) {
       // Zadetek iskanja na delovni povrsini: Zapiski pri tem zapisku (seznam zato ne odpre prvega).
+      // CodeRabbit 5. 11. 2026: cakajoce besedilo shrani PRED menjavo Z.aktivni, sicer gre v novi zapisek.
+      shraniZapisekZdaj();
       Z.aktivni = { id: kam.slice(8) };
       pojdi("zapiski");
       odpriZapisek(kam.slice(8));
