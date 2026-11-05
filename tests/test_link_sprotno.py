@@ -158,6 +158,32 @@ class Sprotno(unittest.TestCase):
         self.assertEqual(link_sprotno.glave_zahteve({"A": "b", "Host": "x", "C": "d\n"}), {"A": "b"})
         self.s.ustavi_ukaz(o["id"])
 
+    def test_neprebran_tok_ne_blokira_novega(self):
+        # CodeRabbit 5. 11. 2026: tok, ki ga nihce ni bral (povezava /live/<id> ni uspela), je prej 60 s vracal
+        # »preobremenjen«; ponovni poskus mora dobiti nov tok, stari se umakne.
+        url = "http://127.0.0.1:%d/d/share:0:film.mkv" % self.vir.server_address[1]
+        p = mock.patch.object(link_sprotno, "vrsta_naslova", return_value="javni")
+        p.start()
+        self.addCleanup(p.stop)
+        zahteva = {"url": url, "name": "Film.mkv", "duration_ms": 1000, "size": 32768}
+        prvi = self.s.zacni(dict(zahteva), "tv-1", self.d.streznik)
+        self.addCleanup(self.s.ustavi_ukaz, prvi["id"])
+        drugi = self.s.zacni(dict(zahteva), "tv-1", self.d.streznik)
+        self.addCleanup(self.s.ustavi_ukaz, drugi["id"])
+        self.assertNotEqual(prvi["id"], drugi["id"])
+        self.assertTrue(self.s.stanje(prvi["id"])["done"])          # neprebrani tok je umaknjen
+        # Tok, ki ga naprava bere, pa ostane zaseden.
+        t = self.s.tokovi[drugi["id"]]
+        with t.kljucavnica:
+            t.bralcev += 1
+        try:
+            with self.assertRaises(link_sprotno.NapakaPretoka) as e:
+                self.s.zacni(dict(zahteva), "tv-2", self.d.streznik)
+            self.assertEqual(str(e.exception), "preobremenjen")
+        finally:
+            with t.kljucavnica:
+                t.bralcev -= 1
+
     def test_zahteva_in_prostor(self):
         with self.assertRaises(link_sprotno.NapakaPretoka) as e:
             self.s.zacni({"url": "ftp://x/y", "name": "a"}, "tv-1", self.d.streznik)

@@ -888,7 +888,9 @@ class Sprotno:
         # mimo: zavrnjena zahteva (prostor, cilj) ne sme ustaviti toka, ki dela (pregled 19. 10. 2026).
         with self._kljucavnica:
             zivi = [t for t in self.tokovi.values() if not t.koncano and not t.napaka]
-        if any(time.time() - t.zadnji_bralec < BREZ_BRALCA_S for t in zivi):
+        # CodeRabbit 5. 11. 2026: zaseden je samo tok, ki ga naprava res bere. Nov tok je imel zadnji_bralec = cas
+        # nastanka, zato je neuspela povezava /live/<id> 60 s blokirala ponovni poskus in nov video.stream.
+        if any(t.bralcev > 0 for t in zivi):
             raise NapakaPretoka("preobremenjen")
         # Prostor: ocena izhoda (najvec 8 Mb/s) + rezerva racunalnika; datoteke tokov, ki jih umaknemo, stejejo kot prosto.
         ocena = (8_000_000 // 8) * max(0, trajanje_ms - seek_ms) // 1000 * 12 // 10
