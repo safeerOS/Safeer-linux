@@ -315,9 +315,12 @@ class PreverjanjeVednoDela(unittest.TestCase):
             with self.subTest(ime=ime):
                 self.assertIsNone(oglasi.kategorija(ime))
         s = nabor("cloudflare.com", "hcaptcha.com", "google.com", "gstatic.com", "recaptcha.net", "zlo.example")
+        # Koren Googla (www.google.com, www.gstatic.com) seznam grozenj ne ustavi vec (5. 11. 2026, core/scit_gostitelji.py):
+        # en podtaknjen vnos »google.com« bi sicer vsem vzel iskanje, prijavo in reCAPTCHA. Drugi zasciteni da.
+        koren_googla = ("www.google.com", "www.gstatic.com")
         for ime in imena:
             with self.subTest(groznja=ime):
-                self.assertEqual(s.kategorija(ime), "malware")
+                self.assertEqual(s.kategorija(ime), None if ime in koren_googla else "malware")
         self.assertEqual(s.kategorija("zlo.example"), "malware")
         self.assertEqual(s.kategorija("cloudflare.com.zlo.example"), "malware")    # ne samo po koncnici niza
 

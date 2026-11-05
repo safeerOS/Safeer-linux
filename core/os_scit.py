@@ -50,6 +50,8 @@ from array import array
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from core import scit_gostitelji
+
 from core import root_ukaz, webtor
 from core.signed_feed import _atomic_write, isti_gostitelj
 
@@ -204,6 +206,11 @@ def je_posodobitev(ime: str) -> bool:
 #: (zastrupljen ali preobsiren seznam ne sme zapreti popravkov in prijav); seznam GROZENJ jih ustavi vedno - tudi
 #: Safeerjeva stran ali zrcalo, ki ga nekdo prevzame (lastnik 4. 11. 2026; prej so bili spuscani tudi kot groznja).
 ZASCITENI = POSODOBITVE + PREVERJANJE + ("safeer.si",)
+
+
+def _sme_oglas(domena: str) -> bool:
+    """Vnos seznama oglasov sme veljati za skupni gostitelj, ne pa za koren ali celotno domeno (google.com, web.app)."""
+    return not scit_gostitelji.je_celotna_domena(domena) and scit_gostitelji.vrsta(domena) != scit_gostitelji.KOREN
 
 
 def je_zasciten(ime: str) -> bool:
@@ -766,20 +773,25 @@ class Nabor:
             n.kategorije.append(pari[z])
         return n
 
-    def kategorija(self, ime: str) -> Optional[str]:
+    def kategorija(self, ime: str, sme=None) -> Optional[str]:
+        """[sme] (domena -> bool): samo vnosi za domene, ki jih Scit sme blokirati (core/scit_gostitelji.py)."""
         deli = ime.split(".")
         for i in range(len(deli) - 1):
+            if sme is not None and not sme(".".join(deli[i:])):
+                continue
             z = _zgoscenka(".".join(deli[i:]))
             j = bisect.bisect_left(self.zgoscenke, z)
             if j < len(self.zgoscenke) and self.zgoscenke[j] == z:
                 return KATEGORIJE[self.kategorije[j]]
         return None
 
-    def vse_kategorije(self, ime: str) -> List[str]:
+    def vse_kategorije(self, ime: str, sme=None) -> List[str]:
         """Kategorije imena in vseh nadrejenih domen (kategorija() vrne samo najbolj natancno ujemanje)."""
         izid = []
         deli = ime.split(".")
         for i in range(len(deli) - 1):
+            if sme is not None and not sme(".".join(deli[i:])):
+                continue
             z = _zgoscenka(".".join(deli[i:]))
             j = bisect.bisect_left(self.zgoscenke, z)
             if j < len(self.zgoscenke) and self.zgoscenke[j] == z:
@@ -974,10 +986,21 @@ class Seznami:
     def kategorija(self, ime: str) -> Optional[str]:
         if not ime or "." not in ime or je_krajevno(ime):
             return None
+        # DNS pozna samo ime, ne poti (5. 11. 2026): koren Googla (iskanje, prijava) nikoli; na skupnem gostitelju z
+        # uporabnisko vsebino (sites.google.com, storage.googleapis.com) noben vnos GROZNJE - en vnos bi vzel vso
+        # platformo; vnos za celotno domeno (google.com, web.app) ne velja za gostitelje pod njo.
+        vrsta = scit_gostitelji.vrsta(ime)
+        if vrsta == scit_gostitelji.KOREN:
+            return None
         if je_zasciten(ime):
             return self.kategorija_groznje(ime)     # oglasi ne, groznja vedno (4. 11. 2026)
         with self._kljuc:
-            k = self.nabor.kategorija(ime)
+            k = self.nabor.kategorija(ime, scit_gostitelji.sme_gostitelj)
+            if not k and vrsta == scit_gostitelji.VSEBINA:
+                # Izrecen gostitelj OGLASOV pod skupno infrastrukturo ostane blokiran (hagezi-pro 5. 11. 2026: 5 imen,
+                # npr. afs.googleusercontent.com, displayads-formats.googleusercontent.com); groznja tu ne velja.
+                oglas = self.nabor.kategorija(ime, _sme_oglas)
+                k = oglas if oglas == KATEGORIJA_PREMORA else None
         if k:
             return k
         if _je_telemetrija(ime):
@@ -985,7 +1008,7 @@ class Seznami:
         s = self.storitev
         if s is not None and s.loaded.is_set():
             try:
-                k = s.store.match_host(ime)
+                k = s.store.match_host(ime, scit_gostitelji.sme_gostitelj)
             except Exception:
                 k = None
             if k in KATEGORIJA_SEZNAMA_GROZNJ:
@@ -994,15 +1017,17 @@ class Seznami:
 
     def kategorija_groznje(self, ime: str) -> Optional[str]:
         """Kategorija GROZNJE (ne oglasov) imena ali katere nadrejene domene - v naboru ali v podpisanem seznamu
-        grozenj; None, ce ni groznja."""
+        grozenj; None, ce ni groznja. Koren Googla in skupni gostitelj nikoli (kot kategorija())."""
+        if not scit_gostitelji.sme_gostitelj(ime):
+            return None
         with self._kljuc:
-            for k in self.nabor.vse_kategorije(ime):
+            for k in self.nabor.vse_kategorije(ime, scit_gostitelji.sme_gostitelj):
                 if k != KATEGORIJA_PREMORA:
                     return k
         s = self.storitev
         if s is not None and s.loaded.is_set():
             try:
-                k = s.store.match_host(ime)
+                k = s.store.match_host(ime, scit_gostitelji.sme_gostitelj)
             except Exception:  # noqa: BLE001 - seznam groženj ni berljiv: raje blokirano (fail-closed)
                 return "groznje"
             if k in KATEGORIJA_SEZNAMA_GROZNJ:

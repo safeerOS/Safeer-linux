@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Public keys trusted to sign feed manifests: key_id -> base64 Ed25519 public key.
 # Without a trusted key the signed feed stays disabled and only the built-in protection is used.
@@ -39,6 +40,24 @@ def _feed_paths():
     bundle = getattr(sys, "_MEIPASS", None)
     if bundle:
         yield Path(bundle) / "shared" / "core" / "signed_feed.py"
+
+
+def _scit_gostitelji():
+    """core/scit_gostitelji.py, nalozen po poti: skupne datoteke Windows (shared/core) se uvazajo po poti, ne kot paket."""
+    module = sys.modules.get("safeer_scit_gostitelji")
+    if module is not None:
+        return module
+    poti = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "scit_gostitelji.py")]
+    if getattr(sys, "_MEIPASS", None):
+        poti.append(os.path.join(sys._MEIPASS, "shared", "core", "scit_gostitelji.py"))
+    pot = next((p for p in poti if os.path.isfile(p)), None)
+    if pot is None:
+        raise ImportError("scit_gostitelji.py ni ob %s" % os.path.basename(__file__))
+    spec = importlib.util.spec_from_file_location("safeer_scit_gostitelji", pot)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sys.modules["safeer_scit_gostitelji"] = module
+    return module
 
 
 def _load_feed_module():
@@ -152,13 +171,40 @@ class ThreatIntelService:
         if not self.enabled or not url_or_host:
             return None
         try:
-            if "://" in url_or_host:
-                category = self.store.match_url(url_or_host)
-            else:
-                category = self.store.match_host(url_or_host.split("/", 1)[0].split(":", 1)[0])
+            category = self._match(url_or_host)
         except Exception:  # noqa: BLE001 - matching must never break navigation
             return None
         return category if category in SECURITY_CATEGORIES else None  # ads and trackers are not threats
+
+    def _match(self, url_or_host: str):
+        """Googlovi gostitelji (core/scit_gostitelji.py, 5. 11. 2026): koren nikoli; na skupnem gostitelju samo pravilo
+        za tocen naslov z vsaj dvema deloma poti ali pravilo projekta; nikjer pravilo za koren, skupni gostitelj ali
+        celotno platformo - en podtaknjen vnos ne sme vzeti iskanja ali prijave vsem uporabnikom."""
+        try:
+            g = _scit_gostitelji()
+        except Exception:  # noqa: BLE001 - brez razvrstitve kot prej (vir ostane vklopljen)
+            if "://" in url_or_host:
+                return self.store.match_url(url_or_host)
+            return self.store.match_host(url_or_host.split("/", 1)[0].split(":", 1)[0])
+        if "://" in url_or_host:
+            try:
+                host = (urlsplit(url_or_host.replace("\\", "/")).hostname or "").lower().rstrip(".")
+            except ValueError:
+                return None
+            url = url_or_host
+        else:
+            host = url_or_host.split("/", 1)[0].split(":", 1)[0].lower().rstrip(".")
+            url = ""
+        vrsta = g.vrsta(host)
+        if vrsta == g.KOREN:
+            return None
+        naslov = self.store.match_url_rule(url) if url and (vrsta == g.NAVADEN or g.sme_pot(url, host)) else None
+        if vrsta == g.NAVADEN or g.je_najemnik(host):
+            gostitelj = self.store.match_host(host, g.sme_gostitelj)
+        else:
+            gostitelj = None
+        kategorije = [k for k in (naslov, gostitelj) if k]
+        return next((k for k in kategorije if k in ("botnet_c2", "malware")), kategorije[0] if kategorije else None)
 
     def status(self) -> dict:
         bundle = self.store.bundle
