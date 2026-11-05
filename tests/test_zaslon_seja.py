@@ -630,5 +630,31 @@ class NavadnaSejaOstaneKotPrej(_Osnova):
         self.assertEqual(seja["quality"], "srednja")
 
 
+class PrevzetiPoSeji(unittest.TestCase):
+    """Povezava, ki jo je Hub predal (prevzemi), gre niti SVOJE seje. 5. 11. 2026 (testni PC pod obremenitvijo): nit
+    prejsnje seje je vzela povezavo nove seje in jo zaprla - gledalec je dobil 101 in nato konec toka."""
+
+    def _zaslon(self, prevzeti, seja_st):
+        z = link_zaslon.Zaslon.__new__(link_zaslon.Zaslon)
+        z._kljucavnica = threading.Lock()
+        z._prevzeti = list(prevzeti)
+        z._seja_st = seja_st
+        return z
+
+    def test_stara_nit_ne_vzame_povezave_nove_seje(self):
+        stara, nova = threading.Event(), threading.Event()
+        z = self._zaslon([("povezava-stare", stara, 1), ("povezava-nove", nova, 2)], 2)
+        self.assertIsNone(z._vzemi_prevzetega(1), "nit seje 1 ne sme vzeti povezave seje 2")
+        self.assertTrue(stara.is_set(), "povezavo koncane seje Hub zapre")
+        self.assertFalse(nova.is_set())
+        self.assertEqual(z._vzemi_prevzetega(2), ("povezava-nove", nova))
+        self.assertEqual(z._prevzeti, [])
+
+    def test_brez_seje_niti_kot_prej(self):
+        e = threading.Event()
+        z = self._zaslon([("p", e, 3)], 3)
+        self.assertEqual(z._vzemi_prevzetega(), ("p", e))
+
+
 if __name__ == "__main__":
     unittest.main()

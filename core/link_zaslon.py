@@ -1117,7 +1117,7 @@ class Zaslon:
         merilo = min(najvec_sirina / s, najvec_visina / v, 1.0)
         return (max(2, int(s * merilo) // 2 * 2), max(2, int(v * merilo) // 2 * 2))
 
-    def _sprejmi(self, posluh: socket.socket, ctx: ssl.SSLContext):
+    def _sprejmi(self, posluh: socket.socket, ctx: ssl.SSLContext, seja: Optional[int] = None):
         """Caka televizor s pravim zetonom. Kdor pride z napacnim (ali brez TLS), ne dobi nicesar in seje tudi
         ne podre - televizor, ki mu je zaslon namenjen, se lahko se vedno poveze. (Prej je prva tuja povezava
         sejo koncala: kdorkoli v omrezju je lahko deljenje zaslona preprecil.)"""
@@ -1126,7 +1126,7 @@ class Zaslon:
         def prevzeti():
             # Gledalec zdoma ne pride na ta vrata, ampak do Huba; povezavo, ki jo je Hub ze sprejel (TLS z istim
             # potrdilom) in nadgradil, dobimo tu - zeton je preveril prevzemi().
-            prevzet = self._vzemi_prevzetega()
+            prevzet = self._vzemi_prevzetega(seja)
             if prevzet is not None:
                 try:
                     link_vticnik.brez_zamika(prevzet[0])
@@ -1182,15 +1182,24 @@ class Zaslon:
                     return False
         return True
 
-    def _vzemi_prevzetega(self):
-        """Povezava, ki jo je Hub predal tej seji: (vticnica, dogodek konca) ali None."""
+    def _vzemi_prevzetega(self, moja: Optional[int] = None):
+        """Povezava, ki jo je Hub predal seji `moja` (nit _streci te seje): (vticnica, dogodek konca) ali None.
+
+        Primerjamo s sejo niti, ne s trenutno: nit prejsnje seje (se v _sprejmi, ko se je zacela nova) je prej vzela
+        povezavo NOVE seje in jo takoj zaprla (»101, nato konec toka«, test_zaslon_seja PrekHuba pod obremenitvijo,
+        5. 11. 2026). Povezave novejse seje ostanejo za njeno nit; povezave starejse seje Hub zapre."""
         with self._kljucavnica:
-            while self._prevzeti:
-                odjemalec, konec, seja = self._prevzeti.pop(0)
-                if seja == self._seja_st:
-                    return odjemalec, konec
-                konec.set()                 # za sejo, ki je ni vec: Hub povezavo zapre
-        return None
+            trenutna = self._seja_st if moja is None else moja
+            ostanejo, izid = [], None
+            for odjemalec, konec, seja in self._prevzeti:
+                if izid is None and seja == trenutna and seja == self._seja_st:
+                    izid = (odjemalec, konec)
+                elif seja > trenutna or (seja == trenutna and seja == self._seja_st):
+                    ostanejo.append((odjemalec, konec, seja))
+                else:
+                    konec.set()             # za sejo, ki je ni vec: Hub povezavo zapre
+            self._prevzeti = ostanejo
+        return izid
 
     def _streci(self, posluh: socket.socket, ctx: ssl.SSLContext, ukaz: List[str], seja: int,
                 sestavi=None) -> None:
@@ -1203,7 +1212,7 @@ class Zaslon:
         steklo = False
         pot_meritev = ""
         try:
-            sprejet = self._sprejmi(posluh, ctx)
+            sprejet = self._sprejmi(posluh, ctx, seja)
             if sprejet is None:
                 return
             odjemalec, konec_prevzete = sprejet
