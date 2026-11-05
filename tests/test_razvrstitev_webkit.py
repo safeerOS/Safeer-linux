@@ -274,8 +274,12 @@ class Straza(unittest.TestCase):
                         pass
             """,
         })
+        # Mapa, iz katere ta proces uvozi pytest (tudi build/vendor ali pip --user): podproces ima samo ta PYTHONPATH in
+        # brez nje na racunalniku, kjer pytest ni sistemski paket, javi »No module named pytest« (testni PC 5. 11. 2026).
+        import pytest
         okolje = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                  "PYTHONPATH": os.pathsep.join([str(KOREN / "tests"), str(self.mapa / "gi_lazni")])}
+                  "PYTHONPATH": os.pathsep.join([str(KOREN / "tests"), str(self.mapa / "gi_lazni"),
+                                                 os.path.dirname(os.path.dirname(os.path.abspath(pytest.__file__)))])}
         r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "razvrstitev_webkit",
                             "--safeer-webkit=brez", "--safeer-koren", str(repo), "-rA", str(repo / "tests")],
                            cwd=str(repo), capture_output=True, text=True, timeout=120, env=okolje)
