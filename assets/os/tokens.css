@@ -60,6 +60,12 @@
   --kanal-chatwoot: #6c55b8;
   --kanal-drugo: #4a5a70;
   --znak-besedilo: #ffffff;   /* zacetnice in znak na barvni podlagi (avatar, znak kanala) */
+  /* Vgrajeni Splet (core/os_splet.css_spleta, 5. 11. 2026): barve, ki jih je imel Splet prej trdo kodirane. */
+  --splet-zavihek-aktiven: #16233a;
+  --splet-zavihek-besedilo: #c3d4ea;
+  --splet-ikona: #e2eaf6;
+  --splet-izbor: #2b5b8c;
+  --splet-stevec: #b0bdc4;
 }
 .kontrast, body.manj-prosojnosti {
   --kartica: #111c2b;

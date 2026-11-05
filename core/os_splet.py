@@ -23,8 +23,8 @@ from html import escape as _escape_html
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
-from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, scit_pravila, splet_prenosi, splet_skripte, splet_spanje, splet_temno, zascita,
+from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_lupina, os_stabilnost, ozadje_strani,
+                  pojavna_okna, safeer_drm, scit_pravila, splet_prenosi, splet_skripte, splet_spanje, splet_temno, zascita,
                   zasebni_webkit)
 from core.config import ConfigManager, SEARCH_ENGINES, naslov_ali_iskanje, normalize_web_url, prikazni_naslov
 from core import external_apps
@@ -493,6 +493,72 @@ def nastavi_kompozitor(WebKit2, nastavitve, skia: bool = False) -> bool:
     except Exception:  # noqa: BLE001 - starejsi WebKit brez API funkcij
         pass
     return False
+
+
+#: Barve Spleta, ce tokens.css ni (enake kot v tokens.css): videz brez datoteke ostane, kot je bil.
+_BARVE_SPLETA = {
+    "ozadje": (11, 20, 36, 1.0), "besedilo": (234, 242, 255, 1.0), "kartica": (16, 26, 43, .80),
+    "rob": (211, 229, 255, .23), "zelena": (138, 199, 255, 1.0), "fokus": (157, 206, 255, 1.0),
+    "izbrano": (104, 168, 229, .20), "opozorilo": (255, 207, 138, 1.0),
+    "splet-zavihek-aktiven": (22, 35, 58, 1.0), "splet-zavihek-besedilo": (195, 212, 234, 1.0),
+    "splet-ikona": (226, 234, 246, 1.0), "splet-izbor": (43, 91, 140, 1.0), "splet-stevec": (176, 189, 196, 1.0),
+}
+
+
+def css_spleta(tokeni: dict) -> str:
+    """CSS vgrajenega Spleta iz barv tokens.css ({ime: (r, g, b, a)}, core/os_lupina.tokeni). Barve namizja Safeer OS -
+    Splet je del celotne teme (lastnik, 11. 10. 2026), ne zelen kot samostojni Safeer Browser. Manjkajoca barva:
+    _BARVE_SPLETA. Prosojnost robov in poudarkov je del videza Spleta, barva pride iz zetona."""
+    def b(ime: str, a: float | None = None) -> str:
+        v = tokeni.get(ime) if isinstance(tokeni, dict) else None
+        if not (isinstance(v, tuple) and len(v) == 4):
+            v = _BARVE_SPLETA[ime]
+        return "rgba(%d,%d,%d,%.3g)" % (v[0], v[1], v[2], v[3] if a is None else a)
+    ozadje, besedilo, polna = b("ozadje"), b("besedilo"), b("kartica", 1)
+    aktiven, ikona, poudarek = b("splet-zavihek-aktiven"), b("splet-ikona"), b("zelena")
+    return """
+        #safeer-splet { background: %(ozadje)s; color: %(besedilo)s; }
+        #splet-zavihki { background: %(ozadje)s; min-height: 38px; }
+        .splet-tab { background: %(polna)s; color: %(tab)s; border: 1px solid %(rob14)s;
+          border-bottom: 0; border-radius: 10px 10px 0 0; padding: 3px 8px; margin-top: 5px; min-width: 76px; }
+        #safeer-stranska-pas { border-left: 1px solid %(rob12)s; padding-left: 2px; }
+        .splet-tab-aktiven { background: %(aktiven)s; color: %(besedilo)s; border-color: %(poud55)s;
+          border-top: 2px solid %(poudarek)s; }
+        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni > button { background: transparent; color: %(besedilo)s;
+          border: 0; box-shadow: none; text-shadow: none; }
+        .new-tab { font-size: 18px; padding: 2px 8px; }
+        .splet-tab button.tab-close { min-height: 20px; min-width: 20px; padding: 0 2px; }
+        #splet-povezava { color: %(ikona)s; border: 1px solid %(poud55)s; border-radius: 14px;
+          padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: %(poud08)s; }
+        #splet-orodja { background: %(ozadje)s; padding: 6px 14px 8px; }
+        .nav { font-size: 20px; padding: 6px 9px; border-radius: 10px; color: %(ikona)s; }
+        .nav image, .address-action image, #splet-meni image { color: %(ikona)s; -gtk-icon-size: 20px; }
+        .nav:hover, .address-action:hover, #splet-meni > button:hover { background: %(izbrano)s; }
+        #splet-naslov { background: %(polna)s; border: 2px solid %(poud55)s; border-radius: 20px; padding: 2px 6px; }
+        #splet-naslov:focus-within { border-color: %(fokus)s; }
+        #splet-vnos { background: transparent; color: %(besedilo)s; border: 0; box-shadow: none; outline: none;
+          font-size: 16px; padding: 10px 4px; }
+        #splet-vnos selection { background: %(izbor)s; }
+        popover.menu contents { background: %(polna)s; color: %(besedilo)s; border: 1px solid %(rob)s; }
+        popover.menu modelbutton:hover { background: %(izbrano)s; }
+        #safeer-splet searchbar > revealer > box { background: %(ozadje)s; border-bottom: 1px solid %(rob14)s; }
+        #safeer-splet searchbar entry { background: %(polna)s; color: %(besedilo)s; border: 1px solid %(poud45)s; }
+        #safeer-splet searchbar entry:focus-within { border-color: %(fokus)s; }
+        #safeer-splet searchbar button { background: transparent; color: %(ikona)s; border: 0; box-shadow: none; }
+        #splet-najdi-stevec { color: %(stevec)s; margin-left: 6px; }
+        #safeer-brskalnik { background: %(ozadje)s; }
+        #splet-avtomatizacija-pasica { background: %(opoz18)s; color: %(opozorilo)s;
+          border-bottom: 1px solid %(opoz40)s; padding: 4px 12px; font-weight: 600; }
+        #splet-avtomatizacija-pasica image { color: %(opozorilo)s; }
+        #splet-pojavna { background: %(aktiven)s; color: %(besedilo)s; border-bottom: 1px solid %(poud35)s; }
+        #splet-pojavna button { background: %(poud12)s; color: %(besedilo)s; border: 1px solid %(poud35)s;
+          box-shadow: none; }
+        """ % {"ozadje": ozadje, "besedilo": besedilo, "polna": polna, "tab": b("splet-zavihek-besedilo"),
+               "rob": b("rob"), "rob14": b("rob", .14), "rob12": b("rob", .12), "aktiven": aktiven,
+               "poudarek": poudarek, "poud55": b("zelena", .55), "poud45": b("zelena", .45), "poud35": b("zelena", .35),
+               "poud12": b("zelena", .12), "poud08": b("zelena", .08), "ikona": ikona, "izbrano": b("izbrano"),
+               "fokus": b("fokus"), "izbor": b("splet-izbor"), "stevec": b("splet-stevec"),
+               "opozorilo": b("opozorilo"), "opoz18": b("opozorilo", .18), "opoz40": b("opozorilo", .40)}
 
 
 def gostitelj_strani(naslov: str) -> str:
@@ -1659,44 +1725,8 @@ class VdelaniSplet:
         self.gradnik.insert_action_group("splet", skupina)
 
     def _css(self) -> None:
-        # Barve namizja Safeer OS (delovna.css): ozadje #0b1424, kartice #101a2b/#16233a, poudarek #8ac7ff - Splet je del
-        # celotne teme (lastnik, 11. 10. 2026), ne zelen kot samostojni Safeer Browser.
-        css = """
-        #safeer-splet { background: #0b1424; color: #eaf2ff; }
-        #splet-zavihki { background: #0b1424; min-height: 38px; }
-        .splet-tab { background: #101a2b; color: #c3d4ea; border: 1px solid rgba(211,229,255,.14);
-          border-bottom: 0; border-radius: 10px 10px 0 0; padding: 3px 8px; margin-top: 5px; min-width: 76px; }
-        #safeer-stranska-pas { border-left: 1px solid rgba(211,229,255,.12); padding-left: 2px; }
-        .splet-tab-aktiven { background: #16233a; color: #eaf2ff; border-color: rgba(138,199,255,.55);
-          border-top: 2px solid #8ac7ff; }
-        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni > button { background: transparent; color: #eaf2ff;
-          border: 0; box-shadow: none; text-shadow: none; }
-        .new-tab { font-size: 18px; padding: 2px 8px; }
-        .splet-tab button.tab-close { min-height: 20px; min-width: 20px; padding: 0 2px; }
-        #splet-povezava { color: #e3ecf7; border: 1px solid rgba(138,199,255,.55); border-radius: 14px;
-          padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: rgba(138,199,255,.08); }
-        #splet-orodja { background: #0b1424; padding: 6px 14px 8px; }
-        .nav { font-size: 20px; padding: 6px 9px; border-radius: 10px; color: #e2eaf6; }
-        .nav image, .address-action image, #splet-meni image { color: #e2eaf6; -gtk-icon-size: 20px; }
-        .nav:hover, .address-action:hover, #splet-meni > button:hover { background: rgba(104,168,229,.20); }
-        #splet-naslov { background: #101a2b; border: 2px solid rgba(138,199,255,.55); border-radius: 20px; padding: 2px 6px; }
-        #splet-vnos { background: transparent; color: #eaf2ff; border: 0; box-shadow: none; outline: none;
-          font-size: 16px; padding: 10px 4px; }
-        #splet-vnos selection { background: #2b5b8c; }
-        popover.menu contents { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(211,229,255,.23); }
-        popover.menu modelbutton:hover { background: rgba(104,168,229,.20); }
-        #safeer-splet searchbar > revealer > box { background: #0b1424; border-bottom: 1px solid rgba(211,229,255,.14); }
-        #safeer-splet searchbar entry { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(138,199,255,.45); }
-        #safeer-splet searchbar button { background: transparent; color: #e2eaf6; border: 0; box-shadow: none; }
-        #splet-najdi-stevec { color: #b0bdc4; margin-left: 6px; }
-        #safeer-brskalnik { background: #0b1424; }
-        #splet-avtomatizacija-pasica { background: rgba(255, 207, 138, .18); color: #ffcf8a;
-          border-bottom: 1px solid rgba(255, 207, 138, .40); padding: 4px 12px; font-weight: 600; }
-        #splet-avtomatizacija-pasica image { color: #ffcf8a; }
-        #splet-pojavna { background: #16233a; color: #eaf2ff; border-bottom: 1px solid rgba(138,199,255,.35); }
-        #splet-pojavna button { background: rgba(138,199,255,.12); color: #eaf2ff; border: 1px solid rgba(138,199,255,.35);
-          box-shadow: none; }
-        """
+        # Barve iz assets/os/tokens.css (L8, 5. 11. 2026) - isti vir kot namizje, Medijski center in strani WebKit.
+        css = css_spleta(os_lupina.tokeni())
         ponudnik = self.Gtk.CssProvider()
         try:
             ponudnik.load_from_string(css)

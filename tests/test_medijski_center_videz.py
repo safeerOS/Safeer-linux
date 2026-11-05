@@ -279,7 +279,7 @@ class Domov(unittest.TestCase):
         function skrijKatTrak() { kat.aktivni = null; kat.igra = false; }
         function skladbaKataloga() { return kat.aktivni && kat.aktivni.zvok ? kat.aktivni : null; }
         var kat = { aktivni: { id: "k1", zvok: true, okno_youtube: true }, igra: true, vrsta: ["k1", "k2"], zahtevaPredvajanja: 4 };
-        """ + "".join(_funkcija(self.js, f) for f in ("opustiKatVrsto", "odpriLokalno", "odpriTok")) + """
+        """ + "".join(_funkcija(self.js, f) for f in ("prekliciKatZahtevo", "opustiKatVrsto", "odpriLokalno", "odpriTok")) + """
         var izid = [];
         odpriLokalno("/m/slika.jpg", "slike");                                 // slika: glasba igra naprej
         izid.push(!!skladbaKataloga(), kat.vrsta.length);
@@ -294,6 +294,8 @@ class Domov(unittest.TestCase):
         self.assertIn('mediaYtUkaz:["zapri"]', izid[9])
         self.assertIn('odpriLokalniMedij:["/m/film.mkv"]', izid[9])
         self.assertIn('odpriMedijskiTok:["https://radio.test/tok"]', izid[9])
+        # M1 (5. 11. 2026): zahteva kataloga, ki se se razresuje, je preklicana tudi v Pythonu (mediaPreklici).
+        self.assertEqual(izid[9].count("mediaPreklici:[]"), 2)
         # Zadetki iskanja odprejo datoteko in postajo po isti poti (ne mimo nje).
         self.assertIn("odpriLokalno(v.pot, v.vrsta);", self.js)
         self.assertIn("odpriTok(v.url);", self.js)

@@ -7529,7 +7529,9 @@
   // se ne zacne), spodnja vrstica pokaze, kar res igra, in »Naslednja« ne vzame naslednje skladbe kataloga namesto filma
   // (pregled 14. 10. 2026). Domaci predvajalnik ustavi gostitelj z novo vsebino; vgradni YouTube zapremo sami.
   // mediaPreklici: zahteva, ki se se razresuje (debrid, torrent), po razresitvi ne odpre predvajalnika (M1, 5. 11. 2026).
-  function prekliciKatZahtevo() { klic("mediaPreklici", []).catch(function () {}); }
+  function prekliciKatZahtevo() {
+    klic("mediaPreklici", []).catch(function () {});
+  }
   function opustiKatVrsto() {
     var item = kat.aktivni;
     kat.vrsta = []; kat.zahtevaPredvajanja++; kat.zahtevaVnosa++; prekliciKatZahtevo();
