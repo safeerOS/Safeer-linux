@@ -1379,6 +1379,24 @@ class _PrazenOdgovor(ValueError):
     zaklenjen; pregled 46, Ö5)."""
 
 
+
+class PreverjenSkok(urllib.request.HTTPRedirectHandler):
+    """Preusmeritev ob prenosu vira (D1, pregled 5. 11. 2026): vsak skok posebej - samo http(s), nikoli s https na
+    http in z javnega streznika nikoli v domace omrezje (192.168.x, localhost ...: tuj seznam ne sme z nasimi pravicami
+    brati usmerjevalnika ali krajevnih storitev). Zacetni naslov je lahko http (seznami IPTV), ker ga je izbral
+    uporabnik; preusmeritev izbere streznik."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        star, nov = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if nov.scheme not in ("http", "https") or not nov.hostname:
+            raise urllib.error.HTTPError(req.full_url, code, "preusmeritev ni http(s)", headers, fp)
+        if star.scheme == "https" and nov.scheme != "https":
+            raise urllib.error.HTTPError(req.full_url, code, "preusmeritev s https na http", headers, fp)
+        if (media_servers.je_domace_omrezje(nov.hostname or "")
+                and not media_servers.je_domace_omrezje(star.hostname or "")):
+            raise urllib.error.HTTPError(req.full_url, code, "preusmeritev v domace omrezje", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
 class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
 
@@ -4925,7 +4943,7 @@ class MediaCenter:
             "Accept": "application/json, application/rss+xml, application/xml, audio/x-mpegurl, text/html;q=0.9, */*;q=0.5",
             "Accept-Language": "sl,en-US;q=0.9,en;q=0.8",
         })
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.build_opener(PreverjenSkok()).open(request, timeout=15) as response:  # nosec B310
             length = int(response.headers.get("Content-Length") or 0)
             if length > MAX_DOWNLOAD:
                 raise ValueError("Vir je prevelik.")
