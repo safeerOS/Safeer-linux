@@ -425,5 +425,16 @@ def _lazni_pyside(qapp):
     return {"PySide6": paket, "PySide6.QtCore": qtcore, "PySide6.QtGui": qtgui, "PySide6.QtWidgets": qtwidgets}
 
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _agent_v_izdaji(monkeypatch):
+    """Agent je izlocen iz izdaje (core/agent.NA_VOLJO_V_IZDAJI, lastnik 5. 11. 2026); ti preizkusi preverjajo, da z
+    zastavico True dela kot prej."""
+    from core import agent
+    monkeypatch.setattr(agent, "NA_VOLJO_V_IZDAJI", True)
+
+
 if __name__ == "__main__":
     unittest.main()

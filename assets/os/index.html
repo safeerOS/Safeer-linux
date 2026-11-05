@@ -505,8 +505,8 @@
         </div>
         <!-- Safeer Agent (lastnik, 19. 10. 2026): naslov lokalnega jezikovnega modela, stanje, izklop in trajanje seje -
              prej samo rocno v ~/.config/safeer-agent/naslov (core/agent/nastavitve.py). -->
-        <h2 data-t="agentNaslov"></h2>
-        <div class="agent-blok" id="blokAgent" data-iskanje-blok>
+        <h2 data-t="agentNaslov" id="naslovAgent" hidden></h2>
+        <div class="agent-blok" id="blokAgent" data-iskanje-blok hidden>
           <p class="drobno" data-t="agentOpis"></p>
           <div class="hitre">
             <button class="stikalo" id="stikaloAgent" type="button" role="switch" aria-checked="false" aria-describedby="agentStanje"><svg data-ikona="iskra"></svg><div><span data-t="agentVklop"></span><small id="agentStanje" role="status" aria-live="polite"></small></div><i></i></button>

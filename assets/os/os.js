@@ -11744,6 +11744,8 @@ function narisiKatViri() {
       $("zacetnica").textContent = (ime.trim().charAt(0) || "S").toUpperCase();
       S.povezava = z.povezava || S.povezava;
       S.agent = z.agent || { na_voljo: false };
+      // Safeer Agent je v Nastavitvah samo, ce je v izdaji (core/agent.NA_VOLJO_V_IZDAJI); privzeto skrit v index.html.
+      ["naslovAgent", "blokAgent"].forEach(function (i) { if ($(i)) $(i).hidden = !z.agentIzdaja; });
       lupaUredi();
       narisiBliznjice();
       uskladiVklopSporocil();

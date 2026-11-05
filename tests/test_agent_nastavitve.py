@@ -15,6 +15,8 @@ KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 @pytest.fixture(autouse=True)
 def mapa(monkeypatch, tmp_path):
     monkeypatch.setattr(nastavitve, "MAPA", str(tmp_path / "safeer-agent"))
+    from core import agent
+    monkeypatch.setattr(agent, "NA_VOLJO_V_IZDAJI", True)     # izlocen iz izdaje; tu preverjamo delovanje
     monkeypatch.delenv("SAFEER_AGENT", raising=False)
     storitev._seje.clear()
     yield tmp_path / "safeer-agent"

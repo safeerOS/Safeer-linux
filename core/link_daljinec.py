@@ -371,6 +371,11 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d in DEJANJA_ISKANJE:
             koncaj(isci_na_racunalniku(str(parametri.get("q", "") or "")))
         elif d in DEJANJA_AGENT:
+            from core import agent
+            if not agent.v_izdaji():
+                # Izlocen iz izdaje (core/agent.NA_VOLJO_V_IZDAJI): z druge naprave ga ni, kot da ga ne poznamo.
+                koncaj(izid(False, "Neznano dejanje", koda="neznano_dejanje"))
+                return
             from core.agent import storitev
             storitev.vprasaj(parametri, posiljatelj, koncaj, izid)
         elif d in DEJANJA_KLJUCI:

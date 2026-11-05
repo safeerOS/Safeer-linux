@@ -243,3 +243,14 @@ def test_predaja_nic_ne_igra_in_zavrnitve():
         link = LinkPredaja(igra, odgovor)
         r = izvajanje.izvedi(razumevanje.Naloga("nadaljuj_na_napravi", "tv"), izvajanje.Izvajalec(link.naprave, link.ukaz), tukaj="n-tel")
         assert besedilo in r.besedilo
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _agent_v_izdaji(monkeypatch):
+    """Agent je izlocen iz izdaje (core/agent.NA_VOLJO_V_IZDAJI, lastnik 5. 11. 2026); ti preizkusi preverjajo, da z
+    zastavico True dela kot prej."""
+    from core import agent
+    monkeypatch.setattr(agent, "NA_VOLJO_V_IZDAJI", True)

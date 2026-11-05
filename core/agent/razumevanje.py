@@ -103,9 +103,10 @@ def naslov_modela() -> str:
     """Kje tece jezikovni model: SAFEER_AGENT ali ~/.config/safeer-agent/naslov (npr. http://telefon:8085), ki ga od
     19. 10. 2026 nastavijo Nastavitve Safeer OS (core/agent/nastavitve.py). Agent, izklopljen v Nastavitvah, nima
     naslova - tudi ce je ta v okolju."""
+    from core import agent
     from core.agent import nastavitve
-    if not nastavitve.vklopljen():
-        return ""
+    if not agent.v_izdaji() or not nastavitve.vklopljen():
+        return ""        # izlocen iz izdaje: brez naslova ni vnosa v lupi, zmoznosti v Linku ne klica modela
     n = os.environ.get("SAFEER_AGENT", "").strip() or nastavitve.naslov_shranjen()
     try:
         return nastavitve.preveri_naslov(n)      # tudi naslov iz okolja: http samo v domace omrezje

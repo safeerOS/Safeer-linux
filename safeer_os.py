@@ -5245,6 +5245,9 @@ class SafeerOS(Gtk.Application):
             return agent_nastavitve.dosegljivost()
         if kaj == "lupa":
             return agent_nastavitve.lupa_na_voljo()
+        if kaj == "izdaja":
+            from core import agent
+            return agent.v_izdaji()
         if kaj == "lupa_brez_omrezja":
             return agent_nastavitve.lupa_na_voljo(preveri=False)
         if kaj == "vprasaj":
@@ -5354,6 +5357,8 @@ class SafeerOS(Gtk.Application):
             # Iskalna lupa: vnos »Vprasaj Safeer Agenta« samo, ce model odgovarja. Zacetek je na glavni niti, zato samo
             # predpomnilnik (brez omrezja); lupa ob odprtju vprasa agentLupa.
             "agent": self._agent("lupa_brez_omrezja"),
+            # Razdelek Safeer Agent v Nastavitvah samo, ce je agent v izdaji (core/agent.NA_VOLJO_V_IZDAJI).
+            "agentIzdaja": self._agent("izdaja"),
             "mape": os_datoteke.uporabniske_mape(),
             "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,

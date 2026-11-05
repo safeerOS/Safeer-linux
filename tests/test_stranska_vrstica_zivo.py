@@ -75,7 +75,7 @@ def _os_razred():
 
         def _zacetek(self):
             return {"jezik": "sl", "sporocila": True, "platforma": "linux", "mape": [], "razlicica": "1.0.127",
-                    "razpolozljivo": RAZPOLOZLJIVO, "agent": {"na_voljo": False}}
+                    "razpolozljivo": RAZPOLOZLJIVO, "agent": {"na_voljo": False}, "agentIzdaja": True}
 
         def _odpri_razdelek(self, razdelek):
             self.razdelki.append(razdelek)
@@ -373,6 +373,17 @@ class OknoNastavitev(_Stran):
         streznik.server_close()
         self._js("document.getElementById('agentPreveri').click(), 1")
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('agentStanje').textContent") == "Model ni dosegljiv.", 10))
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _agent_v_izdaji(monkeypatch):
+    """Agent je izlocen iz izdaje (core/agent.NA_VOLJO_V_IZDAJI, lastnik 5. 11. 2026); ti preizkusi preverjajo, da z
+    zastavico True dela kot prej."""
+    from core import agent
+    monkeypatch.setattr(agent, "NA_VOLJO_V_IZDAJI", True)
 
 
 if __name__ == "__main__":
