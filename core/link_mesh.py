@@ -723,7 +723,8 @@ def _tcp_dosegljiv(naslov: str, rok_s: float = SONDA_SOSEDA_S) -> bool:
 #: »Dostava prek vmesnega vozlisca«): nas Hub sosedom predstavi naprave svojih neposrednih sosedov (`relay` v
 #: mesh.devices) in sporocilo `mesh.route` z `relay: true` preda naprej (en vmesni skok, samo med clani kroga, vsebina
 #: ostane sifrirana do cilja). Brez tega se napravi, ki druga druge ne dosezeta neposredno (pozarni zid, druga podmreza,
-#: ena je zdoma), prek te naprave ne vidita. Privzeto vklopljeno; uporabnika vprasamo ob seznanitvi (stran Linka).
+#: ena je zdoma), prek te naprave ne vidita. Privzeto vklopljeno, brez vprasanja (lastnik 5. 11. 2026: prosta naprava v
+#: Linku pomaga brez vklopa in brez vprasanj); izklop je stikalo v razdelku »Povezava zdoma« strani Linka.
 #: Na lastno povezavo te naprave nastavitev ne vpliva: njej drugi se vedno pomagajo, ce sami to dovolijo.
 DATOTEKA_POMOCI = "link-pomoc.json"
 _pomoc_predpomnilnik: dict = {}
@@ -734,7 +735,7 @@ def _pot_pomoci() -> str:
 
 
 def nastavitve_pomoci(pot: Optional[str] = None) -> dict:
-    """{"vklopljeno": bool, "vprasano": bool} - privzeto vklopljeno, uporabnik se ni bil vprasan."""
+    """{"vklopljeno": bool} - privzeto vklopljeno; izklopljeno samo, ce je uporabnik stikalo sam izklopil."""
     try:
         with open(pot or _pot_pomoci(), encoding="utf-8") as d:
             v = json.load(d)
@@ -742,16 +743,16 @@ def nastavitve_pomoci(pot: Optional[str] = None) -> dict:
         v = {}
     if not isinstance(v, dict):
         v = {}
-    return {"vklopljeno": v.get("vklopljeno") is not False, "vprasano": bool(v.get("vprasano"))}
+    return {"vklopljeno": v.get("vklopljeno") is not False}
 
 
 def shrani_pomoc(vklopljeno: bool, pot: Optional[str] = None) -> dict:
-    """Uporabnikova izbira (stran Linka ali vprasanje ob seznanitvi): velja takoj, vprasanje se ne ponovi."""
+    """Uporabnikova izbira (stikalo na strani Linka): velja takoj."""
     pot = pot or _pot_pomoci()
     os.makedirs(os.path.dirname(pot), exist_ok=True)
     from core import shramba_json
     with shramba_json.atomsko_odpri(pot) as d:
-        json.dump({"vklopljeno": bool(vklopljeno), "vprasano": True}, d)
+        json.dump({"vklopljeno": bool(vklopljeno)}, d)
     _pomoc_predpomnilnik.clear()
     return nastavitve_pomoci(pot)
 

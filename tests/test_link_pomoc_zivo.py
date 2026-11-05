@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """»Pomagaj drugim napravam v Linku pri povezavi« na strani Safeer Linka v pravem WebKitu (pregled 18. 10. 2026).
 
-Ob seznanitvi stran enkrat vprasa (privzeto da); pricakovano dejanje »Da, pomagaj« ima fokus, da je na daljincu dovolj
-en pritisk na V redu. Odgovor gre v most (nastaviPomoc) in vprasanje izgine; stikalo ostane v razdelku »Povezava
-zdoma«. Most je lazen (window.SafeerLink), stran in besedila so prava. Potrebuje zaslon in WebKitGTK 6.0.
+Privzeto vklopljeno, brez vprasanja ob seznanitvi (lastnik 5. 11. 2026: prosta naprava v Linku pomaga brez vklopa in
+brez vprasanj). Stikalo za izklop je v razdelku »Povezava zdoma«. Most je lazen (window.SafeerLink), stran in besedila
+so prava. Potrebuje zaslon in WebKitGTK 6.0.
 """
 
 import json
@@ -32,15 +32,15 @@ window.SafeerLink = {
   jezik: function () { return "sl"; },
   globalLinkStanje: function () { return "null"; },
   pomocStanje: function () { return JSON.stringify(window.__pomoc); },
-  nastaviPomoc: function (v) { window.__klici.push(["nastaviPomoc", v]); window.__pomoc = {vklopljeno: !!v, vprasano: true};
+  nastaviPomoc: function (v) { window.__klici.push(["nastaviPomoc", v]); window.__pomoc = {vklopljeno: !!v};
                                setTimeout(function () { window.safeerLinkOdziv("pomoc", {}); }, 0); }
 };
 """
 
 STANJE_JS = """JSON.stringify({
   fokus: document.activeElement ? document.activeElement.id : "",
-  vprasanje: !document.getElementById("panelPomocVprasanje").hidden,
-  naslov: document.getElementById("pomocVprasanjeNaslov").textContent,
+  vprasanje: !!document.getElementById("panelPomocVprasanje"),
+  naslov: document.querySelector("#pomocVrstica b").textContent,
   stikalo: !document.getElementById("pomocVrstica").hidden,
   vklopljeno: document.getElementById("glPomoc").checked,
   klici: window.__klici
@@ -98,21 +98,21 @@ def _zazeni(pomoc: dict, koraki) -> list:
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
 @unittest.skipUnless(WebKit, "potrebuje WebKitGTK 6.0")
 class PomocDrugimNapravam(unittest.TestCase):
-    def test_vprasanje_ob_seznanitvi_fokus_na_da_in_odgovor(self):
-        stanja = _zazeni({"vklopljeno": True, "vprasano": False},
-                         ['document.getElementById("gumbPomocNe").click()'])
+    def test_brez_vprasanja_privzeto_vklopljeno_izklop_s_stikalom(self):
+        stanja = _zazeni({"vklopljeno": True},
+                         ['var s = document.getElementById("glPomoc"); s.checked = false;'
+                          ' s.dispatchEvent(new Event("change"));'])
         self.assertEqual(len(stanja), 2, stanja)
         prej, potem = stanja
-        self.assertTrue(prej["vprasanje"], prej)
-        self.assertEqual(prej["naslov"], "Pomagaj drugim napravam v Linku pri povezavi?")
-        self.assertEqual(prej["fokus"], "gumbPomocDa", "pricakovano dejanje ima fokus (daljinec)")
+        self.assertFalse(prej["vprasanje"], "ob seznanitvi ni vprasanja")
+        self.assertEqual(prej["naslov"], "Pomagaj drugim napravam v Linku pri povezavi")
         self.assertTrue(prej["stikalo"] and prej["vklopljeno"], "privzeto vklopljeno")
+        self.assertEqual(prej["klici"], [], "brez dejanja uporabnika se nastavitev ne spremeni")
         self.assertEqual(potem["klici"], [["nastaviPomoc", False]])
-        self.assertFalse(potem["vprasanje"], "vprasanje se ne ponovi")
         self.assertFalse(potem["vklopljeno"])
 
-    def test_ze_vprasan_samo_stikalo(self):
-        stanja = _zazeni({"vklopljeno": False, "vprasano": True},
+    def test_izklopljeno_samo_stikalo(self):
+        stanja = _zazeni({"vklopljeno": False},
                          ['var s = document.getElementById("glPomoc"); s.checked = true;'
                           ' s.dispatchEvent(new Event("change"));'])
         prej, potem = stanja
@@ -154,8 +154,19 @@ class MostStrani(unittest.TestCase):
         blok = js.split("var BESEDILA_POMOC = {", 1)[1].split("\n  };", 1)[0]
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             del_ = blok.split("\n    %s: {" % jezik, 1)[1].split("\n    }", 1)[0]
-            for kljuc in ("pomocIme", "pomocVprasanje", "pomocOpis", "pomocDa", "pomocNe"):
+            for kljuc in ("pomocIme", "pomocOpis"):
                 self.assertIn(kljuc + ":", del_, (jezik, kljuc))
+
+    def test_brez_vprasanja_ob_seznanitvi(self):
+        """Lastnik 5. 11. 2026: pomoc je brez vprasanj - stran nima vec okna z vprasanjem, nastavitev ne oznake."""
+        with open(STRAN, encoding="utf-8") as f:
+            html = f.read()
+        with open(os.path.join(KOREN, "assets", "link", "link.js"), encoding="utf-8") as f:
+            js = f.read()
+        for kos in ("panelPomocVprasanje", "gumbPomocDa", "gumbPomocNe"):
+            self.assertNotIn(kos, html + js)
+        self.assertNotIn("vprasano", js)
+        self.assertIn('id="glPomoc"', html, "stikalo za izklop ostane")
 
 
 if __name__ == "__main__":

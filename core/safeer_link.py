@@ -973,8 +973,8 @@ class SafeerLink:
             return
         self._odziv("globalLink", {})
 
-    # »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi): privzeto vklopljeno, stran
-    # uporabnika ob seznanitvi enkrat vprasa (vprasano), potem je stikalo v razdelku »Povezava zdoma«.
+    # »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi): privzeto vklopljeno, brez
+    # vprasanja ob seznanitvi (lastnik 5. 11. 2026); stikalo za izklop je v razdelku »Povezava zdoma«.
     def _pomoc_stanje(self) -> Optional[dict]:
         try:
             from core import link_mesh

@@ -394,10 +394,13 @@ class Mesh(unittest.TestCase):
         from core import link_mesh
         with tempfile.TemporaryDirectory() as mapa:
             pot = os.path.join(mapa, "link-pomoc.json")
-            self.assertEqual(link_mesh.nastavitve_pomoci(pot), {"vklopljeno": True, "vprasano": False})
+            self.assertEqual(link_mesh.nastavitve_pomoci(pot), {"vklopljeno": True})
             self.assertTrue(link_mesh.pomaga_pri_povezavi(pot))
-            self.assertEqual(link_mesh.shrani_pomoc(False, pot), {"vklopljeno": False, "vprasano": True})
+            self.assertEqual(link_mesh.shrani_pomoc(False, pot), {"vklopljeno": False})
             self.assertFalse(link_mesh.pomaga_pri_povezavi(pot))
+            with open(pot, "w") as d:                    # stara datoteka (do 5. 11. 2026) z oznako vprasanja
+                d.write('{"vklopljeno": true, "vprasano": false}')
+            self.assertEqual(link_mesh.nastavitve_pomoci(pot), {"vklopljeno": True})
             with open(pot, "w") as d:
                 d.write("{pokvarjeno")
             self.assertTrue(link_mesh.pomaga_pri_povezavi(pot), "neberljiva nastavitev: privzeto")
