@@ -111,6 +111,53 @@ class Usmerjevalnik(unittest.TestCase):
             o = r._vprasaj_usmerjevalnik(p, True)
         self.assertEqual(o[:4], b"\x03\x03\x81\x82")
 
+    def test_tcp_pocasno_telo_ne_podaljsa_skupnega_roka(self):
+        # CodeRabbit 5. 11. 2026: streznik poslje glavo dolzine in telo po en bajt na 0,1 s. Prej je vsak recv dobil
+        # poln ostanek roka znova, zato je poizvedba trajala, dokler streznik ni poslal vsega (~4 s namesto 0,5 s).
+        p = vprasanje("safeer.si", id_=0x0505)
+        odgovor = p[:2] + b"\x81\x80" + p[4:] + b"\x00" * 20
+        posluh = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        posluh.bind(("127.0.0.1", 0))
+        posluh.listen(1)
+        posluh.settimeout(2)
+        vrata = posluh.getsockname()[1]
+        konec_streznika = threading.Event()
+
+        def tek():
+            try:
+                k, _ = posluh.accept()
+            except OSError:
+                return
+            with k:
+                try:
+                    k.settimeout(1)
+                    k.recv(4096)
+                    k.sendall(struct.pack("!H", len(odgovor)))
+                    for b in odgovor:
+                        if konec_streznika.wait(0.1):
+                            return
+                        k.sendall(bytes([b]))
+                except OSError:
+                    return
+        nit = threading.Thread(target=tek, daemon=True)
+        nit.start()
+
+        def koncaj():
+            konec_streznika.set()
+            nit.join(3)
+            posluh.close()
+        self.addCleanup(koncaj)
+        izvirni = socket.create_connection
+        r = os_scit.Razresevalnik(lambda ime: None, lambda: ["127.0.0.1"])
+        with mock.patch.object(os_scit, "CAS_UPSTREAM", 0.5), \
+                mock.patch.object(socket, "create_connection",
+                                  lambda naslov, timeout=None: izvirni((naslov[0], vrata), timeout=timeout)):
+            t0 = time.monotonic()
+            o = r._vprasaj_usmerjevalnik(p, True)
+            trajalo = time.monotonic() - t0
+        self.assertLess(trajalo, 0.9)
+        self.assertEqual(o[:4], b"\x05\x05\x81\x82")        # SERVFAIL v roku
+
 
 if __name__ == "__main__":
     unittest.main()

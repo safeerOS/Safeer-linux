@@ -554,8 +554,9 @@ class Razresevalnik:
             try:
                 with socket.create_connection((streznik, 53), timeout=ostane) as s:
                     s.sendall(struct.pack("!H", len(paket)) + paket)
-                    glava = self._preberi(s, 2)
-                    odgovor = self._preberi(s, struct.unpack("!H", glava)[0])
+                    # CodeRabbit 5. 11. 2026: rok vsakega branja je ostanek skupnega roka, ne nov poln rok.
+                    glava = self._preberi(s, 2, konec)
+                    odgovor = self._preberi(s, struct.unpack("!H", glava)[0], konec)
                 if odgovor[:2] == paket[:2]:
                     return odgovor
             except (OSError, struct.error):
@@ -604,9 +605,16 @@ class Razresevalnik:
                 s.close()
 
     @staticmethod
-    def _preberi(s: socket.socket, n: int) -> bytes:
+    def _preberi(s: socket.socket, n: int, konec: Optional[float] = None) -> bytes:
+        """Natanko n bajtov; s `konec` (time.monotonic) je to skupni rok vseh branj - streznik, ki telo posilja po
+        kosih, ga ne podaljsa (vsak recv bi sicer dobil poln rok vticnice znova)."""
         b = b""
         while len(b) < n:
+            if konec is not None:
+                ostane = konec - time.monotonic()
+                if ostane <= 0:
+                    raise socket.timeout("rok potekel")
+                s.settimeout(ostane)
             d = s.recv(n - len(b))
             if not d:
                 raise OSError("prekinjeno")
@@ -678,10 +686,9 @@ class Razresevalnik:
 
             def delo(s=s):
                 try:
-                    s.settimeout(self.ROK_GLAVE_TCP_S)
-                    n = struct.unpack("!H", self._preberi(s, 2))[0]
-                    s.settimeout(10)
-                    odgovor = self._odgovori(self._preberi(s, n), True)
+                    # Glava in telo vsak v svojem skupnem roku: odjemalec po bajtih ne zadrzi niti dlje (5. 11. 2026).
+                    n = struct.unpack("!H", self._preberi(s, 2, time.monotonic() + self.ROK_GLAVE_TCP_S))[0]
+                    odgovor = self._odgovori(self._preberi(s, n, time.monotonic() + 10), True)
                     if odgovor:
                         s.sendall(struct.pack("!H", len(odgovor)) + odgovor)
                 except (OSError, struct.error):
