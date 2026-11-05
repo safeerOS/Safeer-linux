@@ -417,19 +417,28 @@ class Priljubljeno(Osnova):
                             " r.push(o ? [o.y, o.height] : null) } return r })()", v)
             self.assertNotIn(None, koti)
             self.assertEqual(len({k[0] for k in koti}), 1, koti)
-            # Ena vrsta: visina vrstice je ena oznaka, Razvrsti je v isti vrsti.
+            # Ena vrsta: visina vrstice je ena oznaka, Razvrsti desno v isti vrsti, pogled ob iskanju. Od 1366 px naprej
+            # (sl in de) brez drsenja in brez odrezane oznake (lastnik, 5. 11. 2026).
             visina_oznake = koti[0][1]
             self.assertLess(v.property("height"), 2 * visina_oznake)
             r = self._obj("gumbRazvrsti")
             sredina = lambda o: o.mapToItem(None, QPointF(0, o.property("height") / 2)).y()  # noqa: E731
             self.assertLess(abs(sredina(v) - sredina(r)), visina_oznake / 2)
+            self.assertLess(abs(sredina(self._obj("poljeProgramov")) - sredina(self._obj("gumbPogled"))), visina_oznake / 2)
+            self.assertLessEqual(v.property("contentWidth"), v.property("width"), "kategorije pri %d px drsijo" % sirina)
             # Zadnja kategorija s tipkovnico: v celoti vidna.
             self._js("itemAtIndex(count - 1).forceActiveFocus()", v)
             self._pocakaj(lambda: False, 0.3)
             x, s_, cx, w = self._js("[itemAtIndex(count - 1).x, itemAtIndex(count - 1).width, contentX, width]", v)
             self.assertGreaterEqual(x - cx, -0.5)
             self.assertLessEqual(x + s_ - cx, w + 0.5)
-            print("[kategorije] %s %dx%d: sirina vrstice %d, vsebina %d" % (jezik, sirina, visina, w, v.property("contentWidth")))
+            print("[kategorije] %s %dx%d: plosca %d, vrstica %d, vsebina %d, iskanje %d, Razvrsti %d" % (
+                jezik, sirina, visina, self._obj("panelProgrami").property("width"), w, v.property("contentWidth"),
+                self._obj("poljeProgramov").property("width"), r.property("width")))
+            # Iskanje ostane berljivo: polje je vsaj tako siroko kot namig »Isci programe …«.
+            polje = self._obj("poljeProgramov")
+            potrebno = self._js("implicitWidth - leftPadding - rightPadding", polje)   # namig (placeholder) cel
+            self.assertGreaterEqual(polje.property("width"), potrebno, "iskalno polje odreze namig")
             if v.property("contentWidth") > w:
                 # Drsnik je viden: uporabnik ve, da je desno se kaj.
                 self.assertEqual(self._js("ScrollBar.horizontal.policy === ScrollBar.AlwaysOn", v), True)
@@ -441,7 +450,7 @@ class Priljubljeno(Osnova):
                 QApplication.sendEvent(self.n.okno, dogodek)
                 self.assertTrue(self._pocakaj(lambda: v.property("contentX") < pred), (pred, v.property("contentX")))
             if mapa:
-                self.n.okno.grabWindow().save(os.path.join(mapa, "kategorije-%s-%d.png" % (jezik, sirina)))
+                self.n.okno.grabWindow().save(os.path.join(mapa, "naslovna-kategorije-%s-%d.png" % (jezik, sirina)))
 
     def test_kategorije_programov_v_eni_vrstici(self):
         self._kategorije_v_eni_vrstici("sl")

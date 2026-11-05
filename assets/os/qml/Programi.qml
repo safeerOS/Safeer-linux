@@ -10,6 +10,8 @@ import QtQuick.Layouts
 
 Steklo {
     id: panel
+    // Sirina plosce, pod katero je gumb Razvrsti brez »Razvrsti:« (vrstica kategorij brez drsenja, meritev 5. 11. 2026).
+    readonly property int kratkoRazvrstiPx: 900
     property var vsi: []
     // Programi TEGA racunalnika: lupa namizja isce samo med njimi, tudi ko plosca kaze programe druge naprave (prej je
     // lupa takrat iskala med programi naprave, nov program racunalnika pa se ni osvezil - 25. 10. 2026).
@@ -225,7 +227,7 @@ Steklo {
                 onKlik: dodajSpletno.odpri()
             }
             Rectangle {
-                Layout.fillWidth: true; height: 34; radius: 17
+                Layout.fillWidth: true; Layout.minimumWidth: koren.px(120); height: 34; radius: 17
                 color: koren.prekriv(0.07); border.color: koren.crta(0.12)
                 Lupa { x: 12; anchors.verticalCenter: parent.verticalCenter; scale: 0.8 }
                 TextField {
@@ -236,6 +238,15 @@ Steklo {
                     background: Item {}
                     onTextChanged: panel.niz = text
                 }
+            }
+            // Pogled (mreza/seznam) v naslovni vrsti, Razvrsti desno v vrstici kategorij (lastnik, 5. 11. 2026: brez
+            // odrezanih oznak). Izmerjeno offscreen pri 1366 px: plosca 714 px, kategorije 538 (sl) / 549 (de) px +
+            // kratek Razvrsti 92 / 105 px - vse v eni vrsti brez drsenja, iskanje ostane berljivo.
+            GumbIkona {
+                objectName: "gumbPogled"
+                pot: panel.seznamPogled ? "M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" : "M4 6h16 M4 12h16 M4 18h16"
+                ime: koren.t("pogledSeznam"); velikostIkone: 16
+                onKlik: panel.nastavi("programiPogled", panel.seznamPogled ? "mreza" : "seznam")
             }
         }
         RowLayout {
@@ -293,15 +304,12 @@ Steklo {
                 objectName: "gumbRazvrsti"
                 // Samo kjer Safeer OS steje zagone (Linux): brez podatkov o uporabi bi bila izbira prazna obljuba.
                 visible: panel.linux && panel.naprava === "" && panel.skupina !== "priljubljeni"
-                besedilo: koren.t("razvrstiPo", { k: koren.t(panel.razvrsti === "nazadnje" ? "razvrstiNazadnje"
-                                                              : panel.razvrsti === "najveckrat" ? "razvrstiNajveckrat" : "razvrstiIme") }) + "  ▾"
+                readonly property string izbira: koren.t(panel.razvrsti === "nazadnje" ? "razvrstiNazadnje"
+                                                         : panel.razvrsti === "najveckrat" ? "razvrstiNajveckrat" : "razvrstiIme")
+                // Ozka plosca (1366 px): brez »Razvrsti:«, da kategorije in Razvrsti ostanejo v eni vrsti; dostopno ime je celo.
+                besedilo: (panel.width < koren.px(panel.kratkoRazvrstiPx) ? izbira : koren.t("razvrstiPo", { k: izbira })) + "  ▾"
+                Accessible.name: koren.t("razvrstiPo", { k: izbira })
                 onKlik: meniRazvrsti.popup(gumbRazvrsti, 0, gumbRazvrsti.height + 4)
-            }
-            GumbIkona {
-                objectName: "gumbPogled"
-                pot: panel.seznamPogled ? "M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" : "M4 6h16 M4 12h16 M4 18h16"
-                ime: koren.t("pogledSeznam"); velikostIkone: 16
-                onKlik: panel.nastavi("programiPogled", panel.seznamPogled ? "mreza" : "seznam")
             }
         }
         // Priljubljeni v uporabnikovem vrstnem redu (povleci ali Alt+puscica) - samo v kategoriji »★ Priljubljeni«.
