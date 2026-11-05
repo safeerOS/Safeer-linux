@@ -129,11 +129,19 @@ Item {
     function vprasajAgenta(q) {
         obvesti(t("agentDela"))
         klic("agentVprasaj", [q], function (r) {
+            // Model ni odgovoril: vnos agenta takoj skrijemo (prazen gumb ni dovoljen, AGENTS.md).
+            if (r && (r.koda === "ni_modela" || r.koda === "model_ni_dosegljiv")) koren.agentNaVoljo = false
             if (r && r.koda === "ni_modela") obvesti(t("agentNiNastavljen"))
             else if (r && r.koda === "model_ni_dosegljiv") obvesti(t("agentNedosegljiv"))
             else obvesti((r && r.povzetek) || t("niUspelo"))
         }, function () { obvesti(t("niUspelo")) })
     }
+    // Vnos agenta samo, ce model res odgovarja (safeer_os agentLupa: preverba v ozadju z rokom 1,5 s, izid velja 60 s).
+    // Ob vsakem odprtju lupe, uporabnik ne caka (lastnik, 5. 11. 2026: naslov nastavljen, model ne tece -> prazen vnos).
+    function osveziAgenta() {
+        klic("agentLupa", [], function (r) { koren.agentNaVoljo = !!(r && r.na_voljo) }, function () {})
+    }
+    onLupaOdprtaChanged: if (lupaOdprta) osveziAgenta()
     // Razdelek Datoteke ali Programi z drugega mesta (okno Zapiski, Nastavitve …): plosca na namizju dobi fokus, Datoteke
     // pri mapi. Prej se je odprlo staro glavno okno Safeer OS (popis 3.1, safeer_os._pokazi_na_namizju, 18. 10. 2026).
     function pokaziNaNamizju(p) {
@@ -223,6 +231,7 @@ Item {
             Accessible.name: koren.t(koren.agentNaVoljo ? "isciAliUkazi" : "isci")
             Accessible.description: "Ctrl+K"
             onTextChanged: casovnikIskanja.restart()
+            onActiveFocusChanged: if (activeFocus) koren.osveziAgenta()
             Keys.onReturnPressed: function (d) {
                 if (d.modifiers & Qt.ShiftModifier) { if (polje.text.trim()) zadetki.izberiVnos({ vrsta: "splet", kljuc: polje.text.trim() }) }
                 // Ctrl+Enter: stavek gre Safeer Agentu (kot v oknu Safeer OS).

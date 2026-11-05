@@ -165,6 +165,70 @@ def test_most_in_dogodek():
         so = f.read()
     for metoda in ("agentStanje", "agentNastavi", "agentVklop", "agentTrajanje", "agentDosegljivost", "agentVprasaj"):
         assert '"%s": lambda: self._agent(' % metoda in so, metoda
-    # Sprememba gre vsem pogledom (iskalna lupa) - samo uspesna.
-    assert 'if izid.get("ok"):\n            self._dogodek("agent", {"na_voljo": bool(izid.get("na_voljo"))})' in so
-    assert '"agent": {"na_voljo": bool(self._agent("stanje").get("na_voljo"))},' in so
+    assert '"agentLupa": lambda: self._agent("lupa"),' in so
+    # Sprememba gre vsem pogledom (iskalna lupa) - samo uspesna, in se ni dokaz, da model odgovarja.
+    assert 'if izid.get("ok"):\n            # Nov naslov' in so
+    assert 'self._dogodek("agent", agent_nastavitve.lupa_na_voljo(preveri=False))' in so
+    assert '"agent": self._agent("lupa_brez_omrezja"),' in so
+
+
+@pytest.fixture
+def brez_predpomnilnika_lupe():
+    nastavitve.lupa_zapomni(None, "")
+    yield
+    nastavitve.lupa_zapomni(None, "")
+
+
+def test_lupa_agent_samo_ko_model_odgovarja(mapa, brez_predpomnilnika_lupe):
+    """Lastnik, 5. 11. 2026 (testni PC: naslov nastavljen, model ne tece - Connection refused): lupa je ponudila agenta,
+    klik pa »model ni dosegljiv«. Vnos sme biti samo, ko je model nedavno odgovoril; izid velja 60 s (vbrizgana ura)."""
+    s = _Streznik({"/v1/models": (200, json.dumps({"data": [{"id": "gemma"}]}).encode())})
+    try:
+        nastavitve.nastavi_naslov(s.naslov)
+        assert nastavitve.lupa_na_voljo(zdaj=1000.0) == {"na_voljo": True}
+    finally:
+        s.ustavi()
+    # Model ustavljen: v roku predpomnilnika brez omrezja, po roku preverba v ozadju pove resnico.
+    assert nastavitve.lupa_na_voljo(zdaj=1030.0) == {"na_voljo": True}
+    assert nastavitve.lupa_na_voljo(zdaj=1000.0 + nastavitve.PREDPOMNILNIK_LUPE_S + 1) == {"na_voljo": False}
+    # Naslov je nastavljen (stanje() pravi na_voljo), model pa ne odgovarja: lupa ga ne ponudi.
+    assert nastavitve.stanje()["na_voljo"] is True
+    nastavitve.lupa_zapomni(None)
+    assert nastavitve.lupa_na_voljo(preveri=False) == {"na_voljo": False}
+    assert nastavitve.lupa_na_voljo() == {"na_voljo": False}
+    # Izklop ali brisanje naslova v drugem procesu velja takoj, tudi ce je izid se v predpomnilniku.
+    nastavitve.lupa_zapomni(True)
+    assert nastavitve.lupa_na_voljo(preveri=False) == {"na_voljo": True}
+    (mapa / "izklopljen").write_text("1\n")
+    assert nastavitve.lupa_na_voljo(preveri=False) == {"na_voljo": False}
+    (mapa / "izklopljen").unlink()
+    (mapa / "naslov").unlink()
+    assert nastavitve.lupa_na_voljo(preveri=False) == {"na_voljo": False}
+
+
+def test_lupa_rok_preverbe_kratek(mapa, brez_predpomnilnika_lupe, monkeypatch):
+    """Preverba za lupo ne sme cakati 3 s kot gumb Preveri v Nastavitvah: rok ROK_LUPE_S."""
+    nastavitve.nastavi_naslov("http://192.0.2.7:8085")
+    roki = []
+    monkeypatch.setattr(nastavitve, "dosegljivost", lambda n, cas: roki.append(cas) or {"dosegljiv": False})
+    assert nastavitve.lupa_na_voljo() == {"na_voljo": False}
+    assert roki == [nastavitve.ROK_LUPE_S] and nastavitve.ROK_LUPE_S <= 1.5
+
+
+def test_klic_brez_modela_skrije_vnos(mapa, brez_predpomnilnika_lupe, monkeypatch):
+    """safeer_os._agent: ni_modela ali model_ni_dosegljiv iz lupe -> lupa vnosa ne ponudi, dokler model spet ne odgovori;
+    nov naslov v Nastavitvah ni dokaz, da model tece (dogodek »agent« pove na_voljo False do preverbe)."""
+    import safeer_os as so
+    nastavitve.nastavi_naslov("http://192.0.2.7:8085")
+    nastavitve.lupa_zapomni(True)
+    monkeypatch.setattr(storitev, "vprasaj_tukaj", lambda b: {"ok": False, "koda": "model_ni_dosegljiv", "koraki": [], "povzetek": ""})
+    dogodki = []
+
+    class Os:
+        def _dogodek(self, vrsta, podatki):
+            dogodki.append((vrsta, podatki))
+    assert so.SafeerOS._agent(Os(), "vprasaj", "glasneje")["koda"] == "model_ni_dosegljiv"
+    assert so.SafeerOS._agent(Os(), "lupa_brez_omrezja") == {"na_voljo": False}
+    nastavitve.lupa_zapomni(True)
+    assert so.SafeerOS._agent(Os(), "naslov", "http://192.0.2.8:8085")["ok"]
+    assert dogodki == [("agent", {"na_voljo": False})]

@@ -11124,7 +11124,7 @@ function narisiKatViri() {
         iskanje.value = ""; iskanje.blur();
       }
     });
-    iskanje.addEventListener("focus", function () { if (iskanje.value) isci(); lupaUredi(); });
+    iskanje.addEventListener("focus", function () { if (iskanje.value) isci(); lupaUredi(); osveziAgenta(); });
     iskanje.addEventListener("blur", function () { setTimeout(lupaUredi, 0); });
     // Kot meni Start (in Rofi): kar zacnes tipkati, gre v iskanje - v oknu razdelka v njegovo iskanje.
     document.addEventListener("keydown", function (e) {
@@ -11167,6 +11167,16 @@ function narisiKatViri() {
     return $({ nastavitve: "nastavitveIskanje", zapiski: "zapiskiIskanje", sporocila: "sporocilaIskanje" }[EN_RAZDELEK] || "") || null;
   }
   function agentNaVoljo() { return !!(S.agent && S.agent.na_voljo); }
+  function nastaviAgenta(na) {
+    if (!!na === agentNaVoljo()) return;
+    S.agent = { na_voljo: !!na }; lupaUredi(); if ($("bliznjice")) narisiBliznjice();
+    if ($("iskanje") && $("iskanje").value) isci();
+  }
+  // Vnos agenta samo, ce model res odgovarja (safeer_os agentLupa: preverba v ozadju z rokom 1,5 s, izid velja 60 s).
+  // Ob vsakem odprtju lupe, uporabnik ne caka (lastnik, 5. 11. 2026: naslov nastavljen, model ne tece -> prazen vnos).
+  function osveziAgenta() {
+    klic("agentLupa").then(function (r) { nastaviAgenta(r && r.na_voljo); }, function () {});
+  }
   // Iskalna lupa v glavi: zlozena (kratko polje z namigom Ctrl+K), dokler je ne uporabis; razsirjena med iskanjem.
   function lupaUredi() {
     var l = $("iskanjeLupa"), v = $("iskanje");
@@ -11180,6 +11190,8 @@ function narisiKatViri() {
   function vprasajAgenta(niz) {
     obvesti(t("agentDelam"));
     klic("agentVprasaj", [niz]).then(function (r) {
+      // Model ni odgovoril: vnos agenta in namig Ctrl+Enter takoj skrijemo (prazen gumb ni dovoljen, AGENTS.md).
+      if (r && (r.koda === "ni_modela" || r.koda === "model_ni_dosegljiv")) nastaviAgenta(false);
       if (r && r.koda === "ni_modela") { obvesti(t("agentNiModela")); return; }
       if (r && r.koda === "model_ni_dosegljiv") { obvesti(t("agentStNedosegljiv")); return; }
       obvesti((r && r.povzetek) || t("niUspelo"));

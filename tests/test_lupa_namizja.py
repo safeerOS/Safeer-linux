@@ -31,7 +31,7 @@ class LupaNamizja(unittest.TestCase):
             time.sleep(0.02)
         return pogoj()
 
-    def _namizje(self, platforma="linux", lupa=None):
+    def _namizje(self, platforma="linux", lupa=None, agent_zacetek=False, agent_lupa=False, agent_vprasaj=None):
         import safeer_os as so
         from core import os_lupina
         klici = self.klici = []
@@ -40,7 +40,7 @@ class LupaNamizja(unittest.TestCase):
             shramba = {}
 
             def _zacetek(self):
-                return {"jezik": "sl", "platforma": platforma, "mape": [], "agent": {"na_voljo": False}}
+                return {"jezik": "sl", "platforma": platforma, "mape": [], "agent": {"na_voljo": agent_zacetek}}
 
             def _seznam_programov(self):
                 return [{"id": "/a/com.anthropic.Claude.desktop", "ime": "Claude", "splosno": "AI Assistant",
@@ -55,7 +55,8 @@ class LupaNamizja(unittest.TestCase):
 
             def _obdelaj_klic(self, pogled, klic_id, metoda, a):
                 klici.append((metoda, a))
-                odg = {"predvajalnikStanje": {}, "agentVprasaj": {"ok": True, "koda": "", "povzetek": "Utišano na Dnevna soba."}}
+                odg = {"predvajalnikStanje": {}, "agentLupa": {"na_voljo": agent_lupa},
+                       "agentVprasaj": agent_vprasaj or {"ok": True, "koda": "", "povzetek": "Utišano na Dnevna soba."}}
                 if metoda == "priljubljenoSeznam" and lupa:
                     odg[metoda] = {"datoteke": [], "programi": [], "kategorije": {}, "nastavitve": {"lupa": lupa}, "rod": 1}
                 pogled.qml_odgovor(klic_id, True, odg.get(metoda, []))
@@ -304,6 +305,38 @@ class LupaNamizja(unittest.TestCase):
         self._tipka(Qt.Key.Key_Return, "", Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(self._pocakaj(lambda: ("agentVprasaj", ["uti"]) in self.klici), self.klici[-5:])
         self.assertEqual(self._el("iskalnoPolje").property("text"), "")
+
+    def test_agent_samo_ko_model_odgovarja(self):
+        """Lastnik, 5. 11. 2026: lupa je ponudila »Vprasaj Safeer Agenta«, model pa ni tekel. Zacetek je pravil, da je
+        agent na voljo (samo naslov), odprtje lupe vprasa agentLupa (ali model odgovarja) - vnosa ni."""
+        from PySide6.QtCore import Qt
+        self._namizje(agent_zacetek=True, agent_lupa=False)
+        model = self._el("zadetkiModel")
+        vrste = lambda: [model.get(i).property("vrsta").toString() for i in range(model.property("count"))]  # noqa: E731
+        for k, c in ((Qt.Key.Key_U, "u"), (Qt.Key.Key_T, "t"), (Qt.Key.Key_I, "i")):
+            self._tipka(k, c)
+        self.assertTrue(self._pocakaj(lambda: model.property("count") > 0))
+        self.assertIn(("agentLupa", []), self.klici)
+        self._pocakaj(lambda: False, 0.5)
+        self.assertNotIn("agent", vrste())
+        self.assertEqual(self.koren.property("agentNaVoljo"), False)
+        self.assertNotIn("Safeer Agent", self._el("iskalnoPolje").property("placeholderText"))
+
+    def test_agent_skrit_po_neodgovoru(self):
+        """Model je odgovoril ob odprtju, ob kliku pa ne vec: vnos in Ctrl+Enter takoj izgineta."""
+        from PySide6.QtCore import Qt
+        self._namizje(agent_lupa=True, agent_vprasaj={"ok": False, "koda": "model_ni_dosegljiv", "koraki": [], "povzetek": ""})
+        model = self._el("zadetkiModel")
+        vrste = lambda: [model.get(i).property("vrsta").toString() for i in range(model.property("count"))]  # noqa: E731
+        for k, c in ((Qt.Key.Key_U, "u"), (Qt.Key.Key_T, "t"), (Qt.Key.Key_I, "i")):
+            self._tipka(k, c)
+        self.assertTrue(self._pocakaj(lambda: "agent" in vrste()))
+        self._tipka(Qt.Key.Key_Return, "", Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(self._pocakaj(lambda: self.koren.property("agentNaVoljo") is False))
+        for k, c in ((Qt.Key.Key_U, "u"), (Qt.Key.Key_T, "t"), (Qt.Key.Key_I, "i")):
+            self._tipka(k, c)
+        self._pocakaj(lambda: False, 0.5)
+        self.assertNotIn("agent", vrste())
 
 
 if __name__ == "__main__":

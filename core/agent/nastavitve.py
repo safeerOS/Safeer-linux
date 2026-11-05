@@ -18,6 +18,8 @@ import ipaddress
 import json
 import os
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +31,14 @@ MAPA = ""
 TRAJANJA = (1, 5, 15, 30, 60, 0)
 PRIVZETO_TRAJANJE = 0
 NAJDALJSI_NASLOV = 200
+#: Iskalna lupa pokaze vnos agenta samo, ce je model nedavno odgovoril (lastnik, 5. 11. 2026: naslov je bil nastavljen,
+#: model ni tekel - izmerjeno na testnem PC: Connection refused - lupa je ponudila agenta, klik pa »model ni dosegljiv«).
+#: Rok preverbe je kratek, da se vnos pokaze takoj; izid velja PREDPOMNILNIK_LUPE_S, da vsako odprtje ne gre v omrezje.
+ROK_LUPE_S = 1.5
+PREDPOMNILNIK_LUPE_S = 60.0
+#: (naslov, monotonic, dosegljiv) zadnje preverbe za lupo; zaklep, ker klici mostu tecejo v nitih ozadja.
+_lupa_zadnje: tuple = ("", 0.0, False)
+_lupa_zaklep = threading.Lock()
 
 
 def mapa() -> str:
@@ -237,3 +247,36 @@ def dosegljivost(naslov: Optional[str] = None, cas: float = 3.0) -> dict:
             pass
         return {"dosegljiv": True, "model": os.path.basename(model) if "/" in model else model, "napaka": ""}
     return {"dosegljiv": False, "model": "", "napaka": napaka or "ni_odgovora"}
+
+
+def lupa_na_voljo(preveri: bool = True, zdaj: Optional[float] = None) -> dict:
+    """{"na_voljo": bool} za iskalno lupo: agent vklopljen, ima naslov IN model je v zadnjih PREDPOMNILNIK_LUPE_S
+    odgovoril. Stanje beremo ob vsakem klicu (naslov ali izklop iz drugega procesa velja takoj). preveri=False: samo
+    predpomnilnik, brez omrezja (zacetek lupe, dogodek po spremembi nastavitev) - neznano steje kot ni na voljo."""
+    global _lupa_zadnje
+    from core.agent.razumevanje import naslov_modela
+    n = naslov_modela()
+    if not n:
+        return {"na_voljo": False}
+    t = time.monotonic() if zdaj is None else zdaj
+    with _lupa_zaklep:
+        naslov, kdaj, dosegljiv = _lupa_zadnje
+    if naslov == n and 0 <= t - kdaj < PREDPOMNILNIK_LUPE_S:
+        return {"na_voljo": dosegljiv}
+    if not preveri:
+        return {"na_voljo": False}
+    d = bool(dosegljivost(n, ROK_LUPE_S).get("dosegljiv"))
+    lupa_zapomni(d, n, t)
+    return {"na_voljo": d}
+
+
+def lupa_zapomni(dosegljiv: Optional[bool], naslov: Optional[str] = None, zdaj: Optional[float] = None) -> None:
+    """Izid za lupo: klic agenta je model dosegel (True) ali ne (False - vnos se skrije, dokler model spet ne odgovori);
+    None pozabi izid (sprememba nastavitev: naslednje odprtje lupe preveri znova)."""
+    global _lupa_zadnje
+    if naslov is None:
+        from core.agent.razumevanje import naslov_modela
+        naslov = naslov_modela()
+    t = time.monotonic() if zdaj is None else zdaj
+    with _lupa_zaklep:
+        _lupa_zadnje = ("", 0.0, False) if dosegljiv is None or not naslov else (naslov, t, bool(dosegljiv))

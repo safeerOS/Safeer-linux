@@ -4876,6 +4876,8 @@ class SafeerOS(Gtk.Application):
             "agentTrajanje": lambda: self._agent("trajanje", a[0] if a else None),
             "agentDosegljivost": lambda: self._agent("dosegljivost"),
             "agentVprasaj": lambda: self._agent("vprasaj", str(a[0]) if a else ""),
+            # Iskalna lupa ob vsakem odprtju: vnos agenta samo, ce model odgovarja (kratek rok, predpomnilnik 60 s).
+            "agentLupa": lambda: self._agent("lupa"),
             "napajanje": lambda: os_sistem.napajanje(str(a[0]) if a else ""),
             "mapa": lambda: os_datoteke.preglej(str(a[0]) if a else "~"),
             # Iz indeksa v pomnilniku (takoj, po vsej globini); drugi parameter: koliko zadetkov (razdelek Datoteke vec).
@@ -5241,12 +5243,24 @@ class SafeerOS(Gtk.Application):
             return agent_nastavitve.stanje()
         if kaj == "dosegljivost":
             return agent_nastavitve.dosegljivost()
+        if kaj == "lupa":
+            return agent_nastavitve.lupa_na_voljo()
+        if kaj == "lupa_brez_omrezja":
+            return agent_nastavitve.lupa_na_voljo(preveri=False)
         if kaj == "vprasaj":
-            return agent_storitev.vprasaj_tukaj(vrednost)
+            izid = agent_storitev.vprasaj_tukaj(vrednost)
+            # Model ni odgovoril: lupa vnos skrije in ga ne ponudi, dokler model spet ne odgovori (lastnik, 5. 11. 2026).
+            if izid.get("koda") in ("ni_modela", "model_ni_dosegljiv"):
+                agent_nastavitve.lupa_zapomni(False)
+            elif izid.get("ok"):
+                agent_nastavitve.lupa_zapomni(True)
+            return izid
         izid = {"naslov": agent_nastavitve.nastavi_naslov, "vklop": agent_nastavitve.nastavi_vklop,
                 "trajanje": agent_nastavitve.nastavi_trajanje}[kaj](vrednost)
         if izid.get("ok"):
-            self._dogodek("agent", {"na_voljo": bool(izid.get("na_voljo"))})
+            # Nov naslov ali vklop se ni dokaz, da model odgovarja: lupa ga preveri ob naslednjem odprtju (agentLupa).
+            agent_nastavitve.lupa_zapomni(None)
+            self._dogodek("agent", agent_nastavitve.lupa_na_voljo(preveri=False))
         return izid
 
     def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
@@ -5337,8 +5351,9 @@ class SafeerOS(Gtk.Application):
             "vlecenjeDatotek": self._vlecenje_na_voljo(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
             "razpolozljivo": os_sistem.razpolozljivo(_jezik()),
-            # Iskalna lupa: vnos »Vprasaj Safeer Agenta« samo, ce ima agent nastavljen in vklopljen model.
-            "agent": {"na_voljo": bool(self._agent("stanje").get("na_voljo"))},
+            # Iskalna lupa: vnos »Vprasaj Safeer Agenta« samo, ce model odgovarja. Zacetek je na glavni niti, zato samo
+            # predpomnilnik (brez omrezja); lupa ob odprtju vprasa agentLupa.
+            "agent": self._agent("lupa_brez_omrezja"),
             "mape": os_datoteke.uporabniske_mape(),
             "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,
