@@ -292,13 +292,21 @@
     });
   }
   var obvestiloCas = 0;
+  // Ponudba ob zagonu, ki caka na izbiro uporabnika (ponudiScitDovoljenje). Drugo obvestilo jo lahko za hip zamenja;
+  // ko se to skrije, se ponudba vrne - prej je izginila in uporabnik je v tej seji ni mogel sprejeti (CodeRabbit).
+  var cakajocaPonudba = null;
+  function skrijObvestilo() {
+    var o = $("obvestilo");
+    o.classList.remove("viden", "z-gumbom");
+    if (cakajocaPonudba) cakajocaPonudba();
+  }
   function obvesti(besedilo) {
     var o = $("obvestilo");
     o.textContent = besedilo;
     o.classList.remove("z-gumbom");
     o.classList.add("viden");
     clearTimeout(obvestiloCas);
-    obvestiloCas = setTimeout(function () { o.classList.remove("viden"); }, 2600);
+    obvestiloCas = setTimeout(skrijObvestilo, 2600);
   }
   // Prvi film iz torrenta: Safeer enkrat prenese odprtokodni predvajalni program. To je viden korak - z napredkom
   // in moznostjo preklica -, ne tiho cakanje.
@@ -318,14 +326,14 @@
       g.type = "button";
       g.addEventListener("click", function () {
         klic("mediaMotorPreklici").then(function () {}, function () {});
-        o.classList.remove("viden", "z-gumbom");
+        skrijObvestilo();
       });
       o.appendChild(g);
       o.classList.add("z-gumbom");
     }
     o.classList.add("viden");
     clearTimeout(obvestiloCas);
-    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, odstotek < 100 ? 20000 : 2600);
+    obvestiloCas = setTimeout(skrijObvestilo, odstotek < 100 ? 20000 : 2600);
   }
   // Barvna ploscica s prvo crko (program brez ikone, spletna aplikacija).
   function barva(ime) {
@@ -3425,16 +3433,19 @@
         if (s) scitStanje = s;
         if (!s || !s.dovoljenjePonudi) return;
         var o = $("obvestilo");
-        o.textContent = "";
-        o.appendChild(el("span", "", ubezi(t("scitNapaka_" + (s.dovoljenje === "siroko" ? "siroko" : "pomocnik_star")))));
-        var da = el("button", "", ubezi(t("scitDovoljenjePosodobi"))); da.type = "button";
-        var ne = el("button", "", ubezi(t("scitDovoljenjeNeZdaj"))); ne.type = "button";
-        function izberi(v) { o.classList.remove("viden", "z-gumbom"); posodobiScitDovoljenje(v); }
-        da.addEventListener("click", function () { izberi(true); });
-        ne.addEventListener("click", function () { izberi(false); });
-        o.appendChild(da); o.appendChild(ne);
-        clearTimeout(obvestiloCas);
-        o.classList.add("z-gumbom", "viden");
+        function izberi(v) { cakajocaPonudba = null; o.classList.remove("viden", "z-gumbom"); posodobiScitDovoljenje(v); }
+        cakajocaPonudba = function () {
+          o.textContent = "";
+          o.appendChild(el("span", "", ubezi(t("scitNapaka_" + (s.dovoljenje === "siroko" ? "siroko" : "pomocnik_star")))));
+          var da = el("button", "", ubezi(t("scitDovoljenjePosodobi"))); da.type = "button";
+          var ne = el("button", "", ubezi(t("scitDovoljenjeNeZdaj"))); ne.type = "button";
+          da.addEventListener("click", function () { izberi(true); });
+          ne.addEventListener("click", function () { izberi(false); });
+          o.appendChild(da); o.appendChild(ne);
+          clearTimeout(obvestiloCas);
+          o.classList.add("z-gumbom", "viden");
+        };
+        cakajocaPonudba();
       }, function () {});
     }, 4000);
   }
@@ -4857,10 +4868,10 @@
     o.textContent = ""; o.appendChild(el("span", "", ubezi(besedilo)));
     var g = el("button", "", ubezi(t("dejanjeRazveljavi"))); g.type = "button";
     g.title = t("dejanjeRazveljavi") + " (Ctrl+Z)";
-    g.addEventListener("click", function () { o.classList.remove("viden", "z-gumbom"); razveljavi(); });
+    g.addEventListener("click", function () { skrijObvestilo(); razveljavi(); });
     o.appendChild(g); o.classList.add("z-gumbom", "viden");
     clearTimeout(obvestiloCas);
-    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, 5000);
+    obvestiloCas = setTimeout(skrijObvestilo, 5000);
   }
   function javiNapakeDejanja(p) {
     var napake = (p && p.napake) || [];
@@ -5037,7 +5048,7 @@
   function tipkeSeznama(e) {
     if (e.target && (e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && e.target.type !== "checkbox"))) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "z" || e.key === "Z")) {
-      if (razveljaviZadnje) { e.preventDefault(); $("obvestilo").classList.remove("viden", "z-gumbom"); razveljaviZadnje(); }
+      if (razveljaviZadnje) { e.preventDefault(); skrijObvestilo(); razveljaviZadnje(); }
       return;
     }
     var ovoj = e.target && e.target.closest ? e.target.closest(".pogovor-ovoj") : null;
@@ -5482,17 +5493,17 @@
     o.textContent = ""; o.appendChild(el("span", "", ubezi(besedilo)));
     if (pot && !brezOdpri) {
       var g1 = el("button", "", ubezi(t("priponkaOdpri"))); g1.type = "button";
-      g1.addEventListener("click", function () { klic("odpriDatoteko", [pot]); o.classList.remove("viden", "z-gumbom"); });
+      g1.addEventListener("click", function () { klic("odpriDatoteko", [pot]); skrijObvestilo(); });
       o.appendChild(g1);
     }
     if (pot) {
       var g2 = el("button", "", ubezi(t("priponkaMapa"))); g2.type = "button";
-      g2.addEventListener("click", function () { klic("pokaziVMapi", [pot]); o.classList.remove("viden", "z-gumbom"); });
+      g2.addEventListener("click", function () { klic("pokaziVMapi", [pot]); skrijObvestilo(); });
       o.appendChild(g2);
     }
     o.classList.add("viden", "z-gumbom");
     clearTimeout(obvestiloCas);
-    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, 8000);
+    obvestiloCas = setTimeout(skrijObvestilo, 8000);
   }
   // ---- priloge pri pisanju (»Prilozi«, povleci in spusti)
   function skupajPrilog(kje) { return S.priloge[kje].reduce(function (v, p) { return v + (Number(p.velikost) || 0); }, 0); }
