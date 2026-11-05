@@ -19,6 +19,7 @@ if __name__ == "__main__" and not __package__:
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import random
+import signal
 import socket
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,6 +32,60 @@ CAKANJE_KLICA_S = 30
 PRVI_ZAGON_S = 6
 PONOVNO_MS = 500
 NAPAKA_OS = "safeerOsSeZaganja"
+#: Ena lupina na sejo (lastnik, 5. 11. 2026: na testnem PC sta tekli dve, stara od 05:50 je ves dan drzala 89 MB PSS).
+#: Streznik v Safeer OS ob novi povezavi zapre staro (lupina_streznik._sprejmi), stara pa se cez PONOVNO_MS poveze
+#: nazaj - brez zaklepa obe ostaneta zivi in si izmenjujeta vticnico. Nov zagon (varuh) zato prevzame sejo: staremu
+#: procesu lupine SIGTERM (lupina nima stanja, konca takoj), po ROK_PREVZEMA_S SIGKILL.
+ROK_PREVZEMA_S = 3.0
+ZAKLEP = "lupina.zaklep"
+
+
+def _je_lupina(pid: int) -> bool:
+    """Ali je pid proces lupine istega uporabnika - PID iz datoteke je lahko ze ponovno uporabljen za drug program."""
+    try:
+        st = os.stat("/proc/%d" % pid)
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            argv = f.read(4096).split(b"\0")
+    except OSError:
+        return False
+    return st.st_uid == os.getuid() and any(a.endswith(b"lupina_proces.py") for a in argv)
+
+
+def prevzemi_sejo(mapa: str, rok: float = ROK_PREVZEMA_S):
+    """Zaklep lupine v mapi izvajanja seje (ista kot vticnica). Ce ga drzi starejsa lupina, jo konca in pocaka. Vrne
+    odprto datoteko - zaklep drzi do izhoda procesa (sprosti se sam, tudi ob sesutju) - ali None, ce ga ni dobila."""
+    import fcntl
+    d = open(os.path.join(mapa, ZAKLEP), "a+b")  # noqa: SIM115 - odprta ostane do konca procesa (samo flock)
+    zacetek = time.monotonic()
+    poslan = None
+    while True:
+        try:
+            fcntl.flock(d, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            pass
+        cas = time.monotonic() - zacetek
+        if cas > 2 * rok:
+            d.close()
+            return None
+        d.seek(0)
+        try:
+            pid = int(d.read(32).split()[0])
+        except (ValueError, IndexError):
+            pid = 0
+        znak = signal.SIGTERM if cas < rok else signal.SIGKILL
+        if pid > 1 and pid != os.getpid() and poslan != znak and _je_lupina(pid):
+            try:
+                os.kill(pid, znak)
+            except OSError:
+                pass
+            poslan = znak
+        time.sleep(0.05)
+    d.seek(0)
+    d.truncate()
+    d.write(b"%d\n" % os.getpid())
+    d.flush()
+    return d
 
 
 def zazeni_lokalno(oznaka: str) -> bool:
@@ -296,11 +351,15 @@ class LupinaProces(os_lupina.Namizje):
 
 def main() -> int:
     import faulthandler
-    import signal
     varuh_procesov.pripravi_obvestila()          # NOTIFY_SOCKET ne gre naprej programom, ki jih zazenemo
     # Sled vseh niti ob SIGABRT varuha (zamrznitev) ali sesutju v knjiznici C - stderr je sled.log (varuh).
     faulthandler.enable(all_threads=True)
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # lupina nima stanja: SIGTERM/SIGINT jo koncata takoj
+    # Pred Qt (brez niti): ena lupina na sejo, nov zagon prevzame (glej prevzemi_sejo).
+    zaklep = prevzemi_sejo(os.path.dirname(lupina_most.pot_vticnice()))
+    if zaklep is None:
+        print("[Safeer lupina] druga lupina se ne konca - ta se ne zazene", flush=True)
+        return 1
     # Kot v Safeer OS (core/pomnilnik.py, meritev 11. 10. 2026): najvec 2 areni malloc pred nitmi Qt in obrezovanje
     # praznih strani vsakih 90 s. V enem procesu je to Qt dobil od Safeer OS; brez tega lupina drzi sproscen pomnilnik.
     from core import pomnilnik
