@@ -21,12 +21,22 @@ KODA="${KODA:-$(cd "$LAB/../.." && pwd)}"
 FLATPAK_APP=io.github.memelandfaner.SafeerOS
 if [ "${NACIN:-}" = flatpak ]; then MAPA=/root/scit-lab; else MAPA=/tmp; fi
 SEJA='export XDG_RUNTIME_DIR=/run/user/0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus'
+# Odstrani oba vsebnika in pocakaj (najvec 15 s), da ju res ni: z --rm ju Docker ob ustavitvi odstranjuje sam in
+# »docker rm -f« takrat javi »removal already in progress« - takojsnji »docker run --name« ali »network rm« bi padel
+# (CodeRabbit, 4. 11. 2026).
+odstrani_vsebnika() {
+  docker rm -f scit-usm scit-odj >/dev/null 2>&1
+  local n
+  for n in scit-usm scit-odj; do
+    for _ in $(seq 1 60); do docker inspect "$n" >/dev/null 2>&1 || break; sleep 0.25; done
+  done
+}
 case "${1:-}" in
   zgradi)
     docker build -q -t safeer-scit-lab -f "$LAB/Dockerfile" "$LAB" && docker build -q -t safeer-scit-usm -f "$LAB/Dockerfile.usm" "$LAB" ;;
   gor)
     docker network inspect scit95 >/dev/null 2>&1 || docker network create --subnet 172.31.95.0/24 --gateway 172.31.95.1 scit95 >/dev/null
-    docker rm -f scit-usm scit-odj >/dev/null 2>&1
+    odstrani_vsebnika
     # Docker v omrezjih po meri posreduje DNS streznikom gostitelja; ce jih gostitelj nima, pomaga --dns.
     # --rm: ustavljen vsebnik ne ostane na disku (tedenski pregled 4. 11. 2026, N4); »dol« ju ustavi in odstrani.
     docker run -d --rm --name scit-usm --hostname usmerjevalnik --network scit95 --ip 172.31.95.2 --cap-add NET_ADMIN --cap-add NET_RAW \
@@ -60,7 +70,7 @@ case "${1:-}" in
     fi
     ;;
   dol)
-    docker rm -f scit-usm scit-odj >/dev/null 2>&1; docker network rm scit95 >/dev/null 2>&1; echo odstranjeno ;;
+    odstrani_vsebnika; docker network rm scit95 >/dev/null 2>&1; echo odstranjeno ;;
   gonilnik)
     if [ "${NACIN:-}" = flatpak ]; then
       docker exec scit-odj bash -c "$SEJA; flatpak kill $FLATPAK_APP 2>/dev/null; sleep 0.5; rm -f $MAPA/scit.cmd; : > $MAPA/scit.log
