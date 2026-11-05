@@ -469,7 +469,7 @@ class KodekPoPoti(unittest.TestCase):
                     mock.patch.object(link_zaslon, "privzeti_monitor", return_value=None):
                 seja = z.zacni("fon", "najvisja", "desktop", kodeki=kodeki, zmoznosti=["gop"], omrezje=omrezje)
                 z._nit.join(timeout=2)
-                z._sprejmi = lambda posluh, ctx: (gledalec, threading.Event() if prek_huba else None)
+                z._sprejmi = lambda posluh, ctx, seja=None: (gledalec, threading.Event() if prek_huba else None)
                 with mock.patch.object(link_zaslon.subprocess, "Popen", popen), mock.patch("builtins.print"):
                     link_zaslon.Zaslon._streci(z, *klic["a"])
         finally:

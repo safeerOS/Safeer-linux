@@ -310,7 +310,7 @@ class U1Ponovno(_Osnova):
         z = link_zaslon.Zaslon(vklopljeno=True)
         z._naprava, z._seja_st = B, 9
         odjemalec = _OdjemalecZaslona()
-        z._sprejmi = lambda posluh, ctx: (odjemalec, None)
+        z._sprejmi = lambda posluh, ctx, seja=None: (odjemalec, None)
         z._profil_seje = mock.Mock(side_effect=AssertionError("seja se je zacela brez dostopa"))
         z.ustavi = mock.Mock()
         z._streci(mock.Mock(), mock.Mock(), ["ffmpeg"], 9)
