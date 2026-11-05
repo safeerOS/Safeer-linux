@@ -123,7 +123,8 @@ class ZaganjalisciUporabljajoCistoOkolje(unittest.TestCase):
         "core/link_programi.py": ["def zazeni("],
         "core/uporabniske_skripte.py": ["def zazeni_shell("],
         "core/os_sistem.py": ["def _v_ozadju("],
-        "core/os_media.py": ["def odpri("],
+        # Polno ime: prvi »def odpri(« je od 3e59a8b notranji odpiralec naslovov v _odpiralec_naslovov (5. 11. 2026).
+        "core/os_media.py": ["def odpri(pot: str)"],
         "core/os_dock.py": ["def osvezi("],
         "core/os_splet.py": ["def _zunanji_program_nadaljuj(", "def _odpri_datoteko("],
         "safeer_os.py": ["def _zazeni_orodje(", "def _zazeni_vnos_z(", "def _odpri_v_brskalniku("],
