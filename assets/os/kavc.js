@@ -31,12 +31,18 @@
   // ------------------------------------------------------------------ kaj se da izbrati
   var IZBIRNO = "button, a[href], input:not([type=hidden]), select, textarea, [tabindex]:not([tabindex='-1']), [role=button], [role=tab]";
 
+  // F8 (pregled 5. 11. 2026): tudi nedejaven (inert) ali skrit za bralnik zaslona (aria-hidden) prednik in prosojnost 0
+  // (okno, ki se je skrilo s prelivom) - sicer je izbor s puscicami pristal na nevidnem gumbu.
   function viden(el) {
-    if (!el || el.disabled || el.hidden || el.closest("[hidden]") || el.getAttribute("aria-hidden") === "true") return false;
+    if (!el || el.disabled || el.hidden || el.closest("[hidden], [inert], [aria-hidden='true']")) return false;
     var r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return false;
     var s = window.getComputedStyle(el);
     if (s.visibility === "hidden" || s.display === "none") return false;
+    for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+      if (n !== el) s = window.getComputedStyle(n);
+      if (s.opacity === "0") return false;
+    }
     return true;
   }
   // Odprto okno (sloj, meni, podrobnosti naslova) ujame izbor: s puscicami ne pridemo na stran pod njim.
@@ -96,7 +102,8 @@
     if (!zdaj || zdaj === document.body || vsi.indexOf(zdaj) < 0) { izberi(prvi(vsi)); return true; }
     var cilj = naslednji(zdaj, smer, vsi);
     if (cilj) izberi(cilj);
-    return true;
+    // F7: brez cilja v tej smeri puscica ostane strani (drsenje), ne pogoltnemo je.
+    return !!cilj;
   }
 
   // ------------------------------------------------------------------ Nazaj
