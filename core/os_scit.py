@@ -372,6 +372,9 @@ class Razresevalnik:
     #: (neodvisni pregled 1.0.129: oglasi mimo, kanarcek brez odgovora, varuh bi Scit zamenjeval do obupa).
     NAJVEC_TCP = 32
     ROK_GLAVE_TCP_S = 2.0
+    #: Rok za telo poizvedbe TCP (najvec 65535 bajtov, krajevni odjemalec ga poslje naenkrat). Prej 10 s: odjemalec,
+    #: ki poslje samo dolzino, je drzal mesto ~12 s in 32 takih je utisalo TCP Scita (CodeRabbit, 5. 11. 2026).
+    ROK_TELESA_TCP_S = 2.0
 
     def _zacni(self, u: socket.socket, t: socket.socket, vrata: int) -> int:
         self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
@@ -688,7 +691,7 @@ class Razresevalnik:
                 try:
                     # Glava in telo vsak v svojem skupnem roku: odjemalec po bajtih ne zadrzi niti dlje (5. 11. 2026).
                     n = struct.unpack("!H", self._preberi(s, 2, time.monotonic() + self.ROK_GLAVE_TCP_S))[0]
-                    odgovor = self._odgovori(self._preberi(s, n, time.monotonic() + 10), True)
+                    odgovor = self._odgovori(self._preberi(s, n, time.monotonic() + self.ROK_TELESA_TCP_S), True)
                     if odgovor:
                         s.sendall(struct.pack("!H", len(odgovor)) + odgovor)
                 except (OSError, struct.error):
