@@ -180,11 +180,14 @@ def cista_domena(besedilo) -> str:
 
 def _je_telemetrija(ime: str) -> bool:
     """Gostitelj, ki ga storitev uporablja samo za telemetrijo ali oglase (core/scit_pravila.py, »telemetrija«: npr.
-    dit.whatsapp.net, spade.twitch.tv) - Scit ga zavrne za ves racunalnik, tudi za namizne programe. Sledilcev tretjih
-    (»sledilci«) DNS ne blokira: tu ni mogoce locit tretje strani od obiska njihove strani (to naredi filter WebKit)."""
+    dit.whatsapp.net, spade.twitch.tv) ali cist oglasni/merilni streznik brez uporabniske strani (»oglasni_strezniki«:
+    doubleclick.net ..., lastnik 5. 11. 2026) - Scit ga zavrne za ves racunalnik, tudi za namizne programe. Ostalih
+    sledilcev tretjih (»sledilci«: analytics.google.com, hotjar.com) DNS ne blokira: tu ni mogoce locit tretje strani od
+    obiska njihove strani (to naredi filter WebKit)."""
     try:
         from core import scit_pravila
-        return any(ime == t or ime.endswith("." + t) for t in scit_pravila.trenutna().telemetrija)
+        p = scit_pravila.trenutna()
+        return any(ime == t or ime.endswith("." + t) for t in p.telemetrija + p.oglasni_strezniki)
     except Exception:  # noqa: BLE001
         return False
 
