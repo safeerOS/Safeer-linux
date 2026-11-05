@@ -302,7 +302,15 @@ class Priljubljeno(Osnova):
             vnos.triggered.emit()
             self.assertTrue(self._pocakaj(lambda: "ta:" + ime in self.shramba.stanje()["programi"]))
         vrsta = self._obj("vrstaPriljubljenih")
-        self.assertTrue(self._pocakaj(lambda: vrsta.property("count") == 3 and vrsta.property("visible")))
+        # Lastnik, 5. 11. 2026: v »Vse« ni locenega razdelka priljubljenih (podvajal je kategorijo) - vsi v eni mrezi.
+        self.assertTrue(self._pocakaj(lambda: vrsta.property("count") == 3))
+        self.assertFalse(self._obj("razdelekPriljubljenih").property("visible"))
+        self.assertTrue(self._obj("mrezaProgramov").property("visible"))
+        self.assertEqual(len(self._js("programi.prikazani")), 4)
+        # Vrstni red (povleci ali Alt+puscica) je v kategoriji »★ Priljubljeni«.
+        self._js('programi.skupina = "priljubljeni"')
+        self.assertTrue(self._pocakaj(lambda: vrsta.property("visible")))
+        self.assertFalse(self._obj("mrezaProgramov").property("visible"))
         # Alt+desno premakne prvega (Writer) za GIMP - zapisano v shrambo.
         vrsta.forceActiveFocus()
         self._js("currentIndex = 0", vrsta)
@@ -382,6 +390,64 @@ class Priljubljeno(Osnova):
             self._pocakaj(lambda: False, 0.03)
         QTest.mouseRelease(okno, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(b.x(), a.y()))
         self._pocakaj(lambda: False, 0.1)
+
+
+    def _kategorije_v_eni_vrstici(self, jezik):
+        """Lastnik, 5. 11. 2026 (posnetek namizja): v plosci Programi je »Drugo« padla v drugo vrsto pod »Vse«. Vse
+        kategorije morajo biti v eni vrsti z Razvrsti, vsaka dosegljiva (fokus jo pokaze v celoti), kolesce drsi."""
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+        from PySide6.QtWidgets import QApplication
+        self.odgovori["programiNamizja"] = [
+            {"id": "%s.desktop" % k, "ime": k.capitalize(), "skupina": k, "uporaba": 1, "zadnjic": 1}
+            for k in ("pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo")]
+        self._namizje(jezik)
+        self.assertTrue(self._pocakaj(lambda: len(self._js("programi.skupine")) == 6))
+        self._js('programi.meniZa(programi.prikazani[0], null)')
+        self.assertTrue(self._pocakaj(lambda: self._obj("meniPrograma").property("visible")))
+        self._obj("vnosPriljubljenProgram").triggered.emit()
+        self.assertTrue(self._pocakaj(lambda: len(self._js("programi.priljubljeni")) == 1))
+        mapa = os.environ.get("SAFEER_POSNETKI_KATEGORIJ", "")
+        for sirina, visina in ((1366, 768), (1920, 1080)):
+            self.n.okno.resize(sirina, visina)
+            self._pocakaj(lambda: False, 0.6)
+            v = self._obj("vrstaKategorij")
+            self.assertTrue(self._pocakaj(lambda: v.property("count") == 8))
+            koti = self._js("(function () { var r = []; for (var i = 0; i < count; i++) { var o = itemAtIndex(i);"
+                            " r.push(o ? [o.y, o.height] : null) } return r })()", v)
+            self.assertNotIn(None, koti)
+            self.assertEqual(len({k[0] for k in koti}), 1, koti)
+            # Ena vrsta: visina vrstice je ena oznaka, Razvrsti je v isti vrsti.
+            visina_oznake = koti[0][1]
+            self.assertLess(v.property("height"), 2 * visina_oznake)
+            r = self._obj("gumbRazvrsti")
+            sredina = lambda o: o.mapToItem(None, QPointF(0, o.property("height") / 2)).y()  # noqa: E731
+            self.assertLess(abs(sredina(v) - sredina(r)), visina_oznake / 2)
+            # Zadnja kategorija s tipkovnico: v celoti vidna.
+            self._js("itemAtIndex(count - 1).forceActiveFocus()", v)
+            self._pocakaj(lambda: False, 0.3)
+            x, s_, cx, w = self._js("[itemAtIndex(count - 1).x, itemAtIndex(count - 1).width, contentX, width]", v)
+            self.assertGreaterEqual(x - cx, -0.5)
+            self.assertLessEqual(x + s_ - cx, w + 0.5)
+            print("[kategorije] %s %dx%d: sirina vrstice %d, vsebina %d" % (jezik, sirina, visina, w, v.property("contentWidth")))
+            if v.property("contentWidth") > w:
+                # Drsnik je viden: uporabnik ve, da je desno se kaj.
+                self.assertEqual(self._js("ScrollBar.horizontal.policy === ScrollBar.AlwaysOn", v), True)
+                # Kolesce nazaj na zacetek: drsi.
+                pred = v.property("contentX")
+                sredisce = v.mapToItem(None, QPointF(w / 2, v.property("height") / 2))
+                dogodek = QWheelEvent(sredisce, sredisce, QPoint(0, 0), QPoint(0, 240), Qt.MouseButton.NoButton,
+                                      Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+                QApplication.sendEvent(self.n.okno, dogodek)
+                self.assertTrue(self._pocakaj(lambda: v.property("contentX") < pred), (pred, v.property("contentX")))
+            if mapa:
+                self.n.okno.grabWindow().save(os.path.join(mapa, "kategorije-%s-%d.png" % (jezik, sirina)))
+
+    def test_kategorije_programov_v_eni_vrstici(self):
+        self._kategorije_v_eni_vrstici("sl")
+
+    def test_kategorije_programov_v_eni_vrstici_nemsko(self):
+        self._kategorije_v_eni_vrstici("de")
 
 
 class Izbira(Osnova):

@@ -240,11 +240,30 @@ Steklo {
         }
         RowLayout {
             Layout.fillWidth: true; spacing: 8
-            Flow {
-                Layout.fillWidth: true; spacing: 6
-                Repeater {
-                    model: [""].concat(panel.linux && panel.priljubljeni.length ? ["priljubljeni"] : []).concat(panel.skupine)
-                    delegate: Rectangle {
+            // Kategorije v eni vrstici (lastnik, 5. 11. 2026: v Flow je »Drugo« padla v drugo vrsto pod »Vse«). Kadar
+            // ni prostora (ozko okno, daljse nemske oznake), se vrstica vodoravno drsi: kolesce, puscici, fokus ostane viden.
+            ListView {
+                id: vrstaKategorij
+                objectName: "vrstaKategorij"
+                Layout.fillWidth: true; Layout.preferredHeight: koren.px(26) + (interactive ? 10 : 2)
+                orientation: ListView.Horizontal; spacing: 6; clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: contentWidth > width
+                model: [""].concat(panel.linux && panel.priljubljeni.length ? ["priljubljeni"] : []).concat(panel.skupine)
+                // Kolesce misi (navpicno) drsi vodoravno; brez prelivanja pomeni nic.
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    enabled: vrstaKategorij.contentWidth > vrstaKategorij.width
+                    onWheel: function (d) {
+                        var v = vrstaKategorij, dx = d.angleDelta.x !== 0 ? d.angleDelta.x : d.angleDelta.y
+                        v.contentX = Math.max(v.originX, Math.min(v.originX + v.contentWidth - v.width, v.contentX - dx / 2))
+                    }
+                }
+                // Ob prelivanju je drsnik vedno viden (pod oznakami): uporabnik vidi, da je desno se kaj (npr. »Drugo«).
+                ScrollBar.horizontal: ScrollBar { objectName: "drsnikKategorij"; height: 6
+                                                  policy: vrstaKategorij.interactive ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+                delegate: Rectangle {
+                        y: 1
                         height: koren.px(26); width: n.implicitWidth + 22; radius: height / 2
                         color: panel.izbrana === modelData ? koren.paleta.poudarek : (ms.containsMouse || activeFocus ? koren.prekriv(0.14) : koren.prekriv(0.07))
                         border.width: activeFocus ? 2 : 0; border.color: koren.paleta.fokus
@@ -255,6 +274,10 @@ Steklo {
                         Keys.onReturnPressed: izberi()
                         Keys.onEnterPressed: izberi()
                         Keys.onSpacePressed: izberi()
+                        // Puscici med kategorijami; fokusirana je vedno v celoti vidna (tudi s Tab).
+                        Keys.onLeftPressed: { var p = ListView.view.itemAtIndex(index - 1); if (p) p.forceActiveFocus() }
+                        Keys.onRightPressed: { var p = ListView.view.itemAtIndex(index + 1); if (p) p.forceActiveFocus() }
+                        onActiveFocusChanged: if (activeFocus) ListView.view.positionViewAtIndex(index, ListView.Contain)
                         Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
                         Text {
                             id: n; anchors.centerIn: parent; font.pixelSize: koren.px(12)
@@ -262,7 +285,6 @@ Steklo {
                             color: panel.izbrana === modelData ? koren.paleta.poudarekTemna : koren.paleta.besedilo
                         }
                         MouseArea { id: ms; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: parent.izberi() }
-                    }
                 }
             }
             // Razvrsti: po imenu ali po uporabi (Safeer OS steje zagone programov tega racunalnika).
@@ -282,10 +304,14 @@ Steklo {
                 onKlik: panel.nastavi("programiPogled", panel.seznamPogled ? "mreza" : "seznam")
             }
         }
-        // Priljubljeni: vrstica na vrhu (kategorija Vse, brez iskanja) v uporabnikovem vrstnem redu.
+        // Priljubljeni v uporabnikovem vrstnem redu (povleci ali Alt+puscica) - samo v kategoriji »★ Priljubljeni«.
+        // Lastnik, 5. 11. 2026: razdelek na vrhu »Vse« je podvajal kategorijo in je bil videti kot podkategorija »Drugo«;
+        // »Vse« zdaj pokaze vse programe v enem seznamu (priljubljen ima ★ na ikoni).
         ColumnLayout {
-            Layout.fillWidth: true; spacing: 4
-            visible: panel.linux && panel.skupina === "" && panel.niz === "" && modelPril.count > 0
+            id: razdelekPril
+            objectName: "razdelekPriljubljenih"
+            Layout.fillWidth: true; Layout.topMargin: 6; spacing: 4
+            visible: panel.linux && panel.skupina === "priljubljeni" && panel.niz === "" && modelPril.count > 0
             RowLayout {
                 Layout.fillWidth: true
                 Text { text: koren.t("kPriljubljeni"); color: koren.paleta.besedilo; font.pixelSize: koren.px(12); font.bold: true }
@@ -382,6 +408,8 @@ Steklo {
             id: mreza
             objectName: "mrezaProgramov"
             Layout.fillWidth: true; Layout.fillHeight: true
+            // V kategoriji Priljubljeni so programi v vrstici zgoraj (z urejanjem vrstnega reda), ne se enkrat v mrezi.
+            visible: !razdelekPril.visible
             clip: true
             readonly property int stolpcev: panel.seznamPogled ? 1 : Math.max(3, Math.floor(width / 128))
             cellWidth: width / stolpcev; cellHeight: panel.seznamPogled ? koren.px(44) : 112 + koren.px(14) - 14
