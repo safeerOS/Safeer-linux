@@ -75,6 +75,10 @@ CAS_UPSTREAM = 2.5
 #: interneta): DoH je cakal 2,5 s, resolved je presel na usmerjevalnik in »Blokiraj spet« ni veljal. Odgovor zato
 #: vedno v ROK_NAPREJ + cas usmerjevalnika (LAN); DoH tece naprej v ozadju in odloci, ali gremo za nekaj casa mimo njega.
 ROK_NAPREJ = 0.4
+#: Skupni rok za streznike usmerjevalnika prek UDP (S8, pregled 5. 11. 2026): vprasamo jih vse hkrati, prvi odgovor
+#: zmaga; ce v roku ne odgovori nobeden, SERVFAIL. Prej zaporedno do CAS_UPSTREAM (2,5 s) na streznik in na koncu molk -
+#: systemd-resolved je po ~750 ms presel mimo Scita. Isti rok kot DoH (ROK_NAPREJ): odgovor je vedno pod ~0,8 s.
+ROK_USMERJEVALNIK = ROK_NAPREJ
 #: Varovalo niti: toliko poizvedb sme hkrati cakati na DoH. DoH, ki visi, zazna _naprej_visi po STAROSTI najstarejse
 #: cakajoce poizvedbe; stevilo samo ne pomeni nic - ena stran (5 imen x A in AAAA) jih hkrati vprasa 10 in vec.
 #: Prej (meja 8, 19. 10. 2026) je navadno nalaganje strani za 30 s preklopilo DNS na nesifrirano (neodvisni pregled).
@@ -539,27 +543,65 @@ class Razresevalnik:
         strezniki = list(self.upstream() or [])
         if not strezniki:
             return odgovor_napaka(paket)
+        if not tcp:
+            return self._usmerjevalnik_udp(paket, strezniki) or odgovor_napaka(paket)
+        # TCP (velik odgovor po TC): po vrsti, a v skupnem roku CAS_UPSTREAM; nato SERVFAIL, ne molk.
+        konec = time.monotonic() + CAS_UPSTREAM
         for streznik in strezniki:
+            ostane = konec - time.monotonic()
+            if ostane <= 0:
+                break
             try:
-                if tcp:
-                    with socket.create_connection((streznik, 53), timeout=CAS_UPSTREAM) as s:
-                        s.sendall(struct.pack("!H", len(paket)) + paket)
-                        glava = self._preberi(s, 2)
-                        return self._preberi(s, struct.unpack("!H", glava)[0])
-                druzina = socket.AF_INET6 if ":" in streznik else socket.AF_INET
-                cilj = socket.getaddrinfo(streznik, 53, druzina, socket.SOCK_DGRAM, 0, socket.AI_NUMERICHOST)[0][4]
-                s = socket.socket(druzina, socket.SOCK_DGRAM)
-                s.settimeout(CAS_UPSTREAM)
-                try:
-                    s.sendto(paket, cilj)
-                    odgovor, _ = s.recvfrom(4096)
-                finally:
-                    s.close()
+                with socket.create_connection((streznik, 53), timeout=ostane) as s:
+                    s.sendall(struct.pack("!H", len(paket)) + paket)
+                    glava = self._preberi(s, 2)
+                    odgovor = self._preberi(s, struct.unpack("!H", glava)[0])
                 if odgovor[:2] == paket[:2]:
                     return odgovor
             except (OSError, struct.error):
                 continue
-        return None
+        return odgovor_napaka(paket)
+
+    @staticmethod
+    def _usmerjevalnik_udp(paket: bytes, strezniki: List[str]) -> Optional[bytes]:
+        """Vse streznike vprasa hkrati (brez niti: ena vticnica na streznik in select), prvi pravi odgovor zmaga.
+        Vticnica je povezana (connect): jedro sprejme samo odgovor s tega naslova in vrat, tuj paket ne pride do nas."""
+        import selectors
+        vticnice = []
+        izbira = selectors.DefaultSelector()
+        try:
+            for streznik in strezniki:
+                try:
+                    druzina = socket.AF_INET6 if ":" in streznik else socket.AF_INET
+                    cilj = socket.getaddrinfo(streznik, 53, druzina, socket.SOCK_DGRAM, 0, socket.AI_NUMERICHOST)[0][4]
+                    s = socket.socket(druzina, socket.SOCK_DGRAM)
+                    vticnice.append(s)
+                    s.setblocking(False)
+                    s.connect(cilj)
+                    s.send(paket)
+                    izbira.register(s, selectors.EVENT_READ)
+                except (OSError, IndexError, ValueError):
+                    continue
+            konec = time.monotonic() + ROK_USMERJEVALNIK
+            while izbira.get_map():
+                ostane = konec - time.monotonic()
+                if ostane <= 0:
+                    break
+                for kljuc, _ in izbira.select(ostane):
+                    try:
+                        odgovor = kljuc.fileobj.recv(4096)
+                    except BlockingIOError:
+                        continue
+                    except OSError:
+                        izbira.unregister(kljuc.fileobj)     # ICMP »vrata zaprta«: ta streznik je mrtev
+                        continue
+                    if odgovor[:2] == paket[:2]:
+                        return odgovor
+            return None
+        finally:
+            izbira.close()
+            for s in vticnice:
+                s.close()
 
     @staticmethod
     def _preberi(s: socket.socket, n: int) -> bytes:
