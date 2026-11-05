@@ -4764,7 +4764,8 @@ class SafeerOS(Gtk.Application):
             "domov": lambda: self._domov(str(a[0]) if a else ""),
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
-            "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] in (True, "aplikacija"),
+                                         len(a) > 1 and a[1] == "aplikacija"),
             "spletKonecPrijave": lambda: self._splet_konec_prijave([str(x) for x in (a[0] if a and isinstance(a[0], list) else [])]),
             "odjavaStoritve": lambda: self._odjava_storitve(str(a[0]) if a else ""),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
@@ -5717,12 +5718,13 @@ class SafeerOS(Gtk.Application):
             self.okno.minimize()
         return True
 
-    def _splet(self, naslov: str, nov_zavihek: bool = False) -> bool:
+    def _splet(self, naslov: str, nov_zavihek: bool = False, aplikacija: bool = False) -> bool:
         """Odpre naslov v zavihku znotraj glavnega okna; brez procesa ali dodatnega okna.
 
         Samo http in https (velikost črk v shemi ni pomembna - telefonske tipkovnice pišejo »Https://«). Naslov, ki ga
         brskalnik ne bi odprl, zavrnemo, PREDEN lupino zožimo v način Splet. nov_zavihek: povezava od drugod
-        (sporočilo) ne zamenja strani, ki jo ima uporabnik odprto v brskalniku."""
+        (sporočilo) ne zamenja strani, ki jo ima uporabnik odprto v brskalniku. aplikacija: ploscica spletne aplikacije -
+        obstojeci zavihek istega izvora ali nov zavihek (os_splet.odpri_aplikacijo)."""
         if naslov:
             from core.config import normalize_web_url
             if not naslov.lower().startswith(("http://", "https://")) or not normalize_web_url(naslov):
@@ -5739,6 +5741,8 @@ class SafeerOS(Gtk.Application):
             return False
         if not naslov:
             return True
+        if aplikacija:
+            return self._spletni.odpri_aplikacijo(naslov)
         return self._spletni.odpri_povezavo(naslov) if nov_zavihek else self._spletni.odpri(naslov)
 
     #: Odjava znotraj Safeer OS (lastnik 17. 10. 2026): izbrisemo samo piskotke te storitve v seji Spleta.

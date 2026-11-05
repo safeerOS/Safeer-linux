@@ -67,8 +67,20 @@ class Lupina(unittest.TestCase):
         lazna._spletni.odpri_povezavo.assert_not_called()
 
     def test_most_posreduje_nov_zavihek(self):
-        self.assertIn('"splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),',
-                      beri("safeer_os.py"))
+        self.assertIn('"splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] in (True, "aplikacija"),\n'
+                      '                                         len(a) > 1 and a[1] == "aplikacija"),', beri("safeer_os.py"))
+
+    def test_ploscica_aplikacije(self):
+        # B1 (5. 11. 2026): ploscica spletne aplikacije ne prepise strani v trenutnem zavihku.
+        lazna = self._lazna()
+        lazna._spletni.odpri_aplikacijo.return_value = True
+        self.assertTrue(self.os_.SafeerOS._splet(lazna, "https://mail.example/", True, True))
+        lazna._spletni.odpri_aplikacijo.assert_called_once_with("https://mail.example/")
+        lazna._spletni.odpri.assert_not_called()
+        js = beri("assets", "os", "os.js")
+        risi = js.split("function narisiSpletnoZacetno() {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn('odpriVSpletu(a.url, "aplikacija")', risi)
+        self.assertIn('[naslov, novZavihek === "aplikacija" ? "aplikacija" : true]', js)
 
 
 class Brskalnik(unittest.TestCase):
@@ -109,6 +121,49 @@ class Brskalnik(unittest.TestCase):
             self.assertFalse(os_splet.VdelaniSplet.odpri_povezavo(brskalnik, naslov), naslov)
             pogled.load_uri.assert_not_called()
             brskalnik.nov_zavihek.assert_not_called()
+
+
+class Aplikacija(unittest.TestCase):
+    """VdelaniSplet.odpri_aplikacijo (B1): obstojeci zavihek istega izvora ali odpri_povezavo, nikoli trenutni zavihek."""
+
+    def _brskalnik(self, uriji, trenutni=0):
+        pogledi = []
+        for uri in uriji:
+            p = mock.Mock()
+            p.get_uri.return_value = uri
+            p._safeer_spi_uri = ""
+            pogledi.append(p)
+        brskalnik = types.SimpleNamespace(zavihki=[{"pogled": p} for p in pogledi], izberi=mock.Mock(),
+                                          odpri_povezavo=mock.Mock(return_value=True),
+                                          trenutni=lambda: pogledi[trenutni] if pogledi else None)
+        return brskalnik, pogledi
+
+    def test_preklop_na_odprto_aplikacijo(self):
+        b, pogledi = self._brskalnik(["https://banka.example/obrazec", "https://mail.example/inbox/3"])
+        self.assertTrue(os_splet.VdelaniSplet.odpri_aplikacijo(b, "https://mail.example/"))
+        b.izberi.assert_called_once_with(pogledi[1])
+        b.odpri_povezavo.assert_not_called()
+        for p in pogledi:
+            p.load_uri.assert_not_called()
+
+    def test_ni_odprta_nov_zavihek(self):
+        b, pogledi = self._brskalnik(["https://banka.example/obrazec"])
+        self.assertTrue(os_splet.VdelaniSplet.odpri_aplikacijo(b, "https://mail.example/"))
+        b.odpri_povezavo.assert_called_once_with("https://mail.example/")
+        b.izberi.assert_not_called()
+        pogledi[0].load_uri.assert_not_called()
+
+    def test_drug_izvor_ni_ista_aplikacija(self):
+        # http in drug podgostitelj nista isti izvor
+        b, _ = self._brskalnik(["http://mail.example/", "https://x.mail.example/"])
+        os_splet.VdelaniSplet.odpri_aplikacijo(b, "https://mail.example/")
+        b.izberi.assert_not_called()
+        b.odpri_povezavo.assert_called_once_with("https://mail.example/")
+
+    def test_neveljaven_naslov(self):
+        b, _ = self._brskalnik(["https://mail.example/"])
+        self.assertFalse(os_splet.VdelaniSplet.odpri_aplikacijo(b, "javascript:alert(1)"))
+        b.izberi.assert_not_called()
 
 
 if __name__ == "__main__":

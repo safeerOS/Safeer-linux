@@ -2338,7 +2338,8 @@
         return ok !== false;
       }, function () { obvesti(t("niUspelo")); return false; });
     }
-    return klic("splet", novZavihek ? [naslov, true] : [naslov]).then(function (ok) {
+    // novZavihek: true (povezava od drugod) ali "aplikacija" (ploscica: obstojeci zavihek istega izvora ali nov, B1)
+    return klic("splet", novZavihek ? [naslov, novZavihek === "aplikacija" ? "aplikacija" : true] : [naslov]).then(function (ok) {
       // Pojasnilo o peskovniku je gostitelj pravkar poslal sam (dogodek spletBrezPeskovnika): splosno ga ne prekrije.
       if (ok === false && !pravkarBrezPeskovnika()) obvesti(t("niUspelo"));
       return ok !== false;
@@ -2354,7 +2355,7 @@
       b.appendChild(el("span", "spletna-bliznjica-znak", ubezi((a.ime || "S").charAt(0).toUpperCase())));
       b.appendChild(el("span", "spletna-bliznjica-podatki", "<b>" + ubezi(a.ime) + "</b><small>" + ubezi(a.url) + "</small>"));
       b.appendChild(el("span", "spletna-bliznjica-puscica", "›"));
-      b.addEventListener("click", function () { odpriSplet(a.url, a.ime); });
+      b.addEventListener("click", function () { odpriVSpletu(a.url, "aplikacija"); });
       cilj.appendChild(b);
     });
   }

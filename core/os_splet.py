@@ -2787,6 +2787,23 @@ class VdelaniSplet:
         if not normalen: return False
         self._nalozi_zasciteno(pogled, VdelaniSplet._https_pred(pogled, normalen)); return True
 
+    def odpri_aplikacijo(self, naslov: str) -> bool:
+        """Ploscica spletne aplikacije na zacetni strani Safeer OS (B1, pregled 5. 11. 2026): ce je aplikacija (isti
+        izvor) ze odprta v zavihku, preklopi nanj; sicer kot povezava od drugod (odpri_povezavo) - prej je ploscica
+        naslov nalozila v trenutni zavihek in prepisala stran, ki jo je imel uporabnik odprto."""
+        normalen = normalize_web_url(naslov)
+        if not normalen:
+            return False
+        izvor = _izvor(normalen)
+        tren = self.trenutni()
+        zavihki = sorted(self.zavihki, key=lambda z: z["pogled"] is not tren)     # najprej trenutni
+        for z in zavihki:
+            if izvor and _izvor(splet_spanje.naslov_pogleda(z["pogled"])) == izvor:
+                if z["pogled"] is not tren:
+                    self.izberi(z["pogled"])
+                return True
+        return self.odpri_povezavo(normalen)
+
     def odpri_povezavo(self, naslov: str, lokalno: bool = False) -> bool:
         """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
         stranjo se odpre tam, sicer v novem zavihku. lokalno=True (samo Safeer Browser: datoteka iz »Odpri z« ali
