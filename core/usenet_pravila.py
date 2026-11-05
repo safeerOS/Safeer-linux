@@ -465,6 +465,11 @@ def odtis_izdaj(osn: object) -> Optional[str]:
     return hashlib.sha256(("safeer-usenet-izdaje|%s://%s%s" % (shema, gost, del_vrat)).encode("utf-8")).hexdigest()[:16]
 
 
+def kljuc_nzb_guid(osn: str, g: str) -> str:
+    """Kljuc predpomnilnika NZB po guidu: guid velja samo pri indeksatorju z odtisom odtis_izdaj(osn)."""
+    return "guid:%s:%s" % (odtis_izdaj(osn) or "", g)
+
+
 def naslov_nzb_guid(osn: str, kljuc: str, g: str) -> Optional[str]:
     """Newznab `t=get&id=<guid>`: NZB izdaje s kljucem TE naprave. POZOR: vsebuje kljuc - nikoli v dnevnik."""
     g = guid(g)

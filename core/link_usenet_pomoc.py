@@ -68,8 +68,19 @@ def _indeksator() -> Optional[tuple]:
         return None
 
 
-def zmoznost() -> Optional[dict]:
-    """Za host.info (samo ozji krog): {"lahko": True, "ix": odtis indeksatorja} ali None. Brez omrezja."""
+def _ima_ffmpeg() -> bool:
+    try:
+        from . import link_sprotno
+        return bool(link_sprotno.sprotno().ffmpeg())
+    except Exception:  # noqa: BLE001 - »ne vem« ni »da«
+        return False
+
+
+def zmoznost(ima_ffmpeg: Optional[Callable[[], bool]] = None) -> Optional[dict]:
+    """Za host.info (samo ozji krog): {"lahko": True, "ix": odtis indeksatorja} ali None. Brez omrezja. CodeRabbit
+    6. 11. 2026: brez ffmpeg racunalnik pretvoriti ne more - pomoci za Usenet ne oglasa."""
+    if not (ima_ffmpeg or _ima_ffmpeg)():
+        return None
     ix = _indeksator()
     o = U.odtis_izdaj(ix[0]) if ix else None
     return {"lahko": True, "ix": o} if o else None
@@ -132,7 +143,7 @@ def _vir(g: str, ime: str, ix: str, ura: Callable[[], float]) -> str:
         return zadnji[1]
     if vezava.predvaja() - (1 if zadnji_odprt else 0) > 0:
         raise NapakaPomoci("preobremenjen")       # lastnik gleda film z Useneta na tem racunalniku
-    nzb = d._nzb_zapomnjen("guid:" + g)
+    nzb = d._nzb_zapomnjen(U.kljuc_nzb_guid(nas[0], g))
     if nzb is None:
         if not _rezerviraj(ura()):
             _log.info("usenet pomoc: meja prenosov NZB na uro")

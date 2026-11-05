@@ -91,7 +91,7 @@ class _Debrid:
 
     def nzb_po_guid(self, g):
         self.prenosi.append(g)
-        self.predpomnilnik["guid:" + g] = b"<nzb/>"
+        self.predpomnilnik[U.kljuc_nzb_guid(self._ix[0], g)] = b"<nzb/>"
         return b"<nzb/>", ""
 
 
@@ -117,14 +117,25 @@ class Pomoc(unittest.TestCase):
             link_usenet_pomoc.vir(polje, **k)
         return str(e.exception)
 
+    def test_zmoznost_brez_ffmpeg(self):
+        # CodeRabbit 6. 11. 2026: racunalnik brez ffmpeg ne more pretvoriti - pomoci ne oglasa.
+        self.assertIsNone(link_usenet_pomoc.zmoznost(lambda: False))
+
+    def test_predpomnjen_nzb_istega_indeksatorja_ne_steje(self):
+        # CodeRabbit 6. 11. 2026: pomocnik bere predpomnilnik s kljucem, vezanim na indeksator (kot Debrid.nzb_po_guid).
+        self.d.predpomnilnik[U.kljuc_nzb_guid(OSNOVA, "abc123def456")] = b"<nzb/>"
+        self.assertEqual(link_usenet_pomoc.vir({"guid": "abc123def456", "ix": IX}), self.url)
+        self.assertEqual(self.d.prenosi, [])
+        self.assertEqual(len(link_usenet_pomoc._prenosi), 0)
+
     def test_zmoznost(self):
-        self.assertEqual(link_usenet_pomoc.zmoznost(), {"lahko": True, "ix": IX})
+        self.assertEqual(link_usenet_pomoc.zmoznost(lambda: True), {"lahko": True, "ix": IX})
         self.d._sme = False                      # kljuc zavrnjen ali zaklenjen: ne ponudimo pomoci
-        self.assertIsNone(link_usenet_pomoc.zmoznost())
+        self.assertIsNone(link_usenet_pomoc.zmoznost(lambda: True))
         self.d._sme, self.d._lastni = True, False  # brez lastnega ponudnika NNTP: ne
-        self.assertIsNone(link_usenet_pomoc.zmoznost())
+        self.assertIsNone(link_usenet_pomoc.zmoznost(lambda: True))
         link_usenet_pomoc.nastavi(None)
-        self.assertIsNone(link_usenet_pomoc.zmoznost())
+        self.assertIsNone(link_usenet_pomoc.zmoznost(lambda: True))
 
     def test_izdaja_z_lastnim_racunom(self):
         u = {"guid": "abc123def456", "name": "Film.2023.2160p.x265", "ix": IX}
@@ -173,6 +184,24 @@ class Pomoc(unittest.TestCase):
     def test_ena_priprava_hkrati(self):
         with link_usenet_pomoc._ena_hkrati:
             self.assertEqual(self.koda({"guid": "abc123def456", "ix": IX}), "preobremenjen")
+
+
+class PredpomnilnikPoIndeksatorju(unittest.TestCase):
+    """CodeRabbit 6. 11. 2026: isti guid pri drugem indeksatorju ni ista izdaja (Debrid.nzb_po_guid)."""
+
+    def test_zamenjan_indeksator(self):
+        from core import debrid
+        d = debrid.Debrid(lambda: {}, lambda _d: None, lambda s: s, lambda s: s)
+        ix = [(OSNOVA, "kljuc123")]
+        with mock.patch.object(d, "indeksator", side_effect=lambda: ix[0]), \
+                mock.patch.object(d, "sme_klicati", return_value=True), \
+                mock.patch.object(debrid, "usenet_nzb", side_effect=[(b"<nzb>A</nzb>", ""), (b"<nzb>B</nzb>", "")]) as prenos:
+            self.assertEqual(d.nzb_po_guid("abc123def456"), (b"<nzb>A</nzb>", ""))
+            self.assertEqual(d.nzb_po_guid("abc123def456"), (b"<nzb>A</nzb>", ""))      # predpomnjen
+            ix[0] = ("https://drug.example", "kljuc456")
+            self.assertEqual(d.nzb_po_guid("abc123def456"), (b"<nzb>B</nzb>", ""))
+        self.assertEqual(prenos.call_count, 2)
+        self.assertIn("drug.example", prenos.call_args.args[0])
 
 
 class _UsenetStreznik(http.server.BaseHTTPRequestHandler):
@@ -270,7 +299,8 @@ class Daljinec(unittest.TestCase):
 
     def _host_info(self, ozji):
         izidi = []
-        with mock.patch.object(link_daljinec, "_v_ozjem_krogu", return_value=ozji):
+        with mock.patch.object(link_daljinec, "_v_ozjem_krogu", return_value=ozji), \
+                mock.patch.object(link_usenet_pomoc, "_ima_ffmpeg", return_value=True):
             link_daljinec.izvedi_control("host.info", {}, lambda _u: None, izidi.append, posiljatelj="tv-1")
         return izidi[0]["data"]
 
@@ -287,6 +317,25 @@ class Daljinec(unittest.TestCase):
         self.assertFalse(izidi[0]["ok"])
         self.assertEqual(izidi[0].get("code"), "ni_ozji_krog")
         vir.assert_not_called()                  # kvota in racun lastnika nedotaknjena
+
+    def test_poceni_preverbe_pred_virom(self):
+        # CodeRabbit 6. 11. 2026: brez ffmpeg (ali zaseden, brez prostora) se NZB ne prenese in NNTP se ne odpre.
+        izidi = []
+        dogodek = threading.Event()
+        pr = mock.Mock()
+        pr.predpreverba.side_effect = link_sprotno.NapakaPretoka("ni_ffmpeg")
+
+        def koncaj(i):
+            izidi.append(i); dogodek.set()
+        with mock.patch.object(link_daljinec, "_v_ozjem_krogu", return_value=True), \
+                mock.patch.object(link_daljinec, "pomoc", return_value={"lahko": True}), \
+                mock.patch.object(link_sprotno, "sprotno", return_value=pr), \
+                mock.patch.object(link_usenet_pomoc, "vir") as vir:
+            link_daljinec.izvedi_control("video.stream", {"usenet": {"guid": "abc123def456", "ix": IX}, "name": "x"},
+                                         lambda _u: None, koncaj, datoteke=mock.Mock(), posiljatelj="tv-1")
+            self.assertTrue(dogodek.wait(5))
+        self.assertEqual(izidi[0].get("code"), "ni_ffmpeg")
+        vir.assert_not_called()
 
     def test_video_stream_usenet_ozji_krog(self):
         izidi = []

@@ -619,6 +619,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 try:
                     krajevni = None
                     if z_usenetom:
+                        # CodeRabbit 6. 11. 2026: ffmpeg, zasedenost in prostor PRED vir() - ta prenese NZB (kvota
+                        # indeksatorja) in odpre NNTP; zavrnjena zahteva ne sme porabiti nicesar.
+                        pr.predpreverba(parametri)
                         try:
                             from core import link_usenet_pomoc  # samo paket Safeer OS
                         except ImportError:

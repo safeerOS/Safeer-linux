@@ -860,6 +860,24 @@ class Sprotno:
 
     # ---- ukazi
 
+    def predpreverba(self, p: dict) -> None:
+        """Poceni preverbe pred drago pripravo vira (CodeRabbit 6. 11. 2026: Usenet za drugo napravo je prej prenesel NZB,
+        porabil kvoto indeksatorja in odprl NNTP, sele zacni je nato rekel ni_ffmpeg, preobremenjen ali ni_prostora).
+        Isti pogoji kot v zacni (ta jih preveri znova); NapakaPretoka s kodo."""
+        if not self.ffmpeg():
+            raise NapakaPretoka("ni_ffmpeg")
+        trajanje_ms = int(p.get("duration_ms") or 0)
+        seek_ms = max(0, int(p.get("seek_ms") or 0))
+        with self._kljucavnica:
+            zivi = [t for t in self.tokovi.values() if not t.koncano and not t.napaka]
+        if any(t.bralcev > 0 for t in zivi):
+            raise NapakaPretoka("preobremenjen")
+        ocena = (8_000_000 // 8) * max(0, trajanje_ms - seek_ms) // 1000 * 12 // 10
+        pr = prosto(self.mapa)
+        umaknjeno = sum(_velikost(t.datoteka) for t in zivi)
+        if 0 <= pr and pr + umaknjeno < ocena + rezerva(self.mapa):
+            raise NapakaPretoka("ni_prostora")
+
     def zacni(self, p: dict, posiljatelj: str, streznik, krajevni: Optional[str] = None) -> dict:
         """`video.stream` -> {id, url, fp, token}; `streznik` je link_datoteke.StreznikDatotek (zazenemo ga, ce ne tece).
         [krajevni]: izvirnik je krajevni streznik Useneta, ki ga je zagnal TA racunalnik (core/link_usenet_pomoc) -

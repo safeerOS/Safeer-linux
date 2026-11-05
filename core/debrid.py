@@ -1489,7 +1489,9 @@ class Debrid:
             return None, U.NAPAKA_INDEKSATOR
         if not self.sme_klicati(P.INDEKSATOR):
             return None, self._napaka_stanja(P.INDEKSATOR)
-        kljuc = "guid:" + g
+        # CodeRabbit 6. 11. 2026: guid velja za indeksator - kljuc predpomnilnika vkljuci njegov odtis (zamenjan
+        # indeksator z istim guidom ne vrne izdaje prejsnjega).
+        kljuc = U.kljuc_nzb_guid(ix[0], g)
         nzb = self._nzb_zapomnjen(kljuc)
         if nzb is not None:
             return nzb, ""
