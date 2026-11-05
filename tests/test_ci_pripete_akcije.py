@@ -14,7 +14,10 @@ POTEKI = sorted(glob.glob(os.path.join(KOREN, ".github", "workflows", "*.yml")))
 
 def _koraki(potek):
     for ime, posel in (potek.get("jobs") or {}).items():
-        for korak in posel.get("steps") or []:
+        # Ponovno uporabljen potek (jobs.<id>.uses) je zunaj korakov - tudi ta mora biti na SHA (CodeRabbit, 4. 11. 2026).
+        if isinstance(posel, dict) and posel.get("uses"):
+            yield ime, {"uses": posel["uses"]}
+        for korak in (posel.get("steps") if isinstance(posel, dict) else None) or []:
             yield ime, korak
 
 
@@ -30,6 +33,12 @@ class PripeteAkcije(unittest.TestCase):
                 if uses and not uses.startswith("./") and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", uses):
                     slabe.append("%s:%s: %s" % (os.path.basename(pot), posel, uses))
         self.assertEqual(slabe, [])
+
+    def test_tudi_uses_na_ravni_posla(self):
+        potek = {"jobs": {"gradnja": {"uses": "lastnik/repo/.github/workflows/b.yml@main"},
+                          "test": {"steps": [{"uses": "actions/checkout@v5"}]}}}
+        self.assertEqual([u for _p, k in _koraki(potek) for u in [k.get("uses")]],
+                         ["lastnik/repo/.github/workflows/b.yml@main", "actions/checkout@v5"])
 
     def test_pisanje_samo_v_poslu_ki_ga_potrebuje(self):
         for pot in POTEKI:
