@@ -1836,6 +1836,12 @@ class Zaslon:
         if f is None or not isinstance(dogodek, dict):
             return
         vrsta = dogodek.get("vrsta")
+        if vrsta == "klik" and getattr(f, "zavrnjen_klik", False):
+            # OK ni kliknil (cilj pod kazalcem se je spremenil): okvir takoj na to, kar je zdaj tam; brez tipkovnice.
+            f.zavrnjen_klik = False
+            e = f.izbira
+            self._obvesti(odjemalec, {"izbira": [int(e[2]), int(e[3]), int(e[4]), int(e[5])] if e is not None else None})
+            return
         if vrsta == "klik" and imel_izbiro:
             def potrdi() -> None:
                 time.sleep(0.35)
