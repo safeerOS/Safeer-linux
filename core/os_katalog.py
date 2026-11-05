@@ -1611,12 +1611,13 @@ class Katalog:
             naslov = naslov_za_predvajalnik(item)
             url = naslov_vgradnje(item["youtube"], self._vzemi_nadaljevanje(ident, item))
             # Naslov, izvajalec in slika: za pripomocek »Predvaja se« na namizju in sistem (MPRIS), ki ne poznata strani.
-            self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc, "posnetek": str(item["youtube"]),
-                        "ime": naslov, "stran": False,
-                        "naslov": str(item.get("naslov") or "")[:300], "izvajalec": str(item.get("izvajalec") or "")[:200],
-                        "slika": str(item.get("slika") or "")[:2048]}
+            moj_yt = self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc, "posnetek": str(item["youtube"]),
+                                 "ime": naslov, "stran": False,
+                                 "naslov": str(item.get("naslov") or "")[:300], "izvajalec": str(item.get("izvajalec") or "")[:200],
+                                 "slika": str(item.get("slika") or "")[:2048]}
             if not url or not self._v_glavni_pocakaj(lambda: self._zahteva_velja(moja) and self._youtube(url, naslov)):
-                self._yt = None
+                if self._yt is moj_yt:
+                    self._yt = None       # skladbe novejse zahteve ne pozabimo
                 return None if not self._zahteva_velja(moja) else dict(item, native=True, napaka_koda="tok")
             return dict(item, native=True, zvok=True, okno_youtube=True)
         if nacin == "neposredno":
