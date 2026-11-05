@@ -3229,7 +3229,7 @@
       stikala.appendChild(el("p", "namig", ubezi(t("intSistemskiNi", { naslov: naslov }))));
     }
     if (s.nacin === "izpad" && s.gneca) {
-      // Privzeto izklopljeno; vklop pomeni tudi nove povezave programov (»vse«), drugo stikalo jih lahko izkljuci.
+      // Privzeto vklopljeno (»vse«: tudi nove povezave programov); drugo stikalo jih lahko izkljuci.
       var gneca = s.gneca.nastavitev || "izklopljeno";
       stikala.appendChild(stikalo("intGneca", "telefon", gneca !== "izklopljeno",
         function (v) { internetNastavi({ gneca: v ? "vse" : "izklopljeno" }); }, t("intGnecaPod")));

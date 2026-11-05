@@ -242,8 +242,39 @@ class Protokoli(Osnova):
 class IzbiraPoti(Osnova):
     def test_izklopljeno_posrednika_ni(self):
         self.assertFalse(self.u.posrednik.tece)
+        self.u.nastavi(nacin="izklopljeno")
+        self.assertFalse(self.u.posrednik.tece)
         self.assertEqual(self.u.stanje()["nacin"], "izklopljeno")
         self.assertEqual(self.sistemski.klici, [])
+
+    def test_privzeto_samodejno_ob_izpadu_in_gneci(self):
+        """Lastnik 5. 11. 2026: telefon pomaga brez vklopa - privzeto ob izpadu in ob gneci (vse nove povezave)."""
+        self.assertEqual((self.u.nacin, self.u.gneca, self.u.izbrano), ("izpad", "vse", False))
+        st = self.u.stanje()
+        self.assertEqual((st["nacin"], st["gneca"]["nastavitev"], st["gneca"]["velja"]), ("izpad", "vse", True))
+
+    def test_stara_privzeta_nastavitev_ni_izbira(self):
+        """Do 5. 11. 2026 se je »izklopljeno« shranilo ob vsaki ustavitvi, tudi brez izbire: to ni izbira uporabnika."""
+        with open(self.u.pot_nastavitev, "w") as f:
+            json.dump({"nacin": "izklopljeno", "naprava": "", "pot": "mobile", "sistemski": True, "gneca": "izklopljeno",
+                       "vrata": 47890, "poraba": {}}, f)
+        drugi = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, sonda=self.sonda)
+        self.assertEqual((drugi.nacin, drugi.gneca, drugi.izbrano), ("izpad", "vse", False))
+
+    def test_izbira_uporabnika_ostane(self):
+        """Kdor je nacin ali gneco izbral sam, mu je ne spremenimo - tudi starega »izpad« brez gnece ne."""
+        with open(self.u.pot_nastavitev, "w") as f:
+            json.dump({"nacin": "izpad", "gneca": "izklopljeno"}, f)
+        drugi = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, sonda=self.sonda)
+        self.assertEqual((drugi.nacin, drugi.gneca, drugi.izbrano), ("izpad", "izklopljeno", True))
+        self.u.nastavi(nacin="izklopljeno")
+        self.u.ustavi()
+        tretji = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, sonda=self.sonda)
+        self.assertEqual((tretji.nacin, tretji.izbrano), ("izklopljeno", True), "izklop uporabnika ostane izklop")
+        self.u.nastavi(gneca="oddaje")
+        self.u.ustavi()
+        cetrti = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, sonda=self.sonda)
+        self.assertEqual(cetrti.gneca, "oddaje")
 
     def test_izpad_dokler_domaci_internet_dela_gre_neposredno(self):
         s = self.streznik()
@@ -323,7 +354,9 @@ class IzbiraPoti(Osnova):
     def test_brez_telefona_ni_preklopa(self):
         self.naprave[:] = [n for n in self.naprave if n["id"] != "tel"]
         s = self.streznik()
-        self.nacin_izpad(sistemski=True)
+        self.u.nastavi(nacin="izpad", sistemski=True)
+        time.sleep(0.2)
+        self.assertEqual(self.sonda.preverjeno, 0.0, "brez telefona v Linku zanka sonde ne meri (brez prometa)")
         self.fiksna["dela"] = False
         self.sonda.preveri()
         self.sonda.preveri()
@@ -485,13 +518,13 @@ class NastavitveInStanje(Osnova):
     def test_neveljavne_nastavitve(self):
         self.assertFalse(self.u.nastavi(nacin="hitro")["ok"])
         self.assertFalse(self.u.nastavi(pot="satelit")["ok"])
-        self.assertEqual(self.u.nacin, "izklopljeno")
+        self.assertEqual((self.u.nacin, self.u.izbrano), ("izpad", False), "neveljavna zahteva ni izbira")
 
     def test_pokvarjena_datoteka_nastavitev(self):
         with open(self.u.pot_nastavitev, "w") as f:
             f.write("{ni json")
         drugi = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, sonda=self.sonda)
-        self.assertEqual(drugi.nacin, "izklopljeno")
+        self.assertEqual(drugi.nacin, "izpad")
 
     def test_zasedena_vrata_naslednja(self):
         zasedena = socket.socket()
@@ -597,7 +630,9 @@ class Gneca(Osnova):
                                        sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
                                        sonda=self.sonda, krajevni_cilj=lambda _h: False, nadzor=self.nadzor)
         self.u.vrata = 0
-        self.u.nastavi(pot="any")         # nastavljena pot telefona za izpad; gneca mora vseeno zahtevati mobilno
+        # Nastavljena pot telefona za izpad; gneca mora vseeno zahtevati mobilno. Izhodisce preizkusov gnece je
+        # izklopljeno (vsak preizkus vklopi, kar preverja); privzeto stanje preverja test_privzeto_samodejno.
+        self.u.nastavi(pot="any", nacin="izklopljeno", gneca="izklopljeno")
 
     def tearDown(self):
         super().tearDown()
@@ -615,13 +650,13 @@ class Gneca(Osnova):
         self.assertEqual(c.recv(100), besedilo)
         return c
 
-    def test_privzeto_izklopljeno(self):
+    def test_izklopljena_gneca(self):
         self.nacin_izpad()
         st = self.u.stanje()["gneca"]
         self.assertEqual((st["nastavitev"], st["velja"], st["dejavna"]), ("izklopljeno", False, False))
-        self.assertEqual(self.nadzor.zagonov, 0, "brez vklopa ne merimo")
+        self.assertEqual(self.nadzor.zagonov, 0, "izklopljena pomoc ob gneci ne meri")
         self.assertIsNone(gneca_modul.odpiralnik())
-        self.nadzor.gneca = True                      # tudi ce bi bila gneca, brez vklopa telefona ne uporabimo
+        self.nadzor.gneca = True                      # tudi ce bi bila gneca, izklopljene pomoci ne uporabimo
         s = self.streznik()
         self.odmev_skozi(s).close()
         self.assertEqual(self.ponudnik.odprtih_skupaj, 0)

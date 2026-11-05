@@ -121,7 +121,7 @@ Safeer Control runs a local proxy on `127.0.0.1` (default port 47890) that speak
 | Mode | Behaviour |
 | --- | --- |
 | off | no proxy |
-| failover | home internet works → the proxy connects directly; it is down → through the phone |
+| failover (default) | home internet works → the proxy connects directly; it is down → through the phone. The probe runs only while a phone in Link shares its internet |
 | always | everything through the phone |
 
 “Down” is decided by a probe (TCP handshakes to three independent anycast addresses, no data, no DNS); two
@@ -144,7 +144,7 @@ printer or the router (and refuses private destinations); the computer can.
 The proxy listens on loopback only and accepts connections only from processes of the same user (uid from
 `/proc/net/tcp`), so another user of the computer cannot spend the phone's mobile data.
 
-**Help when the line is busy** (`gneca`, failover mode only, off by default; `core/gneca.py`). Measured on the
+**Help when the line is busy** (`gneca`, failover mode only, `on` by default - failover with `on` is the default until the user chooses; `core/gneca.py`). Measured on the
 owner's line on 18 Oct 2026 (wired, ~116/62 Mbit/s), latency to 1.1.1.1: idle median 33 ms, during a full-speed
 download 31 ms, during a full-speed upload median 203 ms and p95 418 ms, while the router stayed at 0.4 ms —
 the queue is in the ISP modem's uplink. Every 2 s Control measures the latency to the default gateway and to

@@ -7,13 +7,17 @@ domacega interneta torej telefon po mobilnem omrezju - krajevni DNS takrat tako 
 
 Nacini:
     izklopljeno   posrednika ni
-    izpad         domaci internet dela -> neposredno; ne dela -> skozi telefon (Sonda)
+    izpad         privzeto: domaci internet dela -> neposredno; ne dela -> skozi telefon (Sonda)
     vedno         vse skozi telefon
 
 Pomoc ob gneci (nastavitev `gneca`, samo v nacinu »izpad«; core/gneca.py zazna zasiceno domaco linijo):
-    izklopljeno   privzeto
+    izklopljeno   nikoli ob gneci
     oddaje        ob gneci gredo NOVE velike oddaje Safeerja (posiljanje datotek prek Global Linka) skozi telefon
-    vse           in tudi nove povezave programov skozi krajevni posrednik
+    vse           privzeto: in tudi nove povezave programov skozi krajevni posrednik
+
+Privzeto je pomoc samodejna (lastnik 8. 10., 1. 11. in 5. 11. 2026: mobilni internet telefona pomaga, ko domaci
+internet izpade ali je zagozden - brez vklopa in brez vprasanj). Uporabnikova izbira (`izbrano` v datoteki) ostane.
+Brez telefona, ki deli internet, Sonda ne meri (ni cemu preklopiti, brez prometa do 1.1.1.1/9.9.9.9/8.8.8.8).
 Ob gneci gre tok samo po mobilnem omrezju telefona (Wi-Fi telefona je na istem domacem usmerjevalniku).
 Obstojece povezave se ne premikajo; ko gneca mine, gredo nove spet neposredno. Ce telefon toka ne more
 odpreti, gre povezava tiho neposredno (napaka samo v dnevnik).
@@ -47,6 +51,9 @@ PRIVZETA_VRATA = 47890
 POSKUSOV_VRAT = 10
 NACINI = ("izklopljeno", "izpad", "vedno")
 GNECA = ("izklopljeno", "oddaje", "vse")
+#: Samodejna pomoc telefona: ob izpadu in ob gneci (vse nove povezave). Velja, dokler uporabnik sam ne izbere.
+PRIVZETI_NACIN = "izpad"
+PRIVZETA_GNECA = "vse"
 #: Odpiranje toka skozi telefon ob gneci: izmerjeno 285 ms (18. 10. 2026, mobilno omrezje telefona). Ce telefon
 #: v 3 s ne odpre, gre povezava neposredno - gneca je slabsa od cakanja, a ne smemo je podaljsati za 20 s.
 ROK_GNECA_S = 3.0
@@ -297,10 +304,13 @@ class Sonda:
     """Ali domaci internet dela. Dva zaporedna enaka izida spremenita stanje (en izgubljen paket ni izpad)."""
 
     def __init__(self, ob_spremembi: Callable[[bool], None], cilji=CILJI_SONDE,
-                 dosegljiv: Callable[[Tuple[str, int], float], bool] = _tcp_dosegljiv) -> None:
+                 dosegljiv: Callable[[Tuple[str, int], float], bool] = _tcp_dosegljiv,
+                 potrebna: Optional[Callable[[], bool]] = None) -> None:
         self.ob_spremembi = ob_spremembi
         self.cilji = tuple(cilji)
         self._dosegljiv = dosegljiv
+        #: Ali zanka zdaj sploh meri (npr. samo, ce je v Linku telefon, ki deli internet). None = vedno.
+        self.potrebna = potrebna
         self.dela = True
         self.preverjeno = 0.0
         self._drugacnih = 0
@@ -366,9 +376,23 @@ class Sonda:
     def pospesi(self) -> None:
         self._budilka.set()
 
+    def _potrebna(self) -> bool:
+        try:
+            return self.potrebna is None or bool(self.potrebna())
+        except Exception:  # noqa: BLE001 - raje merimo kot da ob izpadu ne preklopimo
+            return True
+
     def _zanka(self) -> None:
         while self._tece:
-            self.preveri()
+            if self._potrebna():
+                self.preveri()
+            else:
+                # Ni cemu preklopiti: brez prometa do tujih streznikov. Staro »ne dela« ne sme ostati - ce se
+                # internet vrne, ko telefona ni, bi posrednik povezave zavracal. Takojsnja preverba ob napaki
+                # povezave (preveri(takoj=True)) dela se naprej.
+                with self._zaklep:
+                    self.dela = True
+                    self._drugacnih = 0
             self._budilka.wait(SONDA_DELA_S if self.dela and not self._drugacnih else SONDA_NE_DELA_S)
             self._budilka.clear()
 
@@ -566,9 +590,12 @@ class InternetUpravitelj:
         self._obvesti = obvesti
         self.sonda = sonda or Sonda(self._na_spremembo_fiksne)
         self.sonda.ob_spremembi = self._na_spremembo_fiksne
+        self.sonda.potrebna = lambda: bool(self.telefoni())
         self.posrednik = Posrednik(self._usmeri)
         self._zaklep = threading.RLock()
-        self.nacin = "izklopljeno"
+        self.nacin = PRIVZETI_NACIN
+        #: Ali je nacin ali pomoc ob gneci izbral uporabnik (Safeer OS, safeerctl). Dokler ne, velja privzeto.
+        self.izbrano = False
         self.naprava = ""
         self.pot = link_internet.POT_MOBILNA
         #: Dokler gre promet skozi telefon, je sistemski posrednik nas - privzeto, da programi delajo brez nastavljanja.
@@ -588,8 +615,8 @@ class InternetUpravitelj:
         self._brez_odgovora: Dict[str, float] = {}
         self._shranjeno = 0.0
         self._umazano = False
-        #: Pomoc ob gneci (GNECA). Privzeto izklopljeno: vklopi uporabnik (Safeer OS, safeerctl).
-        self.gneca = "izklopljeno"
+        #: Pomoc ob gneci (GNECA). Privzeto »vse«: samodejno, uporabnik jo lahko izklopi (Safeer OS, safeerctl).
+        self.gneca = PRIVZETA_GNECA
         self.nadzor = nadzor if nadzor is not None else gneca_modul.Nadzornik(self._na_gneco, dovoljeno=self._meri_gneco)
         self.nadzor.ob_spremembi = self._na_gneco
         #: Do kdaj (monotonic) telefona ob gneci ne poskusamo (po njegovem neuspehu).
@@ -612,13 +639,17 @@ class InternetUpravitelj:
             return
         if not isinstance(d, dict):
             return
-        if d.get("nacin") in NACINI:
+        # Do 5. 11. 2026 se je nacin shranil tudi, ce ga uporabnik ni izbral (_shrani ob vsaki ustavitvi), zato
+        # stari »izklopljeno« brez oznake `izbrano` ni izbira - tako je bilo privzeto. »izpad« in »vedno« sta bila
+        # vedno uporabnikova izbira in ostaneta, z njima tudi njegova nastavitev gnece.
+        self.izbrano = d.get("izbrano") is True or d.get("nacin") in ("izpad", "vedno")
+        if self.izbrano and d.get("nacin") in NACINI:
             self.nacin = d["nacin"]
         self.naprava = str(d.get("naprava") or "")
         if d.get("pot") in (link_internet.POT_MOBILNA, link_internet.POT_KATERAKOLI, link_internet.POT_WIFI):
             self.pot = d["pot"]
         self.sistemski_vklopljen = bool(d.get("sistemski", True))
-        if d.get("gneca") in GNECA:
+        if self.izbrano and d.get("gneca") in GNECA:
             self.gneca = d["gneca"]
         self.stari_ponudniki = d.get("stari_ponudniki") is True
         try:
@@ -640,7 +671,7 @@ class InternetUpravitelj:
     def _shrani(self) -> None:
         with self._zaklep:
             d = {"nacin": self.nacin, "naprava": self.naprava, "pot": self.pot, "sistemski": self.sistemski_vklopljen,
-                 "gneca": self.gneca, "vrata": self.vrata, "poraba": dict(self._poraba)}
+                 "gneca": self.gneca, "vrata": self.vrata, "poraba": dict(self._poraba), "izbrano": self.izbrano}
             if self.stari_ponudniki:
                 d["stari_ponudniki"] = True
             self._umazano = False
@@ -662,8 +693,10 @@ class InternetUpravitelj:
                 if nacin not in NACINI:
                     return {"ok": False, "koda": "napacna_zahteva"}
                 self.nacin = nacin
+                self.izbrano = True
             if gneca is not None:
                 self.gneca = gneca
+                self.izbrano = True
             if naprava is not None:
                 self.naprava = str(naprava)
             if pot is not None:
