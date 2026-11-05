@@ -78,6 +78,9 @@
       b.setAttribute("aria-selected", S.vrsta === z[1] ? "true" : "false");
     });
     var seznam = $("seznam");
+    // A3 (pregled 5. 11. 2026): seznam se zgradi znova (novo sporocilo, oznaka, izbris) - fokus in drsenje ostaneta,
+    // sicer tipkovnica skoci na zacetek strani in seznam na vrh.
+    var drsenje = seznam.scrollTop, fokus = zapomniFokus(seznam);
     seznam.textContent = "";
     var izbrane = vse.filter(function (v) {
       if (v.vrsta !== S.vrsta || S.skriti[kljuc(v.p)]) return false;
@@ -103,6 +106,7 @@
       b.appendChild(pika); b.appendChild(av); b.appendChild(bes); b.appendChild(desno);
       if (v.p.zvezdica) { var zv = document.createElement("span"); zv.className = "zvezda"; zv.textContent = "★"; desno.appendChild(zv); }
       b.addEventListener("click", function () { odpri("pogovor:" + v.p.kanal_id + ":" + v.p.id); });
+      li.setAttribute("data-kljuc", kljuc(v.p));
       li.appendChild(b); li.appendChild(gumbiVrstice(v)); seznam.appendChild(li);
     });
     if (!izbrane.length) {
@@ -110,6 +114,25 @@
       p.textContent = !S.nalozeno ? "" : q ? t("praznoIsk") : (S.podatki.kanali || []).length ? t("prazno") : t("brezKanalov");
       seznam.appendChild(p);
     }
+    seznam.scrollTop = drsenje;
+    vrniFokus(seznam, fokus);
+  }
+  // Fokus v seznamu: kljuc vrstice, mesto gumba v njej (vrstica, nato dejanja - oznaka gumba se po dejanju zamenja,
+  // mesto ostane) in mesto vrstice - ce vrstice ni vec (izbris), dobi fokus vrstica na istem mestu.
+  function zapomniFokus(seznam) {
+    var a = document.activeElement, li = a && a.closest ? a.closest("li[data-kljuc]") : null;
+    if (!li || !seznam.contains(li)) return null;
+    return { kljuc: li.getAttribute("data-kljuc"), gumb: Array.prototype.indexOf.call(li.querySelectorAll("button"), a),
+             mesto: Array.prototype.indexOf.call(seznam.children, li) };
+  }
+  function vrniFokus(seznam, f) {
+    if (!f) return;
+    var vrstice = Array.prototype.filter.call(seznam.children, function (li) { return li.hasAttribute("data-kljuc"); });
+    var li = vrstice.filter(function (x) { return x.getAttribute("data-kljuc") === f.kljuc; })[0];
+    var cilj = li && f.gumb > 0 ? li.querySelectorAll("button")[f.gumb] || null : null;
+    if (!li) li = vrstice[Math.min(f.mesto, vrstice.length - 1)];
+    if (!cilj && li) cilj = li.querySelector("button.vrstica");
+    if (cilj) cilj.focus({ preventScroll: true });
   }
   // Dejanja v vrstici (lastnik, 17. 10. 2026: ze v plosci oznaci prebrano, izbrisi, oznaci kot pomembno). Isti klic
   // kot okno Sporocila (sporocilaDejanje); gumb samo, ce ga kanal zmore (kanal.dejanja). Oznake takoj, izbris po 5 s
