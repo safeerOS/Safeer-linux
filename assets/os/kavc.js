@@ -39,11 +39,20 @@
     if (r.width < 2 || r.height < 2) return false;
     var s = window.getComputedStyle(el);
     if (s.visibility === "hidden" || s.display === "none") return false;
+    return !prosojen(el);
+  }
+  // Ali je el ali kateri od prednikov popolnoma prosojen. Med enim iskanjem kandidatov (kandidati) si izid za vsakega
+  // prednika zapomnimo: sicer bi vsak gumb znova bral slog vseh prednikov.
+  var prosojnost = null;
+  function prosojen(el) {
+    var pot = [], izid = false;
     for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
-      if (n !== el) s = window.getComputedStyle(n);
-      if (s.opacity === "0") return false;
+      if (prosojnost && prosojnost.has(n)) { izid = prosojnost.get(n); break; }
+      pot.push(n);
+      if (window.getComputedStyle(n).opacity === "0") { izid = true; break; }
     }
-    return true;
+    if (prosojnost) pot.forEach(function (x) { prosojnost.set(x, izid); });
+    return izid;
   }
   // Odprto okno (sloj, meni, podrobnosti naslova) ujame izbor: s puscicami ne pridemo na stran pod njim.
   function obmocje() {
@@ -54,7 +63,9 @@
     return document.body;
   }
   function kandidati() {
-    return Array.prototype.filter.call(obmocje().querySelectorAll(IZBIRNO), viden);
+    prosojnost = new Map();
+    try { return Array.prototype.filter.call(obmocje().querySelectorAll(IZBIRNO), viden); }
+    finally { prosojnost = null; }
   }
   function sredina(r) { return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
 

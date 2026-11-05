@@ -46,17 +46,21 @@ class Izbor(unittest.TestCase):
         return json.loads(subprocess.run(["node", "-e", koda], capture_output=True, text=True, check=True, timeout=30).stdout)
 
     def test_viden(self):
-        koda = DOM + _funkcija(self.js, "viden") + r"""
+        koda = DOM + "var prosojnost = null;\n" + _funkcija(self.js, "viden") + _funkcija(self.js, "prosojen") + r"""
         var telo = new El("body");
         var inert = new El("okno", telo, { inert: "" }), skrit = new El("okno", telo, { "aria-hidden": "true" });
-        var prosojen = new El("okno", telo, {}, { opacity: "0" });
-        console.log(JSON.stringify([viden(new El("g", telo)), viden(new El("g", inert)), viden(new El("g", skrit)),
-                                    viden(new El("g", prosojen)), viden(new El("g", telo, {}, { opacity: "0" }))]));
+        var oknoProsojno = new El("okno", telo, {}, { opacity: "0" });
+        var izid = [viden(new El("g", telo)), viden(new El("g", inert)), viden(new El("g", skrit)),
+                    viden(new El("g", oknoProsojno)), viden(new El("g", telo, {}, { opacity: "0" }))];
+        prosojnost = new Map();             // kot med kandidati(): zapomnjen izid prednikov da isti odgovor
+        izid.push(viden(new El("g", oknoProsojno)), viden(new El("g", oknoProsojno)), viden(new El("g", telo)));
+        console.log(JSON.stringify(izid));
         """
-        self.assertEqual(self._node(koda), [True, False, False, False, False])
+        self.assertEqual(self._node(koda), [True, False, False, False, False, False, False, True])
 
     def test_premakni_brez_cilja(self):
-        koda = DOM + "".join(_funkcija(self.js, f) for f in ("viden", "sredina", "naslednji", "prvi", "izberi", "premakni")) + r"""
+        koda = DOM + "var prosojnost = null;\n" + "".join(_funkcija(self.js, f) for f in (
+            "viden", "prosojen", "sredina", "naslednji", "prvi", "izberi", "premakni")) + r"""
         var telo = new El("body"); document.body = telo;
         var a = new El("a", telo, {}, {}, { left: 0, top: 0, width: 50, height: 20 });
         var b = new El("b", telo, {}, {}, { left: 100, top: 0, width: 50, height: 20 });
