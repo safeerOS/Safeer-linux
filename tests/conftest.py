@@ -261,3 +261,14 @@ def _dostop_naprav(tmp_path, monkeypatch, request):
         monkeypatch.setattr(link_hub_streznik, "OMEJENE_ODDAJE", {})
     yield
     link_dostop._za_preizkus(None)
+
+
+@pytest.fixture(autouse=True)
+def _pozabi_manifeste_stremio():
+    """Manifesti dodatkov Stremio so v pomnilniku procesa (core/media_servers._MANIFESTI, 30 min); vsak preizkus
+    zacne brez njih. Enako je v korenskem conftest.py, ki pa se ne nalozi, ce pytest tece iz mape tests/ - tam je
+    test glasbe/radia/TV dobil manifest prejsnjega preizkusa (samo katalog movie) pod istim naslovom (5. 11. 2026)."""
+    ms = sys.modules.get("core.media_servers")
+    if ms is not None and hasattr(ms, "_MANIFESTI"):
+        ms._MANIFESTI.clear()
+    yield
