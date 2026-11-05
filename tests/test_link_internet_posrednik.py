@@ -107,7 +107,8 @@ class Osnova(unittest.TestCase):
                                        sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
                                        sonda=self.sonda, krajevni_cilj=lambda _h: False)   # preizkusi ciljajo 127.0.0.1
         self.u.vrata = 0                       # katerakoli prosta vrata
-        self.u.vrata_scita = lambda: 0         # neodvisno od Scita, ki morda tece na tem racunalniku
+        self.u.dns_sistema = None              # neodvisno od Scita in DNS tega racunalnika
+        self.u.zaupana = lambda _i: True       # krog zaupanja preverja test_samodejno_samo_naprava_iz_kroga
         self.strezniki = []
 
     def tearDown(self):
@@ -174,7 +175,7 @@ class Protokoli(Osnova):
     def test_ime_ki_ga_scit_zavrne_ne_gre_skozi_telefon(self):
         scit = LazniScit()
         self.addCleanup(scit.zapri)
-        self.u.vrata_scita = lambda: scit.vrata
+        self.u.dns_sistema = ("127.0.0.1", scit.vrata)
         s = self.streznik()
         _c, odgovor = self.socks5("blokirano.test", s.vrata)
         self.assertEqual(odgovor[:2], b"\x05\x04", "program dobi »ime ne obstaja«")
@@ -184,19 +185,34 @@ class Protokoli(Osnova):
         c.close()
         self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
 
+    def test_dovoljeno_ime_si_zapomnimo(self):
+        """Dovoljeno ime vprasamo enkrat (~50 ms prek resolved), zavrnjenega vsakic (zavrnitev je takojsnja)."""
+        scit = LazniScit()
+        self.addCleanup(scit.zapri)
+        self.u.dns_sistema = ("127.0.0.1", scit.vrata)
+        self.assertFalse(self.u._scit_zavrne("Dovoljeno.test"))
+        self.assertFalse(self.u._scit_zavrne("dovoljeno.test."))
+        self.assertTrue(self.u._scit_zavrne("blokirano.test"))
+        self.assertTrue(self.u._scit_zavrne("blokirano.test"))
+        self.assertEqual(scit.vprasana.count("Dovoljeno.test") + scit.vprasana.count("dovoljeno.test"), 1)
+        self.assertEqual(scit.vprasana.count("blokirano.test"), 2)
+        self.u._dns_dovoljeno.update({"x%d" % i: time.monotonic() + 60 for i in range(lp.NAJVEC_DOVOLJENIH)})
+        self.assertFalse(self.u._scit_zavrne("novo.test"))
+        self.assertLessEqual(len(self.u._dns_dovoljeno), lp.NAJVEC_DOVOLJENIH, "spomin je omejen")
+
     def test_scit_zavrne_samo_nxdomain(self):
         scit = LazniScit()
         self.addCleanup(scit.zapri)
-        self.assertTrue(lp.scit_zavrne("blokirano.test", scit.vrata))
-        self.assertFalse(lp.scit_zavrne("dovoljeno.test", scit.vrata))
-        self.assertFalse(lp.scit_zavrne("blokirano.test", 0), "Scit ne tece")
-        self.assertFalse(lp.scit_zavrne("127.0.0.1", scit.vrata), "naslov IP ni ime")
-        self.assertFalse(lp.scit_zavrne("a" * 64 + ".test", scit.vrata), "neveljavno ime")
+        self.assertTrue(lp.scit_zavrne("blokirano.test", ("127.0.0.1", scit.vrata)))
+        self.assertFalse(lp.scit_zavrne("dovoljeno.test", ("127.0.0.1", scit.vrata)))
+        self.assertFalse(lp.scit_zavrne("blokirano.test", None), "ne vprasamo")
+        self.assertFalse(lp.scit_zavrne("127.0.0.1", ("127.0.0.1", scit.vrata)), "naslov IP ni ime")
+        self.assertFalse(lp.scit_zavrne("a" * 64 + ".test", ("127.0.0.1", scit.vrata)), "neveljavno ime")
         tih = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         tih.bind(("127.0.0.1", 0))
         self.addCleanup(tih.close)
         zacetek = time.monotonic()
-        self.assertFalse(lp.scit_zavrne("blokirano.test", tih.getsockname()[1], rok=0.2), "brez odgovora ni zavrnitve")
+        self.assertFalse(lp.scit_zavrne("blokirano.test", tih.getsockname(), rok=0.2), "brez odgovora ni zavrnitve")
         self.assertLess(time.monotonic() - zacetek, 1.0, "rok je omejen")
 
     def test_socks5_z_naslovom(self):
@@ -440,6 +456,18 @@ class IzbiraPoti(Osnova):
         self.assertIsNone(self.u.telefon(), "izbran je bil drug telefon; tega ne uporabimo brez vprasanja")
         self.u.nastavi(naprava="")
         self.assertEqual(self.u.telefon(), "tel")
+
+    def test_samodejno_samo_naprava_iz_kroga(self):
+        """Tuja naprava v Linku, ki oglasa internet.gateway, samodejno ne dobi prometa tega racunalnika."""
+        self.naprave.insert(0, {"id": "tuj", "ime": "Tuj telefon", "zmoznosti": ["internet.gateway"]})
+        self.u.zaupana = lambda i: i == "tel"
+        self.assertEqual(self.u.telefon(), "tel", "prvi iz kroga, ne prvi v seznamu")
+        self.u.zaupana = lambda _i: False
+        self.assertIsNone(self.u.telefon(), "brez naprave iz kroga ni samodejne poti")
+        self.assertEqual([t["id"] for t in self.u.telefoni()], ["tuj", "tel"], "vmesnik ju se vedno pokaze")
+        self.u.nastavi(naprava="tuj")
+        self.assertEqual(self.u.telefon(), "tuj", "izrecna izbira uporabnika velja")
+        self.assertFalse(lp.v_krogu_zaupanja(""), "prazen id ni clan")
 
     def test_sistemski_posrednik_je_privzeto_vklopljen_in_se_da_izklopiti(self):
         """Brez sistemskega posrednika brskalnik ob izpadu ne dela, dokler ga uporabnik rocno ne nastavi."""
@@ -692,7 +720,8 @@ class Gneca(Osnova):
                                        sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
                                        sonda=self.sonda, krajevni_cilj=lambda _h: False, nadzor=self.nadzor)
         self.u.vrata = 0
-        self.u.vrata_scita = lambda: 0
+        self.u.dns_sistema = None
+        self.u.zaupana = lambda _i: True
         # Nastavljena pot telefona za izpad; gneca mora vseeno zahtevati mobilno. Izhodisce preizkusov gnece je
         # izklopljeno (vsak preizkus vklopi, kar preverja); privzeto stanje preverja test_privzeto_samodejno.
         self.u.nastavi(pot="any", nacin="izklopljeno", gneca="izklopljeno")
@@ -834,7 +863,7 @@ class Gneca(Osnova):
         """Telefon bi ime razresil sam (mobilni DNS) mimo Scita: zavrnjeno ime gre neposredno, kjer ga Scit zavrne."""
         scit = LazniScit()
         self.addCleanup(scit.zapri)
-        self.u.vrata_scita = lambda: scit.vrata
+        self.u.dns_sistema = ("127.0.0.1", scit.vrata)
         s = self.streznik()
         self.nacin_izpad(gneca="vse")
         self.gneca()

@@ -30,8 +30,9 @@ Posrednik poslusa samo na 127.0.0.1 in sprejme samo programe istega uporabnika (
 da drug uporabnik racunalnika ne porablja mobilnih podatkov telefona.
 
 Scit: skozi telefon gre IME cilja, razresi ga telefon (mobilni DNS) - mimo Scita tega racunalnika. Zato posrednik
-ime pred tokom skozi telefon vprasa Scit (core/os_scit, 127.0.0.1); ime, ki ga Scit zavrne (NXDOMAIN), ne gre
-skozi telefon (ob gneci gre neposredno, kjer ga Scit zavrne kot vedno). Ce Scit ne tece, se nic ne spremeni.
+ime pred tokom skozi telefon vprasa sistemski razresevalnik (systemd-resolved, 127.0.0.53 - tja Safeer OS usmeri
+Scit, core/os_scit); ime, ki ga zavrne (NXDOMAIN), ne gre skozi telefon (ob gneci gre neposredno, kjer ga Scit
+zavrne kot vedno). Velja tudi za drug filter DNS na racunalniku. Brez odgovora v roku se nic ne spremeni.
 """
 
 from __future__ import annotations
@@ -78,12 +79,16 @@ SONDA_NE_DELA_S = 5.0
 PREIZKUS_GOSTITELJ = "safeer.si"
 PREIZKUS_POT = "/cdn-cgi/trace"
 SHRANI_NA_S = 20.0
-#: Rok vprasanja Scitu. Blokirano ime Scit zavrne sam, brez poizvedbe naprej (izmerjeno 5. 11. 2026 na prenosniku:
-#: 0,2-1,3 ms); dovoljeno posreduje naprej (32-68 ms) - toliko se podaljsa odpiranje toka skozi telefon. Brez
-#: odgovora v roku ime ni na seznamu (zavrnitev je takojsnja).
+#: Sistemski razresevalnik (systemd-resolved). Tega v Safeer Control ne najdemo prek core/os_scit: modul je v tovoru
+#: Safeer OS, ne Controla (tests/test_tovor_uvozi.py), Scit pa je vedno za resolved.
+SISTEMSKI_DNS = ("127.0.0.53", 53)
+#: Rok vprasanja. Blokirano ime Scit zavrne sam, brez poizvedbe naprej; dovoljeno posreduje naprej - toliko se
+#: podaljsa odpiranje toka skozi telefon (meritve v porocilu commita). Brez odgovora v roku ime ni zavrnjeno.
 ROK_SCITA_S = 0.5
-#: Kako dolgo velja najdena vrata Scita (iskanje preveri do 4 vrata s kanarckom - ne ob vsaki povezavi).
-VRATA_SCITA_VELJAJO_S = 30.0
+#: Dovoljeno ime si zapomnimo za toliko casa (izmerjeno 5. 11. 2026 na prenosniku prek resolved: zavrnjeno 0,3-1,6 ms,
+#: dovoljeno 43-52 ms tudi ob ponovitvi - brez tega bi vsaka nova povezava skozi telefon cakala se ~50 ms).
+DOVOLJENO_VELJA_S = 60.0
+NAJVEC_DOVOLJENIH = 1024
 
 
 class NapakaZahteve(Exception):
@@ -592,10 +597,10 @@ def _vprasanje_dns(ime: str) -> Optional[Tuple[bytes, bytes]]:
         bytes([len(o)]) + o for o in oznake) + b"\x00\x00\x01\x00\x01"
 
 
-def scit_zavrne(ime: str, vrata: int, rok: float = ROK_SCITA_S) -> bool:
-    """Ali Scit na 127.0.0.1:`vrata` ime zavrne (NXDOMAIN). Naslov IP ni ime (Scit filtrira imena). Brez odgovora,
-    z napacnim id ali drugo kodo (SERVFAIL ob izpadu, NOERROR) ime NI zavrnjeno."""
-    if not vrata:
+def scit_zavrne(ime: str, cilj: Optional[Tuple[str, int]] = SISTEMSKI_DNS, rok: float = ROK_SCITA_S) -> bool:
+    """Ali razresevalnik `cilj` (krajevni naslov, privzeto resolved s Scitom) ime zavrne (NXDOMAIN). Naslov IP ni ime
+    (Scit filtrira imena). Brez odgovora, z napacnim id ali drugo kodo (SERVFAIL ob izpadu, NOERROR) ime NI zavrnjeno."""
+    if not cilj or not cilj[1]:
         return False
     try:
         ipaddress.ip_address(ime.strip("[]"))
@@ -609,7 +614,7 @@ def scit_zavrne(ime: str, vrata: int, rok: float = ROK_SCITA_S) -> bool:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
             u.settimeout(rok)
-            u.connect(("127.0.0.1", vrata))
+            u.connect(cilj)
             u.send(poizvedba)
             konec = time.monotonic() + rok
             while True:                                   # najvec do roka; tuj odgovor (drug id) preskocimo
@@ -620,6 +625,15 @@ def scit_zavrne(ime: str, vrata: int, rok: float = ROK_SCITA_S) -> bool:
                 if time.monotonic() >= konec:
                     return False
     except OSError:
+        return False
+
+
+def v_krogu_zaupanja(id_naprave: str) -> bool:
+    """Ali je naprava clan kroga zaupanja (core/link_krog: uporabnikove seznanjene naprave). Napaka = ne."""
+    try:
+        from core import link_krog
+        return link_krog.krog().clan_za_id(id_naprave) is not None
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -639,12 +653,15 @@ class InternetUpravitelj:
         #: Kateri cilji gredo vedno neposredno (domace omrezje). V preizkusih zamenljivo: ti ciljajo 127.0.0.1.
         self._krajevni_cilj = krajevni_cilj or je_krajevni_cilj
         self._naprave = naprave
+        #: Samodejno (brez izbire uporabnika) gre promet samo skozi napravo iz kroga zaupanja: tuja naprava v Linku,
+        #: ki oglasa internet.gateway, bi sicer ob izpadu ali gneci videla imena in promet tega racunalnika.
+        self.zaupana: Callable[[str], bool] = v_krogu_zaupanja
         self.pot_nastavitev = pot_nastavitev
         self.sistemski = sistemski
         self._obvesti = obvesti
         self.sonda = sonda or Sonda(self._na_spremembo_fiksne)
         self.sonda.ob_spremembi = self._na_spremembo_fiksne
-        self.sonda.potrebna = lambda: bool(self.telefoni())
+        self.sonda.potrebna = lambda: self.telefon() is not None
         self.posrednik = Posrednik(self._usmeri)
         self._zaklep = threading.RLock()
         self.nacin = PRIVZETI_NACIN
@@ -679,9 +696,10 @@ class InternetUpravitelj:
         self.gneca_skupaj = 0
         #: Ali gre zaradi gnece zdaj sistemski posrednik prek nas (nastavitev »vse«).
         self.gneca_sistemski = False
-        #: Vrata Scita tega uporabnika (0 = Scit ne tece). V preizkusih zamenljivo.
-        self.vrata_scita: Callable[[], int] = self._najdi_scit
-        self._scit_vrata = (0, -1e9)
+        #: Razresevalnik, ki ga vprasamo za ime pred tokom skozi telefon (None = ne vprasamo). V preizkusih zamenljiv.
+        self.dns_sistema: Optional[Tuple[str, int]] = SISTEMSKI_DNS
+        #: ime -> do kdaj (monotonic) vemo, da ga razresevalnik ne zavrne. Omejeno na NAJVEC_DOVOLJENIH.
+        self._dns_dovoljeno: Dict[str, float] = {}
         self._nalozi()
         internet.ob_prometu = self._na_promet
         internet.ob_stanju = self._na_stanje_ponudnika
@@ -829,14 +847,19 @@ class InternetUpravitelj:
         return izid
 
     def telefon(self) -> Optional[str]:
-        """Izbrani telefon, ce je v Linku; sicer prvi, ki deli internet."""
+        """Izbrani telefon, ce je v Linku (izbral ga je uporabnik); sicer prvi iz kroga zaupanja, ki deli internet."""
         vsi = self.telefoni()
         with self._zaklep:
             izbran = self.naprava
         for t in vsi:
             if t["id"] == izbran:
                 return izbran
-        return vsi[0]["id"] if vsi and not izbran else None
+        if izbran:
+            return None
+        for t in vsi:
+            if self.zaupana(t["id"]):
+                return t["id"]
+        return None
 
     def izberi_pot(self) -> str:
         with self._zaklep:
@@ -957,24 +980,22 @@ class InternetUpravitelj:
         tok.zazeni()
         return a
 
-    def _najdi_scit(self) -> int:
-        zdaj = time.monotonic()
-        vrata, cas = self._scit_vrata
-        if zdaj - cas < VRATA_SCITA_VELJAJO_S:
-            return vrata
-        try:
-            from core import os_scit
-            vrata = int(os_scit.tekoci_scit())
-        except Exception:  # noqa: BLE001 - Scita ni (Windows, okrnjen paket)
-            vrata = 0
-        self._scit_vrata = (vrata, zdaj)
-        return vrata
-
     def _scit_zavrne(self, host: str) -> bool:
+        kljuc = host.lower().rstrip(".")
+        zdaj = time.monotonic()
+        with self._zaklep:
+            if self._dns_dovoljeno.get(kljuc, 0.0) > zdaj:
+                return False
         try:
-            return scit_zavrne(host, self.vrata_scita())
+            zavrne = scit_zavrne(host, self.dns_sistema)
         except Exception:  # noqa: BLE001
             return False
+        if not zavrne:
+            with self._zaklep:
+                if len(self._dns_dovoljeno) >= NAJVEC_DOVOLJENIH:
+                    self._dns_dovoljeno.clear()
+                self._dns_dovoljeno[kljuc] = zdaj + DOVOLJENO_VELJA_S
+        return zavrne
 
     def _skozi_telefon_ob_gneci(self, c: socket.socket, zahteva: Zahteva) -> bool:
         """Nova povezava programa ob gneci skozi telefon. False: telefona ni ali ni uspel - klicatelj gre neposredno."""
