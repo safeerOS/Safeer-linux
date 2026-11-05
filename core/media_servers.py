@@ -1254,7 +1254,11 @@ def stremio_tokovi(koren: str, tip: str, ident: str) -> list[dict]:
         data = None
     if not isinstance(data, dict) or "streams" not in data:
         raise PrazenOdgovor("dodatek ni vrnil seznama tokov")
-    surovi = data.get("streams") or []
+    surovi = data["streams"]
+    # Samo seznam je odgovor: {"streams": []} pomeni "tega nimam", null/false/{}/niz pa je okvara dodatka (zdravje
+    # dodatka, naslov ostane) - prej je `or []` pokvarjen odgovor stel kot uspeh (CodeRabbit, 5. 11. 2026).
+    if not isinstance(surovi, list):
+        raise PrazenOdgovor("dodatek ni vrnil seznama tokov")
     if not surovi and stremio_vrsta(tip) in ("glasba", "video"):
         # Album, seznam ali kanal z videi: tokove ima posnetek (videos), ne enota sama - vzamemo prvega.
         try:

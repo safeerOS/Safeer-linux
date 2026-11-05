@@ -78,6 +78,17 @@ class SejalciTests(unittest.TestCase):
         tokovi = [{"opis": "1080p HEVC DDP 💾 2 GB 👤 0", "sejalci": 80}, {"opis": "720p"}]
         self.assertEqual(tok_izbira.uredi(tokovi, self.opis, Z)[0]["sejalci"], 80)
 
+    def test_neposreden_tok_ni_roj(self):
+        # Debrid povezava z opisom izvirnega torrenta (0 sejalcev): pripravljen 2160p ostane pred 480p.
+        tokovi = [{"url": "https://d.test/480", "opis": "480p 👤 50"},
+                  {"url": "https://d.test/2160", "opis": "2160p HEVC 👤 0"}]
+        self.assertEqual(tok_izbira.uredi(tokovi, self.opis, Z)[0]["url"], "https://d.test/2160")
+        self.assertEqual(tok_izbira.sejalci_toka(tokovi[1], tokovi[1]["opis"]), -1)
+        # Torrent (brez url) z 0 sejalci ostane na koncu.
+        self.assertEqual(tok_izbira.sejalci_toka({"url": "", "torrent": True}, "👤 0"), 0)
+        # Webtor prenasa iz roja: sejalci ostanejo.
+        self.assertEqual(tok_izbira.sejalci_toka({"url": "https://w.test/r", "webtor": "prenos"}, "👤 0"), 0)
+
 
 class ZdravjeTests(unittest.TestCase):
     def setUp(self):
@@ -136,6 +147,13 @@ class PrazenOdgovorTests(unittest.TestCase):
                     media_servers.stremio_tokovi("https://d.test", "movie", "tt0000001")
         with mock.patch.object(media_servers, "_request", lambda *a, **k: b'{"streams": []}'):
             self.assertEqual(media_servers.stremio_tokovi("https://d.test", "movie", "tt0000001"), [])
+
+    def test_streams_ni_seznam_je_okvara(self):
+        # null/false/{}/niz ni "tega nimam" (prej `or []` = uspeh pokvarjenega dodatka).
+        for telo in (b'{"streams": null}', b'{"streams": false}', b'{"streams": {}}', b'{"streams": "x"}', b'{"streams": 0}'):
+            with mock.patch.object(media_servers, "_request", lambda *a, t=telo, **k: t):
+                with self.assertRaises(media_servers.PrazenOdgovor, msg=telo):
+                    media_servers.stremio_tokovi("https://d.test", "movie", "tt0000001")
 
 
 class VsiDodatkiTests(unittest.TestCase):

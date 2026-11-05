@@ -221,7 +221,13 @@ def ocena(besedilo: str, z: Zmoznosti, velja_s: Optional[int] = None, zelen_jezi
 
 
 def sejalci_toka(tok: object, besedilo: str = "") -> int:
-    """Sejalci toka: polje `sejalci` (zdruzeni dvojniki, zdruzi_dvojnike) ali iz opisa; -1 = neznano."""
+    """Sejalci toka: polje `sejalci` (zdruzeni dvojniki, zdruzi_dvojnike) ali iz opisa; -1 = neznano.
+    Neposreden tok (polje `url`: debrid, Usenet, http) ni roj: dodatek v opisu pogosto navede sejalce izvirnega
+    torrenta (Torrentio z debrid kljucem), a pripravljena povezava se zacne ne glede nanje - zato nevtralno (-1),
+    sicer bi pripravljen tok 2160p z "0 sejalci" pristal za 480p (CodeRabbit, 5. 11. 2026). Izjema je Webtor (polje
+    `webtor`, os_media._oznaci_webtor): ta povezava torrent prenasa iz roja sproti, zato sejalci stejejo."""
+    if isinstance(tok, dict) and str(tok.get("url") or "") and not tok.get("webtor"):
+        return -1
     s = tok.get("sejalci") if isinstance(tok, dict) else None
     if isinstance(s, int) and not isinstance(s, bool) and s >= 0:
         return s
