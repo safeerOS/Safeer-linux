@@ -504,7 +504,8 @@ class Katalog:
         "mediaSpUkaz": "_sp_ukaz", "mediaSpScit": "_sp_scit",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
-        "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
+        "mediaPredvajaj": "_predvajaj_vnos", "mediaPreklici": "_preklici_predvajanje", "mediaYtUkaz": "_yt_ukaz",
+        "mediaStanje": "_stanje",
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
         "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi", "mediaDebrid": "_debrid",
@@ -1510,8 +1511,32 @@ class Katalog:
     def _tokovi(self, a: list) -> Any:
         return self.mc.tokovi_postaje(self._niz(a, 0))
 
-    def _predvajaj_vnos(self, a: list) -> Optional[dict]:
+    #: Stevec zahtev predvajanja (M1/M3, pregled 5. 11. 2026): velja samo zadnja zahteva. Razresitev vira (debrid,
+    #: torrent) traja do nekaj deset sekund; ce je uporabnik medtem kliknil drugo vsebino ali ustavil vrsto, se starejsa
+    #: zahteva po resolve() ne sme odpreti predvajalnika. Na ravni razreda, ker preizkusi gradijo Katalog brez __init__.
+    _zahteva_st = 0
+    _zaklep_zahteve = threading.Lock()
+
+    def _nova_zahteva(self) -> int:
+        with self._zaklep_zahteve:
+            Katalog._zahteva_st += 1
+            return Katalog._zahteva_st
+
+    def _zahteva_velja(self, moja: Optional[int]) -> bool:
+        if moja is None:
+            return True
+        with self._zaklep_zahteve:
+            return moja == Katalog._zahteva_st
+
+    def _preklici_predvajanje(self, _a: list) -> bool:
+        """mediaPreklici: stran je opustila ali ustavila vrsto - zahteva v teku po razresitvi ne zacne nicesar."""
+        self._nova_zahteva()
+        return True
+
+    def _predvajaj_vnos(self, a: list, moja: Optional[int] = None) -> Optional[dict]:
         ident = self._niz(a, 0)
+        if moja is None:
+            moja = self._nova_zahteva()
         # Uporabnik gleda: preverba kanalov IPTV v ozadju stoji (racun z 1-2 povezavama - core/kanali_iptv, J3). Velja
         # na vseh platformah; Linux jo ob koncu predvajanja sprosti (safeer_os._medijski_tik).
         kanali = getattr(self.mc, "kanali", None)
@@ -1523,12 +1548,16 @@ class Katalog:
         uporabi = getattr(self.mc, "uporabi_izbiro", None)
         if uporabi is not None:
             item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej
+        if not self._zahteva_velja(moja):
+            return None       # uporabnik je medtem izbral drugo vsebino ali ustavil: ta ne zaigra (M1)
         if not item:
             print("[SafeerMedia] vnosa ni mogoce razresiti", file=sys.stderr, flush=True)
             return None
-        return self._predvajaj_razresen(item, ident)
+        return self._predvajaj_razresen(item, ident, moja)
 
-    def _predvajaj_razresen(self, item: dict, ident: str) -> Optional[dict]:
+    def _predvajaj_razresen(self, item: dict, ident: str, moja: Optional[int] = None) -> Optional[dict]:
+        if not self._zahteva_velja(moja):
+            return None
         if item.get("napaka_koda") or item.get("napaka") or item.get("sporocilo"):
             # Stran napak predvajanja uporabniku ne kaze (lastnik 18. 10. 2026): sled je tu (brez naslova vsebine).
             print("[SafeerMedia] napaka=%s vrsta=%s" % (re.sub(r"[^\w.-]", "", str(item.get("napaka_koda") or "napaka"))[:24],
@@ -1586,9 +1615,9 @@ class Katalog:
                         "ime": naslov, "stran": False,
                         "naslov": str(item.get("naslov") or "")[:300], "izvajalec": str(item.get("izvajalec") or "")[:200],
                         "slika": str(item.get("slika") or "")[:2048]}
-            if not url or not self._v_glavni_pocakaj(lambda: self._youtube(url, naslov)):
+            if not url or not self._v_glavni_pocakaj(lambda: self._zahteva_velja(moja) and self._youtube(url, naslov)):
                 self._yt = None
-                return dict(item, native=True, napaka_koda="tok")
+                return None if not self._zahteva_velja(moja) else dict(item, native=True, napaka_koda="tok")
             return dict(item, native=True, zvok=True, okno_youtube=True)
         if nacin == "neposredno":
             url = str(item.get("url") or "")
@@ -1600,9 +1629,9 @@ class Katalog:
             tok = tok_za_predvajalnik(item, url)
             if tok:
                 argumenti.append(tok)    # glave toka in druge razlicice (samo, ce jih vnos ima)
-            ok = self._v_glavni_pocakaj(lambda: self._predvajaj(*argumenti))
+            ok = self._v_glavni_pocakaj(lambda: self._zahteva_velja(moja) and self._predvajaj(*argumenti))
             if not ok:
-                return dict(item, native=True, napaka_koda="tok")
+                return None if not self._zahteva_velja(moja) else dict(item, native=True, napaka_koda="tok")
             if len(self._predvajano) > 50:
                 self._predvajano.clear()
             # izvajalec in slika: za sistem (MPRIS - zvocni applet in medijske tipke pokazejo, kaj igra)
@@ -1615,7 +1644,9 @@ class Katalog:
                 self._predvajano[url]["podnapisi_id"] = podnapisi_splet.id_vnosa(item)
             return dict(item, native=True, zvok=vrsta in ("medij", "radio"))
         if nacin == "vdelano":
-            ok = self._v_glavni_pocakaj(lambda: self._vdelano(str(item.get("url") or "")))
+            ok = self._v_glavni_pocakaj(lambda: self._zahteva_velja(moja) and self._vdelano(str(item.get("url") or "")))
+            if not ok and not self._zahteva_velja(moja):
+                return None
             return dict(item, native=True) if ok else dict(item, native=True, napaka_koda="tok")
         return dict(item, napaka_koda="ni_toka")
 
@@ -1653,12 +1684,15 @@ class Katalog:
         hrani - predvajalnik ga bere skozi lokalni pretok (pripeto potrdilo in zeton, core/link_pretok.py)."""
         if self._knjiznica is None:
             return None
+        moja = self._nova_zahteva()
         r = self._knjiznica.predvajaj(self._niz(a, 0))
+        if not self._zahteva_velja(moja):
+            return None
         if not r.get("ok"):
             return {"napaka_koda": str(r.get("koda") or "napaka")}
         if r.get("tukaj"):
             self.mc.knjiznica_vnos(r["tukaj"])
-            return self._predvajaj_vnos(["knjiznica:" + r["tukaj"]["kljuc"]])
+            return self._predvajaj_vnos(["knjiznica:" + r["tukaj"]["kljuc"]], moja)
         from . import link_pretok
         v, tok = r["vnos"], r["tok"]
         vir = link_pretok.vir_toka(tok.get("server"), tok.get("path"), mimetypes.guess_type(str(tok.get("name") or ""))[0] or "")
@@ -1674,8 +1708,9 @@ class Katalog:
         self._preklici_ponudbo()
         print("[SafeerMedia] pot=knjiznica vrsta=%s podnapisov=%d" % (v.get("vrsta") or "", len(podnapisi)), flush=True)
         zacetek = self.napredek_za(ident)
-        if not self._v_glavni_pocakaj(lambda: self._predvajaj(url, "video", naslov, zacetek, podnapisi, True)):
-            return {"napaka_koda": "tok"}
+        if not self._v_glavni_pocakaj(lambda: self._zahteva_velja(moja)
+                                      and self._predvajaj(url, "video", naslov, zacetek, podnapisi, True)):
+            return None if not self._zahteva_velja(moja) else {"napaka_koda": "tok"}
         if len(self._predvajano) > 50:
             self._predvajano.clear()
         kljuc = "id:" + ident
@@ -2178,7 +2213,7 @@ class Katalog:
                 self.police.zapomni(k, opis)      # rocno oznacena epizoda: naslov serije za »Naslednja epizoda«
         return {"ok": True, "ogledano": self.police.nastavi_ogledano(k, da)}
 
-    def _polica_predvajaj(self, a: list) -> Optional[dict]:
+    def _polica_predvajaj(self, a: list, moja: Optional[int] = None) -> Optional[dict]:
         """Vnos s police kataloga: [kljuc, opis s strani]. Najprej isti id kot prej (napredek je pod njim), sicer
         epizodo ali film znova sestavi po TMDB, za postajo ali skladbo pa uporabi shranjeni naslov toka."""
         k = self._niz(a, 0)
@@ -2187,9 +2222,11 @@ class Katalog:
         stran = os_police.cisti_opis(a[1]) if len(a) > 1 and isinstance(a[1], dict) else {}
         m = self.police.opis(k) or stran
         ident = str(m.get("id") or "")
+        if moja is None:
+            moja = self._nova_zahteva()
         if ident:
-            izid = self._predvajaj_vnos([ident])
-            if izid:
+            izid = self._predvajaj_vnos([ident], moja)
+            if izid or not self._zahteva_velja(moja):
                 return izid
         epizoda = os_police.razcleni_kljuc_epizode(k)
         item = None
@@ -2198,15 +2235,17 @@ class Katalog:
             item = self.mc.episode_item(epizoda[0], epizoda[1], epizoda[2], naslov)
         elif k.startswith("tmdb:film:") and k[10:].isdigit():
             item = self.mc.movie_item(int(k[10:]), str(m.get("naslov") or ""))
+        if not self._zahteva_velja(moja):
+            return None
         if item and item.get("id"):
-            return self._predvajaj_vnos([str(item["id"])])
+            return self._predvajaj_vnos([str(item["id"])], moja)
         if m.get("url"):
             # Naslov s streznika je na polici brez prijave (cisti_opis): prijavo doda Medijski center zdaj.
             s_prijavo = getattr(self.mc, "s_prijavo", None)
             url = s_prijavo(m["url"], media_servers.streznik_iz_id(ident)) if s_prijavo else m["url"]
             return self._predvajaj_razresen({"id": ident or k, "naslov": m.get("naslov") or "", "vrsta": m.get("vrsta") or "",
                                              "url": url, "izvajalec": m.get("izvajalec") or "",
-                                             "slika": m.get("slika") or ""}, ident or k)
+                                             "slika": m.get("slika") or ""}, ident or k, moja)
         return None
 
     def _predvajan_tok(self, a: list) -> int:

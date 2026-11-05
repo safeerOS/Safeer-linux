@@ -6415,7 +6415,7 @@
               // (Nazadnje predvajano); zivi: id skladb, ki so prenos v zivo; vrstaSamodejno: do skladbe je prisel samodejni prehod.
               vrstaRed: null, vrstaIzvor: null, vrstaSpremenjena: false, vrstaSamodejno: false, vrstaIzSafeerja: false,
               vrstaZeton: 0, zivi: {},
-              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0,
+              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, zahtevaVnosa: 0, knjiznica: [], zahtevaKnjiznice: 0,
               tvIzbiraOdprta: false };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
@@ -7515,15 +7515,17 @@
   // Datoteka ali postaja v domacem predvajalniku zamenja skladbo iz kataloga: vrsta kataloga se ustavi (zahteva v teku
   // se ne zacne), spodnja vrstica pokaze, kar res igra, in »Naslednja« ne vzame naslednje skladbe kataloga namesto filma
   // (pregled 14. 10. 2026). Domaci predvajalnik ustavi gostitelj z novo vsebino; vgradni YouTube zapremo sami.
+  // mediaPreklici: zahteva, ki se se razresuje (debrid, torrent), po razresitvi ne odpre predvajalnika (M1, 5. 11. 2026).
+  function prekliciKatZahtevo() { klic("mediaPreklici", []).catch(function () {}); }
   function opustiKatVrsto() {
     var item = kat.aktivni;
-    kat.vrsta = []; kat.zahtevaPredvajanja++;
+    kat.vrsta = []; kat.zahtevaPredvajanja++; kat.zahtevaVnosa++; prekliciKatZahtevo();
     if (item && item.okno_youtube) klic("mediaYtUkaz", ["zapri"]).catch(function () {});
     skrijKatTrak();
   }
   function ustaviKatPredvajanje() {
     var item = kat.aktivni;
-    kat.vrsta = []; kat.zahtevaPredvajanja++;
+    kat.vrsta = []; kat.zahtevaPredvajanja++; kat.zahtevaVnosa++; prekliciKatZahtevo();
     skrijKatTrak();
     if (!item) return;
     if (item.okno_youtube) klic("mediaYtUkaz", ["zapri"]).catch(function () {});
@@ -7727,7 +7729,8 @@
   // predvajanje: [metoda, argumenti, tiho] namesto »mediaPredvajaj« z id (polica, naslednja epizoda); tiho = brez
   // obvestila, ce ni nicesar (ponudbo epizode je medtem ze zacelo ali preklicalo drugo okno).
   function odpriKatalogVnos(id, predvajanje) {
-    if (!kat.izVrste) kat.vrstaNapake = 0;      // izbira uporabnika (ne naslednja iz vrste): stevec napak od zacetka
+    if (!kat.izVrste) { kat.vrstaNapake = 0; kat.zahtevaVnosa++; }   // izbira uporabnika: stevec napak od zacetka,
+    // epizoda ali film, ki se se isceta (mediaEpizoda, mediaFilm), se ne zacneta vec (M2)
     kat.izVrste = false;
     // Prenos, ki ga izdajatelj ponuja samo na svoji strani (npr. RTV SLO): odpremo ga v Spletu.
     var znan = id ? (kat.katalog || []).filter(function (x) { return x.id === id; })[0] : null;
@@ -8740,7 +8743,10 @@
         if (item.tmdb_id) row.appendChild(gumbOgledanoEpizode(item, season, ep, row));
         var play = el("button", "gumb glavni", ubezi(t("katPredvajaj"))); play.type = "button";
         play.onclick = function () {
+          // M2 (5. 11. 2026): velja zadnji klik - pocasnejsi odgovor prejsnje epizode ne zacne napacne epizode.
+          var zahteva = ++kat.zahtevaVnosa;
           klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov, item.id]).then(function (entry) {
+            if (zahteva !== kat.zahtevaVnosa) return;
             // Epizode noben vir ne predvaja: tiho (lastnik 18. 10. 2026; sled v sled.log, os_katalog._epizoda).
             if (entry && entry.id) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(entry.id); }
           }, function () {});
@@ -8874,7 +8880,11 @@
         $("mediaEpizodeNaslov").textContent = t("katPredvajanje");
         var playBtn = el("button", "gumb glavni kat-predvajaj-film", ubezi(t("katPredvajaj"))); playBtn.type = "button";
         playBtn.onclick = function () {
-          var pojdi2 = function (vnosId) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId); };
+          var zahteva = ++kat.zahtevaVnosa;          // M2: velja zadnji klik (glej mediaEpizoda)
+          var pojdi2 = function (vnosId) {
+            if (zahteva !== kat.zahtevaVnosa) return;
+            zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
+          };
           if (item.tmdb_id) klic("mediaFilm", [item.tmdb_id, item.naslov]).then(function (entry) { pojdi2(entry && entry.id ? entry.id : item.id); }, function () { pojdi2(item.id); });
           else pojdi2(item.id);
         };
