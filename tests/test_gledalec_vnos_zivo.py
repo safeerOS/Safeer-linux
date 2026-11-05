@@ -223,5 +223,51 @@ class StranNeDosezeMostu(KlikVOknuGledalca):
         self.assertEqual([u["d"] for u in ukazi], ["input.tap"])
 
 
+#: Napadalski pregled 5. 11. 2026: stran gledalca (XSS, tuje sredisce) si DOM deli s skripto Controla.
+_SLOG = ("html,body{margin:0;height:100%;background:#000;overflow:hidden}"
+         "img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}")
+#: Lazen gumb strani cez sredino slike: uporabnik klikne »Preklici«, dotik bi sel na napravo pod njim.
+STRAN_PREKRITO = ("""<!doctype html><html><head><style>%s
+#lazni{position:absolute;left:300px;top:250px;width:200px;height:100px;z-index:5;background:#333;color:#fff}</style></head>
+<body><img id="zaslon" src="%s" alt=""><div id="lazni">Preklici</div><script>window.__stran=[];</script></body></html>"""
+                  % (_SLOG, SLIKA))
+#: Slika, ki jo stran poveca in premakne (transform): narisana slika ni vec tam, kjer racuna delez.
+STRAN_RAZTEGNJENO = ("""<!doctype html><html><head><style>%s
+#zaslon{transform:scale(3) translate(10%%,10%%)}</style></head>
+<body><img id="zaslon" src="%s" alt=""><script>window.__stran=[];</script></body></html>""" % (_SLOG, SLIKA))
+#: Slika 4:3 zapolni celo okno 800 x 600: vrstica gumbov Controla (zgoraj desno) je nad sliko.
+STRAN_POLNA = ("""<!doctype html><html><head><style>%s</style></head>
+<body><img id="zaslon" src="%s" alt=""><script>window.__stran=[];</script></body></html>""" % (_SLOG, _png(800, 600)))
+
+
+class StranNePrestavljaDotika(KlikVOknuGledalca):
+    """Postavitev strani ne sme spremeniti, kam gre uporabnikov klik na napravi."""
+
+    test_stran_sama_poslje_dotik = test_en_klik_je_en_dotik = test_poteg_je_en_poteg = None
+    test_klik_na_crni_rob_ni_dotik = test_koordinate_so_delez_slike_ne_okna = None
+
+    def test_prekrita_slika_ni_dotik(self):
+        _stran, ukazi = self._klikni([[0.5, 0.5]], stran=STRAN_PREKRITO)
+        self.assertEqual(ukazi, [], "klik na lazni gumb strani je postal dotik na napravi")
+
+    def test_ob_laznem_gumbu_se_dotik(self):
+        """Ista stran: klik na nepokrit del slike gre na napravo (preverba ne ustavi pravega dotika)."""
+        _stran, ukazi = self._klikni([[0.25, 0.5]], stran=STRAN_PREKRITO)
+        self.assertEqual([u["d"] for u in ukazi], ["input.tap"])
+
+    def test_raztegnjena_slika_ni_dotik(self):
+        _stran, ukazi = self._klikni([[0.5, 0.5]], stran=STRAN_RAZTEGNJENO)
+        self.assertEqual(ukazi, [], "dotik na sliki, ki jo je stran preoblikovala")
+
+    def test_gumb_vrstice_ni_tudi_dotik(self):
+        """Gumb »Lezece« zgoraj desno nad sliko: samo obrat, ne se dotik na napravi pod gumbom."""
+        _stran, ukazi = self._klikni([[(SIRINA - 40) / SIRINA, 36 / VISINA]], stran=STRAN_POLNA)
+        self.assertEqual([u["d"] for u in ukazi], ["input.rotate"], ukazi)
+
+    def test_polna_slika_dotik(self):
+        _stran, ukazi = self._klikni([[0.5, 0.5]], stran=STRAN_POLNA)
+        self.assertEqual([u["d"] for u in ukazi], ["input.tap"])
+
+
 if __name__ == "__main__":
     unittest.main()

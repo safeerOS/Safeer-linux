@@ -3049,10 +3049,29 @@ class SafeerControl(_OSNOVA):
     if (fx < 0 || fy < 0 || fx > 1 || fy > 1) return null;
     return {x: fx, y: fy};
   }
+  // DOM je skupen s stranjo gledalca (napadalski pregled 5. 11. 2026): stran (XSS, tuje sredisce) lahko sliko
+  // zamenja, prekrije z laznim gumbom ali jo raztegne, premakne, obrne ali naredi nevidno - klik uporabnika na to,
+  // kar vidi, bi postal dotik na drugi tocki naprave. Dotik zato posljemo samo, ce je pod kazalcem res prvotna slika
+  // in je narisana tako, kot racuna delez (object-fit: contain, sredinsko, brez preoblikovanja, prosojnosti, filtra).
+  // getComputedStyle in elementFromPoint sta iz tega sveta: prepisi strani nanju ne vplivajo. Tudi klik na vrstico
+  // gumbov ni vec dotik naprave pod njo (prej sta sla oba: gumb in dotik).
+  var slika0 = document.getElementById("zaslon");
+  function cista(img, x, y) {
+    if (!img || img !== slika0 || !img.isConnected || document.elementFromPoint(x, y) !== img) return false;
+    var c = getComputedStyle(img);
+    if (c.objectFit !== "contain" || c.objectPosition !== "50% 50%" || c.transform !== "none" ||
+        c.opacity !== "1" || c.filter !== "none" || c.clipPath !== "none" || c.visibility !== "visible") return false;
+    for (var n = img.parentElement; n; n = n.parentElement) {
+      var cn = getComputedStyle(n);
+      if (cn.transform !== "none" || cn.opacity !== "1" || cn.filter !== "none" || cn.clipPath !== "none") return false;
+    }
+    return true;
+  }
   var zacetek = null, cas = 0, tipkano = "", casovnik = null;
   document.addEventListener("mousedown", function (e) {
     var img = document.getElementById("zaslon");
     if (!e.isTrusted || !img || e.button !== 0) return;
+    if (!cista(img, e.clientX, e.clientY)) { zacetek = null; return; }
     zacetek = delez(img, e.clientX, e.clientY); cas = Date.now();
     e.preventDefault();
     e.stopPropagation();
@@ -3062,6 +3081,7 @@ class SafeerControl(_OSNOVA):
     if (!e.isTrusted || !img || e.button !== 0) return;
     e.stopPropagation();
     if (!zacetek) return;
+    if (!cista(img, e.clientX, e.clientY)) { zacetek = null; return; }
     var konec = delez(img, e.clientX, e.clientY) || zacetek;
     var trajanje = Math.max(60, Math.min(1500, Date.now() - cas));
     if (Math.abs(konec.x - zacetek.x) + Math.abs(konec.y - zacetek.y) > 0.02) {
@@ -3073,7 +3093,7 @@ class SafeerControl(_OSNOVA):
   }, true);
   document.addEventListener("wheel", function (e) {
     var img = document.getElementById("zaslon");
-    if (!e.isTrusted || !img) return;
+    if (!e.isTrusted || !img || !cista(img, e.clientX, e.clientY)) return;
     var t = delez(img, e.clientX, e.clientY);
     if (!t) return;
     var dy = e.deltaY > 0 ? -0.25 : 0.25;
