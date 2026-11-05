@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import difflib
+import http.client
+import ipaddress
 import json
 import math
 import mimetypes
 import os
 import re
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -1380,11 +1383,50 @@ class _PrazenOdgovor(ValueError):
 
 
 
+def _naslovi_skoka(gostitelj: str, vrata: int) -> list[str]:
+    """Vsi naslovi imena (getaddrinfo enkrat), po vrsti in brez ponovitev."""
+    izid: list[str] = []
+    for *_x, naslov in socket.getaddrinfo(gostitelj, vrata, type=socket.SOCK_STREAM):
+        if naslov[0] not in izid:
+            izid.append(naslov[0])
+    return izid
+
+
+def _ni_javen(naslov: str) -> bool:
+    """Naslov, ki ni javen (zasebni, zanka, povezavno-lokalni, CGNAT, rezervirani ...); ::ffff:a.b.c.d kot IPv4."""
+    try:
+        ip = ipaddress.ip_address(naslov.split("%", 1)[0])
+    except ValueError:
+        return True
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return not ip.is_global
+
+
+def _domace_ime(gostitelj: str) -> bool:
+    g = (gostitelj or "").lower()
+    return g == "localhost" or g.endswith((".local", ".lan", ".home.arpa"))
+
+
+def _pripni(req, gostitelj: str, vrata: int) -> list[str]:
+    """Razresi ime skoka enkrat in si zapomni naslove (povezava gre samo nanje) ter ali je skok v domacem omrezju."""
+    naslovi = _naslovi_skoka(gostitelj, vrata)
+    req._safeer_pripeto = (gostitelj.lower(), vrata, naslovi)
+    req._safeer_domace = _domace_ime(gostitelj) or (bool(naslovi) and all(_ni_javen(n) for n in naslovi))
+    return naslovi
+
+
+def _privzeta_vrata(deli) -> int:
+    return deli.port or (443 if deli.scheme == "https" else 80)
+
+
 class PreverjenSkok(urllib.request.HTTPRedirectHandler):
     """Preusmeritev ob prenosu vira (D1, pregled 5. 11. 2026): vsak skok posebej - samo http(s), nikoli s https na
     http in z javnega streznika nikoli v domace omrezje (192.168.x, localhost ...: tuj seznam ne sme z nasimi pravicami
     brati usmerjevalnika ali krajevnih storitev). Zacetni naslov je lahko http (seznami IPTV), ker ga je izbral
-    uporabnik; preusmeritev izbere streznik."""
+    uporabnik; preusmeritev izbere streznik.
+    CodeRabbit 5. 11. 2026: ime z javnim IN zasebnim naslovom je prej preslo (veljalo je samo »vsi zasebni«), povezava pa
+    je naslove razresila znova (DNS rebinding). Zdaj zavrne ime, ce je KATERIKOLI naslov ne-javen, in se poveze samo na
+    naslove, preverjene tu (_PripetHttp/_PripetHttps)."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         star, nov = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
@@ -1392,10 +1434,63 @@ class PreverjenSkok(urllib.request.HTTPRedirectHandler):
             raise urllib.error.HTTPError(req.full_url, code, "preusmeritev ni http(s)", headers, fp)
         if star.scheme == "https" and nov.scheme != "https":
             raise urllib.error.HTTPError(req.full_url, code, "preusmeritev s https na http", headers, fp)
-        if (media_servers.je_domace_omrezje(nov.hostname or "")
-                and not media_servers.je_domace_omrezje(star.hostname or "")):
+        star_domace = getattr(req, "_safeer_domace", None)
+        if star_domace is None:
+            star_domace = media_servers.je_domace_omrezje(star.hostname or "")
+        izid = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if izid is None:
+            return None
+        try:
+            naslovi = _pripni(izid, nov.hostname, _privzeta_vrata(nov))
+        except (OSError, UnicodeError) as e:
+            raise urllib.error.URLError(e) from None
+        if not star_domace and (_domace_ime(nov.hostname) or any(_ni_javen(n) for n in naslovi)):
             raise urllib.error.HTTPError(req.full_url, code, "preusmeritev v domace omrezje", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        return izid
+
+
+def _odpiralec_naslovov(naslovi: list[str]):
+    """Kot socket.create_connection, a vedno na enega od ze preverjenih naslovov (ime se ne razresi znova)."""
+    def odpri(naslov, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+        napaka: Optional[OSError] = None
+        for n in naslovi:
+            try:
+                return socket.create_connection((n, naslov[1]), timeout, source_address)
+            except OSError as e:
+                napaka = e
+        raise napaka or OSError("ni naslova")
+    return odpri
+
+
+def _pripeta_povezava(osnova, req):
+    """Razred povezave za to zahtevo: ce gre naravnost na gostitelja zahteve (ne prek posrednika sistema), samo na
+    naslove iz _pripni. Zacetni naslov (izbral ga je uporabnik) se razresi tu, preusmeritve v PreverjenSkok."""
+    deli = urllib.parse.urlsplit(req.full_url)
+    gostitelj, vrata = (deli.hostname or "").lower(), _privzeta_vrata(deli)
+    pripeto = getattr(req, "_safeer_pripeto", None)
+    if pripeto is None and gostitelj and req.host == deli.netloc:
+        try:
+            _pripni(req, gostitelj, vrata)
+        except (OSError, UnicodeError) as e:
+            raise urllib.error.URLError(e) from None
+        pripeto = req._safeer_pripeto
+
+    class Povezava(osnova):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            if pripeto and (str(self.host).lower(), self.port) == pripeto[:2]:
+                self._create_connection = _odpiralec_naslovov(pripeto[2])
+    return Povezava
+
+
+class _PripetHttp(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_pripeta_povezava(http.client.HTTPConnection, req), req)
+
+
+class _PripetHttps(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_pripeta_povezava(http.client.HTTPSConnection, req), req, context=self._context)
 
 class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
@@ -4943,7 +5038,7 @@ class MediaCenter:
             "Accept": "application/json, application/rss+xml, application/xml, audio/x-mpegurl, text/html;q=0.9, */*;q=0.5",
             "Accept-Language": "sl,en-US;q=0.9,en;q=0.8",
         })
-        with urllib.request.build_opener(PreverjenSkok()).open(request, timeout=15) as response:  # nosec B310
+        with urllib.request.build_opener(PreverjenSkok(), _PripetHttp(), _PripetHttps()).open(request, timeout=15) as response:  # nosec B310
             length = int(response.headers.get("Content-Length") or 0)
             if length > MAX_DOWNLOAD:
                 raise ValueError("Vir je prevelik.")
