@@ -182,8 +182,9 @@ def tocke_jezika(besedilo: str, zelen: str, izvirni: str = "", neoznacen_je_sinh
 
 
 def ocena(besedilo: str, z: Zmoznosti, velja_s: Optional[int] = None, zelen_jezik: str = "", izvirni: str = "",
-          neoznacen_je_sinhronizacija: bool = False) -> int:
-    """Vecja ocena = boljsi tok za to napravo. `velja_s`: koliko sekund je povezava se veljavna (velja_se); None = brez roka."""
+          neoznacen_je_sinhronizacija: bool = False, st_sejalcev: Optional[int] = None) -> int:
+    """Vecja ocena = boljsi tok za to napravo. `velja_s`: koliko sekund je povezava se veljavna (velja_se); None = brez roka.
+    `st_sejalcev`: znano stevilo sejalcev (zdruzeni dvojniki: najvecje med dodatki); None = iz opisa."""
     o = opisi(besedilo)
     v = o.visina or 700                      # neznana locljivost: med 720p in 480p
     tocke = v if v <= z.visina else z.visina - (v - z.visina) // 4
@@ -203,7 +204,7 @@ def ocena(besedilo: str, z: Zmoznosti, velja_s: Optional[int] = None, zelen_jezi
     tocke -= int(min(o.gb, 40.0) * 4)        # med enakovrednimi se manjsa datoteka zacne hitreje
     # Torrent: zacetek predvajanja doloca roj, ne naprava (izmerjeno 3. 10. 2026). Kjer opis pove stevilo sejalcev,
     # ima podprt torrent prednost tudi pred eno stopnjo visjo locljivostjo; brez sejalcev je zadnji.
-    s = sejalci(besedilo)
+    s = sejalci(besedilo) if st_sejalcev is None else st_sejalcev
     if s == 0:
         tocke -= 2500
     elif 1 <= s <= 4:
@@ -219,13 +220,99 @@ def ocena(besedilo: str, z: Zmoznosti, velja_s: Optional[int] = None, zelen_jezi
     return tocke + tocke_jezika(besedilo, zelen_jezik, izvirni, neoznacen_je_sinhronizacija)
 
 
+def sejalci_toka(tok: object, besedilo: str = "") -> int:
+    """Sejalci toka: polje `sejalci` (zdruzeni dvojniki, zdruzi_dvojnike) ali iz opisa; -1 = neznano."""
+    s = tok.get("sejalci") if isinstance(tok, dict) else None
+    if isinstance(s, int) and not isinstance(s, bool) and s >= 0:
+        return s
+    return sejalci(besedilo)
+
+
+#: Pod tem stevilom sejalcev (znano) gre torrent za tokove z vec sejalci (lastnik, 5. 11. 2026, viri tokov).
+MALO_SEJALCEV = 3
+
+
+def razred_sejalcev(s: int) -> int:
+    """0 = neznano ali dovolj sejalcev (nevtralno), 1 = malo (1-2), 2 = znano 0 (na konec, a ne skrit). Lastnik
+    5. 11. 2026 (viri tokov): torrenta brez sejalcev ne sme prehiteti noben drug tok, ne glede na locljivost ali jezik."""
+    if s == 0:
+        return 2
+    return 1 if 0 < s < MALO_SEJALCEV else 0
+
+
 def uredi(tokovi: Sequence[T], besedilo: Callable[[T], str], z: Zmoznosti,
           naslov: Optional[Callable[[T], str]] = None, zdaj_s: Optional[float] = None, zelen_jezik: str = "",
           izvirni: str = "") -> List[T]:
     """Tokovi od najboljsega do najslabsega za to napravo; pri enaki oceni ostane vrstni red dodatka. Z `naslov` se
-    uposteva tudi rok veljavnosti povezave (velja_se) ob casu `zdaj_s` (sekunde od 1970; privzeto zdaj)."""
+    uposteva tudi rok veljavnosti povezave (velja_se) ob casu `zdaj_s` (sekunde od 1970; privzeto zdaj).
+    Najprej odloca razred sejalcev (razred_sejalcev), sele nato ocena."""
     zdaj = time.time() if zdaj_s is None else zdaj_s
     oznacen = bool(zelen_jezik) and any(jezik_zvoka(besedilo(t)) == "izvirnik" for t in tokovi)
-    ocene = [(-ocena(besedilo(t), z, velja_se(naslov(t), zdaj) if naslov else None, zelen_jezik, izvirni, oznacen), i)
-             for i, t in enumerate(tokovi)]
-    return [tokovi[i] for _, i in sorted(ocene)]
+    ocene = []
+    for i, t in enumerate(tokovi):
+        b = besedilo(t)
+        s = sejalci_toka(t, b)
+        ocene.append((razred_sejalcev(s), -ocena(b, z, velja_se(naslov(t), zdaj) if naslov else None, zelen_jezik,
+                                                 izvirni, oznacen, s), i))
+    return [tokovi[i] for _, _, i in sorted(ocene)]
+
+
+#: Najvec sledilnikov zdruzenega torrenta: dovolj za hiter roj, brez dolgega seznama za motor.
+NAJVEC_SLEDILNIKOV = 30
+
+
+def _opisanost(tok: dict) -> tuple:
+    """Kako dobro tok opise izdajo: stevilo prepoznanih lastnosti (locljivost, kodek, zvok, velikost, sejalci, ime
+    datoteke), nato dolzina opisa. Obdrzimo najbolj opisanega, da izbira in seznam virov vesta, kaj je."""
+    besedilo = str(tok.get("opis") or "")
+    o = opisi(besedilo)
+    lastnosti = sum((bool(o.visina), o.hevc or o.av1, bool(o.zvok), o.gb > 0, sejalci(besedilo) >= 0, bool(tok.get("ime"))))
+    return lastnosti, len(besedilo)
+
+
+def zdruzi_dvojnike(tokovi: Sequence[dict]) -> List[dict]:
+    """Torrenti z istim infoHash in indeksom datoteke (fileIdx) iz razlicnih dodatkov (ali dvakrat iz istega) so ista
+    izdaja: en vnos na mestu prvega, z najbolj opisanim tokom, zdruzenimi sledilniki (brez dvojnikov, najvec
+    NAJVEC_SLEDILNIKOV) in najvecjim znanim stevilom sejalcev (polje `sejalci`). Lastnik 5. 11. 2026 (viri tokov):
+    isti film veckrat na seznamu je zmeda, roj pa z vsemi sledilniki skupaj najde vec virov.
+    Neposredne povezave (debrid, Usenet) ostanejo locene tudi z istim hashem - vsaka je svoj racun ali streznik."""
+    skupine: dict = {}
+    mesta: list = []
+    for t in tokovi:
+        hash_ = str(t.get("hash") or "").lower() if isinstance(t, dict) and t.get("torrent") and not t.get("url") else ""
+        if not hash_:
+            mesta.append(t)
+            continue
+        kljuc = (hash_, t.get("indeks"))
+        if kljuc not in skupine:
+            skupine[kljuc] = [t]
+            mesta.append(kljuc)
+        else:
+            skupine[kljuc].append(t)
+    koncni: List[dict] = []
+    for vnos in mesta:
+        if not isinstance(vnos, tuple):
+            koncni.append(vnos)
+            continue
+        skupina = skupine[vnos]
+        najboljsi = skupina[0]
+        for t in skupina[1:]:
+            if _opisanost(t) > _opisanost(najboljsi):
+                najboljsi = t
+        tok = dict(najboljsi)
+        sledilniki: List[str] = []
+        videni = set()
+        for t in [najboljsi] + [x for x in skupina if x is not najboljsi]:
+            for s in t.get("sledilniki") or []:
+                s = str(s).strip()
+                if s and s.lower() not in videni and len(sledilniki) < NAJVEC_SLEDILNIKOV:
+                    videni.add(s.lower())
+                    sledilniki.append(s)
+        tok["sledilniki"] = sledilniki
+        if not tok.get("ime"):
+            tok["ime"] = next((str(t.get("ime")) for t in skupina if t.get("ime")), "")
+        znani = [s for s in (sejalci_toka(t, str(t.get("opis") or "")) for t in skupina) if s >= 0]
+        if znani:
+            tok["sejalci"] = max(znani)
+        koncni.append(tok)
+    return koncni

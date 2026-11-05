@@ -3445,21 +3445,36 @@ class MediaCenter:
         # Ali so odgovorili vsi dodatki: "tega nimam" (404) je odgovor, izpad (omrezje, 5xx, prijava) ni. Brez tega
         # bi hip nedosegljiv dodatek film skril za ure (glej resolve).
         izpadi: list[str] = []
+        # Zdravje dodatkov (lastnik 5. 11. 2026, viri tokov): dodatek s kljucem v kazni preskocimo (zaklep racuna),
+        # na dodatek brez kljuca v kazni ne cakamo. Preskoceni steje kot izpad - naslov zato ne postane »ni na voljo«.
+        zdravje = self._zdravje_dodatkov()
+        for k in [k for k in koreni if zdravje.preskoci(k, media_servers.stremio_dodatek_s_kljucem(k))]:
+            koreni.remove(k)
+            izpadi.append(k)
+        zadrzani = {k for k in koreni if zdravje.zadrzan(k)}
 
-        def vprasaj_en(k: str, ident: str = ident) -> list[dict]:
+        def vprasaj_en(k: str, ident: str = ident) -> Optional[list[dict]]:
+            """Tokovi dodatka; None = neuspeh (napaka, cas, prazen odgovor, prijava) za zdravje dodatka."""
             try:
                 return media_servers.stremio_tokovi(k, tip, ident)
             except urllib.error.HTTPError as napaka:
                 if not (400 <= napaka.code < 500 and napaka.code not in (401, 403, 407, 408, 425, 429)):
                     izpadi.append(k)
+                    return None
                 return []
             except Exception:
                 izpadi.append(k)
-                return []
+                return None
 
         def vprasaj(k: str) -> list[dict]:
             # Naloga 131: isti dodatek se z id-jem po IMDb (npr. Torrentio za serijo iz kataloga z lastnimi id-ji).
-            return vprasaj_en(k) + (vprasaj_en(k, dodatni) if dodatni else [])
+            izidi_k = [vprasaj_en(k)] + ([vprasaj_en(k, dodatni)] if dodatni else [])
+            # Ena vsebina je en poskus: dodatek je zdrav, ce je odgovoril vsaj na eno vprasanje.
+            if any(i is not None for i in izidi_k):
+                zdravje.uspeh(k)
+            else:
+                zdravje.neuspeh(k)
+            return [t for i in izidi_k if i for t in i]
 
         # Kateri dodatek je ponudil torrent (za zasebnost na polici »Na tvojih napravah«). Naslov dodatka ostane tu:
         # v njem je lahko uporabnikov zeton, zato ga tokovom, ki gredo na stran, ne pripisemo.
@@ -3482,7 +3497,7 @@ class MediaCenter:
                 tokovi = [dict(t, dodatek=ime) for t in tokovi]
             zapomni(koreni[0], tokovi)
             self._tokovi_odgovor.vsi = not izpadi
-            return tokovi
+            return tok_izbira.zdruzi_dvojnike(tokovi)
         from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
         tokovi: list[dict] = []
         videni: set[str] = set()
@@ -3495,7 +3510,9 @@ class MediaCenter:
         izidi: dict[str, list] = {}
         try:
             cakajo = set(niti)
-            while cakajo:
+            # Dodatek v kazni (zdravje) ne zadrzi rezultatov: ko so tokovi ze tu, cakamo samo se na zdrave dodatke,
+            # odgovor dodatka v kazni vzamemo, ce je ze prisel. Brez vsakega toka cakamo tudi nanj (do roka).
+            while cakajo and (any(niti[n] not in zadrzani for n in cakajo) or not any(izidi.values())):
                 pretecen = time.monotonic() - zacetek
                 ima_tok = any(t.get("url") and not t.get("zunanje") for v in izidi.values() for t in v)
                 rok = (self.TOKOVI_ROK_S if ima_tok else self.TOKOVI_NAJDLJE_S) - pretecen
@@ -3505,7 +3522,10 @@ class MediaCenter:
                 for nit in koncane:
                     izidi[niti[nit]] = nit.result() if nit.exception() is None else []
             for nit in cakajo:
-                izpadi.append(niti[nit])
+                if nit.done() and nit.exception() is None:
+                    izidi[niti[nit]] = nit.result()
+                else:
+                    izpadi.append(niti[nit])
         finally:
             bazen.shutdown(wait=False)
         # Ime dodatka, kot ga je poimenoval uporabnik (seznam razlicic v podrobnostih) - naslova dodatka ne.
@@ -3516,13 +3536,19 @@ class MediaCenter:
                     for t in self._oznaci_webtor(k, izidi.get(k) or [])]
             zapomni(k, izid)
             for t in izid:
-                kljuc = str(t.get("url") or "") or ("torrent:%s:%s" % (t.get("hash") or "", t.get("indeks"))
-                                                     if t.get("torrent") else "")
-                if kljuc not in videni:
+                # Torrente z istim hashem zdruzi zdruzi_dvojnike (sledilniki, sejalci), ne zavrze drugega.
+                kljuc = str(t.get("url") or "")
+                if t.get("torrent") and not kljuc:
+                    tokovi.append(t)
+                elif kljuc not in videni:
                     videni.add(kljuc)
                     tokovi.append(t)
         self._tokovi_odgovor.vsi = not izpadi
-        return tokovi
+        return tok_izbira.zdruzi_dvojnike(tokovi)
+
+    def _zdravje_dodatkov(self) -> "media_servers.ZdravjeDodatkov":
+        """Zdravje dodatkov Stremio v pomnilniku tega procesa (ob ponovnem zagonu vsi spet zdravi)."""
+        return self.__dict__.setdefault("_zdravje_dodatkov_stanje", media_servers.ZdravjeDodatkov())
 
     # --- Webtor rezerva (lastnik 25. 10. 2026; core/webtor.py) ------------------------------------------------------
     def _je_webtor_koren(self, koren: str) -> bool:
