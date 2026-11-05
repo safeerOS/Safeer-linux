@@ -4152,7 +4152,9 @@
     var pl = String((n && n.platforma) || "").toLowerCase(), vr = String((n && n.vrsta) || "").toLowerCase();
     if (pl === "tablet" || pl === "tablica" || vr === "tablet") return "tablet";
     if (pl === "phone" || pl === "telefon" || vr === "phone" || vr === "handheld") return "phone";
-    if (pl === "tv" || vr === "tv" || vr === "screen") return "tv";
+    // "screen" pove le, da naprava zna prikazati zaslon (tudi racunalnik): TV samo brez druge platforme, kot
+    // ikonaNapraveVSeznamu - sicer bi racunalnik z vrsto "screen" dobil paket televizorja (CodeRabbit 4. 11. 2026).
+    if (pl === "tv" || vr === "tv" || (vr === "screen" && !pl)) return "tv";
     return "";
   }
   function paketNaZaslonu(n, kaj) {

@@ -29,6 +29,8 @@ PRIMERI = [
     ({"platforma": "phone", "aplikacije": {"si.safeer.phone": {}}}, ["si.safeer.phone", ""]),
     ({"platforma": "tv", "aplikacije": {"si.safeer.tv": {}}}, ["", "si.safeer.tv"]),
     ({"platforma": "linux"}, ["", ""]),
+    ({"platforma": "linux", "vrsta": "screen"}, ["", ""]),        # racunalnik, ki zna prikazati zaslon, ni TV
+    ({"platforma": "windows", "vrsta": "screen"}, ["", ""]),
     ({}, ["", ""]),
 ]
 
