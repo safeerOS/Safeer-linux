@@ -62,6 +62,14 @@ class PriklopMonitorja(unittest.TestCase):
             okolje = wayland_okolje.cisto_okolje()
             okolje.update({"XDG_CONFIG_HOME": os.path.join(d, "c"), "XDG_CACHE_HOME": os.path.join(d, "k"),
                            "XDG_DATA_HOME": os.path.join(d, "p"), "SAFEER_OS_BREZ_FLATPAKA": "1"})
+            # Safeer OS v podprocesu vgradnje Controla nima (en_proces): zazene locen safeer-control s PATH. Lazen na
+            # zacetku PATH, sicer zazene namescenega (/usr/bin/safeer-control; varovalo programov, testni PC 5. 11.).
+            lazni = os.path.join(d, "bin")
+            os.makedirs(lazni)
+            with open(os.path.join(lazni, "safeer-control"), "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(os.path.join(lazni, "safeer-control"), 0o755)
+            okolje["PATH"] = lazni + os.pathsep + okolje.get("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
             r = subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 2560x1024x24", sys.executable, "-c", SKRIPTA, KOREN],
                                capture_output=True, text=True, timeout=150, env=okolje)
         izid = {v.split()[0]: v.split(" ", 1)[1] for v in r.stdout.splitlines() if v[:1].isupper()}
