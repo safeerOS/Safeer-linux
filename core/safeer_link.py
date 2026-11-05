@@ -242,8 +242,16 @@ ZETON_MOSTU = secrets.token_urlsafe(32)
 # ga program vstavi vnaprej; dejanja gredo v program.
 MOST_JS = """
 (function () {
+  "use strict";
   if (window.SafeerLink) return;
   var zeton = "__ZETON__";
+  // Izvirnike vzamemo ob zacetku dokumenta, pred skriptami strani, in zeton nikoli ne damo v predmet (napadalski
+  // pregled 5. 11. 2026): JSON.stringify({... t: zeton}) ob klicu je zeton dal vsakomur, ki prepise JSON.stringify
+  // ali doda Object.prototype.toJSON. Sporocilo je niz, sestavljen iz nizov; "use strict" zapre .caller/.arguments.
+  var vNiz = JSON.stringify, uporabi = Reflect.apply;
+  var rokovalnik = null, oddaj = null;
+  try { rokovalnik = window.webkit.messageHandlers.safeerLink; oddaj = rokovalnik.postMessage; } catch (e) {}
+  function json(v) { var s = uporabi(vNiz, JSON, [v]); return typeof s === "string" ? s : "null"; }
   window.__safeerLink = window.__safeerLink || {
     stanje: {"znan": false, "seznanjen": false},
     naprave: [],
@@ -255,9 +263,9 @@ MOST_JS = """
   };
   function poslji(metoda, argumenti) {
     try {
-      window.webkit.messageHandlers.safeerLink.postMessage(
-        JSON.stringify({ m: metoda, a: argumenti || [], t: zeton })
-      );
+      if (oddaj) {
+        uporabi(oddaj, rokovalnik, ['{"m":' + json(metoda) + ',"a":' + json(argumenti || []) + ',"t":"' + zeton + '"}']);
+      }
     } catch (e) {}
   }
   window.SafeerLink = {

@@ -40,21 +40,32 @@ ZETON_MOSTU = secrets.token_urlsafe(32)
 
 MOST_JS = r"""
 (function () {
+  "use strict";
   var zeton = "__ZETON__";
+  // Izvirnike vzamemo ob zacetku dokumenta, pred skriptami strani (napadalski pregled 5. 11. 2026): prej je most
+  // ob vsakem klicu poklical JSON.stringify(m) in postMessage s predmetom z zetonom - stran, ki ju prepise (ali doda
+  // Object.prototype.toJSON oziroma setter "t"), je zeton dobila. Zdaj zeton nikoli ni v predmetu: sporocilo
+  // klicatelja pretvorimo v niz BREZ zetona, zeton dodamo z zdruzevanjem nizov in niz oddamo z izvirnim postMessage.
+  // "use strict": funkcije strani, ki jih JSON klice (toJSON, getterji), ne vidijo nasih prek .caller/.arguments.
+  var vNiz = JSON.stringify, uporabi = Reflect.apply, jeTabela = Array.isArray, odrezi = String.prototype.slice;
+  var rokovalnik = null, oddaj = null;
+  try { rokovalnik = window.webkit.messageHandlers.safeer; oddaj = rokovalnik.postMessage; } catch (e) {}
   var most = {
     poslji: function (sporocilo) {
       // Samo navaden predmet; drugo zavrnemo (prej bi niz ali stevilo slo naprej brez zetona).
-      if (typeof sporocilo !== "object" || sporocilo === null || Array.isArray(sporocilo)) {
+      if (typeof sporocilo !== "object" || sporocilo === null || uporabi(jeTabela, null, [sporocilo])) {
         console.warn("SafeerSplet.poslji: sporocilo mora biti predmet");
         return false;
       }
       try {
-        // Zeton nikoli ne zapisemo v klicateljev predmet (setter za "t" bi ga ukradel): naredimo svez navaden
-        // predmet. JSON.stringify sicer poklice getterje/toJSON klicatelja, a takrat zeton se ni nikjer.
-        var m = JSON.parse(JSON.stringify(sporocilo));
-        if (typeof m !== "object" || m === null || Array.isArray(m)) { return false; }
-        m.t = zeton;
-        window.webkit.messageHandlers.safeer.postMessage(JSON.stringify(m));
+        // Getterji in toJSON klicatelja tu se tecejo, a zetona takrat ni nikjer.
+        var s = uporabi(vNiz, JSON, [sporocilo]);
+        if (typeof s !== "string" || s.length < 2 || s[0] !== "{" || s[s.length - 1] !== "}" || !oddaj) {
+          return false;
+        }
+        // Zeton zadnji: ce ima sporocilo svoj "t", velja nas (json.loads obdrzi zadnjega).
+        var niz = (s === "{}") ? '{"t":"' + zeton + '"}' : uporabi(odrezi, s, [0, -1]) + ',"t":"' + zeton + '"}';
+        uporabi(oddaj, rokovalnik, [niz]);
         return true;
       } catch (e) {
         return false;
