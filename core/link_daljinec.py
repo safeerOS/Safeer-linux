@@ -573,7 +573,21 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d == "host.info":
             # Kaj ima ta racunalnik (host): procesor, pomnilnik, prostor. Samo stevilke o zmogljivosti,
             # nic o vsebini - televizor mora vedeti, koliko moci ima na voljo.
-            koncaj(izid(True, "Podatki o računalniku", podatki_hosta()))
+            podatki = podatki_hosta()
+            # Lastnik 5. 11. 2026: Usenet za drugo napravo (core/link_usenet_pomoc) - samo ozjemu krogu: odtis pove, kateri
+            # indeksator ima lastnik (gostitelj se da uganiti iz seznama znanih indeksatorjev).
+            if _v_ozjem_krogu(posiljatelj):
+                try:
+                    from core import link_usenet_pomoc      # samo paket Safeer OS (Control sam nima Medijskega centra)
+                except ImportError:
+                    link_usenet_pomoc = None
+                try:
+                    u = link_usenet_pomoc.zmoznost() if link_usenet_pomoc is not None else None
+                    if u:
+                        podatki["usenet"] = u
+                except Exception:  # noqa: BLE001 - brez Useneta host.info dela kot prej
+                    pass
+            koncaj(izid(True, "Podatki o računalniku", podatki))
         elif d in DEJANJA_PRETOK:
             if datoteke is None:
                 koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))
@@ -587,6 +601,12 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 st = pr.stanje(str(parametri.get("id") or ""))
                 koncaj(izid(st is not None, "Stanje toka", st or {}, koda="" if st is not None else "ni_opravila"))
                 return
+            # Lastnik 5. 11. 2026: izdajo z Useneta (polje usenet) racunalnik prebere sam s SVOJIM racunom - to sme samo
+            # naprava v ozjem krogu tega racunalnika (link_dostop.v_ozjem_krogu; nic iz sporocila tega ne podeli).
+            z_usenetom = parametri.get("usenet") is not None
+            if z_usenetom and not _v_ozjem_krogu(posiljatelj):
+                koncaj(izid(False, "Usenet samo za napravo v ozjem krogu", koda="ni_ozji_krog"))
+                return
             # Pretvarjanje obremeni procesor ali grafiko: racunalnik pomaga, kadar sme (obremenitev, pomnilnik, baterija).
             stanje_pomoci = pomoc(baterija())
             if not stanje_pomoci["lahko"]:
@@ -597,7 +617,17 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             def delo_pretok() -> None:
                 from core import os_stabilnost
                 try:
-                    podatki = pr.zacni(parametri, posiljatelj, datoteke.streznik)
+                    krajevni = None
+                    if z_usenetom:
+                        try:
+                            from core import link_usenet_pomoc  # samo paket Safeer OS
+                        except ImportError:
+                            raise link_sprotno.NapakaPretoka("ni_usenet") from None
+                        try:
+                            krajevni = link_usenet_pomoc.vir(parametri.get("usenet"))
+                        except link_usenet_pomoc.NapakaPomoci as e:
+                            raise link_sprotno.NapakaPretoka(str(e)) from None
+                    podatki = pr.zacni(parametri, posiljatelj, datoteke.streznik, krajevni=krajevni)
                     os_stabilnost.zapisi("safeer-control", f"video.stream za {posiljatelj}: pretvarjam {parametri.get('name')}")
                     koncaj(izid(True, "Pretvarjam sproti", podatki))
                 except Exception as e:  # noqa: BLE001 - napravi povemo kratko kodo
