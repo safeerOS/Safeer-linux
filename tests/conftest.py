@@ -12,6 +12,18 @@ import sys
 
 import pytest
 
+# Kljuc TLS niti Qt PRED kljucem GLib (sklad privzetih kontekstov, g_main_context_push_thread_default). Izmerjeno
+# 5. 11. 2026 (gdb, najmanjsi poskus): niti bazena QtGui (»Thread (pooled)«, vzporedno polnjenje rastra v programskem
+# izrisu QML) se iztecejo 30 s po zadnji uporabi; ob izhodu niti glibc klice destruktorje kljucev po vrsti nastanka. Ce je
+# GLib svoj kljuc ustvaril prej (GTK/WebKit pred Qt), je sklad ze sproscen, ko ~QEventDispatcherGlib poklice pop ->
+# »g_main_context_pop_thread_default: assertion 'stack != NULL'«, pripisano nakljucnemu kasnejsemu preizkusu. Z Qt prej
+# opozorila ni (2 od 2 tekov z GLib prej ga imata, 0 od 2 z Qt prej). QThread.currentThread() ustvari kljuc Qt.
+try:
+    from PySide6.QtCore import QThread as _QThread
+    _QThread.currentThread()
+except ImportError:
+    pass
+
 _izid = {}
 _VODILO = "DBUS_SESSION_BUS_ADDRESS"
 # Okolje ob uvozu tega conftest (pred uvozom varoval in core/): korenski conftest.py mora izolacijo nastaviti PREJ

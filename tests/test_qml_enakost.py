@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 
 from besedila_namizja import stevilo
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QML = os.path.join(KOREN, "assets", "os", "qml")
@@ -306,13 +307,7 @@ class NamizjeQml(unittest.TestCase):
         # Okno QML pospravimo v glavni niti: sicer ga lahko pobere gc.collect() v drugi niti (threat_intel) med
         # kasnejsim preizkusom in proces se sesuje (izmerjeno v skupini gtk4, 15. 10. 2026).
         import gc
-        from PySide6.QtCore import QUrl
-        n = getattr(self, "n", None)
-        if n is not None:
-            # Prazen vir unici koren QML in z njim casovnike (kot OknoQml._pospravi, naloga 116).
-            n.okno.setSource(QUrl())
-            n.okno.close()
-            n.okno.deleteLater()
+        qml_okno.pospravi_namizje(getattr(self, "n", None))     # kot OknoQml._pospravi, naloga 116
         self.n = self.koren = None
         self._pocakaj(lambda: False, 0.1)
         gc.collect()

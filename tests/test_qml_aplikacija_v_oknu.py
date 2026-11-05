@@ -4,6 +4,7 @@ import unittest
 
 from core import os_lupina
 from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -58,15 +59,12 @@ class OknoQml(unittest.TestCase):
         self.addCleanup(self._pospravi)  # addCleanup: LIFO - pospravi pred koncem zakrp
 
     def _pospravi(self):
-        import shiboken6
         from gi.repository import GLib
-        from PySide6.QtCore import QUrl
         for n in self.namizja:
-            okno = getattr(n, "okno", None)
-            if okno is not None and shiboken6.isValid(okno):
-                # Prazen vir unici koren QML in z njim casovnike (vire GLib). Brisanje celega pogleda
-                # (shiboken6.delete) je po test_os_linux sprozilo GLib kriticno opozorilo g_main_context_pop_thread_default.
-                okno.setSource(QUrl())
+            # Prazen vir unici koren QML in z njim casovnike (vire GLib), nato okno izbrisemo. Opozorilo
+            # g_main_context_pop_thread_default, ki je bilo prej pripisano brisanju pogleda, je iztek niti bazena
+            # QtGui (vzrok in popravek v tests/conftest.py, 5. 11. 2026).
+            qml_okno.pospravi_namizje(n)
         kontekst = GLib.MainContext.default()
         for vir in self.viri_glib:
             s = kontekst.find_source_by_id(vir)

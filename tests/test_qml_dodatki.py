@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 from core import os_datoteke, priljubljeno
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 
 class Osnova(unittest.TestCase):
@@ -152,12 +153,7 @@ class Osnova(unittest.TestCase):
         # (»Most … of null« je okno prejsnjega preizkusa, ki ga Qt se ni pospravil.)
         napake = [s for s in self.sporocila if any(x in s for x in ("TypeError", "ReferenceError", "Error:", ".qml:"))
                   and "Cannot read property 'klic' of null" not in s]
-        n = getattr(self, "n", None)
-        if n is not None:
-            from PySide6.QtCore import QUrl
-            n.okno.setSource(QUrl())      # prazen vir unici koren QML in njegove casovnike (naloga 116)
-            n.okno.close()
-            n.okno.deleteLater()
+        qml_okno.pospravi_namizje(getattr(self, "n", None))     # tudi casovnike QML (naloga 116)
         self.n = self.koren = None
         self._pocakaj(lambda: False, 0.1)
         gc.collect()

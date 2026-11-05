@@ -37,6 +37,7 @@ tests/*
 !tests/varovalo_signalov.py
 !tests/varovalo_programov.py
 !tests/razvrstitev_webkit.py
+!tests/qml_okno.py
 !tests/webkit_preizkusi.txt
 !tests/trajanja_preizkusov.json
 !tests/test_*.js

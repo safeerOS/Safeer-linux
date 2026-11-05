@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import unittest
 from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JEZIKI = ("sl", "en", "de", "es", "fr", "it")
@@ -222,7 +223,7 @@ class NamizjeQmlZivo(unittest.TestCase):
             def _obdelaj_klic(self, pogled, klic_id, metoda, a):
                 klici.append((metoda, a))
                 pogled.qml_odgovor(klic_id, True, {"predvajalnikStanje": stanje["p"], "predvajalnikUkaz": True}.get(metoda, []))
-        n = os_lupina.Namizje(Os(), v_oknu=True)
+        n = qml_okno.pospravi_ob_koncu(self, os_lupina.Namizje(Os(), v_oknu=True))
         self.assertEqual(n.okno.errors(), [])
         koren = n.okno.rootObject()
         naslov = koren.findChild(QObject, "medijNaslov")

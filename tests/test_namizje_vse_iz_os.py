@@ -12,6 +12,7 @@ import subprocess
 import time
 import unittest
 from unittest import mock
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -238,10 +239,7 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
 
     def tearDown(self):
         import gc
-        n = getattr(self, "n", None)
-        if n is not None:
-            n.okno.close()
-            n.okno.deleteLater()
+        qml_okno.pospravi_namizje(getattr(self, "n", None))
         self.n = self.koren = None
         self._pocakaj(lambda: False, 0.1)
         gc.collect()

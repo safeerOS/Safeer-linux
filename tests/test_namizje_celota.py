@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if KOREN not in sys.path:
@@ -286,8 +287,7 @@ class NamizjeQmlZivo(unittest.TestCase):
         for z in zaplate:
             z.start()
             self.addCleanup(z.stop)
-        n = os_lupina.Namizje(Os(), v_oknu=True)
-        self.addCleanup(n.okno.close)
+        n = qml_okno.pospravi_ob_koncu(self, os_lupina.Namizje(Os(), v_oknu=True))
         self.assertEqual(n.okno.errors(), [])
         return n
 

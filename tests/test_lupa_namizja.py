@@ -4,6 +4,7 @@ import os
 import time
 import unittest
 from unittest import mock
+import qml_okno  # noqa: E402 - pospravljanje oken QML (tests/qml_okno.py)
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,8 +65,7 @@ class LupaNamizja(unittest.TestCase):
                   mock.patch.object(so, "videz_cinnamon", return_value={"naVoljo": True, "kontrast": False, "tekstOdstotek": 100})):
             z.start()
             self.addCleanup(z.stop)
-        n = os_lupina.Namizje(Os(), v_oknu=True)
-        self.addCleanup(n.okno.close)
+        n = qml_okno.pospravi_ob_koncu(self, os_lupina.Namizje(Os(), v_oknu=True))
         n.okno.resize(1280, 800)
         n.okno.show()
         self.koren = n.okno.rootObject()
