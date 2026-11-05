@@ -49,6 +49,39 @@ class LazniSistemski:
         self.klici.append(("ob_zagonu",))
 
 
+class LazniScit:
+    """Razresevalnik na 127.0.0.1 kot Scit: ime iz `blokirana` dobi NXDOMAIN, drugo SERVFAIL (kot ob izpadu)."""
+
+    def __init__(self, blokirana=("blokirano.test",)):
+        self.blokirana = set(blokirana)
+        self.vprasana = []
+        self.u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.u.bind(("127.0.0.1", 0))
+        self.vrata = self.u.getsockname()[1]
+        threading.Thread(target=self._zanka, daemon=True).start()
+
+    def _zanka(self):
+        while True:
+            try:
+                paket, od = self.u.recvfrom(1500)
+            except OSError:
+                return                                  # zaprto: konec niti
+            i, oznake = 12, []
+            while i < len(paket) and paket[i]:
+                oznake.append(paket[i + 1:i + 1 + paket[i]].decode())
+                i += 1 + paket[i]
+            ime = ".".join(oznake)
+            self.vprasana.append(ime)
+            koda = 0x8183 if ime in self.blokirana else 0x8182
+            try:
+                self.u.sendto(paket[:2] + struct.pack("!HHHHH", koda, 1, 0, 0, 0) + paket[12:i + 5], od)
+            except OSError:
+                return
+
+    def zapri(self):
+        self.u.close()
+
+
 def _pocakaj(pogoj, rok=5.0):
     konec = time.monotonic() + rok
     while time.monotonic() < konec:
@@ -74,6 +107,7 @@ class Osnova(unittest.TestCase):
                                        sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
                                        sonda=self.sonda, krajevni_cilj=lambda _h: False)   # preizkusi ciljajo 127.0.0.1
         self.u.vrata = 0                       # katerakoli prosta vrata
+        self.u.vrata_scita = lambda: 0         # neodvisno od Scita, ki morda tece na tem racunalniku
         self.strezniki = []
 
     def tearDown(self):
@@ -136,6 +170,34 @@ class Protokoli(Osnova):
         c.close()
         self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
         self.assertEqual(self.ponudnik.zahtevane_poti, ["mobile"])
+
+    def test_ime_ki_ga_scit_zavrne_ne_gre_skozi_telefon(self):
+        scit = LazniScit()
+        self.addCleanup(scit.zapri)
+        self.u.vrata_scita = lambda: scit.vrata
+        s = self.streznik()
+        _c, odgovor = self.socks5("blokirano.test", s.vrata)
+        self.assertEqual(odgovor[:2], b"\x05\x04", "program dobi »ime ne obstaja«")
+        self.assertEqual(self.ponudnik.zahtevane_poti, [], "telefon imena ne vidi")
+        c, odgovor = self.socks5("localhost", s.vrata)    # SERVFAIL (Scit brez krajevnega DNS) ni zavrnitev
+        self.assertEqual(odgovor[:2], b"\x05\x00")
+        c.close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
+
+    def test_scit_zavrne_samo_nxdomain(self):
+        scit = LazniScit()
+        self.addCleanup(scit.zapri)
+        self.assertTrue(lp.scit_zavrne("blokirano.test", scit.vrata))
+        self.assertFalse(lp.scit_zavrne("dovoljeno.test", scit.vrata))
+        self.assertFalse(lp.scit_zavrne("blokirano.test", 0), "Scit ne tece")
+        self.assertFalse(lp.scit_zavrne("127.0.0.1", scit.vrata), "naslov IP ni ime")
+        self.assertFalse(lp.scit_zavrne("a" * 64 + ".test", scit.vrata), "neveljavno ime")
+        tih = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        tih.bind(("127.0.0.1", 0))
+        self.addCleanup(tih.close)
+        zacetek = time.monotonic()
+        self.assertFalse(lp.scit_zavrne("blokirano.test", tih.getsockname()[1], rok=0.2), "brez odgovora ni zavrnitve")
+        self.assertLess(time.monotonic() - zacetek, 1.0, "rok je omejen")
 
     def test_socks5_z_naslovom(self):
         s = self.streznik()
@@ -630,6 +692,7 @@ class Gneca(Osnova):
                                        sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
                                        sonda=self.sonda, krajevni_cilj=lambda _h: False, nadzor=self.nadzor)
         self.u.vrata = 0
+        self.u.vrata_scita = lambda: 0
         # Nastavljena pot telefona za izpad; gneca mora vseeno zahtevati mobilno. Izhodisce preizkusov gnece je
         # izklopljeno (vsak preizkus vklopi, kar preverja); privzeto stanje preverja test_privzeto_samodejno.
         self.u.nastavi(pot="any", nacin="izklopljeno", gneca="izklopljeno")
@@ -766,6 +829,24 @@ class Gneca(Osnova):
         self.assertNotIn(("vklopi", self.u.posrednik.vrata), self.sistemski.klici)
         self.u.nastavi(gneca="izklopljeno")
         self.assertIsNone(gneca_modul.odpiralnik())
+
+    def test_ime_ki_ga_scit_zavrne_ne_gre_skozi_telefon_ob_gneci(self):
+        """Telefon bi ime razresil sam (mobilni DNS) mimo Scita: zavrnjeno ime gre neposredno, kjer ga Scit zavrne."""
+        scit = LazniScit()
+        self.addCleanup(scit.zapri)
+        self.u.vrata_scita = lambda: scit.vrata
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        self.assertTrue(self.u.stanje()["gneca"]["dejavna"])
+        _c, odgovor = self.socks5("blokirano.test", s.vrata)
+        self.assertNotEqual(odgovor[1:2], b"\x00", "ime .test se neposredno ne razresi")
+        self.assertEqual(self.ponudnik.zahtevane_poti, [], "zavrnjenega imena telefon sploh ne dobi")
+        self.assertIn("blokirano.test", scit.vprasana)
+        c, odgovor = self.socks5("localhost", s.vrata)
+        self.assertEqual(odgovor[:2], b"\x05\x00")
+        c.close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1, "dovoljeno ime gre ob gneci skozi telefon")
 
     def test_izpad_ostane_kot_prej(self):
         """Gneca ne spremeni preklopa ob izpadu: obvestilo, nastavljena pot telefona, sistemski posrednik."""

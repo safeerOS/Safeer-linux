@@ -28,6 +28,10 @@ vrstico `safeerctl internet env` izpise spremenljivke okolja.
 
 Posrednik poslusa samo na 127.0.0.1 in sprejme samo programe istega uporabnika (uid iz /proc/net/tcp),
 da drug uporabnik racunalnika ne porablja mobilnih podatkov telefona.
+
+Scit: skozi telefon gre IME cilja, razresi ga telefon (mobilni DNS) - mimo Scita tega racunalnika. Zato posrednik
+ime pred tokom skozi telefon vprasa Scit (core/os_scit, 127.0.0.1); ime, ki ga Scit zavrne (NXDOMAIN), ne gre
+skozi telefon (ob gneci gre neposredno, kjer ga Scit zavrne kot vedno). Ce Scit ne tece, se nic ne spremeni.
 """
 
 from __future__ import annotations
@@ -74,6 +78,12 @@ SONDA_NE_DELA_S = 5.0
 PREIZKUS_GOSTITELJ = "safeer.si"
 PREIZKUS_POT = "/cdn-cgi/trace"
 SHRANI_NA_S = 20.0
+#: Rok vprasanja Scitu. Blokirano ime Scit zavrne sam, brez poizvedbe naprej (izmerjeno 5. 11. 2026 na prenosniku:
+#: 0,2-1,3 ms); dovoljeno posreduje naprej (32-68 ms) - toliko se podaljsa odpiranje toka skozi telefon. Brez
+#: odgovora v roku ime ni na seznamu (zavrnitev je takojsnja).
+ROK_SCITA_S = 0.5
+#: Kako dolgo velja najdena vrata Scita (iskanje preveri do 4 vrata s kanarckom - ne ob vsaki povezavi).
+VRATA_SCITA_VELJAJO_S = 30.0
 
 
 class NapakaZahteve(Exception):
@@ -569,6 +579,50 @@ def je_v_domacem_omrezju(naslov: str) -> bool:
     return (a.is_private or a.is_link_local) and not a.is_loopback
 
 
+def _vprasanje_dns(ime: str) -> Optional[Tuple[bytes, bytes]]:
+    """(id, poizvedba A) za `ime` ali None, ce ime ni veljavno ime DNS."""
+    try:
+        oznake = ime.rstrip(".").encode("idna").split(b".")
+    except UnicodeError:
+        return None
+    if not oznake or any(not 0 < len(o) <= 63 for o in oznake) or sum(len(o) + 1 for o in oznake) > 254:
+        return None
+    ident = os.urandom(2)
+    return ident, ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + b"".join(
+        bytes([len(o)]) + o for o in oznake) + b"\x00\x00\x01\x00\x01"
+
+
+def scit_zavrne(ime: str, vrata: int, rok: float = ROK_SCITA_S) -> bool:
+    """Ali Scit na 127.0.0.1:`vrata` ime zavrne (NXDOMAIN). Naslov IP ni ime (Scit filtrira imena). Brez odgovora,
+    z napacnim id ali drugo kodo (SERVFAIL ob izpadu, NOERROR) ime NI zavrnjeno."""
+    if not vrata:
+        return False
+    try:
+        ipaddress.ip_address(ime.strip("[]"))
+        return False
+    except ValueError:
+        pass
+    v = _vprasanje_dns(ime)
+    if v is None:
+        return False
+    ident, poizvedba = v
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+            u.settimeout(rok)
+            u.connect(("127.0.0.1", vrata))
+            u.send(poizvedba)
+            konec = time.monotonic() + rok
+            while True:                                   # najvec do roka; tuj odgovor (drug id) preskocimo
+                u.settimeout(max(0.01, konec - time.monotonic()))
+                odgovor = u.recv(1500)
+                if odgovor[:2] == ident and len(odgovor) >= 12 and odgovor[2] & 0x80:
+                    return odgovor[3] & 0x0F == 3
+                if time.monotonic() >= konec:
+                    return False
+    except OSError:
+        return False
+
+
 def _danes() -> Tuple[str, str]:
     t = time.localtime()
     return time.strftime("%Y-%m-%d", t), time.strftime("%Y-%m", t)
@@ -625,6 +679,9 @@ class InternetUpravitelj:
         self.gneca_skupaj = 0
         #: Ali gre zaradi gnece zdaj sistemski posrednik prek nas (nastavitev »vse«).
         self.gneca_sistemski = False
+        #: Vrata Scita tega uporabnika (0 = Scit ne tece). V preizkusih zamenljivo.
+        self.vrata_scita: Callable[[], int] = self._najdi_scit
+        self._scit_vrata = (0, -1e9)
         self._nalozi()
         internet.ob_prometu = self._na_promet
         internet.ob_stanju = self._na_stanje_ponudnika
@@ -900,11 +957,32 @@ class InternetUpravitelj:
         tok.zazeni()
         return a
 
+    def _najdi_scit(self) -> int:
+        zdaj = time.monotonic()
+        vrata, cas = self._scit_vrata
+        if zdaj - cas < VRATA_SCITA_VELJAJO_S:
+            return vrata
+        try:
+            from core import os_scit
+            vrata = int(os_scit.tekoci_scit())
+        except Exception:  # noqa: BLE001 - Scita ni (Windows, okrnjen paket)
+            vrata = 0
+        self._scit_vrata = (vrata, zdaj)
+        return vrata
+
+    def _scit_zavrne(self, host: str) -> bool:
+        try:
+            return scit_zavrne(host, self.vrata_scita())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _skozi_telefon_ob_gneci(self, c: socket.socket, zahteva: Zahteva) -> bool:
         """Nova povezava programa ob gneci skozi telefon. False: telefona ni ali ni uspel - klicatelj gre neposredno."""
         telefon = self._gneca_telefon("vse")
         if telefon is None:
             return False
+        if self._scit_zavrne(zahteva.host):
+            return False              # neposredno: tam ime razresi sistemski DNS, torej Scit, in ga zavrne
         tok = self._odpri_ob_gneci(telefon, zahteva.host, zahteva.port, c)
         if tok is None:
             return False
@@ -1050,6 +1128,10 @@ class InternetUpravitelj:
         if telefon is None:
             self.zadnja_napaka = "ni_telefona"
             zahteva.napaka(c, "no_path")
+            return
+        if self._scit_zavrne(zahteva.host):
+            # Kot neposredno: program dobi »ime ne obstaja«, telefon imena sploh ne vidi.
+            zahteva.napaka(c, "dns_failed")
             return
         if self.internet.protokol(telefon) < 2:
             # Telefon mora povedati, da zna nadzor pretoka. Brez odgovora je Safeer OS na njem starejsi (ali ga
