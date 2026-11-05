@@ -184,7 +184,10 @@ class TestBrowserAutomationK1Izolacija(unittest.TestCase):
         self.assertIsNotNone(app._zacasna_mapa)
         self.assertTrue(os.path.isdir(app._zacasna_mapa))
         self.assertNotEqual(app.config.config_dir, CONFIG_DIR)
-        self.assertTrue(app.config.config_dir.startswith(tempfile.gettempdir()))
+        # Baza je $XDG_RUNTIME_DIR, ce je pisljiv, sicer zacasna mapa (_zacasna_baza_avtomatizacije): prek SSH na
+        # testnem PC je /run/user/UID in preizkus je prej padel, ceprav je mapa pravilna (5. 11. 2026).
+        from core.os_splet import _zacasna_baza_avtomatizacije
+        self.assertTrue(app.config.config_dir.startswith(os.path.join(_zacasna_baza_avtomatizacije(), "")))
 
         # Poskus zapisa v config gre v zacasno mapo
         app.config.set("test_kljuc", "vrednost_avto")
