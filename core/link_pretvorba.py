@@ -107,8 +107,12 @@ def _izlocitev(d: Optional[dict], velikost: int, oblika: Optional[dict]) -> str:
         return "ne odgovori"
     if d.get("_brez_dostopa"):
         return "ni dostopa (na tej napravi v Safeer Linku dovoli ta racunalnik)"
-    if (d.get("pomoc") or {}).get("lahko") is False:
-        return "ne sme pomagati (" + str((d.get("pomoc") or {}).get("razlog") or "") + ")"
+    pomoc = d.get("pomoc") or {}
+    if pomoc.get("lahko") is False:
+        return "ne sme pomagati (" + str(pomoc.get("razlog") or "") + ")"
+    # Pretvorba za kasneje je delo v ozadju: naprava jo prevzame sele, ko je prosta (core/delo_v_ozadju).
+    if pomoc.get("ozadje") is False:
+        return "ne sme pomagati (" + str(pomoc.get("razlog_ozadja") or "v_uporabi") + ")"
     if not (d.get("gpu") or {}).get("strojno") or ocena_kodirnika(d)[0] < 1920:
         return "nima strojnega kodirnika H.264 za 1080p"
     disk = d.get("disk") or {}

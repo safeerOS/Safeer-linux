@@ -64,7 +64,9 @@ def izberi_cilj(naprave: List[dict], vprasaj: Callable[[str, str, dict], dict], 
         d = r.get("data") if r.get("ok") else None
         if not isinstance(d, dict):
             continue
-        if (d.get("pomoc") or {}).get("lahko") is False:
+        pomoc = d.get("pomoc") or {}
+        # Shranjevanje je delo v ozadju: naprava, ki ga zdaj ne sprejme (uporabnik jo uporablja), ni kandidat.
+        if pomoc.get("lahko") is False or pomoc.get("ozadje") is False:
             continue
         prosto = int((d.get("disk") or {}).get("prosto", -1))
         if prosto < velikost + REZERVA:

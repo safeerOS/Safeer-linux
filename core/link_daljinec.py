@@ -756,6 +756,9 @@ def podatki_hosta() -> dict:
     if bat:
         p["baterija"] = bat
     p["pomoc"] = pomoc(bat)
+    # Delo v ozadju (storage.put, video.transcode) samo po 10 min brez uporabe racunalnika (lastnik 5. 11. 2026).
+    from core import delo_v_ozadju
+    p["pomoc"].update(delo_v_ozadju.za_host_info(p["pomoc"], delo_v_ozadju.nedejavnost_s()))
     return p
 
 
