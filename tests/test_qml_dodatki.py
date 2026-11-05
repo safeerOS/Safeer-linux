@@ -458,6 +458,44 @@ class Priljubljeno(Osnova):
     def test_kategorije_programov_v_eni_vrstici_nemsko(self):
         self._kategorije_v_eni_vrstici("de")
 
+    def test_puscici_dosezeta_vse_kategorije_ko_vrstica_drsi(self):
+        """CodeRabbit, 5. 11. 2026: ko vrstica kategorij prelije, ListView delegata izven ustvarjenega obmocja nima
+        (itemAtIndex vrne null) in puscica fokusa ne premakne. DESNO mora doseci zadnjo kategorijo, LEVO prvo, vsaka
+        fokusirana pa je v celoti vidna."""
+        from PySide6.QtCore import Qt
+        imena = ["kategorija%02d" % i for i in range(30)]
+        self.odgovori["programiNamizja"] = [
+            {"id": "%s.desktop" % k, "ime": k.capitalize(), "skupina": k, "uporaba": 1, "zadnjic": 1} for k in imena]
+        self._namizje("sl")
+        self.n.okno.resize(1000, 700)
+        v = self._obj("vrstaKategorij")
+        self.assertTrue(self._pocakaj(lambda: v.property("count") == 31))
+        self._pocakaj(lambda: False, 0.4)
+        self.assertGreater(v.property("contentWidth"), 2 * v.property("width"), "vrstica ne drsi dovolj")
+        # Privzeti cacheBuffer (izmerjeno 5. 11. 2026 brez popravka: DESNO dela, LEVO obstane pri 22 - delegati levo
+        # od vidnega obmocja so ze sproscen); z cacheBuffer = 0 obstane ze DESNO pri 5.
+        self._js("positionViewAtBeginning(); itemAtIndex(0).forceActiveFocus()", v)
+        self._pocakaj(lambda: False, 0.1)
+        self.assertIsNone(self._js("itemAtIndex(count - 1)", v), "zadnji delegat ze obstaja - preizkus nic ne preveri")
+
+        def fokus():
+            return self._js("(function () { for (var i = 0; i < count; i++) { var o = itemAtIndex(i);"
+                            " if (o && o.activeFocus) return i } return -1 })()", v)
+
+        def viden(i):
+            x, s_, cx, w = self._js("[itemAtIndex(%d).x, itemAtIndex(%d).width, contentX, width]" % (i, i), v)
+            return x - cx >= -0.5 and x + s_ - cx <= w + 0.5
+        for i in range(1, 31):
+            self._tipka(Qt.Key.Key_Right)
+            self.assertEqual(fokus(), i, "DESNO ni doseglo kategorije %d" % i)
+            self.assertTrue(viden(i), i)
+        self._tipka(Qt.Key.Key_Right)          # za zadnjo ostane na zadnji
+        self.assertEqual(fokus(), 30)
+        for i in range(29, -1, -1):
+            self._tipka(Qt.Key.Key_Left)
+            self.assertEqual(fokus(), i, "LEVO ni doseglo kategorije %d" % i)
+            self.assertTrue(viden(i), i)
+
 
 class Izbira(Osnova):
     def test_izbira_misko_tipke_meni_smeti_razveljavi_vlecenje(self):

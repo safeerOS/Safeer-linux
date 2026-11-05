@@ -285,9 +285,19 @@ Steklo {
                         Keys.onReturnPressed: izberi()
                         Keys.onEnterPressed: izberi()
                         Keys.onSpacePressed: izberi()
-                        // Puscici med kategorijami; fokusirana je vedno v celoti vidna (tudi s Tab).
-                        Keys.onLeftPressed: { var p = ListView.view.itemAtIndex(index - 1); if (p) p.forceActiveFocus() }
-                        Keys.onRightPressed: { var p = ListView.view.itemAtIndex(index + 1); if (p) p.forceActiveFocus() }
+                        // Puscici med kategorijami; fokusirana je vedno v celoti vidna (tudi s Tab). Najprej pomik do
+                        // indeksa modela, sele nato fokus: delegat izven ustvarjenega obmocja ne obstaja (itemAtIndex
+                        // vrne null) in puscica bi obstala (CodeRabbit, 5. 11. 2026; preizkus v test_qml_dodatki).
+                        function premakni(k) {
+                            var v = vrstaKategorij, i = index + k
+                            if (i < 0 || i >= v.count) return
+                            v.positionViewAtIndex(i, ListView.Contain)
+                            v.forceLayout()
+                            var p = v.itemAtIndex(i)
+                            if (p) p.forceActiveFocus()
+                        }
+                        Keys.onLeftPressed: premakni(-1)
+                        Keys.onRightPressed: premakni(1)
                         onActiveFocusChanged: if (activeFocus) ListView.view.positionViewAtIndex(index, ListView.Contain)
                         Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
                         Text {
