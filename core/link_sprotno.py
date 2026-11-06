@@ -191,27 +191,38 @@ def v_domace_omrezje(glave: dict) -> bool:
 #: `httpproxy://127.0.0.2:...` gre sicer naravnost na zanko, mimo posrednika in njegovih preverjanj.
 PROTOKOLI_FFMPEG = "http,tcp,crypto"
 
-#: 0.0.0.0/8 (Linux 0.0.0.0 poveze na zanko) in IPv6 s ponudnikovim NAT64, ki nosi naslov IPv4.
+#: 0.0.0.0/8 (Linux 0.0.0.0 poveze na zanko).
 _TA_MREZA = ipaddress.ip_network("0.0.0.0/8")
-_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+#: IPv6 s prevajalnikom NAT64, ki nosi naslov IPv4 v zadnjih 32 bitih: dobro znana predpona (RFC 6052) in lokalna
+#: predpona 64:ff9b:1::/48 (RFC 8215) - prevajalnik v omrezju jo lahko preslika na 127.0.0.1 ali 169.254.169.254.
+#: Lokalne Python 3.12 steje med zasebne, zato je bil 64:ff9b:1::7f00:1 »zasebni« namesto prepovedan (pregled
+#: 6. 11. 2026, kot TV PretokPravila).
+NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
+def vgrajeni_ipv4(ip):
+    """Naslov, ki ga je treba presoditi: IPv4, zavit v IPv6 (::ffff:a.b.c.d, 6to4 2002::/16, NAT64 obeh predpon,
+    zastareli ::a.b.c.d), sicer `ip` sam. :: in ::1 ostaneta IPv6 (nedoloceni, zanka). Eno pravilo za vse preverbe
+    naslovov v Linku (tok, preusmeritve, internet prek telefona)."""
+    if ip.version != 6:
+        return ip
+    v4 = ip.ipv4_mapped or ip.sixtofour
+    if v4 is None and any(ip in mreza for mreza in NAT64):
+        v4 = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    if v4 is None and int(ip) >> 32 == 0 and int(ip) > 1:     # ::a.b.c.d (zastarelo)
+        v4 = ipaddress.IPv4Address(int(ip))
+    return ip if v4 is None else v4
 
 
 def vrsta_naslova(naslov: str) -> str:
     """Vrsta naslova IP: "javni", "zasebni" (domace omrezje, CGNAT, ULA ...) ali "prepovedan": zanka,
     povezavno-lokalni (tudi metapodatki oblaka 169.254.169.254), vecvrstni, rezervirani, nedoloceni - tudi zaviti
-    v IPv6 (::ffff:127.0.0.1, 6to4, NAT64)."""
+    v IPv6 (::ffff:127.0.0.1, 6to4, NAT64 64:ff9b::/96 in 64:ff9b:1::/48)."""
     try:
         ip = ipaddress.ip_address(str(naslov or "").split("%", 1)[0].strip("[]"))
     except ValueError:
         return "prepovedan"
-    if ip.version == 6:
-        v4 = ip.ipv4_mapped or ip.sixtofour
-        if v4 is None and ip in _NAT64:
-            v4 = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-        if v4 is None and int(ip) >> 32 == 0:          # ::a.b.c.d (zastarelo), tudi :: in ::1
-            v4 = ipaddress.IPv4Address(int(ip))
-        if v4 is not None:
-            ip = v4
+    ip = vgrajeni_ipv4(ip)
     if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved \
             or (ip.version == 4 and ip in _TA_MREZA):
         return "prepovedan"

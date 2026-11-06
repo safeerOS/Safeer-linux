@@ -520,8 +520,17 @@ class DomaceOmrezje(Osnova):
                      "nas.local", "Tiskalnik.Local.", "::1", "[fe80::1]", "fd12:3456::1", "fe80::1%eth0"):
             self.assertTrue(lp.je_krajevni_cilj(cilj), cilj)
         for cilj in ("safeer.si", "8.8.8.8", "172.32.0.1", "example.org.", "2606:4700::1111", "local.example.com", "",
-                     "192.168.0.1.nip.io"):
+                     "192.168.0.1.nip.io", "64:ff9b:1::808:808"):
             self.assertFalse(lp.je_krajevni_cilj(cilj), cilj)
+
+    def test_naprava_v_domacem_omrezju_z_zavitim_naslovom(self):
+        """Zavita zanka (::ffff:127.0.0.1, NAT64 64:ff9b:1::/48) je krajevni konec releja, ne domace omrezje -
+        isto pravilo kot link_sprotno.vrsta_naslova (6. 11. 2026)."""
+        for n in ("::ffff:127.0.0.1", "64:ff9b:1::7f00:1", "64:ff9b::7f00:1", "::", "::1", "127.0.0.1", "8.8.8.8",
+                  "64:ff9b:1::808:808", ""):
+            self.assertFalse(lp.je_v_domacem_omrezju(n), n)
+        for n in ("192.168.1.20", "::ffff:192.168.1.20", "64:ff9b:1::c0a8:114", "fd00::5", "10.0.0.2"):
+            self.assertTrue(lp.je_v_domacem_omrezju(n), n)
 
     def test_krajevni_cilj_ne_gre_skozi_telefon(self):
         s = self.streznik()

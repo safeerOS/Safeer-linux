@@ -50,6 +50,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from core import gneca as gneca_modul
 from core import link_internet
+from core import link_sprotno
 from core import os_deskriptorji
 
 PRIVZETA_VRATA = 47890
@@ -568,7 +569,7 @@ def je_krajevni_cilj(host: str) -> bool:
     if h == "localhost" or h.endswith(".localhost") or h.endswith(".local"):
         return True
     try:
-        naslov = ipaddress.ip_address(h.split("%", 1)[0])
+        naslov = link_sprotno.vgrajeni_ipv4(ipaddress.ip_address(h.split("%", 1)[0]))
     except ValueError:
         return "." not in h and ":" not in h
     return naslov.is_private or naslov.is_loopback or naslov.is_link_local
@@ -578,10 +579,12 @@ def je_v_domacem_omrezju(naslov: str) -> bool:
     """Naprava je v domacem omrezju (LAN): zasebni naslov, ki ni zanka. Naprava prek Global Linka ima naslov
     zanke (krajevni konec releja) ali nobenega - skozi tak telefon bi promet sel spet po domaci liniji."""
     try:
-        a = ipaddress.ip_address(str(naslov or "").strip().strip("[]").split("%", 1)[0])
+        a = link_sprotno.vgrajeni_ipv4(ipaddress.ip_address(str(naslov or "").strip().strip("[]").split("%", 1)[0]))
     except ValueError:
         return False
-    return (a.is_private or a.is_link_local) and not a.is_loopback
+    # Zavita zanka (::ffff:127.0.0.1 - krajevni konec releja na dvojnem vticniku) je v Pythonu 3.12 »zasebna«, ni pa
+    # zanka; zato najprej vgrajeni IPv4 (isto pravilo kot link_sprotno.vrsta_naslova, 6. 11. 2026).
+    return (a.is_private or a.is_link_local) and not a.is_loopback and not a.is_unspecified
 
 
 def _vprasanje_dns(ime: str) -> Optional[Tuple[bytes, bytes]]:

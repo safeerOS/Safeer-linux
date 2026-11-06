@@ -247,11 +247,15 @@ class VideoStream(_Tokovi):
         vrsta = link_sprotno.vrsta_naslova
         for n in ("127.0.0.1", "127.8.9.10", "::1", "169.254.169.254", "fe80::1", "fe80::1%eth0", "0.0.0.0",
                   "0.1.2.3", "224.0.0.1", "255.255.255.255", "240.0.0.1", "::ffff:127.0.0.1", "::ffff:169.254.1.1",
-                  "::127.0.0.1", "::", "2002:7f00:1::", "64:ff9b::7f00:1", "ff02::1", "ni-naslov", ""):
+                  "::127.0.0.1", "::", "2002:7f00:1::", "64:ff9b::7f00:1", "ff02::1", "ni-naslov", "",
+                  # lokalna predpona NAT64 (RFC 8215): prevajalnik v omrezju jo preslika na zanko ali metapodatke
+                  "64:ff9b:1::7f00:1", "[64:ff9b:1::7f00:1]", "64:ff9b:1:abcd::7f00:1", "64:ff9b:1::a9fe:a9fe"):
             self.assertEqual(vrsta(n), "prepovedan", n)
-        for n in ("192.168.1.1", "10.0.0.1", "172.16.0.1", "100.64.0.1", "fd00::1", "::ffff:192.168.1.1"):
+        for n in ("192.168.1.1", "10.0.0.1", "172.16.0.1", "100.64.0.1", "fd00::1", "::ffff:192.168.1.1",
+                  "64:ff9b:1::c0a8:101"):
             self.assertEqual(vrsta(n), "zasebni", n)
-        for n in ("8.8.8.8", "1.1.1.1", "2a00:1450:4001::1", "::ffff:8.8.8.8"):
+        for n in ("8.8.8.8", "1.1.1.1", "2a00:1450:4001::1", "::ffff:8.8.8.8", "64:ff9b::808:808",
+                  "64:ff9b:1::808:808"):
             self.assertEqual(vrsta(n), "javni", n)
 
     def test_zanka_in_povezavno_lokalni_nikoli(self):
