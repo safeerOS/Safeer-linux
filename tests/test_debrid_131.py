@@ -108,6 +108,11 @@ class Storitev(unittest.TestCase):
             self.assertTrue(debrid.most(d, ["kljuc", P.TORBOX, KLJUC_TB])["ok"])
         self.assertEqual(debrid.most(d, ["aktivna", ""])["aktivna"], "")       # Brez debrida
         self.assertEqual(debrid.most(d, ["aktivna", P.TORBOX])["aktivna"], P.TORBOX)
+        # Neznana izbira (»usenet« v izbirniku »Torrenti prek«) debrida ne izklopi in ni uspeh.
+        for neznana in ("usenet", "nastavitve", "TORBOX"):
+            o = debrid.most(d, ["aktivna", neznana])
+            self.assertEqual(o["aktivna"], P.TORBOX, neznana)
+            self.assertFalse(o["ok"], neznana)
         self.assertFalse(debrid.most(d, ["samo_takoj", False])["samo_takoj"])
         self.assertFalse(debrid.most(d, ["kljuc", P.REAL_DEBRID, "x"])["ok"])
         self.assertEqual(debrid.most(d, ["pozabi", P.TORBOX])["aktivna"], "")

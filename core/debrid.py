@@ -1672,7 +1672,12 @@ def most(dbr: Debrid, a: list) -> dict:
     izid: dict = {"ok": True}
     if ukaz == "aktivna":
         p = str(a[1]) if len(a) > 1 else ""
-        dbr.nastavi_aktivno(p if p in P.VSI else None)
+        # Samo "" je »Brez debrida«; neznana izbira (npr. »usenet« iz izbirnika strani, ki ni storitev debrida) ne
+        # izklopi debrida - prej je tiho delovala kot »Brez debrida« (Windows os.js, pregled 6. 11. 2026).
+        if p == "" or p in P.VSI:
+            dbr.nastavi_aktivno(p or None)
+        else:
+            izid = {"ok": False, "preverba": P.PREVERBA_OBLIKA}
     elif ukaz == "kljuc":
         # Preverba ob vnosu (TorBox user/me, Real-Debrid in AllDebrid /user): vmesnik dobi samo izid in ime paketa -
         # nikoli kljuca, uporabniskega imena ali e-naslova.
