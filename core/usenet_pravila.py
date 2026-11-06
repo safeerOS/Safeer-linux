@@ -428,3 +428,51 @@ def vecdelni_obrazec(polja: Sequence[tuple], datoteka: tuple, meja: str) -> byte
     deli.append(bytes(vsebina))
     deli.append(("\r\n--%s--\r\n" % meja).encode("utf-8"))
     return b"".join(deli)
+
+
+# ---------------------------------------------------------------------- pomoc drugi napravi (zakon solidarnosti)
+# Lastnik 5. 11. 2026: TV pokaze naslov pod filtrom »Usenet« tudi, kadar kodeka ne zna sam, ce ga zna pretvoriti
+# naprava v Linku. Najsibkejsa naprava naj dela najmanj: pomocnik Usenet bere SAM s svojim racunom, TV mu pove samo,
+# katero izdajo zeli (guid izdaje pri indeksatorju + ime + odtis indeksatorja) - nikoli kljuca ali povezave NZB.
+# Isto pravilo kot Android-tv UsenetPravila.guid / odtisIzdaj (skupni primeri v obeh preizkusih).
+
+_GUID = re.compile(r"[A-Za-z0-9_-]{6,64}")
+
+
+def guid(vnos: object) -> Optional[str]:
+    """Guid izdaje Newznab (atribut »guid« ali element <guid>, ki je lahko povezava .../details/<guid>): samo zadnji
+    del poti, 6-64 znakov A-Z a-z 0-9 _ -. Drugo (presledki, '&', '=' ...) bi lahko podaljsalo zahtevo t=get."""
+    v = str(vnos or "").strip().split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    zadnji = v.rsplit("/", 1)[-1]
+    return zadnji if _GUID.fullmatch(zadnji) else None
+
+
+def odtis_izdaj(osn: object) -> Optional[str]:
+    """Odtis indeksatorja za identiteto izdaje: shema + gostitelj (male crke, brez »www.« in koncne pike) + vrata, ce niso
+    privzeta. BREZ kljuca - guid velja za indeksator, ne za racun; pomocnik izdajo prenese s SVOJIM kljucem."""
+    try:
+        u = urllib.parse.urlsplit(str(osn or ""))
+        vrata = u.port
+    except ValueError:
+        return None
+    shema = (u.scheme or "").lower()
+    gost = (u.hostname or "").lower().rstrip(".")
+    if shema not in ("https", "http") or not gost:
+        return None
+    if gost.startswith("www."):
+        gost = gost[4:]
+    del_vrat = "" if vrata is None or vrata == {"https": 443, "http": 80}[shema] else ":%d" % vrata
+    return hashlib.sha256(("safeer-usenet-izdaje|%s://%s%s" % (shema, gost, del_vrat)).encode("utf-8")).hexdigest()[:16]
+
+
+def kljuc_nzb_guid(osn: str, g: str) -> str:
+    """Kljuc predpomnilnika NZB po guidu: guid velja samo pri indeksatorju z odtisom odtis_izdaj(osn)."""
+    return "guid:%s:%s" % (odtis_izdaj(osn) or "", g)
+
+
+def naslov_nzb_guid(osn: str, kljuc: str, g: str) -> Optional[str]:
+    """Newznab `t=get&id=<guid>`: NZB izdaje s kljucem TE naprave. POZOR: vsebuje kljuc - nikoli v dnevnik."""
+    g = guid(g)
+    if not g or not osn or not kljuc:
+        return None
+    return "%s/api?t=get&id=%s&apikey=%s" % (osn, g, urllib.parse.quote(kljuc, safe=""))

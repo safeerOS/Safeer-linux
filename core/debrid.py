@@ -1478,6 +1478,34 @@ class Debrid:
             self._zapomni_nzb(id_toka, nzb)
         return nzb, None
 
+    def nzb_po_guid(self, guid: str) -> tuple:
+        """Lastnik 5. 11. 2026 (pomoc napravi v Linku, core/link_usenet_pomoc): NZB izdaje [guid] s kljucem TEGA
+        racunalnika (Newznab t=get) - (bajti, "") ali (None, napaka). Ista pravila kot _nzb_toka: zavrnjen ali zaklenjen
+        kljuc ne gre ven, stanje kljuca sledi uporabi, predpomnjen NZB (isti guid, U.NZB_VELJA_S) ne gre znova k indeksatorju
+        (previjanje TV na istem filmu ne porabi kvote). Naslov s kljucem ne gre v dnevnik."""
+        g = U.guid(guid)
+        ix = self.indeksator()
+        if not g or not ix:
+            return None, U.NAPAKA_INDEKSATOR
+        if not self.sme_klicati(P.INDEKSATOR):
+            return None, self._napaka_stanja(P.INDEKSATOR)
+        # CodeRabbit 6. 11. 2026: guid velja za indeksator - kljuc predpomnilnika vkljuci njegov odtis (zamenjan
+        # indeksator z istim guidom ne vrne izdaje prejsnjega).
+        kljuc = U.kljuc_nzb_guid(ix[0], g)
+        nzb = self._nzb_zapomnjen(kljuc)
+        if nzb is not None:
+            return nzb, ""
+        vezava = self._vezava(P.INDEKSATOR)
+        naslov = U.naslov_nzb_guid(ix[0], ix[1], g)
+        if not naslov:
+            return None, U.NAPAKA_INDEKSATOR
+        nzb, napaka = usenet_nzb(naslov)
+        _javi(lambda n, u: self.ob_izidu(P.INDEKSATOR, n, u, vezava), napaka, nzb is not None)
+        if nzb is None:
+            return None, napaka or U.NAPAKA_INDEKSATOR
+        self._zapomni_nzb(kljuc, nzb)
+        return nzb, ""
+
     def usenet_takoj(self, tokovi: Sequence[dict], rok: float = U.TAKOJ_ROK_S) -> Optional[tuple]:
         """Lastnik 25. 10. 2026: Usenet, ki ga ima TorBox ze pripravljenega, gre pred vse druge vire. Prve U.TAKOJ_IZDAJ izdaj
         [tokovi] (po kakovosti, najboljsa prva) preverimo hkrati (add_only_if_cached) z rokom [rok]; zmaga najboljsa

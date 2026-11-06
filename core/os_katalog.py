@@ -429,6 +429,10 @@ class Katalog:
                 vezava = usenet_vezava.za_pot(str(self.config_dir / usenet_vezava.IME_DATOTEKE))
                 vezava.ob_spremembi = self._mc._viri_zapisi_izvoz
                 self._mc.debrid.lastni_usenet = vezava
+                # Lastnik 5. 11. 2026 (zakon solidarnosti): isti Usenet sme brati tudi za napravo v ozjem krogu, ki kodeka
+                # izdaje ne zna (TV) - core/link_usenet_pomoc, video.stream s poljem usenet.
+                from . import link_usenet_pomoc
+                link_usenet_pomoc.nastavi(self._mc.debrid)
             return self._mc
 
     def _motor_napredek(self, preneseno: int, vse: int) -> None:

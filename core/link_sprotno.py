@@ -522,8 +522,13 @@ class _Vir:
     """Izvirnik: pripeto HTTPS (odtis + zeton) ali navaden HTTP; vsaka zahteva nova povezava (Range gre naprej)."""
 
     def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None, zasebni: bool = False,
-                 glavni: Optional["_Vir"] = None, zaupan: bool = True, skrivnost: str = "") -> None:
+                 glavni: Optional["_Vir"] = None, zaupan: bool = True, skrivnost: str = "",
+                 krajevna_vrata: int = 0) -> None:
         self.url = url
+        #: Lastnik 5. 11. 2026 (Usenet za drugo napravo, core/link_usenet_pomoc): krajevni streznik lastnega pogona na
+        #: 127.0.0.1 s TEMI vrati, ki ga je zagnal ta racunalnik sam (ne naslov iz sporocila). Samo glavni vir - kosi
+        #: seznamov in preusmeritve (izpeljan) ga nimajo in gredo skozi dovoljeni_naslovi kot vsaka vgnezdena zahteva.
+        self.krajevna_vrata = int(krajevna_vrata or 0)
         self.odtis = odtis
         self.zeton = zeton
         #: Glave zahteve za izvirnik (Stremio behaviorHints.proxyHeaders): brez njih streznik toka vrne 403.
@@ -578,6 +583,8 @@ class _Vir:
         u = urllib.parse.urlsplit(self.url)
         https = u.scheme == "https"
         gostitelj, vrata = u.hostname or "", u.port or (443 if https else 80)
+        if self.krajevna_vrata and not https and gostitelj == "127.0.0.1" and vrata == self.krajevna_vrata:
+            return _HttpNaNaslov(gostitelj, vrata, _odpiralec(["127.0.0.1"]), 30.0)
         # Ime razresimo ob vsaki povezavi in se povezemo na preverjeni naslov (DNS rebinding: ime, ki je ob
         # video.stream kazalo na javni naslov, lahko zdaj kaze na 127.0.0.1).
         odpri = _odpiralec(dovoljeni_naslovi(gostitelj, vrata, self.zasebni))
@@ -864,8 +871,36 @@ class Sprotno:
 
     # ---- ukazi
 
-    def zacni(self, p: dict, posiljatelj: str, streznik) -> dict:
-        """`video.stream` -> {id, url, fp, token}; `streznik` je link_datoteke.StreznikDatotek (zazenemo ga, ce ne tece)."""
+    def predpreverba(self, p: dict) -> None:
+        """Poceni preverbe pred drago pripravo vira (CodeRabbit 6. 11. 2026: Usenet za drugo napravo je prej prenesel NZB,
+        porabil kvoto indeksatorja in odprl NNTP, sele zacni je nato rekel ni_ffmpeg, preobremenjen ali ni_prostora).
+        Isti pogoji kot v zacni (ta jih preveri znova); NapakaPretoka s kodo."""
+        if not self.ffmpeg():
+            raise NapakaPretoka("ni_ffmpeg")
+        trajanje_ms = int(p.get("duration_ms") or 0)
+        seek_ms = max(0, int(p.get("seek_ms") or 0))
+        with self._kljucavnica:
+            zivi = [t for t in self.tokovi.values() if not t.koncano and not t.napaka]
+        if any(t.bralcev > 0 for t in zivi):
+            raise NapakaPretoka("preobremenjen")
+        ocena = (8_000_000 // 8) * max(0, trajanje_ms - seek_ms) // 1000 * 12 // 10
+        pr = prosto(self.mapa)
+        umaknjeno = sum(_velikost(t.datoteka) for t in zivi)
+        if 0 <= pr and pr + umaknjeno < ocena + rezerva(self.mapa):
+            raise NapakaPretoka("ni_prostora")
+
+    def zacni(self, p: dict, posiljatelj: str, streznik, krajevni: Optional[str] = None) -> dict:
+        """`video.stream` -> {id, url, fp, token}; `streznik` je link_datoteke.StreznikDatotek (zazenemo ga, ce ne tece).
+        [krajevni]: izvirnik je krajevni streznik Useneta, ki ga je zagnal TA racunalnik (core/link_usenet_pomoc) -
+        url, fp, token in glave iz sporocila se takrat ne uporabijo."""
+        krajevna_vrata = 0
+        if krajevni is not None:
+            m = re.fullmatch(r"http://127\.0\.0\.1:(\d{1,5})/[A-Za-z0-9_-]{16,}/video\.[a-z0-9]{1,8}", str(krajevni))
+            if not m or not 0 < int(m.group(1)) < 65536:
+                raise NapakaPretoka("napacna_zahteva")
+            krajevna_vrata = int(m.group(1))
+            p = {k: v for k, v in p.items() if k not in ("url", "fp", "token", "headers")}
+            p["url"] = krajevni
         url = str(p.get("url") or "")
         odtis = str(p.get("fp") or "")
         zeton = str(p.get("token") or "")
@@ -911,8 +946,9 @@ class Sprotno:
             raise NapakaPretoka("ni_prostora")
         # Cilj preverimo ze zdaj, da naprava takoj izve zakaj ne (posrednik ga preveri se ob vsaki povezavi).
         # Glav s poverilnicami (Cookie, Authorization ...), ki jih je izbrala naprava, ne posiljamo v domace omrezje.
-        zasebni = v_domace_omrezje(glave)
-        dovoljeni_naslovi(gostitelj, vrata_vira, zasebni=zasebni)
+        zasebni = v_domace_omrezje(glave) and not krajevna_vrata
+        if not krajevna_vrata:
+            dovoljeni_naslovi(gostitelj, vrata_vira, zasebni=zasebni)
         for t in zivi:
             self.ustavi(t)
         with self._kljucavnica:      # tokovi se spreminjajo iz drugih niti (ustavi_ukaz, straza)
@@ -927,7 +963,8 @@ class Sprotno:
         t = Tok(ime, os.path.join(self.mapa, uuid.uuid4().hex + ".mp4"))
         vrata = self._zazeni_posrednik()
         with self._kljucavnica:
-            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave, zasebni=zasebni, skrivnost=t.skrivnost)
+            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave, zasebni=zasebni, skrivnost=t.skrivnost,
+                                           krajevna_vrata=krajevna_vrata)
             self.tokovi[t.id] = t
             while len(self.tokovi) > NAJVEC_TOKOV:
                 star = next(iter(self.tokovi))
