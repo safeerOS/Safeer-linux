@@ -20,7 +20,7 @@ LAZNE = [
 PROJEKTI = ["https://lazna-banka.web.app/prijava", "https://zlo-vedro.storage.googleapis.com/prijava.html"]
 PODTAKNJENE_DOMENE = ["sites.google.com", "script.google.com", "google.com", "google.si", "web.app", "googleusercontent.com",
                       "googleapis.com", "storage.googleapis.com", "www.googleapis.com", "accounts.youtube.com",
-                      "oauth2.googleapis.com", "gstatic.com"]
+                      "oauth2.googleapis.com", "gstatic.com", "consent.google.com"]
 PODTAKNJENI_NASLOVI = ["https://sites.google.com/", "https://docs.google.com/forms", "https://www.google.si/search?q=safeer",
                        "https://accounts.google.com/signin", "https://accounts.google.com/", "https://oauth2.googleapis.com/token"]
 VARNI = [
@@ -31,7 +31,13 @@ VARNI = [
     "https://script.google.com/home", "https://docs.google.com/forms", "https://www.googleapis.com/oauth2/v3/certs",
     "https://druga.web.app/", "https://drugo-vedro.storage.googleapis.com/x.html", "https://lh3.googleusercontent.com/a/slika",
     "https://fonts.gstatic.com/s/roboto.woff2",
+    # Pregled 6. 11. 2026 (S1): stran soglasja v EU (nanjo google.com preusmeri nov brskalnik).
+    "https://consent.google.com/ml?continue=https://www.google.com/&gl=SI&hl=sl", "https://consent.google.si/",
 ]
+#: Pregled 6. 11. 2026 (S2): prenos z Drive/Docs - ena raven poti s poizvedbo; pravilo je tocno s poizvedbo.
+PRENOSI = ["https://drive.google.com/uc?export=download&id=1ZloAbCdEf", "https://docs.google.com/uc?id=1ZloAbCdEf"]
+PRENOSI_VARNI = ["https://drive.google.com/uc", "https://drive.google.com/uc?export=download&id=1DrugiId",
+                 "https://docs.google.com/uc?id=1DrugiId", "https://drive.google.com/?usp=x", "https://drive.google.com/drive"]
 
 
 def _indeks(podtaknjeno: bool):
@@ -69,8 +75,14 @@ class ScitGostiteljiTest(unittest.TestCase):
         for h in ("sites.google.com", "www.googleapis.com", "lh3.googleusercontent.com", "web.app", "x.web.app"):
             self.assertEqual(g.vrsta(h), g.VSEBINA, h)
         self.assertFalse(g.sme_pot("https://docs.google.com/forms", "docs.google.com"))
-        self.assertFalse(g.sme_pot("https://sites.google.com/view?x=/a/b", "sites.google.com"))
+        # S2 (6. 11. 2026): ena raven s poizvedbo sme (pravilo je tocno s poizvedbo); poizvedba ne steje kot del poti.
+        self.assertTrue(g.sme_pot("https://sites.google.com/view?x=/a/b", "sites.google.com"))
+        self.assertFalse(g.sme_pot("https://sites.google.com/?x=/a/b", "sites.google.com"))
+        self.assertFalse(g.sme_pot("https://drive.google.com/uc?", "drive.google.com"))
+        self.assertFalse(g.sme_pot("https://drive.google.com/uc#?id=1", "drive.google.com"))
         self.assertTrue(g.sme_pot("https://sites.google.com/view/ime", "sites.google.com"))
+        for h in ("consent.google.com", "consent.google.si"):
+            self.assertEqual(g.vrsta(h), g.KOREN, h)
 
     def test_brskalnik_lazne_poti_in_projekti(self):
         self.storitev.store.index = _indeks(podtaknjeno=False)
@@ -88,6 +100,15 @@ class ScitGostiteljiTest(unittest.TestCase):
         # Ponarejen »Google« z neobstojeco pripono ni koren in ga vir sme blokirati.
         self.assertTrue(adblock.is_threat_domain("https://www.google.co.zz/prijava"))
         self.assertTrue(adblock.is_threat_domain("https://accounts.google.co.zz/"))
+
+    def test_prenos_drive_docs(self):
+        """S2 (6. 11. 2026): pravilo naslova /uc?id=X ujame tocen prenos, vstopne strani /uc in drugega id ne."""
+        feed = _load_feed_module()
+        self.storitev.store.index = feed.ThreatIndex([(u, "url", "malware", "fixture") for u in PRENOSI])
+        for u in PRENOSI:
+            self.assertTrue(adblock.is_threat_domain(u), u)
+        for u in PRENOSI_VARNI:
+            self.assertFalse(adblock.is_threat_domain(u), u)
 
     def test_vgrajen_seznam_brskalnika(self):
         star = adblock._threat_trie

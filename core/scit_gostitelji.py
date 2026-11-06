@@ -42,7 +42,8 @@ GOOGLE_PRIPONE = frozenset((
 #: Iskanje in prijava brez uporabniske vsebine; oauth2.googleapis.com in accounts.youtube.com rabi prijava.
 _KOREN = frozenset(("gstatic.com", "apis.google.com", "fonts.googleapis.com", "ajax.googleapis.com",
                     "oauth2.googleapis.com", "accounts.youtube.com"))
-_PREDPONE_KORENA = ("", "www.", "accounts.", "myaccount.")
+#: Pregled 6. 11. 2026 (S1): consent.google.<pripona> je stran soglasja v EU (nanjo google.com preusmeri vsak nov brskalnik).
+_PREDPONE_KORENA = ("", "www.", "accounts.", "myaccount.", "consent.")
 #: Skupni gostitelji, kjer objavlja kdorkoli. www.googleapis.com streze tudi Google Cloud Storage
 #: (/download/storage/v1/b/<vedro>/o/...), zato je skupni gostitelj, ne koren.
 _VSEBINA = frozenset(("sites.google.com", "docs.google.com", "script.google.com", "drive.google.com",
@@ -99,7 +100,9 @@ def sme_gostitelj(domena) -> bool:
 
 def sme_pot(url, gostitelj) -> bool:
     """Pravilo za naslov velja na skupnem gostitelju samo z vsaj dvema deloma poti (/view/ime, /macros/s/ID/exec).
-    Ena raven (/forms, /view, /drive) ali koren je vstopna stran izdelka - z njo bi blokirali vse uporabnike."""
+    Ena raven (/forms, /view, /drive) ali koren je vstopna stran izdelka - z njo bi blokirali vse uporabnike.
+    Pregled 6. 11. 2026 (S2): ena raven z neprazno poizvedbo tudi (drive.google.com/uc?export=download&id=X) - pravilo
+    naslova se ujema tocno s poizvedbo, zato vstopne strani /uc ne ustavi."""
     if je_najemnik(gostitelj):
         return True
     url = str(url or "")
@@ -110,5 +113,7 @@ def sme_pot(url, gostitelj) -> bool:
     konec = next((j for j, c in enumerate(ostanek) if c in "/?#\\"), -1)
     if konec < 0 or ostanek[konec] != "/":
         return False
-    pot = ostanek[konec:].split("?", 1)[0].split("#", 1)[0]
-    return sum(1 for d in pot.split("/") if d) >= 2
+    brez_sidra = ostanek[konec:].split("#", 1)[0]
+    pot, _, poizvedba = brez_sidra.partition("?")
+    delov = sum(1 for d in pot.split("/") if d)
+    return delov >= 2 or (delov == 1 and bool(poizvedba))
