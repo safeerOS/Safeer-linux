@@ -12,3 +12,5 @@ tests/test_predvajaj_na.py
 # 27. 10. 2026, CI 40540795447 (Iskalec 117): QML preizkusi nalozijo namizje (test_qml_enakost._namizje -> safeer_os) lenobno.
 tests/test_o_racunalniku.py
 tests/test_predogled_brez_dekodirnika.py
+# 8. 11. 2026: HSTS za podvire (podproces z nasim WebKitom, hsts-subresource-upgrade.patch).
+tests/test_webkit_hsts_podviri.py
