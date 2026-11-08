@@ -35,6 +35,14 @@ class HstsPodviri(unittest.TestCase):
         self.assertEqual(izid.get("navigacija"), ["TLS"], izid)
         for vrsta in ("slika", "skripta", "okvir"):
             self.assertEqual(izid.get(vrsta), ["TLS"], "%s ni nadgrajen na https: %s" % (vrsta, izid))
+        # POST po nadgradnji ostane POST s telesom (sinteticna 302 bi ga spremenila v GET brez telesa) in stran
+        # dobi odgovor (slepi pregled 8. 11. 2026).
+        api = izid.get("api", [])
+        self.assertIn("TLS", api, izid)
+        self.assertNotIn("HTTP", api, izid)
+        self.assertIn("METODA POST", api, izid)
+        self.assertIn("TELO OK", api, izid)
+        self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok"], izid)
 
 
 if __name__ == "__main__":

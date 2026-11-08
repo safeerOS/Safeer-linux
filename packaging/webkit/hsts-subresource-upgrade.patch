@@ -1,6 +1,6 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,8 +1365,10 @@
+@@ -1365,13 +1365,17 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
@@ -12,3 +12,10 @@
  }
  
  void NetworkDataTaskSoup::protocolUpgradedViaHSTS(SoupMessage* soupMessage)
+ {
+     m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
++    // The upgrade is internal: keep the method and the body (a 302 would turn a POST into a GET without a body).
++    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);
+     continueHTTPRedirection();
+ }
+ 

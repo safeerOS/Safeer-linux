@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Ali nas WebKitGTK (safeer-webkit) uveljavi HSTS za podvire in okvirje (8. 11. 2026).
 
-NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade() vrne isTopLevelNavigation() && !m_isBlockingCookies,
+NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade() je v 2.54.2 isTopLevelNavigation() && !m_isBlockingCookies,
 Applova omilitev 2 pa omeji samo podvire do BLOKIRANIH domen (pricakovano ||). Preizkus pokaze, ali se
-http:// podvir do gostitelja z znano politiko HSTS nadgradi na https.
+http:// podvir do gostitelja z znano politiko HSTS nadgradi na https, ali POST po nadgradnji ostane POST s
+telesom (sinteticna preusmeritev 302 bi ga spremenila v GET brez telesa - slepi pregled 8. 11.) in kateri Origin
+dobi streznik.
 
-Samo zanka (::1 / 127.0.0.1). Politiko HSTS vnaprej zapisemo v hsts-storage.sqlite (libsoup HSTSEnforcerDB),
-zato TLS ni potreben. Vsaka vrsta zahteve ima svoja vrata: streznik zapise HTTP (ni nadgrajeno) ali TLS
-(nadgrajeno - prvi bajt 0x16 = TLS ClientHello).
+Samo zanka (::1 / 127.0.0.1). Politiko HSTS vnaprej zapisemo v <predpomnilnik>/HSTS/hsts-storage.sqlite (libsoup
+HSTSEnforcerDB). Vsaka vrsta zahteve ima svoja vrata: streznik zapise HTTP (ni nadgrajeno) ali TLS (nadgrajeno -
+prvi bajt 0x16 = TLS ClientHello); zahtevo TLS sprejme s samopodpisanim potrdilom (seja WebKita z IGNORE samo za
+ta preizkus) in zapise metodo, telo in Origin.
 Uporaba: tools/nas_webkit.sh xvfb-run -a python3 tests/hsts_podviri_preizkus.py <zacasna mapa>
-Zadnja vrstica izpisa: JSON {vrsta: [HTTP|TLS|PISKOTEK V CISTEM HTTP, ...]} (tests/test_webkit_hsts_podviri.py).
+Zadnja vrstica izpisa: JSON {vrsta: [...]} (tests/test_webkit_hsts_podviri.py).
 """
-import json, os, socket, socketserver, sys, threading
+import json, os, socket, socketserver, ssl, subprocess, sys, threading
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -23,7 +26,7 @@ mapa = sys.argv[1]
 podatki = os.path.join(mapa, "podatki")
 predpomnilnik = os.path.join(mapa, "predpomnilnik")
 os.makedirs(podatki, exist_ok=True)
-os.makedirs(os.path.join(predpomnilnik, "HSTS"), exist_ok=True)   # WebKit bere predpomnilnik/HSTS/hsts-storage.sqlite (izmerjeno 8. 11.)
+os.makedirs(os.path.join(predpomnilnik, "HSTS"), exist_ok=True)   # WebKit bere <predpomnilnik>/HSTS/hsts-storage.sqlite (izmerjeno 8. 11.)
 
 # Politika HSTS za hsts.localhost (brez poddomen), kot da jo je streznik poslal prej prek HTTPS.
 baza = Soup.HSTSEnforcerDB.new(os.path.join(predpomnilnik, "HSTS", "hsts-storage.sqlite"))
@@ -31,8 +34,39 @@ baza.set_policy(Soup.HSTSPolicy.new("hsts.localhost", 3600, False))
 print("POLITIKA", [p.get_domain() for p in baza.get_policies(False)], flush=True)
 del baza
 
-izid = {}          # vrsta -> set("HTTP"/"TLS")
+# Samopodpisano potrdilo za nadgrajene zahteve (samo ta preizkus).
+potrdilo, kljuc = os.path.join(mapa, "p.pem"), os.path.join(mapa, "k.pem")
+subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=hsts.localhost",
+                "-keyout", kljuc, "-out", potrdilo], check=True, capture_output=True)
+tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+tls.load_cert_chain(potrdilo, kljuc)
+
+izid = {}          # vrsta -> set(...)
 zaklep = threading.Lock()
+
+
+def zapisi(vrsta, kaj):
+    with zaklep:
+        izid.setdefault(vrsta, set()).add(kaj)
+
+
+def preberi_zahtevo(s):
+    podatki_z = b""
+    while b"\r\n\r\n" not in podatki_z and len(podatki_z) < 65536:
+        k = s.recv(65536)
+        if not k:
+            break
+        podatki_z += k
+    glava, _, telo = podatki_z.partition(b"\r\n\r\n")
+    vrstice = glava.decode("latin-1").split("\r\n")
+    glave = {v.split(":", 1)[0].strip().lower(): v.split(":", 1)[1].strip() for v in vrstice[1:] if ":" in v}
+    dolzina = int(glave.get("content-length", "0") or 0)
+    while len(telo) < dolzina:
+        k = s.recv(65536)
+        if not k:
+            break
+        telo += k
+    return vrstice[0].split(" ")[0] if vrstice and vrstice[0] else "", glave, telo
 
 
 def strezi(vrsta, telo, tip):
@@ -44,16 +78,32 @@ def strezi(vrsta, telo, tip):
                 return
             if not prvi:   # povezava brez podatkov (npr. vnaprejsnja povezava) ni zahteva - ne steje (CodeRabbit 8. 11.)
                 return
-            with zaklep:
-                izid.setdefault(vrsta, set()).add("TLS" if prvi == b"\x16" else "HTTP")
+            s = self.request
             if prvi == b"\x16":
-                return
-            zahteva = self.request.recv(65536).decode("latin-1")
-            if "seja=preizkus" in zahteva:
-                with zaklep:
-                    izid.setdefault(vrsta, set()).add("PISKOTEK V CISTEM HTTP")
-            glava = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % (tip, len(telo))).encode()
-            self.request.sendall(glava + telo)
+                try:
+                    s = tls.wrap_socket(self.request, server_side=True)
+                except (ssl.SSLError, OSError):
+                    zapisi(vrsta, "TLS (rokovanje ni uspelo)")
+                    return
+                zapisi(vrsta, "TLS")
+            else:
+                zapisi(vrsta, "HTTP")
+            metoda, glave, prejeto = preberi_zahtevo(s)
+            if "seja=preizkus" in glave.get("cookie", "") and prvi != b"\x16":
+                zapisi(vrsta, "PISKOTEK V CISTEM HTTP")
+            if vrsta == "api":
+                zapisi(vrsta, "METODA " + metoda)
+                zapisi(vrsta, "TELO OK" if prejeto == b"telo-preizkusa" else "TELO %d B" % len(prejeto))
+                zapisi(vrsta, "ORIGIN " + glave.get("origin", "(ni)"))
+            dodatno = ""
+            if vrsta == "api":
+                dodatno = "Access-Control-Allow-Origin: %s\r\n" % glave.get("origin", "*")
+            odgovor = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n"
+                       % (tip, len(telo), dodatno)).encode()
+            try:
+                s.sendall(odgovor + telo)
+            except OSError:
+                pass
 
     class S6(socketserver.ThreadingTCPServer):
         address_family = socket.AF_INET6
@@ -75,15 +125,21 @@ def strezi(vrsta, telo, tip):
 GIF = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
 v_zgoraj = strezi("navigacija", b"<html>zgoraj</html>", "text/html")
 v_slika = strezi("slika", GIF, "image/gif")
-v_skripta = strezi("skripta", b"document.title='skripta';", "application/javascript")
+v_skripta = strezi("skripta", b"window.skriptaNalozena=1;", "application/javascript")
 v_okvir = strezi("okvir", b"<html>okvir</html>", "text/html")
+v_api = strezi("api", b"ok", "text/plain")
 stran = ("<html><body>stran"
          "<img src='http://hsts.localhost:%d/s.gif'>"
          "<script src='http://hsts.localhost:%d/s.js'></script>"
-         "<iframe src='http://hsts.localhost:%d/o'></iframe></body></html>" % (v_slika, v_skripta, v_okvir)).encode()
+         "<iframe src='http://hsts.localhost:%d/o'></iframe>"
+         "<script>fetch('http://hsts.localhost:%d/api',{method:'POST',body:'telo-preizkusa',headers:{'Content-Type':'text/plain'}})"
+         ".then(function(r){return r.text();}).then(function(t){document.title='FETCH:'+t;})"
+         ".catch(function(e){document.title='FETCH-NAPAKA:'+e;});</script></body></html>"
+         % (v_slika, v_skripta, v_okvir, v_api)).encode()
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)
+seja.set_tls_errors_policy(WebKit.TLSErrorsPolicy.IGNORE)   # samo lazni strezniki tega preizkusa na zanki
 print("HSTS mapa", seja.get_website_data_manager().get_base_cache_directory(), flush=True)
 app = Gtk.Application(application_id="si.safeer.preizkus.hsts")
 
@@ -104,6 +160,7 @@ def zazeni(a):
             w.load_uri(u)
             GLib.timeout_add_seconds(6, naslednji)
         else:
+            zapisi("fetch (naslov strani)", w.get_title() or "(brez)")
             a.quit()
         return False
 
@@ -114,6 +171,6 @@ app.connect("activate", zazeni)
 app.run([])
 
 print("REZULTAT (HTTP = ni nadgrajeno na https, TLS = nadgrajeno po HSTS):")
-for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir"):
+for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir", "api", "fetch (naslov strani)"):
     print("  %-26s %s" % (vrsta, ",".join(sorted(izid.get(vrsta, {"brez zahteve"})))), flush=True)
 print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()}), flush=True)
