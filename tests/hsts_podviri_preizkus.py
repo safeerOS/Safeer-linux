@@ -42,6 +42,8 @@ def strezi(vrsta, telo, tip):
                 prvi = self.request.recv(1, socket.MSG_PEEK)
             except OSError:
                 return
+            if not prvi:   # povezava brez podatkov (npr. vnaprejsnja povezava) ni zahteva - ne steje (CodeRabbit 8. 11.)
+                return
             with zaklep:
                 izid.setdefault(vrsta, set()).add("TLS" if prvi == b"\x16" else "HTTP")
             if prvi == b"\x16":
