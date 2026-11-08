@@ -1,6 +1,6 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,13 +1365,17 @@
+@@ -1365,13 +1365,25 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
@@ -13,8 +13,17 @@
  
  void NetworkDataTaskSoup::protocolUpgradedViaHSTS(SoupMessage* soupMessage)
  {
-     m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
-+    // The upgrade is internal: keep the method and the body (a 302 would turn a POST into a GET without a body).
+-    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
++    URL upgradedURL = soupURIToURL(soup_message_get_uri(soupMessage));
++    if (!isTopLevelNavigation()) {
++        // Fetch treats the HSTS upgrade of a subresource as part of the request, not as a redirect: the method,
++        // body, Origin, redirect mode and CORS state stay as they are. libsoup has already rewritten the message
++        // URI and the message continues over https, so only keep our copy of the request in sync.
++        m_currentRequest.setURL(WTF::move(upgradedURL));
++        return;
++    }
++    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), upgradedURL);
++    // Keep the method and the body of the navigation (a 302 would turn a POST into a GET without a body).
 +    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);
      continueHTTPRedirection();
  }

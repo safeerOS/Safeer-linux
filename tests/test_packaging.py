@@ -1887,10 +1887,11 @@ sys.exit("neznan ukaz")
             self.assertIn('+++ b/'+datoteka,popravek)
 
     def test_webkit_hsts_podviri_307(self):
-        """HSTS za podvire (|| namesto &&) in sinteticna preusmeritev 307, da POST ostane POST s telesom."""
+        """HSTS za podvire (|| namesto &&): podvir se nadgradi brez preusmeritve (Fetch), navigacija s 307 (POST ostane POST)."""
         popravek=(ROOT/'packaging/webkit/hsts-subresource-upgrade.patch').read_text()
         self.assertIn('+        || !m_isBlockingCookies;',popravek)
         self.assertIn('+    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);',popravek)
+        self.assertIn('+        m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)   # podvir: brez preusmeritve
 
     def test_plugins_good_je_odvisnost(self):
         """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""

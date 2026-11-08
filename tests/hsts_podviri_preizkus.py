@@ -91,12 +91,13 @@ def strezi(vrsta, telo, tip):
             metoda, glave, prejeto = preberi_zahtevo(s)
             if "seja=preizkus" in glave.get("cookie", "") and prvi != b"\x16":
                 zapisi(vrsta, "PISKOTEK V CISTEM HTTP")
+            if vrsta.startswith("api"):
+                zapisi(vrsta, "ORIGIN " + glave.get("origin", "(ni)"))
             if vrsta == "api":
                 zapisi(vrsta, "METODA " + metoda)
                 zapisi(vrsta, "TELO OK" if prejeto == b"telo-preizkusa" else "TELO %d B" % len(prejeto))
-                zapisi(vrsta, "ORIGIN " + glave.get("origin", "(ni)"))
             dodatno = ""
-            if vrsta == "api":
+            if vrsta.startswith("api"):
                 dodatno = "Access-Control-Allow-Origin: %s\r\n" % glave.get("origin", "*")
             odgovor = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n"
                        % (tip, len(telo), dodatno)).encode()
@@ -128,14 +129,20 @@ v_slika = strezi("slika", GIF, "image/gif")
 v_skripta = strezi("skripta", b"window.skriptaNalozena=1;", "application/javascript")
 v_okvir = strezi("okvir", b"<html>okvir</html>", "text/html")
 v_api = strezi("api", b"ok", "text/plain")
+v_api2 = strezi("api2 (redirect error)", b"ok", "text/plain")
 stran = ("<html><body>stran"
          "<img src='http://hsts.localhost:%d/s.gif'>"
          "<script src='http://hsts.localhost:%d/s.js'></script>"
          "<iframe src='http://hsts.localhost:%d/o'></iframe>"
-         "<script>fetch('http://hsts.localhost:%d/api',{method:'POST',body:'telo-preizkusa',headers:{'Content-Type':'text/plain'}})"
-         ".then(function(r){return r.text();}).then(function(t){document.title='FETCH:'+t;})"
+         # Medizvorni fetch (www.hsts.localhost -> hsts.localhost): POST s telesom in GET z redirect:'error'.
+         # Nadgradnja HSTS ni preusmeritev (Fetch), zato oba uspeta, Origin pa ostane izvor strani.
+         "<script>Promise.all(["
+         "fetch('http://hsts.localhost:%d/api',{method:'POST',body:'telo-preizkusa',headers:{'Content-Type':'text/plain'}})"
+         ".then(function(r){return r.text();}),"
+         "fetch('http://hsts.localhost:%d/api2',{redirect:'error'}).then(function(r){return r.text();})])"
+         ".then(function(t){document.title='FETCH:'+t.join('|');})"
          ".catch(function(e){document.title='FETCH-NAPAKA:'+e;});</script></body></html>"
-         % (v_slika, v_skripta, v_okvir, v_api)).encode()
+         % (v_slika, v_skripta, v_okvir, v_api, v_api2)).encode()
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)
@@ -171,6 +178,7 @@ app.connect("activate", zazeni)
 app.run([])
 
 print("REZULTAT (HTTP = ni nadgrajeno na https, TLS = nadgrajeno po HSTS):")
-for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir", "api", "fetch (naslov strani)"):
+for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir", "api", "api2 (redirect error)",
+              "fetch (naslov strani)"):
     print("  %-26s %s" % (vrsta, ",".join(sorted(izid.get(vrsta, {"brez zahteve"})))), flush=True)
-print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()}), flush=True)
+print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()} | {"_izvor_strani": "http://www.hsts.localhost:%d" % v_stran}), flush=True)

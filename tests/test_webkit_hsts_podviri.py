@@ -42,7 +42,13 @@ class HstsPodviri(unittest.TestCase):
         self.assertNotIn("HTTP", api, izid)
         self.assertIn("METODA POST", api, izid)
         self.assertIn("TELO OK", api, izid)
-        self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok"], izid)
+        api2 = izid.get("api2 (redirect error)", [])
+        self.assertIn("TLS", api2, izid)
+        self.assertNotIn("HTTP", api2, izid)
+        # Nadgradnja ni preusmeritev: Origin ostane izvor strani (ne null), redirect:'error' ne pade.
+        for kaj in (api, api2):
+            self.assertIn("ORIGIN " + izid["_izvor_strani"], kaj, izid)
+        self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok|ok"], izid)
 
 
 if __name__ == "__main__":
