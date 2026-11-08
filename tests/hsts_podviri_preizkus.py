@@ -34,10 +34,18 @@ baza.set_policy(Soup.HSTSPolicy.new("hsts.localhost", 3600, False))
 print("POLITIKA", [p.get_domain() for p in baza.get_policies(False)], flush=True)
 del baza
 
-# Samopodpisano potrdilo za nadgrajene zahteve (samo ta preizkus).
-potrdilo, kljuc = os.path.join(mapa, "p.pem"), os.path.join(mapa, "k.pem")
-subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=hsts.localhost",
-                "-keyout", kljuc, "-out", potrdilo], check=True, capture_output=True)
+# Potrdilo za nadgrajene zahteve. SAFEER_HSTS_POTRDILA = mapa s streznik.crt in streznik.key, podpisanima s preizkusnim
+# CA, ki mu sistem zaupa (samo za *.localhost, nameConstraints) - takrat brez IGNORE in POST/Origin se preverita do konca.
+# Brez nje samopodpisano potrdilo: libsoup ga pri gostitelju HSTS zavrne (RFC 6797 8.4), fetch zato ne stece do konca.
+zaupano = os.environ.get("SAFEER_HSTS_POTRDILA", "")
+if zaupano and os.path.isfile(os.path.join(zaupano, "streznik.crt")):
+    potrdilo, kljuc = os.path.join(zaupano, "streznik.crt"), os.path.join(zaupano, "streznik.key")
+else:
+    zaupano = ""
+    potrdilo, kljuc = os.path.join(mapa, "p.pem"), os.path.join(mapa, "k.pem")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=hsts.localhost",
+                    "-keyout", kljuc, "-out", potrdilo], check=True, capture_output=True)
+print("POTRDILO", "zaupano" if zaupano else "samopodpisano", flush=True)
 tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 tls.load_cert_chain(potrdilo, kljuc)
 
@@ -146,7 +154,8 @@ stran = ("<html><body>stran"
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)
-seja.set_tls_errors_policy(WebKit.TLSErrorsPolicy.IGNORE)   # samo lazni strezniki tega preizkusa na zanki
+if not zaupano:
+    seja.set_tls_errors_policy(WebKit.TLSErrorsPolicy.IGNORE)   # samo lazni strezniki tega preizkusa na zanki
 print("HSTS mapa", seja.get_website_data_manager().get_base_cache_directory(), flush=True)
 app = Gtk.Application(application_id="si.safeer.preizkus.hsts")
 
@@ -181,4 +190,5 @@ print("REZULTAT (HTTP = ni nadgrajeno na https, TLS = nadgrajeno po HSTS):")
 for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir", "api", "api2 (redirect error)",
               "fetch (naslov strani)"):
     print("  %-26s %s" % (vrsta, ",".join(sorted(izid.get(vrsta, {"brez zahteve"})))), flush=True)
-print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()} | {"_izvor_strani": "http://www.hsts.localhost:%d" % v_stran}), flush=True)
+print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()} | {"_izvor_strani": "http://www.hsts.localhost:%d" % v_stran,
+                                                                     "_zaupano": bool(zaupano)}), flush=True)

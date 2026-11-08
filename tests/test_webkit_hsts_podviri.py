@@ -41,7 +41,14 @@ class HstsPodviri(unittest.TestCase):
         for vrsta in ("api", "api2 (redirect error)"):
             self.assertIn("TLS", izid.get(vrsta, []), izid)
             self.assertNotIn("HTTP", izid.get(vrsta, []), izid)
-        self.assertFalse([v for v, s in izid.items() if "PISKOTEK V CISTEM HTTP" in s], izid)
+        self.assertFalse([v for v, s in izid.items() if isinstance(s, list) and "PISKOTEK V CISTEM HTTP" in s], izid)
+        if izid.get("_zaupano"):
+            # S potrdilom, ki mu sistem zaupa: POST ostane POST s telesom, Origin ostane izvor strani, redirect:'error' ne pade.
+            self.assertIn("METODA POST", izid["api"], izid)
+            self.assertIn("TELO OK", izid["api"], izid)
+            for vrsta in ("api", "api2 (redirect error)"):
+                self.assertIn("ORIGIN " + izid["_izvor_strani"], izid[vrsta], izid)
+            self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok|ok"], izid)
 
 if __name__ == "__main__":
     unittest.main()
