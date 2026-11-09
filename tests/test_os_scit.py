@@ -79,6 +79,8 @@ class SeznamiTest(unittest.TestCase):
             "stevenblack": "# Title: StevenBlack/hosts\n127.0.0.1 localhost\n127.0.0.1 localhost.localdomain\n127.0.0.1 local\n"
                            "255.255.255.255 broadcasthost\n::1 localhost\nfe80::1%lo0 localhost\n" +
                            "\n".join("0.0.0.0 sb%d.example" % i for i in range(1000)),
+            "adguard-dns": "! Title: AdGuard DNS filter\n" + "\n".join("||ag%d.example^" % i for i in range(1001)) +
+                           "\n@@||ok.ag5.example^|\n",
             "urlhaus": "# urlhaus\n127.0.0.1 mal.example\n",
             "phishing-army": "phish.example\n",
             "si-cert": "cert.example CNAME .\n",
@@ -98,7 +100,9 @@ class SeznamiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m:
             s = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertTrue(s.osvezi())
-            self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 1000 + 3)
+            self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 1000 + 1000 + 3)
+            self.assertEqual(s.kategorija("x.ag7.example"), "oglasi")
+            self.assertIsNone(s.kategorija("ag5.example"))
             self.assertEqual(s.kategorija("x.sb7.example"), "oglasi")
             self.assertIsNone(s.kategorija("localhost.localdomain"))
             self.assertEqual(s.kategorija("ad7.example"), "oglasi")
@@ -1081,6 +1085,13 @@ class CnameTest(unittest.TestCase):
     def test_glava_stevenblack_brez_naslova(self):
         self.assertEqual(list(os_scit.razcleni_seznam("0.0.0.0 0.0.0.0\n0.0.0.0 ads.example-oglas.com\n")),
                          ["ads.example-oglas.com"])
+
+
+    def test_adguard_izjeme(self):
+        """Lastnik 9. 11. 2026: AdGuard DNS filter - ||ime^ je vnos, @@||ime^ izpusti ime in nadrejene iz istega seznama."""
+        besedilo = ("! Title: AdGuard DNS filter\n||ads.example-oglas.com^\n||sled.net^\n||cdn.sled.net^\n"
+                    "||ad-host-*.example.com^\n/^139\\.45/\n@@||ok.cdn.sled.net^|\n||drugi.example^$important\n@@|samo.example^|\n")
+        self.assertEqual(os_scit.razcleni_seznam(besedilo, abp=True), ["ads.example-oglas.com"])
 
 
 if __name__ == "__main__":

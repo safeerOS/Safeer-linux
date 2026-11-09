@@ -98,6 +98,9 @@ VIRI: Tuple[Tuple[str, str, str], ...] = (
     # Lastnik 9. 11. 2026: Scit enako dober ali boljsi kot Pi-hole - privzeti seznam Pi-hole (StevenBlack Unified). Meritev
     # 9. 11.: nabor brez njega je ustavil 79,4 % njegovih domen (~8.500 zivih ne). Enako na TV (ThreatFeedsUpdater).
     ("stevenblack", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "oglasi"),
+    # Lastnik 9. 11. 2026: »upostevaj vse, kar AdGuard blokira« - AdGuard DNS filter (javen, GPL-3.0); meritev 9. 11.: nas
+    # nabor ga je ustavil 43,1 %. Izjeme @@ glej razcleni_seznam. Enako na TV (ThreatFeedsUpdater).
+    ("adguard-dns", "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt", "oglasi"),
     ("urlhaus", "https://urlhaus.abuse.ch/downloads/hostfile/", "malware"),
     ("phishing-army", "https://phishing.army/download/phishing_army_blocklist_extended.txt", "phishing"),
     ("si-cert", "https://www.cert.si/misp/rpz/last.txt", "phishing"),
@@ -825,12 +828,29 @@ def _zgoscenka(ime: str) -> int:
     return int.from_bytes(hashlib.blake2b(ime.encode("utf-8", "replace"), digest_size=8).digest(), "big")
 
 
-def razcleni_seznam(besedilo: str) -> Iterable[str]:
-    """Domene iz seznama v obliki hosts (0.0.0.0 ime), RPZ (ime CNAME .) ali golih domen; komentarji stran."""
+#: Seznami v obliki AdGuard/ABP (||ime^, izjeme @@); v drugih seznamih vrstica »||« ni ime (test_razcleni_seznam).
+SEZNAMI_ABP = ("adguard-dns",)
+
+
+def razcleni_seznam(besedilo: str, abp: bool = False) -> List[str]:
+    """Domene iz seznama v obliki hosts (0.0.0.0 ime), RPZ (ime CNAME .), golih domen ali AdGuard/ABP (||ime^);
+    komentarji stran. Lastnik 9. 11. 2026 (AdGuard DNS filter): izjema »@@||ime^« izpusti ime in nadrejene domene iz
+    ISTEGA seznama (nabor je »wildcard«); tocne izjeme »@@|ime^« ostanejo blokirane (isto kot TV PlainListParser)."""
+    imena: List[str] = []
+    izjeme = set()
     for v in besedilo.splitlines():
         v = v.strip()
+        if abp and v.startswith("@@||"):
+            e = v[4:].split("^", 1)[0].split("$", 1)[0].lower().rstrip(".")
+            if "." in e and re.fullmatch(r"[a-z0-9._-]{3,253}", e):
+                izjeme.add(e)
+            continue
         if not v or v[0] in "#!;$@[":
             continue
+        if abp and v.startswith("||"):
+            if not re.fullmatch(r"\|\|[A-Za-z0-9._-]+\^", v):
+                continue                    # vzorci (*), modifikatorji ($important) in poti niso ime
+            v = v[2:-1]
         deli = v.split()
         ime = deli[0]
         if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}|::1?|0\.0\.0\.0", ime):
@@ -845,7 +865,18 @@ def razcleni_seznam(besedilo: str) -> Iterable[str]:
             continue
         if ime in ("localhost", "localhost.localdomain", "broadcasthost"):
             continue
-        yield ime
+        imena.append(ime)
+    if izjeme:
+        izpusti = set()
+        for e in izjeme:
+            d = e
+            while True:
+                izpusti.add(d)
+                if "." not in d:
+                    break
+                d = d.split(".", 1)[1]
+        imena = [i for i in imena if i not in izpusti]
+    return imena
 
 
 class Nabor:
@@ -1047,8 +1078,8 @@ class Seznami:
             if "<html" in glava or "<!doctype" in glava:
                 napake.append("%s: html" % oznaka)
                 continue
-            domen = sum(1 for _ in razcleni_seznam(telo.decode("utf-8", "replace")))
-            if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") or oznaka == "stevenblack" else 1):
+            domen = len(razcleni_seznam(telo.decode("utf-8", "replace"), abp=oznaka in SEZNAMI_ABP))
+            if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") or oznaka in ("stevenblack", "adguard-dns") else 1):
                 napake.append("%s: %d domen" % (oznaka, domen))
                 continue
             _atomic_write(Path(self.mapa, oznaka + ".txt"), telo)
@@ -1073,7 +1104,7 @@ class Seznami:
                         besedilo = f.read()
                 except OSError:
                     continue
-                for ime in razcleni_seznam(besedilo):
+                for ime in razcleni_seznam(besedilo, abp=oznaka in SEZNAMI_ABP):
                     yield ime, kat
         nabor = Nabor.iz_domen(domene())
         if len(nabor):
