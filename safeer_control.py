@@ -2378,7 +2378,12 @@ class SafeerControl(_OSNOVA):
               "spremenjeno": "Ključi spremenjeni z druge naprave", "razveljavi": "Razveljavi", "vredu": "V redu"}
         en = {"vprasaj": "A device in your inner circle wants to sync keys", "sprejmi": "Accept", "zavrni": "Decline",
               "spremenjeno": "Keys changed from another device", "razveljavi": "Undo", "vredu": "OK"}
-        jezik = str(getattr(self.link, "_jezik", "") or os.environ.get("LANG", "sl"))[:2]
+        # CodeRabbit 9. 11. 2026: _jezik je metoda - prej je str(metode) dal »<b« in obvestila so bila vedno angleska.
+        try:
+            jezik = str(self.link._jezik() if self.link is not None else "") or os.environ.get("LANG", "sl")
+        except Exception:  # noqa: BLE001 - brez jezika anglesko
+            jezik = "en"
+        jezik = jezik[:2]
         return (sl if jezik == "sl" else en)[kljuc]
 
     def _vprasaj_za_kljuce(self, usk, c) -> None:
