@@ -1005,3 +1005,51 @@ UID_NOBODY = 65534
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _ime_dns(s):
+    return b"".join(bytes([len(l)]) + l.encode() for l in s.split(".")) + b"\0"
+
+
+class CnameTest(unittest.TestCase):
+    """Lastnik 9. 11. 2026: Scit kot Pi-hole preveri verigo CNAME (enaki primeri kot TV ScitTest.cnameTest)."""
+
+    def _odgovor(self):
+        d = bytearray(b"\x12\x34\x81\x80\x00\x01\x00\x02\x00\x00\x00\x00")
+        d += _ime_dns("stat.stran.si") + b"\x00\x01\x00\x01"
+        cilj = _ime_dns("trk.sledilec.net")
+        d += b"\xc0\x0c\x00\x05\x00\x01\x00\x00\x00\x3c\x00" + bytes([len(cilj)])
+        zacetek = len(d)
+        d += cilj
+        d += b"\xc0" + bytes([zacetek]) + b"\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x01\x02\x03\x04"
+        return bytes(d)
+
+    def test_cilji(self):
+        odg = self._odgovor()
+        self.assertEqual(os_scit.cname_cilji(odg), ["trk.sledilec.net"])
+        d = bytearray(b"\x00\x01\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00") + _ime_dns("www.stran.si") + b"\x00\x01\x00\x01"
+        d += b"\xc0\x0c\x00\x05\x00\x01\x00\x00\x00\x3c\x00\x02\xc0\x10"
+        self.assertEqual(os_scit.cname_cilji(bytes(d)), ["stran.si"])
+        brez = bytearray(odg); brez[7] = 0
+        self.assertEqual(os_scit.cname_cilji(bytes(brez)), [])
+        self.assertIsNone(os_scit._ime_odgovora(b"\xc0\x00", 0))
+        self.assertIsNone(os_scit._ime_odgovora(b"\xc0\x05\x00\x00\x00\x00", 0))
+        for n in range(len(odg)):
+            os_scit.cname_cilji(odg[:n])
+        lazno = bytearray(odg); lazno[6:8] = b"\xff\xff"
+        self.assertEqual(os_scit.cname_cilji(bytes(lazno)), ["trk.sledilec.net"])
+
+    def test_razresevalnik_ustavi_prikrit_sledilec(self):
+        r = os_scit.Razresevalnik(lambda i: "oglasi" if i.endswith("sledilec.net") else None, lambda: [])
+        odg = self._odgovor()
+        r._posreduj = lambda paket, tcp: odg
+        poizvedba = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + _ime_dns("stat.stran.si") + b"\x00\x01\x00\x01"
+        izid = r._odgovori(poizvedba, False)
+        self.assertEqual(izid[3] & 0x0F, 3, "NXDOMAIN")
+        self.assertEqual(r.blokiranih, 1)
+        self.assertEqual(r.zadnje[0]["ime"], "stat.stran.si")
+        # Izjema na vprasanem imenu velja tudi za verigo.
+        r2 = os_scit.Razresevalnik(lambda i: "oglasi" if i.endswith("sledilec.net") else None, lambda: [],
+                                   izjema=lambda i: i == "stat.stran.si")
+        r2._posreduj = lambda paket, tcp: odg
+        self.assertEqual(r2._odgovori(poizvedba, False), odg)

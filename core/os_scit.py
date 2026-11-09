@@ -269,6 +269,69 @@ def ime_poizvedbe(paket: bytes) -> str:
         return ""
 
 
+def _ime_odgovora(d: bytes, i: int) -> Optional[Tuple[str, int]]:
+    """Ime v odsekih odgovorov s stiskanjem (RFC 1035 4.1.4): kazalec samo nazaj, najvec 16 skokov, najvec 255 znakov.
+    Vrne (ime, odmik za imenom na mestu) ali None za pokvarjeno sporocilo (isto kot TV DnsPaket.preberiImeOdgovora)."""
+    deli: List[str] = []
+    dolzina = 0
+    konec = -1
+    skokov = 0
+    while True:
+        if i < 0 or i >= len(d):
+            return None
+        n = d[i]
+        if n == 0:
+            if konec < 0:
+                konec = i + 1
+            break
+        if n & 0xC0 == 0xC0:
+            if i + 1 >= len(d):
+                return None
+            cilj = ((n & 0x3F) << 8) | d[i + 1]
+            if konec < 0:
+                konec = i + 2
+            skokov += 1
+            if cilj >= i or skokov > 16:
+                return None
+            i = cilj
+            continue
+        if n & 0xC0 or i + 1 + n > len(d) or dolzina + n + 1 > 255:
+            return None
+        deli.append(d[i + 1:i + 1 + n].decode("latin-1"))
+        dolzina += n + 1
+        i += 1 + n
+    return ".".join(deli).lower(), konec
+
+
+def cname_cilji(d: bytes) -> List[str]:
+    """Cilji zapisov CNAME v odgovoru DNS (najvec 64 zapisov). Lastnik 9. 11. 2026: Scit kot Pi-hole preveri verigo
+    CNAME - sledilec, skrit pod poddomeno strani (stat.stran.si CNAME sledilec.net), se ustavi, ce je cilj na seznamu."""
+    if len(d) < 12:
+        return []
+    qd, an = struct.unpack("!HH", d[4:8])
+    i = 12
+    for _ in range(qd):
+        r = _ime_odgovora(d, i)
+        if r is None:
+            return []
+        i = r[1] + 4
+    izhod: List[str] = []
+    for _ in range(min(an, 64)):
+        r = _ime_odgovora(d, i)
+        if r is None or r[1] + 10 > len(d):
+            return izhod
+        k = r[1]
+        vrsta, rdl = struct.unpack("!H", d[k:k + 2])[0], struct.unpack("!H", d[k + 8:k + 10])[0]
+        if k + 10 + rdl > len(d):
+            return izhod
+        if vrsta == 5:
+            c = _ime_odgovora(d, k + 10)
+            if c is not None:
+                izhod.append(c[0])
+        i = k + 10 + rdl
+    return izhod
+
+
 def _odgovor_z(paket: bytes, zastavice: int) -> bytes:
     konec = 12
     while konec < len(paket) and paket[konec] != 0:
@@ -349,8 +412,11 @@ class Razresevalnik:
 
     def __init__(self, blokiraj: Callable[[str], Optional[str]], upstream: Callable[[], List[str]],
                  naprej: Optional[Callable[[bytes], Optional[bytes]]] = None,
-                 zagonsko: Optional[Callable[[str], bool]] = None) -> None:
+                 zagonsko: Optional[Callable[[str], bool]] = None,
+                 izjema: Optional[Callable[[str], bool]] = None) -> None:
         self.blokiraj = blokiraj
+        #: Uporabnikova izjema na vprasanem imenu velja tudi za njegovo verigo CNAME (kot Pi-hole).
+        self.izjema = izjema
         self.upstream = upstream
         #: Sifriran streznik naprej (DoH); None ali odpoved (cas, SERVFAIL) = strezniki usmerjevalnika (upstream).
         self.naprej = naprej
@@ -469,7 +535,28 @@ class Razresevalnik:
                 return odgovor_zavrnjeno(paket)
             if self.naprej is not None and self.zagonsko is not None and self.zagonsko(ime):
                 return self._vprasaj_usmerjevalnik(paket, tcp)
-        return self._posreduj(paket, tcp)
+        odgovor = self._posreduj(paket, tcp)
+        if odgovor and ime and self._cname_ustavi(ime, odgovor):
+            return odgovor_zavrnjeno(paket)
+        return odgovor
+
+    def _cname_ustavi(self, ime: str, odgovor: bytes) -> bool:
+        """Odgovor vsebuje CNAME na ustavljeno domeno (prikrit sledilec; lastnik 9. 11. 2026, Scit kot Pi-hole)."""
+        try:
+            cilji = cname_cilji(odgovor)
+            if not cilji or (self.izjema is not None and self.izjema(ime)):
+                return False
+            kategorija = next((k for k in (self.blokiraj(c) for c in cilji) if k), None)
+        except Exception:  # noqa: BLE001 - pokvarjen odgovor gre naprej kot doslej
+            return False
+        if not kategorija:
+            return False
+        with self._kljuc:
+            self.blokiranih += 1
+            if not self.zadnje or self.zadnje[0]["ime"] != ime:
+                # Med zadnjimi je vprasano ime: uporabnik ga lahko spusti (cilja s seznama ne bi mogel).
+                self.zadnje = ([{"ime": ime, "kategorija": kategorija, "cas": time.time()}] + self.zadnje)[:20]
+        return True
 
     #: Koliko casa po zadnji nesifrirani poizvedbi stanje kaze, da DNS ni sifriran (straza in strani osvezujejo na
     #: nekaj sekund; ko DoH spet odgovarja, oznaka izgine sama).
@@ -2111,7 +2198,8 @@ class Scit:
             self.seznami.zazeni()
             if self.razresevalnik is None:
                 self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej,
-                                                   zagonsko=self._zagonsko)
+                                                   zagonsko=self._zagonsko,
+                                                   izjema=lambda i: self._izjeme.get(i, 0) > self._ura())
                 self.razresevalnik.sifrirano_naprej = lambda: self.naprej()[0] != "router"
             vrata = self.razresevalnik.zazeni()
             if not vrata:
