@@ -31,6 +31,7 @@ os.makedirs(os.path.join(predpomnilnik, "HSTS"), exist_ok=True)   # WebKit bere 
 # Politika HSTS za hsts.localhost (brez poddomen), kot da jo je streznik poslal prej prek HTTPS.
 baza = Soup.HSTSEnforcerDB.new(os.path.join(predpomnilnik, "HSTS", "hsts-storage.sqlite"))
 baza.set_policy(Soup.HSTSPolicy.new("hsts.localhost", 3600, False))
+baza.set_policy(Soup.HSTSPolicy.new("hsts2.localhost", 3600, True))   # includeSubDomains: a.hsts2.localhost (9. 11.)
 print("POLITIKA", [p.get_domain() for p in baza.get_policies(False)], flush=True)
 del baza
 
@@ -105,7 +106,8 @@ def strezi(vrsta, telo, tip):
                 zapisi(vrsta, "METODA " + metoda)
                 zapisi(vrsta, "TELO OK" if prejeto == b"telo-preizkusa" else "TELO %d B" % len(prejeto))
             dodatno = ""
-            if vrsta.startswith("api"):
+            if vrsta.startswith("api") or vrsta == "eventsource":
+                # CORS dovoli izvor strani (tudi EventSource, 9. 11.: brez tega pade ze pri preverbi CORS, ne pri HSTS).
                 dodatno = "Access-Control-Allow-Origin: %s\r\n" % glave.get("origin", "*")
             odgovor = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n"
                        % (tip, len(telo), dodatno)).encode()
@@ -138,10 +140,40 @@ v_skripta = strezi("skripta", b"window.skriptaNalozena=1;", "application/javascr
 v_okvir = strezi("okvir", b"<html>okvir</html>", "text/html")
 v_api = strezi("api", b"ok", "text/plain")
 v_api2 = strezi("api2 (redirect error)", b"ok", "text/plain")
+# Razsirjeno (9. 11. 2026, lastnik: preveri cim vec, kar dopusca lokalno okolje): druge vrste zahtev do istega gostitelja.
+RAZSIRJENO = ("css", "pisava", "ozadje css", "video", "avdio", "xhr", "eventsource", "beacon", "websocket",
+              "obrazec v okvirju", "predhodno nalaganje", "poddomena (includeSubDomains)", "eventsource (stanje v strani)")
+v_css = strezi("css", b"body{color:black}", "text/css")
+v_pisava = strezi("pisava", b"x", "font/woff2")
+v_ozadje = strezi("ozadje css", GIF, "image/gif")
+v_video = strezi("video", b"x", "video/mp4")
+v_avdio = strezi("avdio", b"x", "audio/mpeg")
+v_xhr = strezi("xhr", b"ok", "text/plain")
+v_es = strezi("eventsource", b"data: x\n\n", "text/event-stream")
+v_beacon = strezi("beacon", b"", "text/plain")
+v_ws = strezi("websocket", b"", "text/plain")
+v_obrazec = strezi("obrazec v okvirju", b"<html>ok</html>", "text/html")
+v_pred = strezi("predhodno nalaganje", b"x", "text/plain")
+v_pod = strezi("poddomena (includeSubDomains)", GIF, "image/gif")
 stran = ("<html><body>stran"
          "<img src='http://hsts.localhost:%d/s.gif'>"
          "<script src='http://hsts.localhost:%d/s.js'></script>"
          "<iframe src='http://hsts.localhost:%d/o'></iframe>"
+         "<link rel=stylesheet href='http://hsts.localhost:%d/s.css'>"
+         "<style>@font-face{font-family:P;src:url(http://hsts.localhost:%d/p.woff2)}"
+         "#p{font-family:P;background:url(http://hsts.localhost:%d/o.gif)}</style><div id=p>pisava</div>"
+         "<video src='http://hsts.localhost:%d/v.mp4' preload=auto muted></video>"
+         "<audio src='http://hsts.localhost:%d/a.mp3' preload=auto></audio>"
+         "<link rel=prefetch href='http://hsts.localhost:%d/pred'>"
+         "<img src='http://a.hsts2.localhost:%d/p.gif'>"
+         "<iframe name=cilj style='display:none'></iframe>"
+         "<form id=f method=post target=cilj action='http://hsts.localhost:%d/obrazec'><input name=x value=1></form>"
+         "<script>try{var x=new XMLHttpRequest();x.open('GET','http://hsts.localhost:%d/x');x.send();}catch(e){}"
+         "try{var es=new EventSource('http://hsts.localhost:%d/es');es.onopen=function(){window.esIzid='odprto';};"
+         "es.onerror=function(){if(!window.esIzid)window.esIzid='napaka';};}catch(e){window.esIzid='izjema '+e;}"
+         "try{navigator.sendBeacon('http://hsts.localhost:%d/b','b');}catch(e){}"
+         "try{new WebSocket('ws://hsts.localhost:%d/ws');}catch(e){}"
+         "try{document.getElementById('f').submit();}catch(e){}</script>"
          # Medizvorni fetch (www.hsts.localhost -> hsts.localhost): POST s telesom in GET z redirect:'error'.
          # Nadgradnja HSTS ni preusmeritev (Fetch), zato oba uspeta, Origin pa ostane izvor strani.
          "<script>Promise.all(["
@@ -150,7 +182,8 @@ stran = ("<html><body>stran"
          "fetch('http://hsts.localhost:%d/api2',{redirect:'error'}).then(function(r){return r.text();})])"
          ".then(function(t){document.title='FETCH:'+t.join('|');})"
          ".catch(function(e){document.title='FETCH-NAPAKA:'+e;});</script></body></html>"
-         % (v_slika, v_skripta, v_okvir, v_api, v_api2)).encode()
+         % (v_slika, v_skripta, v_okvir, v_css, v_pisava, v_ozadje, v_video, v_avdio, v_pred, v_pod, v_obrazec,
+            v_xhr, v_es, v_beacon, v_ws, v_api, v_api2)).encode()
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)
@@ -177,7 +210,15 @@ def zazeni(a):
             GLib.timeout_add_seconds(6, naslednji)
         else:
             zapisi("fetch (naslov strani)", w.get_title() or "(brez)")
-            a.quit()
+
+            def po_branju(pogled, rezultat):
+                try:
+                    zapisi("eventsource (stanje v strani)", pogled.evaluate_javascript_finish(rezultat).to_string())
+                except Exception as e:
+                    zapisi("eventsource (stanje v strani)", "branje ni uspelo: %s" % e)
+                a.quit()
+
+            w.evaluate_javascript("String(window.esIzid||'ni dogodka')", -1, None, None, None, po_branju)
         return False
 
     naslednji()
@@ -188,7 +229,7 @@ app.run([])
 
 print("REZULTAT (HTTP = ni nadgrajeno na https, TLS = nadgrajeno po HSTS):")
 for vrsta in ("navigacija", "stran (www.hsts.localhost)", "slika", "skripta", "okvir", "api", "api2 (redirect error)",
-              "fetch (naslov strani)"):
+              "fetch (naslov strani)") + RAZSIRJENO:
     print("  %-26s %s" % (vrsta, ",".join(sorted(izid.get(vrsta, {"brez zahteve"})))), flush=True)
 print("JSON " + json.dumps({k: sorted(v) for k, v in izid.items()} | {"_izvor_strani": "http://www.hsts.localhost:%d" % v_stran,
                                                                      "_zaupano": bool(zaupano)}), flush=True)

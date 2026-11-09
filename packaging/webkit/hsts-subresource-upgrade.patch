@@ -1,6 +1,6 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,13 +1365,39 @@
+@@ -1365,13 +1365,41 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
@@ -11,14 +11,16 @@
 +        || !m_isBlockingCookies;
 +}
 +
-+// A cross-origin fetch()/XMLHttpRequest that is already in CORS mode (it carries an Origin that differs from the
-+// request URL). Upgrading it in place keeps its Origin, method, body and redirect mode, as Fetch does for HSTS,
-+// and the response is still checked with CORS. Navigations (of any frame), other subresources and same-origin
-+// requests go through a synthetic 307 instead, so the new https origin is handled by the redirect rules.
++// A cross-origin fetch(), XMLHttpRequest or EventSource that is already in CORS mode (it carries an Origin that
++// differs from the request URL). Upgrading it in place keeps its Origin, method, body and redirect mode, as Fetch
++// does for HSTS, and the response is still checked with CORS; a synthetic redirect has no
++// Access-Control-Allow-Origin, so CORS would reject it. Navigations (of any frame), other subresources and
++// same-origin requests go through a synthetic 307 instead, so the new https origin is handled by the redirect rules.
 +static bool isCrossOriginCORSFetch(const ResourceRequest& request)
 +{
 +    auto requester = request.requester();
-+    if (requester != ResourceRequestRequester::Fetch && requester != ResourceRequestRequester::XHR)
++    if (requester != ResourceRequestRequester::Fetch && requester != ResourceRequestRequester::XHR
++        && requester != ResourceRequestRequester::EventSource)
 +        return false;
 +    auto origin = request.httpOrigin();
 +    if (origin.isEmpty() || origin == "null"_s)

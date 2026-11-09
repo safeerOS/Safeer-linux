@@ -41,6 +41,12 @@ class HstsPodviri(unittest.TestCase):
         for vrsta in ("api", "api2 (redirect error)"):
             self.assertIn("TLS", izid.get(vrsta, []), izid)
             self.assertNotIn("HTTP", izid.get(vrsta, []), izid)
+        # Razsirjeno (9. 11. 2026, testni PC izmenicno 1.0.134 / 1.0.134.1): vse druge vrste zahtev do gostitelja HSTS.
+        for vrsta in ("css", "pisava", "ozadje css", "video", "avdio", "xhr", "beacon", "websocket", "obrazec v okvirju"):
+            self.assertEqual(izid.get(vrsta), ["TLS"], "%s ni nadgrajen na https: %s" % (vrsta, izid))
+        self.assertTrue(any(s.startswith("TLS") for s in izid.get("poddomena (includeSubDomains)", [])), izid)
+        self.assertNotIn("HTTP", izid.get("poddomena (includeSubDomains)", []), izid)
+        self.assertNotIn("HTTP", izid.get("eventsource", []), izid)
         self.assertFalse([v for v, s in izid.items() if isinstance(s, list) and "PISKOTEK V CISTEM HTTP" in s], izid)
         if izid.get("_zaupano"):
             # S potrdilom, ki mu sistem zaupa: POST ostane POST s telesom, Origin ostane izvor strani, redirect:'error' ne pade.
@@ -49,6 +55,9 @@ class HstsPodviri(unittest.TestCase):
             for vrsta in ("api", "api2 (redirect error)"):
                 self.assertIn("ORIGIN " + izid["_izvor_strani"], izid[vrsta], izid)
             self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok|ok"], izid)
+            # Medizvorni EventSource s CORS: 307 brez Access-Control-Allow-Origin ga je zavrnil (9. 11., brez zahteve).
+            self.assertEqual(izid.get("eventsource"), ["TLS"], izid)
+            self.assertEqual(izid.get("eventsource (stanje v strani)"), ["odprto"], izid)
 
 if __name__ == "__main__":
     unittest.main()
