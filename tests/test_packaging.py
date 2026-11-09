@@ -343,7 +343,7 @@ class PackagingTests(unittest.TestCase):
             with patch.object(pgo,'WEBKIT',d/'webkit'),patch.object(pgo,'MODUL',d/'webkit/webkitgtk6-safeer.yml'),\
                  patch.object(pgo,'TRENING',d/'webkit/pgo_trening.py'):
                 self.assertEqual(pgo.kljuc('22.1.8'),osnova)
-                self.assertEqual([p.name for p in pgo.popravki()],[])   # 2.54.2: oba popravka sta gorvodno
+                self.assertEqual([p.name for p in pgo.popravki()],['hsts-subresource-upgrade.patch'])   # 8. 11. 2026: HSTS za podvire
                 for datoteka in ('webkitgtk6-safeer.yml','pgo_trening.py'):
                     with self.subTest(datoteka=datoteka):
                         izvirnik=(d/'webkit'/datoteka).read_bytes()
@@ -504,7 +504,7 @@ class DebWebkitTests(unittest.TestCase):
         besedilo=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
         self.assertIn('url: %s\n'%wk['url'],besedilo)
         self.assertIn('sha256: %s\n'%wk['sha256'],besedilo)
-        self.assertEqual([Path(p).name for p in wk['popravki']],[])   # 2.54.2: oba popravka sta gorvodno
+        self.assertEqual([Path(p).name for p in wk['popravki']],['hsts-subresource-upgrade.patch'])   # 8. 11. 2026: HSTS za podvire
         self.assertTrue(all(Path(p).is_file() for p in wk['popravki']))
         for moznost in ('-DLTO_MODE=thin','-DUSE_GTK4=ON','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_INSTALL_LIBDIR=lib',
                         '-DCMAKE_AR=/usr/lib/llvm-22/bin/llvm-ar', '-DENABLE_WEBDRIVER=ON'):
@@ -1873,6 +1873,32 @@ sys.exit("neznan ukaz")
         self.assertIn('+        g_clear_object (&conn);',popravek)
         for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
             self.assertIn('packaging/libsoup/libsoup3-safeer.yml',(ROOT/manifest).read_text())
+
+    def test_libsoup_popravka_connect_izvor_in_content_encoding(self):
+        """Nasa popravka libsoup (8. 11. 2026, GNOME #562/#563): odgovor posrednika na CONNECT ne spremeni stanja izvora,
+        najvec 5 kodiranj v Content-Encoding. Uporabi se ZA popravkom puscanja (vrstni red v modulu)."""
+        modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
+        self.assertLess(modul.index('path: soup-cookie-jar-connect-leak.patch'),
+                        modul.index('path: libsoup-connect-origin-content-encoding.patch'))
+        popravek=(ROOT/'packaging/libsoup/libsoup-connect-origin-content-encoding.patch').read_text()
+        for datoteka in ('libsoup/cookies/soup-cookie-jar.c','libsoup/hsts/soup-hsts-enforcer.c','libsoup/auth/soup-auth-manager.c',
+                         'libsoup/content-decoder/soup-content-decoder.c','tests/proxy-connect-test.c',
+                         'tests/content-encoding-limit-test.c'):
+            self.assertIn('+++ b/'+datoteka,popravek)
+
+    def test_webkit_hsts_podviri_307(self):
+        """HSTS za podvire (|| namesto &&): medizvorni fetch/XHR brez preusmeritve, vse drugo s sinteticno 307 (POST ostane POST)."""
+        popravek=(ROOT/'packaging/webkit/hsts-subresource-upgrade.patch').read_text()
+        self.assertIn('+        || !m_isBlockingCookies;',popravek)
+        self.assertIn('+    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);',popravek)
+        self.assertIn('+        m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
+        # Brez preusmeritve samo medizvorni fetch/XHR v nacinu CORS; navigacije (vsi okvirji) in isti izvor prek 307
+        # (slepi pregled 8. 11. 2026: iframe bi imel izvor http z vsebino https, fetch istega izvora bi obsel CORS).
+        self.assertIn('+    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {',popravek)
+        # Slepi pregled 9. 11. 2026 (izmerjeno na testnem PC): vse zahteve z Origin drugega izvora ali null (preflight,
+        # crossorigin, modul, EventSource, beacon JSON, sandbox) brez preusmeritve; navigacije (Main) in isti izvor prek 307.
+        self.assertIn('+    if (request.requester() == ResourceRequestRequester::Main)',popravek)
+        self.assertIn('+    if (origin == "null"_s)',popravek)
 
     def test_plugins_good_je_odvisnost(self):
         """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""

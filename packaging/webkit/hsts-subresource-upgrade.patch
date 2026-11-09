@@ -1,0 +1,48 @@
+--- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
++++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
+@@ -1365,13 +1365,43 @@
+ {
+     // Follow Apple's HSTS abuse mitigation 2:
+     // "Ignore HSTS State for Subresource Requests to Blocked Domains"
++    // Only subresource requests to blocked domains may skip the upgrade; any other request to a known
++    // HSTS host must be upgraded to https (RFC 6797, section 8.3).
+     return isTopLevelNavigation()
+-        && !m_isBlockingCookies;
++        || !m_isBlockingCookies;
++}
++
++// A subresource request that carries an Origin of another origin (or an opaque "null" origin): fetch() and
++// XMLHttpRequest, EventSource, CORS preflights, crossorigin and module scripts, beacons and so on. A synthetic
++// redirect would break them: it has no Access-Control-Allow-Origin, preflights must not be redirected, and a
++// cross-origin redirect makes the origin opaque. Upgrading in place keeps the Origin, method, body and
++// redirect mode, as Fetch does for HSTS, and the response is still checked against the original origin.
++// Navigations (of any frame) and same-origin requests go through a synthetic 307 instead, so the new https
++// origin is handled by the redirect rules.
++static bool shouldUpgradeInPlace(const ResourceRequest& request)
++{
++    if (request.requester() == ResourceRequestRequester::Main)
++        return false;
++    auto origin = request.httpOrigin();
++    if (origin.isEmpty())
++        return false;
++    if (origin == "null"_s)
++        return true;
++    URL originURL { origin };
++    return originURL.isValid() && !protocolHostAndPortAreEqual(originURL, request.url());
+ }
+ 
+ void NetworkDataTaskSoup::protocolUpgradedViaHSTS(SoupMessage* soupMessage)
+ {
+-    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
++    URL upgradedURL = soupURIToURL(soup_message_get_uri(soupMessage));
++    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {
++        // libsoup has already rewritten the message URI and the message continues over https.
++        m_currentRequest.setURL(WTF::move(upgradedURL));
++        return;
++    }
++    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), upgradedURL);
++    // Like an internal redirect: keep the method, the body and its Content-Type (they are only restored for 307/308).
++    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);
+     continueHTTPRedirection();
+ }
+ 

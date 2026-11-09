@@ -39,6 +39,7 @@ tests/*
 !tests/razvrstitev_webkit.py
 !tests/qml_okno.py
 !tests/webkit_preizkusi.txt
+!tests/hsts_podviri_preizkus.py
 !tests/trajanja_preizkusov.json
 !tests/test_*.js
 !tests/README.md

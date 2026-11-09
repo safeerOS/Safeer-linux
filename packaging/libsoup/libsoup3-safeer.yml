@@ -35,3 +35,9 @@ sources:
   # ko bo popravek v izdaji libsoup, ga odstranimo.
   - type: patch
     path: soup-cookie-jar-connect-leak.patch
+  # Nasa popravka (8. 11. 2026, prijavljena gorvodno: GNOME #562/#563, Launchpad #2173671/#2173673):
+  # A - odgovor posrednika na CONNECT ne spremeni stanja izvora (piskotki, HSTS, prijava);
+  # C - najvec 5 kodiranj v Content-Encoding (vec = neznano kodiranje), brez prekoracitve sklada.
+  # Na izvoru 3.8.0 + connect-leak preizkuseno na testnem PC: celotna zbirka 40/40 (8. 11. 2026).
+  - type: patch
+    path: libsoup-connect-origin-content-encoding.patch
