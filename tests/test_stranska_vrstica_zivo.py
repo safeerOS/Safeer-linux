@@ -267,8 +267,13 @@ class OknoNastavitev(_Stran):
         self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.value='tipkovnica'; v.dispatchEvent(new Event('input')); return 1;})()")
         self.assertEqual(self._vidne(), ["Tipkovnica"])
         # Tudi po anglesko (ime vnosa v vseh jezikih: angleski del je v kljucnih besedah).
+        # »display« ustreza tudi anglesemu naslovu skupine »Display and sound«, zato skupina ostane cela (filtrirajNastavitve).
+        # Katere vnose skupina ima, je odvisno od tega, kdaj pride stanje sistema (Nocna luc, Utisaj) - testni PC 9. 11. 2026:
+        # pod obremenitvijo ['Nocna luc', 'Utisaj', 'Zasloni'], sicer ['Zasloni']. Preverimo vsebino, ne casa nalaganja.
         self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.value='display'; v.dispatchEvent(new Event('input')); return 1;})()")
-        self.assertEqual(self._vidne(), ["Zasloni"])
+        vidne = self._vidne()
+        self.assertIn("Zasloni", vidne)
+        self.assertNotIn("Tipkovnica", vidne)
         # Brez zadetka: sporocilo; Escape pocisti in vrne vse.
         self._js("(function(){var v=document.getElementById('nastavitveIskanje'); v.focus(); v.value='qqzz'; v.dispatchEvent(new Event('input')); return 1;})()")
         self.assertEqual(self._vidne(), [])
