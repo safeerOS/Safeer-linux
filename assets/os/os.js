@@ -6157,6 +6157,14 @@
       }).catch(function () { debridNalagam = false; });
       return;
     }
+    // CodeRabbit 9. 11. 2026: stanje ponudnika Usenet se je nalozilo sele v oknu Viri - izbor je do takrat kazal
+    // »Dodaj ponudnika« tudi s shranjenim ponudnikom. Nalozimo ga ob prvem izrisu (enkrat; ob napaki prazno, brez zanke).
+    if (unp.stanje === null && !unp.nalagam) {
+      unp.nalagam = true;
+      klic("mediaUsenetPonudnik", ["stanje"]).then(function (r) {
+        unp.nalagam = false; unpNarisi(r && r.stanje ? r.stanje : (unp.stanje || {}), false);
+      }, function () { unp.nalagam = false; if (unp.stanje === null) unp.stanje = {}; });
+    }
     var s = debridStanje || { storitve: [] }, z = (s.storitve || []).filter(function (x) { return x.kljuc; });
     izbira.innerHTML = "";
     if (!z.length) izbira.add(new Option(t("debridDodaj"), ""));
@@ -9532,7 +9540,7 @@ function narisiKatViri() {
   // Lasten ponudnik NNTP (core/usenet_vezava.py). Stran nikoli ne dobi gesla ali uporabniskega imena nazaj: polji sta ob
   // vsakem odprtju prazni, namig pove, da je vrednost shranjena. Odgovor mostu je samo koda (unpKoda_*), zato v
   // sporocilu ni besedila izjeme z vnosom. Preverba je samo na klik in je onemogocena po zavrnjeni prijavi (zapah).
-  var unp = { stanje: null, dela: false };
+  var unp = { stanje: null, dela: false, nalagam: false };
   var UNP_SLABO = ["ne_velja", "zaklenjen", "ni_gesla", "iz_kroga"];
   function unpSporocilo(koda, besedilo) {
     $("unpSporocilo").textContent = besedilo || (koda ? t("unpKoda_" + koda) : "");
@@ -9551,6 +9559,10 @@ function narisiKatViri() {
   // [polja]: vrednosti vnosov tudi prepise (odprtje, uspesno shranjeno); ob napaki ostane, kar je uporabnik vpisal.
   function unpNarisi(s, polja) {
     unp.stanje = s || {};
+    // CodeRabbit 9. 11. 2026: po shranitvi ali odstranitvi ponudnika izbor Debrid takoj pokaze novo ime (narisiDebrid
+    // unpNarisi ne klice, ker je unp.stanje ze nastavljen - brez rekurzije).
+    var poljeDebrid = $("mediaDebridPolje");
+    if (poljeDebrid && !poljeDebrid.hidden) narisiDebrid(true);
     var st = $("unpStanje");
     st.textContent = s && s.kljuc ? t("unpKoda_" + s.kljuc) : "";
     st.classList.toggle("slabo", !!s && UNP_SLABO.indexOf(s.kljuc) >= 0);
