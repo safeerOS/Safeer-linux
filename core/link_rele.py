@@ -28,6 +28,11 @@ from core import os_deskriptorji
 GOSTITELJ = "link.safeer.si"
 OBJAVA_VSAKIH_S = 60
 PING_VSAKIH_S = 30
+#: Rele na "ping" odgovori "pong". Brez odgovora toliko casa je poslusalec mrtev (izmerjeno 9. 11. 2026: prenosnik in
+#: testni PC sta bila ure "dosegljiva", rele pa klicev ni vec dostavil - Global Link na Linux ni sel).
+MRTEV_PO_S = 2 * PING_VSAKIH_S + 15
+#: Poslusalca obnovimo tudi, ce pong prihaja: rele je klice dostavil le svezemu poslusalcu (9. 11. 2026, testni PC).
+OBNOVI_POSLUSALCA_S = 10 * 60
 KOS = 16 * 1024
 #: Najvecje sporocilo releja (okvir in vsi nadaljevalni okvirji skupaj); prej 4 MiB samo na okvir.
 NAJVECJE_SPOROCILO = 4 * 1024 * 1024
@@ -571,6 +576,10 @@ class AgentHuba:
         self._nit: Optional[threading.Thread] = None
         self._ws: Optional[WsOdjemalec] = None
         self.stanje = "izklopljen"
+        #: Cas zadnjega okvirja releja (pong ali klic) na trenutnem poslusalcu; postavi ga _zanka.
+        self.zadnji_okvir = 0.0
+        #: _vzdrzuj je poslusalca zaprl namenoma ("mrtev" ali "star"): _zanka se prijavi takoj.
+        self._obnovi = ""
 
     def zazeni(self) -> None:
         if self._nit is None:
@@ -613,15 +622,23 @@ class AgentHuba:
             ws.zapri()
             raise
 
-    def _vzdrzuj(self, ws: WsOdjemalec) -> None:
-        """Ping in ponovna objava; ob izklopu ali ustavitvi huba zapre povezavo (glavna zanka se vrne)."""
-        zadnja_objava = time.time()
+    def _vzdrzuj(self, ws: WsOdjemalec, zacetek: Optional[float] = None) -> None:
+        """Ping in ponovna objava; ob izklopu ali ustavitvi huba, brez odgovora releja ali po OBNOVI_POSLUSALCA_S zapre
+        povezavo (glavna zanka se vrne in poslusa znova)."""
+        zadnja_objava = zacetek = time.time() if zacetek is None else zacetek
         while self._ws is ws:
             time.sleep(PING_VSAKIH_S)
             if self._ws is not ws:
                 return
             try:
                 if not (self.vklopljen() and self.vrata() > 0):
+                    ws.zapri()
+                    return
+                zdaj = time.time()
+                mrtev = zdaj - self.zadnji_okvir > MRTEV_PO_S
+                if mrtev or zdaj - zacetek > OBNOVI_POSLUSALCA_S:
+                    # Takojsnja nova prijava (brez cakanja v _zanka): hub je brez poslusalca le za eno rokovanje.
+                    self._obnovi = "mrtev" if mrtev else "star"
                     ws.zapri()
                     return
                 ws.besedilo("ping")
@@ -634,6 +651,7 @@ class AgentHuba:
 
     def _zanka(self) -> None:
         cakaj = 5
+        obnova = False
         while True:
             if not (self.vklopljen() and self.vrata() > 0):
                 self.stanje = "izklopljen"
@@ -645,11 +663,15 @@ class AgentHuba:
                 # Toplo povezavo hub drzi le TOPLA_ZELJA_S po zadnjem kanalu (odpri_kanal -> vzemi): prvi kanal po
                 # mirovanju je hladen, naslednji (npr. zaslon po povezavi v mrezo) gredo brez TCP in TLS.
                 self._ws, self.stanje, cakaj = ws, "povezan", 5
-                self.dnevnik("[Global Link] hub je dosegljiv prek link.safeer.si")
+                self.zadnji_okvir = time.time()
+                if not obnova:
+                    self.dnevnik("[Global Link] hub je dosegljiv prek link.safeer.si")
+                obnova = False
                 threading.Thread(target=self._vzdrzuj, args=(ws,), name="safeer-global-link-ping", daemon=True).start()
                 try:
                     while True:
                         op, podatki = ws.prejmi()
+                        self.zadnji_okvir = time.time()
                         if op == 0x1 and podatki.startswith(b"{"):
                             s = json.loads(podatki)
                             if s.get("type") == "incoming" and len(str(s.get("kanal", ""))) == 32:
@@ -658,7 +680,12 @@ class AgentHuba:
                     self._ws = None
                     ws.zapri()
             except Exception as e:
-                self.stanje = "napaka"
+                if self._obnovi:
+                    if self._obnovi == "mrtev":     # redna obnova (star) ne pise v dnevnik vsakih 10 min
+                        self.dnevnik("[Global Link] rele ne odgovarja; poslusalca obnavljam")
+                    self._obnovi, obnova = "", True
+                    continue
+                self.stanje, obnova = "napaka", False
                 self.dnevnik(f"[Global Link] {e}; znova cez {cakaj} s")
                 time.sleep(cakaj)
                 cakaj = min(cakaj * 2, 300)
