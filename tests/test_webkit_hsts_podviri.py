@@ -56,7 +56,9 @@ class HstsPodviri(unittest.TestCase):
                 self.assertIn("ORIGIN " + izid["_izvor_strani"], izid[vrsta], izid)
             self.assertEqual(izid.get("fetch (naslov strani)"), ["FETCH:ok|ok"], izid)
             # Medizvorni EventSource s CORS: 307 brez Access-Control-Allow-Origin ga je zavrnil (9. 11., brez zahteve).
-            self.assertEqual(izid.get("eventsource"), ["TLS"], izid)
+            # Streznik od d43c94a zapise tudi metodo (CORS_VRSTE), zato TLS in brez HTTP namesto natancno ["TLS"].
+            self.assertIn("TLS", izid.get("eventsource", []), izid)
+            self.assertNotIn("HTTP", izid.get("eventsource", []), izid)
             self.assertEqual(izid.get("eventsource (stanje v strani)"), ["odprto"], izid)
             # Slepi pregled 9. 11.: viri v nacinu CORS, ki niso fetch/XHR - z v4 so vsi padli (brez zahteve do streznika).
             for vrsta in ("preflight (fetch JSON)", "slika crossorigin", "modul skripta", "beacon JSON", "izvor null (sandbox)"):
