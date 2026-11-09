@@ -35,7 +35,8 @@ class Zgradba(unittest.TestCase):
                 self.assertEqual(podprofil.strip(), "userns,")
                 self.assertIn("include if exists <local/%s>" % ime, besedilo)
                 # Vgrajen WebKit klice sistemski bwrap (packaging/webkit-deb/zgradi.sh: -DBWRAP_EXECUTABLE).
-        self.assertIn("-DBWRAP_EXECUTABLE=/usr/bin/bwrap", (KOREN / "packaging/webkit-deb/zgradi.sh").read_text())
+        self.assertIn("-DBWRAP_EXECUTABLE=/usr/bin/bwrap",
+                      (KOREN / "packaging/webkit-deb/zgradi.sh").read_text(encoding="utf-8"))
 
     def test_predlog_ni_v_paketu(self):
         """Delujoci profil ostane, dokler predloga ne preizkusimo (namesti.sh bere samo packaging/apparmor)."""

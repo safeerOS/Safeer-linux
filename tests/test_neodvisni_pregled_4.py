@@ -307,7 +307,9 @@ class NastavitveLinka(unittest.TestCase):
             self.assertEqual(os.stat(os.path.dirname(pot)).st_mode & 0o777, 0o700)
             with mock.patch.object(link_hub.json, "dump", side_effect=OSError("disk")):
                 n.shrani()
-            self.assertFalse(os.path.exists(pot + ".tmp"), "ob napaki zacasna datoteka z zetonom ne ostane")
+            # CodeRabbit 9. 11. 2026: zacasna ima edinstveno ime (mkstemp) - <pot>.tmp ne obstaja nikoli; gledamo mapo.
+            self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["link.json"],
+                             "ob napaki zacasna datoteka z zetonom ne ostane")
         finally:
             os.umask(stara)
             shutil.rmtree(mapa, ignore_errors=True)
