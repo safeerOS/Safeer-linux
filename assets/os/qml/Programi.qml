@@ -275,7 +275,8 @@ Steklo {
                                                   policy: vrstaKategorij.interactive ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
                 delegate: Rectangle {
                         y: 1
-                        height: koren.px(26); width: n.implicitWidth + 22; radius: height / 2
+                        // Zasebni CI 9. 11. 2026: nemske kategorije pri 1366 px 5 px presiroke (566 > 561) - rob 9 px namesto 11 px (8 oznak = 32 px).
+                        height: koren.px(26); width: n.implicitWidth + 18; radius: height / 2
                         color: panel.izbrana === modelData ? koren.paleta.poudarek : (ms.containsMouse || activeFocus ? koren.prekriv(0.14) : koren.prekriv(0.07))
                         border.width: activeFocus ? 2 : 0; border.color: koren.paleta.fokus
                         activeFocusOnTab: true
