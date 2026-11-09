@@ -625,7 +625,9 @@ class AgentHuba:
     def _vzdrzuj(self, ws: WsOdjemalec, zacetek: Optional[float] = None) -> None:
         """Ping in ponovna objava; ob izklopu ali ustavitvi huba, brez odgovora releja ali po OBNOVI_POSLUSALCA_S zapre
         povezavo (glavna zanka se vrne in poslusa znova)."""
-        zadnja_objava = zacetek = time.time() if zacetek is None else zacetek
+        # Roki poslusalca na monotoni uri (CodeRabbit 9. 11. 2026): premik sistemske ure nazaj jih ne sme podaljsati.
+        zacetek = time.monotonic() if zacetek is None else zacetek
+        zadnja_objava = time.time()
         while self._ws is ws:
             time.sleep(PING_VSAKIH_S)
             if self._ws is not ws:
@@ -634,7 +636,7 @@ class AgentHuba:
                 if not (self.vklopljen() and self.vrata() > 0):
                     ws.zapri()
                     return
-                zdaj = time.time()
+                zdaj = time.monotonic()
                 mrtev = zdaj - self.zadnji_okvir > MRTEV_PO_S
                 if mrtev or zdaj - zacetek > OBNOVI_POSLUSALCA_S:
                     # Takojsnja nova prijava (brez cakanja v _zanka): hub je brez poslusalca le za eno rokovanje.
@@ -663,7 +665,7 @@ class AgentHuba:
                 # Toplo povezavo hub drzi le TOPLA_ZELJA_S po zadnjem kanalu (odpri_kanal -> vzemi): prvi kanal po
                 # mirovanju je hladen, naslednji (npr. zaslon po povezavi v mrezo) gredo brez TCP in TLS.
                 self._ws, self.stanje, cakaj = ws, "povezan", 5
-                self.zadnji_okvir = time.time()
+                self.zadnji_okvir = time.monotonic()
                 if not obnova:
                     self.dnevnik("[Global Link] hub je dosegljiv prek link.safeer.si")
                 obnova = False
@@ -671,7 +673,7 @@ class AgentHuba:
                 try:
                     while True:
                         op, podatki = ws.prejmi()
-                        self.zadnji_okvir = time.time()
+                        self.zadnji_okvir = time.monotonic()
                         if op == 0x1 and podatki.startswith(b"{"):
                             s = json.loads(podatki)
                             if s.get("type") == "incoming" and len(str(s.get("kanal", ""))) == 32:
@@ -840,7 +842,10 @@ def najdi_hub_prek_releja(krog_json: dict, nas_id: str, prednost: Optional[List[
         if zdaj - _ODSOTNI.get(cilj, 0.0) < PREMOR_ODSOTNEGA_S:
             continue
         rele = LokalniRele(cilj, kljuc=kljuc, podpisi=podpisi)
-        odtis, javni = link_tls.potrdilo_huba("wss://127.0.0.1:%d/" % rele.vrata, timeout=rok_s)
+        try:
+            odtis, javni = link_tls.potrdilo_huba("wss://127.0.0.1:%d/" % rele.vrata, timeout=rok_s)
+        except Exception:  # noqa: BLE001 - CodeRabbit 9. 11. 2026: vrata releja ne smejo ostati odprta, naprej na naslednjega
+            odtis, javni = "", ""
         if odtis and link_tls.isti(javni, kljuci.get(cilj)):
             _ODSOTNI.pop(cilj, None)
             return cilj, rele, odtis

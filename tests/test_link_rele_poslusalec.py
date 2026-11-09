@@ -9,7 +9,7 @@ import time
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from core import link_rele  # noqa: E402
+from core import link_rele, link_tls  # noqa: E402
 
 
 class LazniWs:
@@ -33,7 +33,7 @@ def test_brez_odgovora_releja_poslusalca_zapre():
     a = _agent()
     ws = LazniWs(a)
     a._ws = ws
-    a.zadnji_okvir = time.time() - link_rele.MRTEV_PO_S - 1      # zadnji pong davno
+    a.zadnji_okvir = time.monotonic() - link_rele.MRTEV_PO_S - 1      # zadnji pong davno
     with mock.patch.object(link_rele.time, "sleep"), mock.patch.object(a, "objavi"):
         a._vzdrzuj(ws)
     assert ws.zaprt and ws.pingi == 0
@@ -44,9 +44,9 @@ def test_star_poslusalec_se_obnovi_tudi_s_pongom():
     a = _agent()
     ws = LazniWs(a)
     a._ws = ws
-    a.zadnji_okvir = time.time()                                  # pong prihaja
+    a.zadnji_okvir = time.monotonic()                                  # pong prihaja
     with mock.patch.object(link_rele.time, "sleep"), mock.patch.object(a, "objavi"):
-        a._vzdrzuj(ws, zacetek=time.time() - link_rele.OBNOVI_POSLUSALCA_S - 1)
+        a._vzdrzuj(ws, zacetek=time.monotonic() - link_rele.OBNOVI_POSLUSALCA_S - 1)
     assert ws.zaprt and a._obnovi == "star"
 
 
@@ -55,9 +55,43 @@ def test_ziv_poslusalec_ostane():
     ws = LazniWs(a)
     a._ws = ws
     with mock.patch.object(link_rele.time, "sleep"), mock.patch.object(a, "objavi"):
-        a.zadnji_okvir = time.time()
+        a.zadnji_okvir = time.monotonic()
         a._vzdrzuj(ws)
     assert not ws.zaprt and ws.pingi == 3
+
+
+def test_premik_ure_nazaj_ne_podaljsa_roka():
+    """Roki na monotoni uri: sistemska ura (time.time) skoci nazaj, mrtev poslusalec se vseeno zapre."""
+    a = _agent()
+    ws = LazniWs(a)
+    a._ws = ws
+    a.zadnji_okvir = time.monotonic() - link_rele.MRTEV_PO_S - 1
+    with mock.patch.object(link_rele.time, "sleep"), mock.patch.object(a, "objavi"), \
+            mock.patch.object(link_rele.time, "time", return_value=0.0):
+        a._vzdrzuj(ws)
+    assert ws.zaprt and a._obnovi == "mrtev"
+
+
+def test_najdi_hub_zapre_rele_ob_izjemi():
+    """CodeRabbit 9. 11. 2026: izjema pri preverbi potrdila ne pusti odprtih krajevnih vrat in ne ustavi iskanja."""
+    zaprti = []
+
+    class Rele:
+        vrata = 1
+
+        def __init__(self, cilj, **k):
+            self.cilj = cilj
+
+        def zapri(self):
+            zaprti.append(self.cilj)
+
+    krog = {"clani": {"a": {"kljuc": "QUFB"}, "b": {"kljuc": "QkJC"}}}
+    with mock.patch.object(link_rele, "LokalniRele", Rele), \
+            mock.patch.object(link_rele, "dovoljeni_iz_kroga", return_value=["n-aaaaaaaaaaaaaaaa", "n-bbbbbbbbbbbbbbbb"]), \
+            mock.patch.object(link_tls, "potrdilo_huba", side_effect=TimeoutError("rok")):
+        link_rele._ODSOTNI.clear()
+        assert link_rele.najdi_hub_prek_releja(krog, "n-0000000000000000") is None
+    assert zaprti == ["n-aaaaaaaaaaaaaaaa", "n-bbbbbbbbbbbbbbbb"]
 
 
 class _Ustavi(BaseException):
