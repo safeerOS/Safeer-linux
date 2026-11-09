@@ -112,6 +112,9 @@ def strezi(vrsta, telo, tip):
                            "Access-Control-Allow-Headers: content-type\r\n" % glave.get("origin", "*"))
             if vrsta in CORS_VRSTE:
                 zapisi(vrsta, "METODA " + metoda)
+            if vrsta == "predpomnilnik (fetch, nato okvir)":
+                # Slepi pregled v6 (najdba A): odziv https, nadgrajen na mestu, se ne sme shraniti pod kljucem http.
+                dodatno = "Access-Control-Allow-Origin: *\r\nCache-Control: max-age=3600\r\n"
             odgovor = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n"
                        % (tip, len(telo), dodatno)).encode()
             try:
@@ -147,7 +150,7 @@ v_api2 = strezi("api2 (redirect error)", b"ok", "text/plain")
 # Slepi pregled 9. 11. 2026: viri v nacinu CORS, ki niso Fetch/XHR (preflight, crossorigin, modul, beacon JSON, izvor null).
 CORS_VRSTE = ("eventsource", "preflight (fetch JSON)", "slika crossorigin", "modul skripta", "beacon JSON", "izvor null (sandbox)")
 RAZSIRJENO = ("css", "pisava", "ozadje css", "video", "avdio", "xhr", "eventsource", "beacon", "websocket",
-              "obrazec v okvirju", "predhodno nalaganje", "poddomena (includeSubDomains)", "eventsource (stanje v strani)") + CORS_VRSTE + ("stanja v strani",)
+              "obrazec v okvirju", "predhodno nalaganje", "poddomena (includeSubDomains)", "eventsource (stanje v strani)") + CORS_VRSTE + ("predpomnilnik (fetch, nato okvir)", "stanja v strani")
 v_css = strezi("css", b"body{color:black}", "text/css")
 v_pisava = strezi("pisava", b"x", "font/woff2")
 v_ozadje = strezi("ozadje css", GIF, "image/gif")
@@ -165,6 +168,8 @@ v_ico = strezi("slika crossorigin", GIF, "image/gif")
 v_mod = strezi("modul skripta", b"window.izidi.modul='nalozen';", "text/javascript")
 v_bj = strezi("beacon JSON", b"", "text/plain")
 v_nul = strezi("izvor null (sandbox)", b"ok", "text/plain")
+v_pp = strezi("predpomnilnik (fetch, nato okvir)",
+              b"<html><script>parent.postMessage('pp:'+location.protocol,'*');</script></html>", "text/html")
 stran = ("<html><body>stran"
          "<img src='http://hsts.localhost:%d/s.gif'>"
          "<script src='http://hsts.localhost:%d/s.js'></script>"
@@ -188,7 +193,10 @@ stran = ("<html><body>stran"
          "fetch('http://hsts.localhost:%d/pf',{method:'POST',body:'{}',headers:{'Content-Type':'application/json'}})"
          ".then(function(r){return r.text();}).then(function(){izidi.preflight='ok';},function(e){izidi.preflight='napaka';});"
          "try{navigator.sendBeacon('http://hsts.localhost:%d/bj',new Blob(['{}'],{type:'application/json'}));}catch(e){}"
-         "window.addEventListener('message',function(e){izidi.nul=String(e.data);});</script>"
+         "window.addEventListener('message',function(e){var d=String(e.data);if(d.indexOf('pp:')==0)izidi.okvir_iz_predpomnilnika=d.slice(3);else izidi.nul=d;});"
+         "fetch('http://hsts.localhost:%d/pp',{mode:'cors'}).then(function(r){return r.text();}).then(function(){"
+         "var f=document.createElement('iframe');f.src='http://hsts.localhost:%d/pp';document.body.appendChild(f);},"
+         "function(){izidi.okvir_iz_predpomnilnika='fetch napaka';});</script>"
          "<img crossorigin=anonymous src='http://hsts.localhost:%d/c.gif' onload=\"izidi.crossorigin='ok'\" onerror=\"izidi.crossorigin='napaka'\">"
          "<script type=module src='http://hsts.localhost:%d/m.js' onerror=\"izidi.modul='napaka'\"></script>"
          "<iframe sandbox=allow-scripts srcdoc=\"<script>fetch('http://hsts.localhost:%d/n').then(function(r){return r.text();})"
@@ -202,7 +210,7 @@ stran = ("<html><body>stran"
          ".then(function(t){document.title='FETCH:'+t.join('|');})"
          ".catch(function(e){document.title='FETCH-NAPAKA:'+e;});</script></body></html>"
          % (v_slika, v_skripta, v_okvir, v_css, v_pisava, v_ozadje, v_video, v_avdio, v_pred, v_pod, v_obrazec,
-            v_xhr, v_es, v_beacon, v_ws, v_pf, v_bj, v_ico, v_mod, v_nul, v_api, v_api2)).encode()
+            v_xhr, v_es, v_beacon, v_ws, v_pf, v_bj, v_pp, v_pp, v_ico, v_mod, v_nul, v_api, v_api2)).encode()
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)

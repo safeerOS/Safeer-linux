@@ -63,6 +63,8 @@ class HstsPodviri(unittest.TestCase):
                 self.assertIn("TLS", izid.get(vrsta, []), "%s: %s" % (vrsta, izid))
                 self.assertNotIn("HTTP", izid.get(vrsta, []), izid)
             stanja = json.loads(izid["stanja v strani"][0])
+            # Slepi pregled v6 (najdba A): odziv, nadgrajen na mestu, ne sme okvirju istega naslova http dati izvora http.
+            self.assertEqual(stanja.pop("okvir_iz_predpomnilnika", None), "https:", izid)
             self.assertEqual(stanja, {"preflight": "ok", "crossorigin": "ok", "modul": "nalozen", "nul": "ok"}, izid)
 
 if __name__ == "__main__":
