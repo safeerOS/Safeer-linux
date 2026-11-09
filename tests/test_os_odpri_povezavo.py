@@ -82,6 +82,23 @@ class Lupina(unittest.TestCase):
         self.assertIn('odpriVSpletu(a.url, "aplikacija")', risi)
         self.assertIn('[naslov, novZavihek === "aplikacija" ? "aplikacija" : true]', js)
 
+    def test_ploscica_aplikacije_brez_glavnega_okna(self):
+        # CodeRabbit 9. 11. 2026: brez vidnega glavnega okna (okno razdelka, Safeer Player) gre ploscica v Splet na
+        # namizju - tudi tam obstojeci zavihek istega izvora ali nov zavihek, ne trenutni zavihek.
+        lazna = self._lazna()
+        lazna.okno = None
+        lazna._splet_na_namizju.return_value = True
+        self.assertTrue(self.os_.SafeerOS._splet(lazna, "https://mail.example/", True, True))
+        lazna._splet_na_namizju.assert_called_once_with("https://mail.example/", aplikacija=True)
+        for aplikacija, klic in ((True, "odpri_aplikacijo"), (False, "odpri")):
+            lazna = mock.MagicMock()
+            lazna._peskovnik_na_voljo.return_value = True
+            with mock.patch.object(self.os_, "x11"), mock.patch.object(self.os_, "_v_ospredje"):
+                self.assertTrue(self.os_.SafeerOS._splet_na_namizju(lazna, "https://mail.example/", aplikacija=aplikacija))
+            getattr(lazna._spletni_namizje, klic).assert_called_once_with("https://mail.example/")
+            drugi = "odpri" if aplikacija else "odpri_aplikacijo"
+            getattr(lazna._spletni_namizje, drugi).assert_not_called()
+
 
 class Brskalnik(unittest.TestCase):
     """VdelaniSplet.odpri_povezavo: stran, ki jo ima uporabnik odprto, ostane."""

@@ -414,7 +414,7 @@ class Most(_Lupina):
             lazna.okno = okno
             lazna._splet_na_namizju.return_value = True
             self.assertTrue(self.SafeerOS._splet(lazna, "https://365.rtvslo.si/"))
-            lazna._splet_na_namizju.assert_called_once_with("https://365.rtvslo.si/")
+            lazna._splet_na_namizju.assert_called_once_with("https://365.rtvslo.si/", aplikacija=False)
             lazna._odpri_v_brskalniku.assert_not_called()
             lazna._pokazi_spletni_nacin.assert_not_called()
             lazna._splet_na_namizju.reset_mock()

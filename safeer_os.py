@@ -3212,7 +3212,7 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] sprotni zadetki:", e, flush=True)
             povratni([])
 
-    def _splet_na_namizju(self, niz: str, vrh: float = 0, domov: bool = False) -> bool:
+    def _splet_na_namizju(self, niz: str, vrh: float = 0, domov: bool = False, aplikacija: bool = False) -> bool:
         """Iskanje po spletu iz zgornjega polja delovne povrsine: rezultati v plosci na namizju (isti vgrajeni
         brskalnik z vsemi moznostmi kot Splet v Safeer OS: zavihki, naslov, Scit, meni), ne v drugem programu.
         `vrh`: spodnji rob iskalnega polja (CSS px), plosca je tik pod njim. Brez peskovnika: privzeti brskalnik.
@@ -3236,7 +3236,11 @@ class SafeerOS(Gtk.Application):
         x11.premakni(okno, x0, y0)
         okno.set_visible(True)
         okno.maximize()
-        self._spletni_namizje.odpri(url)
+        # CodeRabbit 9. 11. 2026: ploscica spletne aplikacije tudi tu ne prepise odprte strani (kot v glavnem oknu, B1).
+        if aplikacija and url:
+            self._spletni_namizje.odpri_aplikacijo(url)
+        else:
+            self._spletni_namizje.odpri(url)
         _v_ospredje(okno)
         try:
             self._spletni_namizje.trenutni().grab_focus()
@@ -5764,7 +5768,7 @@ class SafeerOS(Gtk.Application):
             # Splet v svojem oknu v tem procesu, ne skrita lupina. Prej je sel vsak klic v privzeti brskalnik
             # (pregled celovitosti 15. 10. 2026); ta ostane samo brez peskovnika WebKit (_splet_na_namizju) ali na
             # izrecno zahtevo uporabnika (»Odpri v brskalniku«).
-            return bool(naslov) and self._splet_na_namizju(naslov)
+            return bool(naslov) and self._splet_na_namizju(naslov, aplikacija=aplikacija)
         if not self.okno.is_active():
             self.okno.present()
         if not self._pokazi_spletni_nacin():
