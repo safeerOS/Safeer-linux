@@ -75,6 +75,10 @@ class SeznamiTest(unittest.TestCase):
             "hagezi-pro": "\n".join("ad%d.example" % i for i in range(1200)),
             "hagezi-tif": "\n".join("t%d.example" % i for i in range(1100)),
             "hagezi-fake": "\n".join("f%d.example" % i for i in range(1050)),
+            # Glava StevenBlack (privzeti seznam Pi-hole): lokalna imena in naslovi ne gredo v nabor.
+            "stevenblack": "# Title: StevenBlack/hosts\n127.0.0.1 localhost\n127.0.0.1 localhost.localdomain\n127.0.0.1 local\n"
+                           "255.255.255.255 broadcasthost\n::1 localhost\nfe80::1%lo0 localhost\n" +
+                           "\n".join("0.0.0.0 sb%d.example" % i for i in range(1000)),
             "urlhaus": "# urlhaus\n127.0.0.1 mal.example\n",
             "phishing-army": "phish.example\n",
             "si-cert": "cert.example CNAME .\n",
@@ -94,7 +98,9 @@ class SeznamiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m:
             s = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertTrue(s.osvezi())
-            self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 3)
+            self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 1000 + 3)
+            self.assertEqual(s.kategorija("x.sb7.example"), "oglasi")
+            self.assertIsNone(s.kategorija("localhost.localdomain"))
             self.assertEqual(s.kategorija("ad7.example"), "oglasi")
             self.assertEqual(s.kategorija("x.mal.example"), "malware")
             self.assertEqual(s.kategorija("cert.example"), "phishing")

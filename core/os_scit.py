@@ -95,6 +95,9 @@ VIRI: Tuple[Tuple[str, str, str], ...] = (
     ("hagezi-pro", "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt", "oglasi"),
     ("hagezi-tif", "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.mini-onlydomains.txt", "groznje"),
     ("hagezi-fake", "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/fake-onlydomains.txt", "prevare"),
+    # Lastnik 9. 11. 2026: Scit enako dober ali boljsi kot Pi-hole - privzeti seznam Pi-hole (StevenBlack Unified). Meritev
+    # 9. 11.: nabor brez njega je ustavil 79,4 % njegovih domen (~8.500 zivih ne). Enako na TV (ThreatFeedsUpdater).
+    ("stevenblack", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "oglasi"),
     ("urlhaus", "https://urlhaus.abuse.ch/downloads/hostfile/", "malware"),
     ("phishing-army", "https://phishing.army/download/phishing_army_blocklist_extended.txt", "phishing"),
     ("si-cert", "https://www.cert.si/misp/rpz/last.txt", "phishing"),
@@ -946,7 +949,7 @@ class Seznami:
                 napake.append("%s: html" % oznaka)
                 continue
             domen = sum(1 for _ in razcleni_seznam(telo.decode("utf-8", "replace")))
-            if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") else 1):
+            if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") or oznaka == "stevenblack" else 1):
                 napake.append("%s: %d domen" % (oznaka, domen))
                 continue
             _atomic_write(Path(self.mapa, oznaka + ".txt"), telo)
