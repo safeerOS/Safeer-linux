@@ -135,32 +135,21 @@ class Storitev(unittest.TestCase):
         self.m.krog.setdefault(a, set()).add(b)
         self.m.krog.setdefault(b, set()).add(a)
 
-    def test_povabilo_potrditev_izmenjava(self):
+    def test_ozji_krog_brez_potrditve(self):
+        # Lastnik 9. 11. 2026 (Usenet ponudnik ni prisel na telefon, TV je cakal »potrdi tukaj«; pravilo 27. 10.): naprava v
+        # ozjem krogu je potrjena, ko jo uporabnik doda v krog - kljuci gredo brez vprasanja na vsaki napravi.
         pc, vir_pc = self.naprava("pc")
         tel, vir_tel = self.naprava("tel")
         self.krog("pc", "tel")
         vir_pc.vrednosti["debrid:torbox"] = "KLJUC-PC"
         vprasanja = []
         tel.ob_vprasanju = vprasanja.append
+        pc.ob_vprasanju = vprasanja.append
         self.assertEqual(pc.uskladi_zdaj(), 1)
-        # Povabilo: telefon caka na potrditev in NE vidi vrednosti.
-        self.assertEqual(len(vprasanja), 1)
-        self.assertTrue(all(z.vrednost == "" for z in vprasanja[0].zapisi))
-        self.assertEqual(pc.stanje_naprave("tel"), P.POVABLJENA)
-        self.assertEqual(tel.stanje_naprave("pc"), P.CAKA)
-        self.assertNotIn("debrid:torbox", vir_tel.vrednosti)
-        # Uporabnik na telefonu potrdi -> telefon poslje svoje stanje; PC je telefon povabil, a ga mora potrditi tudi sam (U1).
-        pc_vprasanja = []
-        pc.ob_vprasanju = pc_vprasanja.append
-        tel.potrdi("pc", True)
-        self.assertTrue(pocakaj(lambda: tel.stanje_naprave("pc") == P.POTRJENA))
-        self.assertTrue(pocakaj(lambda: len(pc_vprasanja) == 1))
-        pc.potrdi("tel", True)
-        self.assertTrue(pocakaj(lambda: pc.stanje_naprave("tel") == P.POTRJENA))
-        # Zdaj gredo vrednosti: PC poslje kljuc, telefon ga uporabi.
-        pc.uskladi_zdaj()
         self.assertTrue(pocakaj(lambda: vir_tel.vrednosti.get("debrid:torbox") == "KLJUC-PC"
                                 and "debrid:torbox" in tel.shramba.meta()))
+        self.assertEqual(vprasanja, [], "v ozjem krogu nobenega vprasanja")
+        self.assertEqual(tel.stanje_naprave("pc"), P.POTRJENA)
         # Telefon prejetega ne poslje naprej kot svojega (U2).
         meta_tel = tel.shramba.meta()
         self.assertEqual(meta_tel["debrid:torbox"].izvor, "pc")
@@ -201,7 +190,7 @@ class Storitev(unittest.TestCase):
         vir_pc.vrednosti["debrid:torbox"] = "K"
         pc.uskladi_zdaj()
         self.assertEqual(pc.stanje_naprave("star"), P.STARA)
-        tel.potrdi("pc", False)
+        tel._zapomni("pc", "pc", P.ZAVRNJENA, False)     # zavrnitev iz prejsnje razlicice ostane
         self.assertEqual(tel.stanje_naprave("pc"), P.ZAVRNJENA)
         pc.uskladi_zdaj()
         self.assertEqual(pc.stanje_naprave("tel"), P.ZAVRNJENA)

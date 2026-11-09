@@ -442,7 +442,8 @@ class Uskladitev:
         koda = str(izid.get("koda") or izid.get("code") or "")
         if izid.get("ok") and data.get("accepted") is True:
             prejeti = P.iz_json(data.get("items"))
-            if self.stanje_naprave(ident) == P.POTRJENA:
+            # Lastnik 9. 11. 2026: naprava v ozjem krogu je potrjena (P.sprejem); samo zavrnjena ne.
+            if P.sprejem(True, True, self.stanje_naprave(ident)) == P.SPREJMI:
                 self._zapomni(ident, ime, P.POTRJENA, True)
                 self._prejmi_zapise(ident, ime, prejeti)
             else:

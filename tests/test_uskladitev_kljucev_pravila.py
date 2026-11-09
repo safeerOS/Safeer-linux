@@ -133,8 +133,9 @@ class Prejem(unittest.TestCase):
         self.assertTrue(all(z.vrednost == "" for z in pov))
         self.assertEqual(pov[1].gostitelj, "webtor.io")
         self.assertEqual(P.za_uporabo({}, pov, URA, PONUDNIKI, VSE, VSI), [])
-        self.assertTrue(P.vrednosti_za(P.POTRJENA))
-        self.assertFalse(P.vrednosti_za(None) or P.vrednosti_za(P.POVABLJENA) or P.vrednosti_za(P.CAKA))
+        # Lastnik 9. 11. 2026: ozji krog je potrditev - vrednosti vsem v krogu razen zavrnjeni.
+        self.assertTrue(P.vrednosti_za(P.POTRJENA) and P.vrednosti_za(None) and P.vrednosti_za(P.POVABLJENA) and P.vrednosti_za(P.CAKA))
+        self.assertFalse(P.vrednosti_za(P.ZAVRNJENA))
         self.assertTrue(P.caka_velja(0, P.CAKA_VELJA_MS - 1))
         self.assertFalse(P.caka_velja(0, P.CAKA_VELJA_MS) or P.caka_velja(10, 5))
 
@@ -194,9 +195,10 @@ class TriNaprave(unittest.TestCase):
 class KrogInNaprave(unittest.TestCase):
     def test_sprejem(self):
         self.assertEqual(P.sprejem(True, True, P.POTRJENA), P.SPREJMI)
-        self.assertEqual(P.sprejem(True, True, P.POVABLJENA), P.VPRASAJ)
-        self.assertEqual(P.sprejem(True, True, None), P.VPRASAJ)
-        self.assertEqual(P.sprejem(True, True, P.CAKA), P.VPRASAJ)
+        # Lastnik 9. 11. 2026 (TV je na telefonu cakal »potrdi tukaj«): naprava v ozjem krogu je potrjena.
+        self.assertEqual(P.sprejem(True, True, P.POVABLJENA), P.SPREJMI)
+        self.assertEqual(P.sprejem(True, True, None), P.SPREJMI)
+        self.assertEqual(P.sprejem(True, True, P.CAKA), P.SPREJMI)
         self.assertEqual(P.sprejem(True, True, P.ZAVRNJENA), P.ZAVRNI)
         self.assertEqual(P.sprejem(True, False, P.POTRJENA), P.ZAVRNI, "zunaj ozjega kroga nikoli")
         self.assertEqual(P.sprejem(False, True, P.POTRJENA), P.ZAVRNI)
@@ -208,7 +210,7 @@ class KrogInNaprave(unittest.TestCase):
         self.assertFalse(P.sme_poslati(True, True, False, True, True, P.POTRJENA), "brez zascite")
         self.assertFalse(P.sme_poslati(True, True, True, True, False, P.POTRJENA), "stara razlicica")
         self.assertFalse(P.sme_poslati(True, True, True, True, True, P.ZAVRNJENA))
-        self.assertFalse(P.sme_poslati(True, True, True, True, True, P.CAKA))
+        self.assertTrue(P.sme_poslati(True, True, True, True, True, P.CAKA), "prej cakajoca v krogu")
         self.assertFalse(P.sme_poslati(False, True, True, True, True, P.POTRJENA))
         self.assertFalse(P.sme_poslati(True, True, True, False, True, P.POTRJENA))
 

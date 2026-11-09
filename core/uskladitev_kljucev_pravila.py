@@ -214,7 +214,9 @@ def za_povabilo(zapisi: Sequence[Zapis]) -> List[Zapis]:
 
 
 def vrednosti_za(stanje: Optional[str]) -> bool:
-    return stanje == POTRJENA
+    # Lastnik 9. 11. 2026 (kot Android): naprava v ozjem krogu TE naprave je ze potrjena - dodal jo je uporabnik sam; kar dovoli
+    # na eni svoji napravi, velja na vseh brez ponovne potrditve (27. 10. 2026). Samo zavrnjena ne dobi vrednosti.
+    return stanje != ZAVRNJENA
 
 
 def izvor_posiljatelja(izvor_naprava: str, od_naprava: str) -> bool:
@@ -258,17 +260,16 @@ def zamenjave(meta: Dict[str, Meta], uporabljeni: Sequence[Zapis]) -> List[Zapis
 def sprejem(vklopljeno: bool, v_krogu: bool, stanje: Optional[str]) -> str:
     if not vklopljeno or not v_krogu:
         return ZAVRNI
-    if stanje == POTRJENA:
-        return SPREJMI
     if stanje == ZAVRNJENA:
         return ZAVRNI
-    return VPRASAJ
+    # Lastnik 9. 11. 2026: ozji krog je potrditev; prejsnji »potrdi tukaj« (CAKA) velja kot potrjen.
+    return SPREJMI
 
 
 def sme_poslati(vklopljeno: bool, v_krogu: bool, zascita: bool, povezan: bool, zmoznost: bool,
                 stanje: Optional[str]) -> bool:
     return (vklopljeno and v_krogu and zascita and povezan and zmoznost
-            and stanje != ZAVRNJENA and stanje != CAKA)
+            and stanje != ZAVRNJENA)
 
 
 # ------------------------------------------------------------------ sporocilo (JSON kot na Androidu)
