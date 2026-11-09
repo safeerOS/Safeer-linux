@@ -3413,7 +3413,7 @@
       if (skrito()) return;
       // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
       var blok = $("blokScit");
-      if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
+      if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-zadnje input:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
       if (!scitZaposleno) nalozScit();
     }, 5000);
   }
@@ -3466,6 +3466,9 @@
   }
   function narisiScit() {
     var c = $("blokScit");
+    // CodeRabbit 9. 11. 2026: osvezitev (dogodek mostu) ne sme pobrisati vpisanega kljuca ali naslova filtra.
+    var ohrani = {};
+    Array.prototype.forEach.call(c.querySelectorAll("input[data-ohrani]"), function (i) { ohrani[i.getAttribute("data-ohrani")] = i.value; });
     c.innerHTML = "";
     var s = scitStanje;
     if (!s) return;
@@ -3548,6 +3551,7 @@
     var kv = document.createElement("input");
     kv.type = "password"; kv.autocomplete = "off"; kv.spellcheck = false;
     kv.placeholder = t("scitKljucNamig"); kv.setAttribute("aria-label", t("scitKljucNamig"));
+    kv.setAttribute("data-ohrani", "kljuc"); kv.value = ohrani.kljuc || "";
     kb.appendChild(kv);
     var ks = el("button", "", ubezi(t("scitKljucShrani")));
     ks.addEventListener("click", function () {
@@ -3585,13 +3589,15 @@
     var pv = document.createElement("input");
     pv.type = "url"; pv.autocomplete = "off"; pv.spellcheck = false; pv.placeholder = "https://";
     pv.setAttribute("aria-label", t("scitPoMeriDodaj"));
+    pv.setAttribute("data-ohrani", "po-meri"); pv.value = ohrani["po-meri"] || "";
     pm.appendChild(pv);
     var pd = el("button", "", ubezi(t("scitPoMeriDodaj")));
     pd.addEventListener("click", function () {
       obvesti(t("scitPoMeriPreverjam"));
       klic("scitPoMeriDodaj", [pv.value]).then(function (r) {
         var iz = r && r.poMeriIzid;
-        obvesti(t(iz === "dodan" ? "scitPoMeriDodan" : iz === "naslov" ? "scitPoMeriNapacen" : iz === "polno" ? "scitPoMeriPolno" : "scitPoMeriNiSeznam"));
+        obvesti(t(iz === "dodan" ? "scitPoMeriDodan" : iz === "naslov" ? "scitPoMeriNapacen" : iz === "polno" ? "scitPoMeriPolno" :
+                  iz === "ze_dodan" ? "scitPoMeriZeDodan" : "scitPoMeriNiSeznam"));
         if (iz === "dodan") pv.value = "";
         poScitu(r);
       }, function () { obvesti(t("scitPoMeriNiSeznam")); });

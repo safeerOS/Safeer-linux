@@ -1103,18 +1103,26 @@ class Seznami:
             return "ni_seznam"
         if not razcleni_seznam(telo.decode("utf-8", "replace"), abp=True):
             return "ni_seznam"
-        zapisi_po_meri(self.mapa, filtri + [{"url": url, "vklop": True}])
+        # CodeRabbit 9. 11. 2026: po prenosu (lahko traja) seznam znova preberemo pod zaklepom - hkratna sprememba ostane.
+        with self._po_meri_kljuc:
+            filtri = po_meri(self.mapa)
+            if any(id_po_meri(f["url"]) == id_po_meri(url) for f in filtri):
+                return "ze_dodan"
+            if len(filtri) >= NAJVEC_PO_MERI:
+                return "polno"
+            zapisi_po_meri(self.mapa, filtri + [{"url": url, "vklop": True}])
         threading.Thread(target=self.osvezi, name="safeer-scit-po-meri", daemon=True).start()
         return "dodan"
 
     def nastavi_po_meri(self, ident: str, vklop: Optional[bool]) -> None:
         """vklop True/False preklopi, None odstrani; nabor se zgradi znova (brez prenosa izklopljenih)."""
-        filtri = po_meri(self.mapa)
-        if vklop is None:
-            filtri = [f for f in filtri if id_po_meri(f["url"]) != ident]
-        else:
-            filtri = [dict(f, vklop=bool(vklop)) if id_po_meri(f["url"]) == ident else f for f in filtri]
-        zapisi_po_meri(self.mapa, filtri)
+        with self._po_meri_kljuc:
+            filtri = po_meri(self.mapa)
+            if vklop is None:
+                filtri = [f for f in filtri if id_po_meri(f["url"]) != ident]
+            else:
+                filtri = [dict(f, vklop=bool(vklop)) if id_po_meri(f["url"]) == ident else f for f in filtri]
+            zapisi_po_meri(self.mapa, filtri)
         threading.Thread(target=self.osvezi_in_zgradi, name="safeer-scit-po-meri", daemon=True).start()
 
     def __init__(self, mapa: str, prenesi_fn=prenesi, kljuc_fn=abusech_kljuc) -> None:
@@ -1189,6 +1197,9 @@ class Seznami:
     def _do_naslednje(self) -> float:
         return max(PRVA_OSVEZITEV, OSVEZITEV - (time.time() - float(self.meta.get("cas", 0) or 0)))
 
+    #: Branje in zapis filtrov po meri skupaj (CodeRabbit 9. 11. 2026).
+    _po_meri_kljuc = threading.Lock()
+
     #: Ena osvezitev naenkrat (lastnik 9. 11. 2026: filter po meri sprozi osvezitev iz svoje niti, poleg redne zanke).
     _osvezi_kljuc = threading.Lock()
 
@@ -1228,7 +1239,7 @@ class Seznami:
             if "<html" in glava or "<!doctype" in glava:
                 napake.append("%s: html" % oznaka)
                 continue
-            domen = len(razcleni_seznam(telo.decode("utf-8", "replace"), abp=oznaka in SEZNAMI_ABP or oznaka.startswith("pm-")))
+            domen = len(set(razcleni_seznam(telo.decode("utf-8", "replace"), abp=oznaka in SEZNAMI_ABP or oznaka.startswith("pm-"))))
             if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") or oznaka in ("stevenblack", "adguard-dns") else 1):
                 napake.append("%s: %d domen" % (oznaka, domen))
                 continue
