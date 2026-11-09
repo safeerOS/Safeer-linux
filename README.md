@@ -19,7 +19,7 @@ Slovenian: [README.sl.md](README.sl.md) · Website: [safeer.si](https://safeer.s
 | | |
 |---|---|
 | **Safeer Browser for Linux** | **1.0.135** — tag [`v1.0.135`](../../releases/tag/v1.0.135) |
-| **Safeer OS for Linux** (with Safeer Control 2.1.89) | **0.4.92** — same release |
+| **Safeer OS for Linux** (with Safeer Control 2.1.90) | **0.4.93** — same release |
 | Versions in the code | `packaging/VERSION`, `packaging/VERSION_OS`, `packaging/VERSION_CONTROL` (checked by `packaging/check_version.py`) |
 | What changed | [CHANGELOG.md](CHANGELOG.md) · every version: [docs/releases/](docs/releases/) |
 | Download | [safeer.si](https://safeer.si/#prenosi) · [GitHub Releases](../../releases/latest) |
