@@ -5088,6 +5088,9 @@ class SafeerOS(Gtk.Application):
             "scitDovoli": lambda: self._po_scitu(self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True)),
             "scitNaprej": lambda: self._po_scitu(self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")),
             "scitTwitch": lambda: self._po_scitu(self.scit.nastavi_twitch(bool(a[0]) if a else True)),
+            # Lastnik 9. 11. 2026: kljuc abuse.ch (URLhaus) vpise uporabnik; preveri se pri abuse.ch, nato v zbirko skrivnosti.
+            "scitKljucAbusech": lambda: self._po_scitu(self.scit.nastavi_kljuc_abusech(str(a[0]) if a else "")),
+            "scitKljucAbusechOdstrani": lambda: self._po_scitu(self.scit.odstrani_kljuc_abusech()),
             "scitPremor": lambda: self._po_scitu(self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0)),
             "scitPopravi": lambda: self._po_scitu(self.scit.popravi()),
             "scitDovoljenje": lambda: self._po_scitu(self.scit.posodobi_dovoljenje(bool(a[0]) if a else True)),

@@ -69,7 +69,31 @@ class NaborDomen(unittest.TestCase):
             self.assertIsNone(os_scit.Nabor.nalozi(pot))
 
 
+KLJUC_PREIZKUS = "a1b2c3d4e5f6a7b8c9d0e1f2"
+
+
 class SeznamiTest(unittest.TestCase):
+    def test_kljuc_abusech(self):
+        """Lastnik 9. 11. 2026: URLhaus samo s kljucem uporabnika; brez kljuca ni prenosa in ni napake."""
+        self.assertTrue(os_scit.veljaven_kljuc(KLJUC_PREIZKUS))
+        self.assertFalse(os_scit.veljaven_kljuc("abc/../x?y=1&z=2aaaaaaaaaaaa"))
+        self.assertFalse(os_scit.veljaven_kljuc("kratek"))
+        self.assertEqual(os_scit.ocisti_kljuc(' "a1b2 c3d4\u200b\n" '), "a1b2c3d4")
+        klici = []
+
+        def prenesi(url, etag, cas=60.0):
+            klici.append(url)
+            raise OSError("ni omrezja")
+        with tempfile.TemporaryDirectory() as m:
+            s = os_scit.Seznami(m, prenesi_fn=prenesi, kljuc_fn=lambda: None)
+            s.osvezi()
+            self.assertFalse(any("urlhaus" in u for u in klici))
+            self.assertNotIn("urlhaus", s.napaka)
+            klici.clear()
+            s.kljuc_fn = lambda: KLJUC_PREIZKUS
+            s.osvezi()
+            self.assertIn("https://urlhaus-api.abuse.ch/v2/files/exports/%s/hostfile.txt" % KLJUC_PREIZKUS, klici)
+
     def test_osvezi_iz_lokalnih_prenosov(self):
         vsebine = {
             "hagezi-pro": "\n".join("ad%d.example" % i for i in range(1200)),
@@ -91,14 +115,14 @@ class SeznamiTest(unittest.TestCase):
         klici = []
 
         def prenesi(url, etag, cas=60.0):
-            oznaka = [o for o, u, _k in os_scit.VIRI if u == url][0]
+            oznaka = [o for o, u, _k in os_scit.VIRI if u.replace("{KLJUC}", KLJUC_PREIZKUS) == url][0]
             klici.append((oznaka, etag))
             if etag == "e-" + oznaka:
                 return 304, b"", etag
             return 200, vsebine[oznaka].encode(), "e-" + oznaka
 
         with tempfile.TemporaryDirectory() as m:
-            s = os_scit.Seznami(m, prenesi_fn=prenesi)
+            s = os_scit.Seznami(m, prenesi_fn=prenesi, kljuc_fn=lambda: KLJUC_PREIZKUS)
             self.assertTrue(s.osvezi())
             self.assertEqual(len(s.nabor), 1200 + 3 + 1100 + 1050 + 1000 + 1000 + 3)
             self.assertEqual(s.kategorija("x.ag7.example"), "oglasi")
@@ -119,7 +143,7 @@ class SeznamiTest(unittest.TestCase):
             self.assertIsNone(s.kategorija("archive.ubuntu.com"))
             s.nabor = os_scit.Nabor.nalozi(os.path.join(m, "domene.bin"))
             # Drugi zagon iz iste mape: nabor je na disku, brez prenosa; osvezitev vrne 304 in nic ne prezida.
-            s2 = os_scit.Seznami(m, prenesi_fn=prenesi)
+            s2 = os_scit.Seznami(m, prenesi_fn=prenesi, kljuc_fn=lambda: KLJUC_PREIZKUS)
             self.assertEqual(len(s2.nabor), len(s.nabor))
             self.assertTrue(s2.osvezi())
             self.assertEqual(klici[-1][1], "e-si-cert")

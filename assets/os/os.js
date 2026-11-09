@@ -3540,6 +3540,32 @@
       klic("scitTwitch", [v]).then(function (r) { obvesti(t(v ? "scitTwitchVklopljen" : "scitTwitchIzklopljen")); poScitu(r); },
                                    function () { nalozScit(); });
     }, t("scitTwitchOpis")));
+    // Lastnik 9. 11. 2026: seznam URLhaus (abuse.ch) od oktobra 2026 samo s kljucem uporabnika - navodilo in vnos tukaj.
+    var kb = el("div", "scit-zadnje scit-kljuc", "<b>" + ubezi(t("scitKljucNaslov")) + "</b> " + ubezi(t(s.kljucAbusech ? "scitKljucVpisan" : "scitKljucNi")));
+    kb.setAttribute("role", "group");
+    kb.setAttribute("aria-label", t("scitKljucNaslov"));
+    kb.appendChild(el("p", "", ubezi(t("scitKljucNavodilo"))));
+    var kv = document.createElement("input");
+    kv.type = "password"; kv.autocomplete = "off"; kv.spellcheck = false;
+    kv.placeholder = t("scitKljucNamig"); kv.setAttribute("aria-label", t("scitKljucNamig"));
+    kb.appendChild(kv);
+    var ks = el("button", "", ubezi(t("scitKljucShrani")));
+    ks.addEventListener("click", function () {
+      obvesti(t("scitKljucPreverjam"));
+      klic("scitKljucAbusech", [kv.value]).then(function (r) {
+        kv.value = "";
+        var iz = r && r.kljucIzid;
+        obvesti(t(iz === "velja" ? "scitKljucShranjen" : (iz === "neveljaven" || iz === "oblika") ? "scitKljucNeveljaven" : "scitKljucNiOdgovora"));
+        poScitu(r);
+      }, function () { obvesti(t("scitKljucNiOdgovora")); });
+    });
+    kb.appendChild(ks);
+    if (s.kljucAbusech) {
+      var ko = el("button", "", ubezi(t("scitKljucOdstrani")));
+      ko.addEventListener("click", function () { klic("scitKljucAbusechOdstrani", []).then(poScitu, function () {}); });
+      kb.appendChild(ko);
+    }
+    c.appendChild(kb);
     // Prvi vklop (4. 11. 2026): uporabnik sam izbere, kam gredo dovoljena imena; dokler ne izbere, velja krajevni DNS.
     if (s.mozno && s.vklop && s.naprejIzbran === false) {
       var iz0 = el("div", "scit-zadnje scit-izbira", "<b>" + ubezi(t("scitIzbiraNaslov")) + "</b> " + ubezi(t("scitIzbiraOpis")) + " ");

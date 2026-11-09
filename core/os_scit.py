@@ -101,10 +101,13 @@ VIRI: Tuple[Tuple[str, str, str], ...] = (
     # Lastnik 9. 11. 2026: »upostevaj vse, kar AdGuard blokira« - AdGuard DNS filter (javen, GPL-3.0); meritev 9. 11.: nas
     # nabor ga je ustavil 43,1 %. Izjeme @@ glej razcleni_seznam. Enako na TV (ThreatFeedsUpdater).
     ("adguard-dns", "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt", "oglasi"),
-    ("urlhaus", "https://urlhaus.abuse.ch/downloads/hostfile/", "malware"),
+    # abuse.ch od 21. 10. 2026 brez kljuca vrne 410 (lastnik 9. 11. 2026): uporabnik vpise SVOJ brezplacni kljuc (Scit >
+    # Seznami s kljucem); brez njega se seznam ne prenasa in ostane zadnja kopija. Enako TV (AbuseChKljuc).
+    ("urlhaus", "https://urlhaus-api.abuse.ch/v2/files/exports/{KLJUC}/hostfile.txt", "malware"),
     ("phishing-army", "https://phishing.army/download/phishing_army_blocklist_extended.txt", "phishing"),
     ("si-cert", "https://www.cert.si/misp/rpz/last.txt", "phishing"),
 )
+VIRI_URLHAUS = dict((o, u) for o, u, _k in VIRI)["urlhaus"]
 KATEGORIJE = ("oglasi", "groznje", "prevare", "malware", "phishing", "botnet")
 #: Premor ustavi samo to kategorijo (oglasi in sledenje); vse druge so nevarne strani in ostanejo blokirane.
 KATEGORIJA_PREMORA = "oglasi"
@@ -832,6 +835,43 @@ def _zgoscenka(ime: str) -> int:
 SEZNAMI_ABP = ("adguard-dns",)
 
 
+#: Kljuc abuse.ch v sistemski zbirki skrivnosti (core/sporocila/skrivnosti.py; nikoli v datoteki ali dnevniku).
+SKRIVNOST_ABUSECH = "scit_abusech"
+
+
+def veljaven_kljuc(k: str) -> bool:
+    """Kljuc abuse.ch: crke in stevke, 20-128 znakov - samo tako gre varno v pot naslova (isto kot TV AbuseChPravila)."""
+    return 20 <= len(k) <= 128 and all(c.isascii() and c.isalnum() for c in k)
+
+
+def ocisti_kljuc(vnos: str) -> str:
+    """Prilepljen vnos: presledki, narekovaji in nevidni znaki stran."""
+    return "".join(c for c in vnos if not c.isspace() and c not in "\"'\u200b")
+
+
+def abusech_kljuc() -> Optional[str]:
+    try:
+        from core.sporocila import skrivnosti
+        k = skrivnosti.preberi(SKRIVNOST_ABUSECH)
+    except Exception:  # noqa: BLE001
+        return None
+    return k if k and veljaven_kljuc(k) else None
+
+
+def preveri_kljuc(kljuc: str) -> str:
+    """Preverba pri abuse.ch: 'velja', 'neveljaven', 'oblika' ali 'ni_odgovora'. Kljuc ne gre v dnevnik."""
+    if not veljaven_kljuc(kljuc):
+        return "oblika"
+    z = urllib.request.Request(VIRI_URLHAUS.replace("{KLJUC}", kljuc), headers={"User-Agent": "Safeer"})
+    try:
+        with urllib.request.urlopen(z, timeout=15) as o:  # noqa: S310 - fiksen naslov https
+            return "velja" if o.status == 200 else "ni_odgovora"
+    except urllib.error.HTTPError as e:
+        return "neveljaven" if e.code in (401, 403) else "ni_odgovora"
+    except Exception:  # noqa: BLE001
+        return "ni_odgovora"
+
+
 def razcleni_seznam(besedilo: str, abp: bool = False) -> List[str]:
     """Domene iz seznama v obliki hosts (0.0.0.0 ime), RPZ (ime CNAME .), golih domen ali AdGuard/ABP (||ime^);
     komentarji stran. Lastnik 9. 11. 2026 (AdGuard DNS filter): izjema »@@||ime^« izpusti ime in nadrejene domene iz
@@ -987,9 +1027,10 @@ def prenesi(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
 class Seznami:
     """Seznami domen na disku (kot ThreatFeedsUpdater na televizorju) + Safeerjev podpisani seznam groznj."""
 
-    def __init__(self, mapa: str, prenesi_fn=prenesi) -> None:
+    def __init__(self, mapa: str, prenesi_fn=prenesi, kljuc_fn=abusech_kljuc) -> None:
         self.mapa = mapa
         self.prenesi = prenesi_fn
+        self.kljuc_fn = kljuc_fn
         self.nabor: Nabor = Nabor.nalozi(os.path.join(mapa, "domene.bin")) or Nabor()
         self.meta: dict = self._preberi_meta()
         self.napaka = ""
@@ -1064,6 +1105,11 @@ class Seznami:
         spremenjeno, napake = False, []
         for oznaka, url, _kat in VIRI:
             m = self.meta.get(oznaka, {})
+            if "{KLJUC}" in url:
+                kljuc = self.kljuc_fn()
+                if not kljuc or not veljaven_kljuc(kljuc):
+                    continue            # brez kljuca uporabnika: zadnja kopija ostane, ni napaka
+                url = url.replace("{KLJUC}", kljuc)
             try:
                 koda, telo, etag = self.prenesi(url, m.get("etag", ""))
             except Exception as e:  # noqa: BLE001
@@ -2034,6 +2080,43 @@ class Scit:
         """Lastnik 17. 10. 2026: Scit izloca oglase, ki jih Twitch vstavi v prenos; privzeto vklopljeno."""
         return self.shramba.get("scit_twitch_oglasi", True) is not False
 
+    def nastavi_kljuc_abusech(self, vnos: str) -> dict:
+        """Lastnik 9. 11. 2026: uporabnik vpise svoj kljuc abuse.ch; preveri se pri abuse.ch, sele nato se shrani."""
+        kljuc = ocisti_kljuc(vnos or "")
+        izid = preveri_kljuc(kljuc)
+        if izid == "velja":
+            try:
+                from core.sporocila import skrivnosti
+                if not skrivnosti.shrani(SKRIVNOST_ABUSECH, kljuc):
+                    izid = "ni_shranjeno"
+            except Exception:  # noqa: BLE001
+                izid = "ni_shranjeno"
+        if izid == "velja":
+            self._ima_kljuc = True
+            seznami = self.seznami
+            if seznami is not None:
+                threading.Thread(target=seznami.osvezi, name="safeer-scit-kljuc", daemon=True).start()
+        s = self.stanje()
+        s["kljucIzid"] = izid
+        return s
+
+    def odstrani_kljuc_abusech(self) -> dict:
+        try:
+            from core.sporocila import skrivnosti
+            skrivnosti.pozabi(SKRIVNOST_ABUSECH)
+        except Exception:  # noqa: BLE001
+            pass
+        self._ima_kljuc = False
+        return self.stanje()
+
+    #: Ali je kljuc abuse.ch vpisan (zbirka skrivnosti se vprasa enkrat, nato samo ob spremembi - stanje bere pult).
+    _ima_kljuc: Optional[bool] = None
+
+    def ima_kljuc_abusech(self) -> bool:
+        if self._ima_kljuc is None:
+            self._ima_kljuc = abusech_kljuc() is not None
+        return self._ima_kljuc
+
     def nastavi_twitch(self, vklop: bool) -> dict:
         self.shramba.set("scit_twitch_oglasi", bool(vklop))
         return self.stanje()
@@ -2130,7 +2213,7 @@ class Scit:
              # DoH ni odgovoril in imena so sla nesifrirano usmerjevalniku (mirna oznaka v vmesniku, brez okna).
              "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
                                  and r.nesifrirano()),
-             "twitchOglasi": self.twitch_brez_oglasov()}
+             "twitchOglasi": self.twitch_brez_oglasov(), "kljucAbusech": self.ima_kljuc_abusech()}
         self._preveri_dovoljenje()
         s.update(self._stanje_dovoljenja())
         if self.seznami is not None:
