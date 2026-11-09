@@ -1894,10 +1894,11 @@ sys.exit("neznan ukaz")
         self.assertIn('+        m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
         # Brez preusmeritve samo medizvorni fetch/XHR v nacinu CORS; navigacije (vsi okvirji) in isti izvor prek 307
         # (slepi pregled 8. 11. 2026: iframe bi imel izvor http z vsebino https, fetch istega izvora bi obsel CORS).
-        self.assertIn('+    if (!isTopLevelNavigation() && isCrossOriginCORSFetch(m_currentRequest)) {',popravek)
-        self.assertIn('+    if (requester != ResourceRequestRequester::Fetch && requester != ResourceRequestRequester::XHR',popravek)
-        # 9. 11. 2026: medizvorni EventSource s CORS je 307 brez Access-Control-Allow-Origin zavrnil (testni PC).
-        self.assertIn('+        && requester != ResourceRequestRequester::EventSource)',popravek)
+        self.assertIn('+    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {',popravek)
+        # Slepi pregled 9. 11. 2026 (izmerjeno na testnem PC): vse zahteve z Origin drugega izvora ali null (preflight,
+        # crossorigin, modul, EventSource, beacon JSON, sandbox) brez preusmeritve; navigacije (Main) in isti izvor prek 307.
+        self.assertIn('+    if (request.requester() == ResourceRequestRequester::Main)',popravek)
+        self.assertIn('+    if (origin == "null"_s)',popravek)
 
     def test_plugins_good_je_odvisnost(self):
         """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""

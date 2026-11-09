@@ -106,9 +106,12 @@ def strezi(vrsta, telo, tip):
                 zapisi(vrsta, "METODA " + metoda)
                 zapisi(vrsta, "TELO OK" if prejeto == b"telo-preizkusa" else "TELO %d B" % len(prejeto))
             dodatno = ""
-            if vrsta.startswith("api") or vrsta == "eventsource":
+            if vrsta.startswith("api") or vrsta in CORS_VRSTE:
                 # CORS dovoli izvor strani (tudi EventSource, 9. 11.: brez tega pade ze pri preverbi CORS, ne pri HSTS).
-                dodatno = "Access-Control-Allow-Origin: %s\r\n" % glave.get("origin", "*")
+                dodatno = ("Access-Control-Allow-Origin: %s\r\nAccess-Control-Allow-Methods: GET, POST\r\n"
+                           "Access-Control-Allow-Headers: content-type\r\n" % glave.get("origin", "*"))
+            if vrsta in CORS_VRSTE:
+                zapisi(vrsta, "METODA " + metoda)
             odgovor = ("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n%sConnection: close\r\n\r\n"
                        % (tip, len(telo), dodatno)).encode()
             try:
@@ -141,8 +144,10 @@ v_okvir = strezi("okvir", b"<html>okvir</html>", "text/html")
 v_api = strezi("api", b"ok", "text/plain")
 v_api2 = strezi("api2 (redirect error)", b"ok", "text/plain")
 # Razsirjeno (9. 11. 2026, lastnik: preveri cim vec, kar dopusca lokalno okolje): druge vrste zahtev do istega gostitelja.
+# Slepi pregled 9. 11. 2026: viri v nacinu CORS, ki niso Fetch/XHR (preflight, crossorigin, modul, beacon JSON, izvor null).
+CORS_VRSTE = ("eventsource", "preflight (fetch JSON)", "slika crossorigin", "modul skripta", "beacon JSON", "izvor null (sandbox)")
 RAZSIRJENO = ("css", "pisava", "ozadje css", "video", "avdio", "xhr", "eventsource", "beacon", "websocket",
-              "obrazec v okvirju", "predhodno nalaganje", "poddomena (includeSubDomains)", "eventsource (stanje v strani)")
+              "obrazec v okvirju", "predhodno nalaganje", "poddomena (includeSubDomains)", "eventsource (stanje v strani)") + CORS_VRSTE + ("stanja v strani",)
 v_css = strezi("css", b"body{color:black}", "text/css")
 v_pisava = strezi("pisava", b"x", "font/woff2")
 v_ozadje = strezi("ozadje css", GIF, "image/gif")
@@ -155,6 +160,11 @@ v_ws = strezi("websocket", b"", "text/plain")
 v_obrazec = strezi("obrazec v okvirju", b"<html>ok</html>", "text/html")
 v_pred = strezi("predhodno nalaganje", b"x", "text/plain")
 v_pod = strezi("poddomena (includeSubDomains)", GIF, "image/gif")
+v_pf = strezi("preflight (fetch JSON)", b"ok", "text/plain")
+v_ico = strezi("slika crossorigin", GIF, "image/gif")
+v_mod = strezi("modul skripta", b"window.izidi.modul='nalozen';", "text/javascript")
+v_bj = strezi("beacon JSON", b"", "text/plain")
+v_nul = strezi("izvor null (sandbox)", b"ok", "text/plain")
 stran = ("<html><body>stran"
          "<img src='http://hsts.localhost:%d/s.gif'>"
          "<script src='http://hsts.localhost:%d/s.js'></script>"
@@ -174,6 +184,15 @@ stran = ("<html><body>stran"
          "try{navigator.sendBeacon('http://hsts.localhost:%d/b','b');}catch(e){}"
          "try{new WebSocket('ws://hsts.localhost:%d/ws');}catch(e){}"
          "try{document.getElementById('f').submit();}catch(e){}</script>"
+         "<script>window.izidi={};"
+         "fetch('http://hsts.localhost:%d/pf',{method:'POST',body:'{}',headers:{'Content-Type':'application/json'}})"
+         ".then(function(r){return r.text();}).then(function(){izidi.preflight='ok';},function(e){izidi.preflight='napaka';});"
+         "try{navigator.sendBeacon('http://hsts.localhost:%d/bj',new Blob(['{}'],{type:'application/json'}));}catch(e){}"
+         "window.addEventListener('message',function(e){izidi.nul=String(e.data);});</script>"
+         "<img crossorigin=anonymous src='http://hsts.localhost:%d/c.gif' onload=\"izidi.crossorigin='ok'\" onerror=\"izidi.crossorigin='napaka'\">"
+         "<script type=module src='http://hsts.localhost:%d/m.js' onerror=\"izidi.modul='napaka'\"></script>"
+         "<iframe sandbox=allow-scripts srcdoc=\"<script>fetch('http://hsts.localhost:%d/n').then(function(r){return r.text();})"
+         ".then(function(){parent.postMessage('ok','*');},function(){parent.postMessage('napaka','*');});</script>\"></iframe>"
          # Medizvorni fetch (www.hsts.localhost -> hsts.localhost): POST s telesom in GET z redirect:'error'.
          # Nadgradnja HSTS ni preusmeritev (Fetch), zato oba uspeta, Origin pa ostane izvor strani.
          "<script>Promise.all(["
@@ -183,7 +202,7 @@ stran = ("<html><body>stran"
          ".then(function(t){document.title='FETCH:'+t.join('|');})"
          ".catch(function(e){document.title='FETCH-NAPAKA:'+e;});</script></body></html>"
          % (v_slika, v_skripta, v_okvir, v_css, v_pisava, v_ozadje, v_video, v_avdio, v_pred, v_pod, v_obrazec,
-            v_xhr, v_es, v_beacon, v_ws, v_api, v_api2)).encode()
+            v_xhr, v_es, v_beacon, v_ws, v_pf, v_bj, v_ico, v_mod, v_nul, v_api, v_api2)).encode()
 v_stran = strezi("stran (www.hsts.localhost)", stran, "text/html")
 
 seja = WebKit.NetworkSession.new(podatki, predpomnilnik)
@@ -218,7 +237,14 @@ def zazeni(a):
                     zapisi("eventsource (stanje v strani)", "branje ni uspelo: %s" % e)
                 a.quit()
 
-            w.evaluate_javascript("String(window.esIzid||'ni dogodka')", -1, None, None, None, po_branju)
+            def po_branju2(pogled, rezultat):
+                try:
+                    zapisi("stanja v strani", pogled.evaluate_javascript_finish(rezultat).to_string())
+                except Exception as e:
+                    zapisi("stanja v strani", "branje ni uspelo: %s" % e)
+                pogled.evaluate_javascript("String(window.esIzid||'ni dogodka')", -1, None, None, None, po_branju)
+
+            w.evaluate_javascript("JSON.stringify(window.izidi||{})", -1, None, None, None, po_branju2)
         return False
 
     naslednji()

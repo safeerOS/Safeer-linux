@@ -58,6 +58,12 @@ class HstsPodviri(unittest.TestCase):
             # Medizvorni EventSource s CORS: 307 brez Access-Control-Allow-Origin ga je zavrnil (9. 11., brez zahteve).
             self.assertEqual(izid.get("eventsource"), ["TLS"], izid)
             self.assertEqual(izid.get("eventsource (stanje v strani)"), ["odprto"], izid)
+            # Slepi pregled 9. 11.: viri v nacinu CORS, ki niso fetch/XHR - z v4 so vsi padli (brez zahteve do streznika).
+            for vrsta in ("preflight (fetch JSON)", "slika crossorigin", "modul skripta", "beacon JSON", "izvor null (sandbox)"):
+                self.assertIn("TLS", izid.get(vrsta, []), "%s: %s" % (vrsta, izid))
+                self.assertNotIn("HTTP", izid.get(vrsta, []), izid)
+            stanja = json.loads(izid["stanja v strani"][0])
+            self.assertEqual(stanja, {"preflight": "ok", "crossorigin": "ok", "modul": "nalozen", "nul": "ok"}, izid)
 
 if __name__ == "__main__":
     unittest.main()

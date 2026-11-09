@@ -1,6 +1,6 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,13 +1365,41 @@
+@@ -1365,13 +1365,43 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
@@ -11,20 +11,22 @@
 +        || !m_isBlockingCookies;
 +}
 +
-+// A cross-origin fetch(), XMLHttpRequest or EventSource that is already in CORS mode (it carries an Origin that
-+// differs from the request URL). Upgrading it in place keeps its Origin, method, body and redirect mode, as Fetch
-+// does for HSTS, and the response is still checked with CORS; a synthetic redirect has no
-+// Access-Control-Allow-Origin, so CORS would reject it. Navigations (of any frame), other subresources and
-+// same-origin requests go through a synthetic 307 instead, so the new https origin is handled by the redirect rules.
-+static bool isCrossOriginCORSFetch(const ResourceRequest& request)
++// A subresource request that carries an Origin of another origin (or an opaque "null" origin): fetch() and
++// XMLHttpRequest, EventSource, CORS preflights, crossorigin and module scripts, beacons and so on. A synthetic
++// redirect would break them: it has no Access-Control-Allow-Origin, preflights must not be redirected, and a
++// cross-origin redirect makes the origin opaque. Upgrading in place keeps the Origin, method, body and
++// redirect mode, as Fetch does for HSTS, and the response is still checked against the original origin.
++// Navigations (of any frame) and same-origin requests go through a synthetic 307 instead, so the new https
++// origin is handled by the redirect rules.
++static bool shouldUpgradeInPlace(const ResourceRequest& request)
 +{
-+    auto requester = request.requester();
-+    if (requester != ResourceRequestRequester::Fetch && requester != ResourceRequestRequester::XHR
-+        && requester != ResourceRequestRequester::EventSource)
++    if (request.requester() == ResourceRequestRequester::Main)
 +        return false;
 +    auto origin = request.httpOrigin();
-+    if (origin.isEmpty() || origin == "null"_s)
++    if (origin.isEmpty())
 +        return false;
++    if (origin == "null"_s)
++        return true;
 +    URL originURL { origin };
 +    return originURL.isValid() && !protocolHostAndPortAreEqual(originURL, request.url());
  }
@@ -33,7 +35,7 @@
  {
 -    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
 +    URL upgradedURL = soupURIToURL(soup_message_get_uri(soupMessage));
-+    if (!isTopLevelNavigation() && isCrossOriginCORSFetch(m_currentRequest)) {
++    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {
 +        // libsoup has already rewritten the message URI and the message continues over https.
 +        m_currentRequest.setURL(WTF::move(upgradedURL));
 +        return;
