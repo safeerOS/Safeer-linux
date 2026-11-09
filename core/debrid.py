@@ -1484,6 +1484,9 @@ class Debrid:
         kljuc ne gre ven, stanje kljuca sledi uporabi, predpomnjen NZB (isti guid, U.NZB_VELJA_S) ne gre znova k indeksatorju
         (previjanje TV na istem filmu ne porabi kvote). Naslov s kljucem ne gre v dnevnik."""
         g = U.guid(guid)
+        # CodeRabbit 9. 11. 2026: vezava pred kljucem kot v usenet_isci (Grok 36, D2) - sicer 401 starega kljuca
+        # oznaci »ne velja« kljuc, ki ga je uporabnik vpisal med obema branjema.
+        vezava = self._vezava(P.INDEKSATOR)
         ix = self.indeksator()
         if not g or not ix:
             return None, U.NAPAKA_INDEKSATOR
@@ -1495,7 +1498,6 @@ class Debrid:
         nzb = self._nzb_zapomnjen(kljuc)
         if nzb is not None:
             return nzb, ""
-        vezava = self._vezava(P.INDEKSATOR)
         naslov = U.naslov_nzb_guid(ix[0], ix[1], g)
         if not naslov:
             return None, U.NAPAKA_INDEKSATOR

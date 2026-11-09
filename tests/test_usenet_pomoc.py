@@ -203,6 +203,19 @@ class PredpomnilnikPoIndeksatorju(unittest.TestCase):
         self.assertEqual(prenos.call_count, 2)
         self.assertIn("drug.example", prenos.call_args.args[0])
 
+    def test_vezava_pred_kljucem(self):
+        # CodeRabbit 9. 11. 2026: nzb_po_guid prebere vezavo kljuca PRED kljucem (kot usenet_isci, Grok 36, D2).
+        from core import debrid
+        d = debrid.Debrid(lambda: {}, lambda _d: None, lambda s: s, lambda s: s)
+        vrstni_red = []
+        with mock.patch.object(d, "_vezava", side_effect=lambda p: vrstni_red.append("vezava") or ("o", "odtis")), \
+                mock.patch.object(d, "indeksator", side_effect=lambda: vrstni_red.append("kljuc") or (OSNOVA, "k1")), \
+                mock.patch.object(d, "sme_klicati", return_value=True), \
+                mock.patch.object(d, "ob_izidu"), \
+                mock.patch.object(debrid, "usenet_nzb", return_value=(b"<nzb>A</nzb>", "")):
+            self.assertEqual(d.nzb_po_guid("abc123def456"), (b"<nzb>A</nzb>", ""))
+        self.assertEqual(vrstni_red, ["vezava", "kljuc"])
+
 
 class _UsenetStreznik(http.server.BaseHTTPRequestHandler):
     """Krajevni streznik lastnega pogona (kot usenet_streznik): samo /<zeton>/video.mkv."""
