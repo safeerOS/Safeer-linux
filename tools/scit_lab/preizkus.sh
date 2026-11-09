@@ -48,7 +48,8 @@ je "Docker ipd. imajo v resolv.conf uporaben streznik" "$(docker exec scit-odj g
 echo "== izjema in premor"
 u dovoli $BLOK
 je "dovoljena domena se razresi takoj" "$(ime $BLOK)" '^172\.31\.95\.66$'
-je "njena poddomena tudi" "$(ime cdn.$BLOK)" '^172\.31\.95\.66$'
+# Od 17751e8 (lastnik 4. 11. 2026, eno pravilo z Androidom) izjema velja za natanko to ime - poddomena ostane blokirana.
+je "njena poddomena ostane blokirana (izjema = natanko to ime)" "$(ime cdn.$BLOK)" '^$'
 je "druge blokirane ostanejo blokirane" "$(ime drugo.preizkus.example)" '^$'
 u blokiraj $BLOK
 je "»Blokiraj spet« velja takoj" "$(ime $BLOK)" '^$'
