@@ -1003,9 +1003,6 @@ class VrataInZanke(unittest.TestCase):
 UID_NOBODY = 65534
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def _ime_dns(s):
     return b"".join(bytes([len(l)]) + l.encode() for l in s.split(".")) + b"\0"
@@ -1053,3 +1050,38 @@ class CnameTest(unittest.TestCase):
                                    izjema=lambda i: i == "stat.stran.si")
         r2._posreduj = lambda paket, tcp: odg
         self.assertEqual(r2._odgovori(poizvedba, False), odg)
+
+    def test_groznja_ima_prednost_zasciteni_in_izjema(self):
+        """Neodvisni pregled 9. 11. 2026: izjema ali zascita spusti samo oglasni cilj, groznje nikoli."""
+        def blokiraj(i):
+            return "malware" if i.endswith("zlo.example") else ("oglasi" if i.endswith("sledilec.net") else None)
+
+        def odgovor(ime, cilj):
+            d = bytearray(b"\x00\x01\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00") + _ime_dns(ime) + b"\x00\x01\x00\x01"
+            c = _ime_dns(cilj)
+            return bytes(d + b"\xc0\x0c\x00\x05\x00\x01\x00\x00\x00\x3c\x00" + bytes([len(c)]) + c)
+
+        r = os_scit.Razresevalnik(blokiraj, lambda: [], izjema=lambda i: i == "stat.stran.si")
+        self.assertFalse(r._cname_ustavi("stat.stran.si", odgovor("stat.stran.si", "t.sledilec.net")))
+        self.assertTrue(r._cname_ustavi("stat.stran.si", odgovor("stat.stran.si", "x.zlo.example")))
+        self.assertEqual(r.zadnje[0]["ime"], "x.zlo.example")
+        r2 = os_scit.Razresevalnik(blokiraj, lambda: [])
+        self.assertFalse(r2._cname_ustavi("objects.github.com", odgovor("objects.github.com", "t.sledilec.net")))
+        self.assertTrue(r2._cname_ustavi("objects.github.com", odgovor("objects.github.com", "x.zlo.example")))
+        self.assertFalse(r2._cname_ustavi("tiskalnik.local", odgovor("tiskalnik.local", "t.sledilec.net")))
+
+    def test_veliko_vprasanj_je_hitro(self):
+        d = bytearray(b"\x00\x01\x81\x80\xff\xff\x00\x00\x00\x00\x00\x00") + _ime_dns("a" * 60 + ".example")
+        d += b"\x00\x01\x00\x01" + b"\xc0\x0c\x00\x01\x00\x01" * 10000
+        import time as _t
+        z = _t.monotonic()
+        os_scit.cname_cilji(bytes(d[:65535]))
+        self.assertLess(_t.monotonic() - z, 0.05)
+
+    def test_glava_stevenblack_brez_naslova(self):
+        self.assertEqual(list(os_scit.razcleni_seznam("0.0.0.0 0.0.0.0\n0.0.0.0 ads.example-oglas.com\n")),
+                         ["ads.example-oglas.com"])
+
+
+if __name__ == "__main__":
+    unittest.main()

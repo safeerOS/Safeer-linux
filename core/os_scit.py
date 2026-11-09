@@ -310,7 +310,8 @@ def cname_cilji(d: bytes) -> List[str]:
         return []
     qd, an = struct.unpack("!HH", d[4:8])
     i = 12
-    for _ in range(qd):
+    # Neodvisni pregled 9. 11. 2026: pravi razresevalniki posljejo eno vprasanje; QDCOUNT 0xFFFF s kazalci je stal ~0,45 s.
+    for _ in range(min(qd, 4)):
         r = _ime_odgovora(d, i)
         if r is None:
             return []
@@ -541,21 +542,29 @@ class Razresevalnik:
         return odgovor
 
     def _cname_ustavi(self, ime: str, odgovor: bytes) -> bool:
-        """Odgovor vsebuje CNAME na ustavljeno domeno (prikrit sledilec; lastnik 9. 11. 2026, Scit kot Pi-hole)."""
+        """Odgovor vsebuje CNAME na ustavljeno domeno (prikrit sledilec; lastnik 9. 11. 2026, Scit kot Pi-hole).
+        Neodvisni pregled 9. 11.: cilj s seznama GROZENJ ustavi vedno (tudi ob izjemi ali zascitenem imenu) in zabelezi se
+        cilj (ta nima izjeme); oglasni cilj ustavi samo ime brez izjeme, ki ni zasciteno, krajevno ali Googlov koren -
+        zabelezi se ime, da ga uporabnik lahko spusti (isto kot TV ScitOdlocitev.cnameUstavi)."""
         try:
             cilji = cname_cilji(odgovor)
-            if not cilji or (self.izjema is not None and self.izjema(ime)):
+            if not cilji:
                 return False
-            kategorija = next((k for k in (self.blokiraj(c) for c in cilji) if k), None)
+            ocene = [(c, self.blokiraj(c)) for c in cilji]
+            zabelezi = next(((c, k) for c, k in ocene if k and k != KATEGORIJA_PREMORA), None)
+            if zabelezi is None:
+                oglas = next((k for _c, k in ocene if k), None)
+                d = ime.lower().rstrip(".")
+                if (not oglas or (self.izjema is not None and self.izjema(d)) or je_krajevno(d) or je_zasciten(d)
+                        or scit_gostitelji.vrsta(d) == scit_gostitelji.KOREN):
+                    return False
+                zabelezi = (d, oglas)
         except Exception:  # noqa: BLE001 - pokvarjen odgovor gre naprej kot doslej
-            return False
-        if not kategorija:
             return False
         with self._kljuc:
             self.blokiranih += 1
-            if not self.zadnje or self.zadnje[0]["ime"] != ime:
-                # Med zadnjimi je vprasano ime: uporabnik ga lahko spusti (cilja s seznama ne bi mogel).
-                self.zadnje = ([{"ime": ime, "kategorija": kategorija, "cas": time.time()}] + self.zadnje)[:20]
+            if not self.zadnje or self.zadnje[0]["ime"] != zabelezi[0]:
+                self.zadnje = ([{"ime": zabelezi[0], "kategorija": zabelezi[1], "cas": time.time()}] + self.zadnje)[:20]
         return True
 
     #: Koliko casa po zadnji nesifrirani poizvedbi stanje kaze, da DNS ni sifriran (straza in strani osvezujejo na
@@ -830,6 +839,9 @@ def razcleni_seznam(besedilo: str) -> Iterable[str]:
             ime = deli[1]
         ime = ime.lower().rstrip(".").lstrip("*.")
         if "." not in ime or not re.fullmatch(r"[a-z0-9._-]{3,253}", ime):
+            continue
+        # Neodvisni pregled 9. 11. 2026: glava StevenBlack ima »0.0.0.0 0.0.0.0« - naslov ni ime (kot TV isHostName).
+        if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ime):
             continue
         if ime in ("localhost", "localhost.localdomain", "broadcasthost"):
             continue
@@ -2199,7 +2211,8 @@ class Scit:
             if self.razresevalnik is None:
                 self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej,
                                                    zagonsko=self._zagonsko,
-                                                   izjema=lambda i: self._izjeme.get(i, 0) > self._ura())
+                                                   izjema=lambda i: self._izjeme.get(i, 0) > self._ura()
+                                                   or webtor.je_stalna_izjema_scita(i))
                 self.razresevalnik.sifrirano_naprej = lambda: self.naprej()[0] != "router"
             vrata = self.razresevalnik.zazeni()
             if not vrata:
