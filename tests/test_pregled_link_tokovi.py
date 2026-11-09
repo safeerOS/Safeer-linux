@@ -258,6 +258,19 @@ class VideoStream(_Tokovi):
                   "64:ff9b:1::808:808"):
             self.assertEqual(vrsta(n), "javni", n)
 
+    def test_nat64_lokalna_dvoumna_dolzina(self):
+        """CodeRabbit 9. 11. 2026: v 64:ff9b:1::/48 dolzina predpone prevajalnika ni znana (RFC 6052 /48, /56, /64,
+        /96) - naslov, ki je pri kateri koli dolzini zanka ali metapodatki, je prepovedan; navaden /96 ostane javni."""
+        vrsta = link_sprotno.vrsta_naslova
+        for n in ("64:ff9b:1:7f00:0:100:808:808",     # /96 8.8.8.8, /48 127.0.0.1
+                  "64:ff9b:1:a9:fe:a9fe::",           # /56 169.254.169.254
+                  "64:ff9b:1:0:7f:1::",               # /64 127.0.1.0
+                  "64:ff9b:1::1"):                    # /96 0.0.0.1, drugih moznosti ni
+            self.assertEqual(vrsta(n), "prepovedan", n)
+        for n in ("64:ff9b:1::808:808", "64:ff9b:1:abcd:ff00::808:808",   # u-oktet ni nic: samo /96
+                  "64:ff9b:1:808:8:800::"):                               # /48 8.8.8.8
+            self.assertEqual(vrsta(n), "javni", n)
+
     def test_zanka_in_povezavno_lokalni_nikoli(self):
         """Naprava prek posrednika ne doseze storitev, ki poslusajo samo na tem racunalniku, ne metapodatkov oblaka."""
         vir = self._streznik_vira(vsebine={"/v.mkv": (IZVIRNIK, "video/x-matroska")})

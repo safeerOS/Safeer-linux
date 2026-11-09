@@ -198,6 +198,39 @@ _TA_MREZA = ipaddress.ip_network("0.0.0.0/8")
 #: Lokalne Python 3.12 steje med zasebne, zato je bil 64:ff9b:1::7f00:1 »zasebni« namesto prepovedan (pregled
 #: 6. 11. 2026, kot TV PretokPravila).
 NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+_NAT64_LOKALNA = NAT64[1]
+
+
+def _biti(n: int, od: int, do: int) -> int:
+    """Biti [od, do) 128-bitnega naslova `n` (0 = najvisji bit)."""
+    return (n >> (128 - do)) & ((1 << (do - od)) - 1)
+
+
+def _nat64_kandidati(ip) -> list:
+    """CodeRabbit 9. 11. 2026: v lokalni predponi 64:ff9b:1::/48 dolzine predpone prevajalnika (RFC 6052: /48, /56,
+    /64 ali /96) iz naslova ne razberemo - 64:ff9b:1:7f00:0:100:808:808 je pri /96 8.8.8.8, pri /48 pa 127.0.0.1.
+    Vrne vse moznosti, /96 prva. Kratke oblike imajo bite 64-71 (»u«) nic; sicer je mozna samo /96. Moznost v
+    0.0.0.0/8 se izpusti (nicle druge oblike, npr. 64:ff9b:1::a.b.c.d pri /48 da 0.0.0.0); ce ostane le taka, ostane
+    /96 (prepovedan)."""
+    n = int(ip)
+    izid = [ipaddress.IPv4Address(n & 0xFFFFFFFF)]
+    if not _biti(n, 64, 72):
+        izid += [ipaddress.IPv4Address(v4) for v4 in (
+            (_biti(n, 48, 64) << 16) | _biti(n, 72, 88),       # /48
+            (_biti(n, 56, 64) << 24) | _biti(n, 72, 96),       # /56
+            _biti(n, 72, 104))]                                # /64
+    return [a for a in izid if a not in _TA_MREZA] or izid[:1]
+
+
+def _vrsta_ip(ip) -> str:
+    """Vrsta ze razvitega naslova (glej vrsta_naslova)."""
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved \
+            or (ip.version == 4 and ip in _TA_MREZA):
+        return "prepovedan"
+    return "javni" if ip.is_global else "zasebni"
+
+
+_STROGOST = {"javni": 0, "zasebni": 1, "prepovedan": 2}
 
 
 def vgrajeni_ipv4(ip):
@@ -207,7 +240,11 @@ def vgrajeni_ipv4(ip):
     if ip.version != 6:
         return ip
     v4 = ip.ipv4_mapped or ip.sixtofour
-    if v4 is None and any(ip in mreza for mreza in NAT64):
+    if v4 is None and ip in _NAT64_LOKALNA:
+        # Dvoumen naslov presodimo po najstrozji moznosti (enaka strogost: /96).
+        kandidati = _nat64_kandidati(ip)
+        v4 = max(kandidati, key=lambda a: _STROGOST[_vrsta_ip(a)])
+    if v4 is None and ip in NAT64[0]:
         v4 = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
     if v4 is None and int(ip) >> 32 == 0 and int(ip) > 1:     # ::a.b.c.d (zastarelo)
         v4 = ipaddress.IPv4Address(int(ip))
@@ -222,11 +259,7 @@ def vrsta_naslova(naslov: str) -> str:
         ip = ipaddress.ip_address(str(naslov or "").split("%", 1)[0].strip("[]"))
     except ValueError:
         return "prepovedan"
-    ip = vgrajeni_ipv4(ip)
-    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved \
-            or (ip.version == 4 and ip in _TA_MREZA):
-        return "prepovedan"
-    return "javni" if ip.is_global else "zasebni"
+    return _vrsta_ip(vgrajeni_ipv4(ip))
 
 
 def _razresi(gostitelj: str, vrata: int) -> List[str]:
