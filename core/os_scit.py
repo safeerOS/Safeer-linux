@@ -2234,8 +2234,9 @@ class Scit:
         try:
             from core.sporocila import skrivnosti
             skrivnosti.pozabi(SKRIVNOST_ABUSECH)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            # Brez kljuca v izpisu: samo vrsta napake (zbirka skrivnosti nedosegljiva).
+            print("[SafeerOS] scit: kljuc abuse.ch ni odstranjen:", type(e).__name__, flush=True)
         self._ima_kljuc = False
         return self.stanje()
 
