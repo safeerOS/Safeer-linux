@@ -5091,6 +5091,10 @@ class SafeerOS(Gtk.Application):
             # Lastnik 9. 11. 2026: kljuc abuse.ch (URLhaus) vpise uporabnik; preveri se pri abuse.ch, nato v zbirko skrivnosti.
             "scitKljucAbusech": lambda: self._po_scitu(self.scit.nastavi_kljuc_abusech(str(a[0]) if a else "")),
             "scitKljucAbusechOdstrani": lambda: self._po_scitu(self.scit.odstrani_kljuc_abusech()),
+            # Lastnik 9. 11. 2026: filtri po meri (naslov seznama; vklop, izklop, odstrani).
+            "scitPoMeriDodaj": lambda: self._po_scitu(self.scit.dodaj_po_meri(str(a[0]) if a else "")),
+            "scitPoMeriNastavi": lambda: self._po_scitu(self.scit.nastavi_po_meri(str(a[0]) if a else "",
+                                                                                   None if len(a) < 2 or a[1] is None else bool(a[1]))),
             "scitPremor": lambda: self._po_scitu(self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0)),
             "scitPopravi": lambda: self._po_scitu(self.scit.popravi()),
             "scitDovoljenje": lambda: self._po_scitu(self.scit.posodobi_dovoljenje(bool(a[0]) if a else True)),

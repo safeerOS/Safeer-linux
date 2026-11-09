@@ -872,6 +872,58 @@ def preveri_kljuc(kljuc: str) -> str:
         return "ni_odgovora"
 
 
+# ---------------------------------------------------------------------- filtri po meri (lastnik 9. 11. 2026)
+#: Kot AdGuard »Dodaj filter po meri«: uporabnik doda naslov javnega seznama domen; gre samo v nabor Scita (oglasi).
+NAJVEC_PO_MERI = 20
+
+
+def napaka_naslova(url: str) -> Optional[str]:
+    """Razlog, zakaj naslov filtra ni sprejemljiv, ali None (isto kot TV ScitPoMeriPravila.napaka)."""
+    u = (url or "").strip()
+    if not 12 <= len(u) <= 2000:
+        return "dolzina"
+    if not u.startswith("https://"):
+        return "https"
+    if any(c.isspace() or not 0x21 <= ord(c) <= 0x7E for c in u):
+        return "znaki"
+    gostitelj = u[8:].split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if "@" in gostitelj or not gostitelj or "." not in gostitelj:
+        return "gostitelj"
+    return None
+
+
+def id_po_meri(url: str) -> str:
+    return "pm-" + hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def ime_po_meri(url: str) -> str:
+    brez = url.strip()[8:]
+    gostitelj = brez.split("/", 1)[0]
+    datoteka = brez.split("?", 1)[0].rsplit("/", 1)[-1] if "/" in brez else ""
+    return gostitelj if not datoteka or datoteka == gostitelj else "%s … %s" % (gostitelj, datoteka)
+
+
+def po_meri(mapa: str) -> List[dict]:
+    """Filtri po meri iz <mapa>/po-meri.json: [{"url", "vklop"}], samo veljavni, najvec NAJVEC_PO_MERI."""
+    try:
+        with open(os.path.join(mapa, "po-meri.json"), encoding="utf-8") as f:
+            podatki = json.load(f)
+    except (OSError, ValueError):
+        return []
+    izid, videni = [], set()
+    for x in podatki if isinstance(podatki, list) else []:
+        url = x.get("url") if isinstance(x, dict) else None
+        if isinstance(url, str) and napaka_naslova(url) is None and id_po_meri(url) not in videni:
+            videni.add(id_po_meri(url))
+            izid.append({"url": url.strip(), "vklop": bool(x.get("vklop", True))})
+    return izid[:NAJVEC_PO_MERI]
+
+
+def zapisi_po_meri(mapa: str, filtri: List[dict]) -> None:
+    os.makedirs(mapa, exist_ok=True)
+    _atomic_write(Path(mapa, "po-meri.json"), json.dumps(filtri[:NAJVEC_PO_MERI]).encode("utf-8"))
+
+
 def razcleni_seznam(besedilo: str, abp: bool = False) -> List[str]:
     """Domene iz seznama v obliki hosts (0.0.0.0 ime), RPZ (ime CNAME .), golih domen ali AdGuard/ABP (||ime^);
     komentarji stran. Lastnik 9. 11. 2026 (AdGuard DNS filter): izjema »@@||ime^« izpusti ime in nadrejene domene iz
@@ -1027,6 +1079,44 @@ def prenesi(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
 class Seznami:
     """Seznami domen na disku (kot ThreatFeedsUpdater na televizorju) + Safeerjev podpisani seznam groznj."""
 
+    def viri(self) -> List[Tuple[str, str, str]]:
+        """Vgrajeni seznami in vklopljeni filtri po meri (oglasi; lastnik 9. 11. 2026)."""
+        return list(VIRI) + [(id_po_meri(f["url"]), f["url"], "oglasi") for f in po_meri(self.mapa) if f["vklop"]]
+
+    def dodaj_po_meri(self, url: str) -> str:
+        """Prenese in preveri seznam (HTTPS, ne HTML, vsaj eno ime), nato ga doda. 'dodan', 'naslov', 'ni_seznam',
+        'ze_dodan' ali 'polno'. Klic iz niti mostu (omrezje)."""
+        url = (url or "").strip()
+        if napaka_naslova(url):
+            return "naslov"
+        filtri = po_meri(self.mapa)
+        if any(id_po_meri(f["url"]) == id_po_meri(url) for f in filtri):
+            return "ze_dodan"
+        if len(filtri) >= NAJVEC_PO_MERI:
+            return "polno"
+        try:
+            koda, telo, _etag = self.prenesi(url, "")
+        except Exception:  # noqa: BLE001
+            return "ni_seznam"
+        glava = telo[:2048].decode("utf-8", "replace").lower() if telo else ""
+        if koda != 200 or not telo or len(telo) > NAJVEC_BAJTOV or "<html" in glava or "<!doctype" in glava:
+            return "ni_seznam"
+        if not razcleni_seznam(telo.decode("utf-8", "replace"), abp=True):
+            return "ni_seznam"
+        zapisi_po_meri(self.mapa, filtri + [{"url": url, "vklop": True}])
+        threading.Thread(target=self.osvezi, name="safeer-scit-po-meri", daemon=True).start()
+        return "dodan"
+
+    def nastavi_po_meri(self, ident: str, vklop: Optional[bool]) -> None:
+        """vklop True/False preklopi, None odstrani; nabor se zgradi znova (brez prenosa izklopljenih)."""
+        filtri = po_meri(self.mapa)
+        if vklop is None:
+            filtri = [f for f in filtri if id_po_meri(f["url"]) != ident]
+        else:
+            filtri = [dict(f, vklop=bool(vklop)) if id_po_meri(f["url"]) == ident else f for f in filtri]
+        zapisi_po_meri(self.mapa, filtri)
+        threading.Thread(target=self.osvezi_in_zgradi, name="safeer-scit-po-meri", daemon=True).start()
+
     def __init__(self, mapa: str, prenesi_fn=prenesi, kljuc_fn=abusech_kljuc) -> None:
         self.mapa = mapa
         self.prenesi = prenesi_fn
@@ -1099,11 +1189,25 @@ class Seznami:
     def _do_naslednje(self) -> float:
         return max(PRVA_OSVEZITEV, OSVEZITEV - (time.time() - float(self.meta.get("cas", 0) or 0)))
 
+    #: Ena osvezitev naenkrat (lastnik 9. 11. 2026: filter po meri sprozi osvezitev iz svoje niti, poleg redne zanke).
+    _osvezi_kljuc = threading.Lock()
+
     def osvezi(self) -> bool:
         """Prenese spremenjene sezname in na novo zgradi nabor; ob napaki ostane prejsnji."""
+        with self._osvezi_kljuc:
+            return self._osvezi()
+
+    def osvezi_in_zgradi(self) -> None:
+        with self._osvezi_kljuc:
+            try:
+                self._osvezi()
+            finally:
+                self._zgradi()
+
+    def _osvezi(self) -> bool:
         os.makedirs(self.mapa, exist_ok=True)
         spremenjeno, napake = False, []
-        for oznaka, url, _kat in VIRI:
+        for oznaka, url, _kat in self.viri():
             m = self.meta.get(oznaka, {})
             if "{KLJUC}" in url:
                 kljuc = self.kljuc_fn()
@@ -1124,7 +1228,7 @@ class Seznami:
             if "<html" in glava or "<!doctype" in glava:
                 napake.append("%s: html" % oznaka)
                 continue
-            domen = len(razcleni_seznam(telo.decode("utf-8", "replace"), abp=oznaka in SEZNAMI_ABP))
+            domen = len(razcleni_seznam(telo.decode("utf-8", "replace"), abp=oznaka in SEZNAMI_ABP or oznaka.startswith("pm-")))
             if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") or oznaka in ("stevenblack", "adguard-dns") else 1):
                 napake.append("%s: %d domen" % (oznaka, domen))
                 continue
@@ -1144,13 +1248,13 @@ class Seznami:
 
     def _zgradi(self) -> None:
         def domene():
-            for oznaka, _url, kat in VIRI:
+            for oznaka, _url, kat in self.viri():
                 try:
                     with open(os.path.join(self.mapa, oznaka + ".txt"), encoding="utf-8", errors="replace") as f:
                         besedilo = f.read()
                 except OSError:
                     continue
-                for ime in razcleni_seznam(besedilo, abp=oznaka in SEZNAMI_ABP):
+                for ime in razcleni_seznam(besedilo, abp=oznaka in SEZNAMI_ABP or oznaka.startswith("pm-")):
                     yield ime, kat
         nabor = Nabor.iz_domen(domene())
         if len(nabor):
@@ -1220,7 +1324,9 @@ class Seznami:
 
     def stanje(self) -> dict:
         st = {"domen": len(self.nabor), "posodobljeno": float(self.meta.get("cas", 0) or 0), "napakaSeznamov": self.napaka,
-              "seznami": {o: int(self.meta.get(o, {}).get("domen", 0) or 0) for o, _u, _k in VIRI}}
+              "seznami": {o: int(self.meta.get(o, {}).get("domen", 0) or 0) for o, _u, _k in self.viri()},
+              "poMeri": [{"id": id_po_meri(f["url"]), "url": f["url"], "ime": ime_po_meri(f["url"]), "vklop": f["vklop"],
+                          "domen": int(self.meta.get(id_po_meri(f["url"]), {}).get("domen", 0) or 0)} for f in po_meri(self.mapa)]}
         if self.storitev is not None:
             try:
                 st["pravil"] = int(self.storitev.status().get("rules") or 0)
@@ -2099,6 +2205,19 @@ class Scit:
         s = self.stanje()
         s["kljucIzid"] = izid
         return s
+
+    def dodaj_po_meri(self, url: str) -> dict:
+        """Lastnik 9. 11. 2026: filter po meri (kot AdGuard); seznam se pred dodajanjem prenese in preveri."""
+        seznami = self.seznami if self.seznami is not None else skupni_seznami(zazeni=False)
+        izid = seznami.dodaj_po_meri(url)
+        s = self.stanje()
+        s["poMeriIzid"] = izid
+        return s
+
+    def nastavi_po_meri(self, ident: str, vklop: Optional[bool]) -> dict:
+        seznami = self.seznami if self.seznami is not None else skupni_seznami(zazeni=False)
+        seznami.nastavi_po_meri(str(ident), vklop)
+        return self.stanje()
 
     def odstrani_kljuc_abusech(self) -> dict:
         try:

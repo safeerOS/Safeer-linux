@@ -3566,6 +3566,38 @@
       kb.appendChild(ko);
     }
     c.appendChild(kb);
+    // Lastnik 9. 11. 2026: filtri po meri (kot AdGuard »Dodaj filter po meri«) - samo za Scit (DNS).
+    var pm = el("div", "scit-zadnje scit-po-meri", "<b>" + ubezi(t("scitPoMeri")) + "</b>");
+    pm.setAttribute("role", "group");
+    pm.setAttribute("aria-label", t("scitPoMeri"));
+    (s.poMeri || []).forEach(function (f) {
+      var vr = el("div", "scit-po-meri-vrsta", ubezi(f.ime) + " · " + ubezi(t(f.vklop ? "scitPoMeriVklopljen" : "scitPoMeriIzklopljen")) +
+        (f.domen ? " · " + ubezi(t("scitPoMeriDomen").replace("{n}", String(f.domen))) : ""));
+      vr.title = f.url;
+      var gv = el("button", "", ubezi(t(f.vklop ? "scitPoMeriIzklopi" : "scitPoMeriVklopi")));
+      gv.addEventListener("click", function () { klic("scitPoMeriNastavi", [f.id, !f.vklop]).then(poScitu, function () {}); });
+      var go = el("button", "", ubezi(t("scitPoMeriOdstrani")));
+      go.addEventListener("click", function () { klic("scitPoMeriNastavi", [f.id, null]).then(poScitu, function () {}); });
+      vr.appendChild(gv); vr.appendChild(go);
+      pm.appendChild(vr);
+    });
+    pm.appendChild(el("p", "", ubezi(t("scitPoMeriNavodilo"))));
+    var pv = document.createElement("input");
+    pv.type = "url"; pv.autocomplete = "off"; pv.spellcheck = false; pv.placeholder = "https://";
+    pv.setAttribute("aria-label", t("scitPoMeriDodaj"));
+    pm.appendChild(pv);
+    var pd = el("button", "", ubezi(t("scitPoMeriDodaj")));
+    pd.addEventListener("click", function () {
+      obvesti(t("scitPoMeriPreverjam"));
+      klic("scitPoMeriDodaj", [pv.value]).then(function (r) {
+        var iz = r && r.poMeriIzid;
+        obvesti(t(iz === "dodan" ? "scitPoMeriDodan" : iz === "naslov" ? "scitPoMeriNapacen" : iz === "polno" ? "scitPoMeriPolno" : "scitPoMeriNiSeznam"));
+        if (iz === "dodan") pv.value = "";
+        poScitu(r);
+      }, function () { obvesti(t("scitPoMeriNiSeznam")); });
+    });
+    pm.appendChild(pd);
+    c.appendChild(pm);
     // Prvi vklop (4. 11. 2026): uporabnik sam izbere, kam gredo dovoljena imena; dokler ne izbere, velja krajevni DNS.
     if (s.mozno && s.vklop && s.naprejIzbran === false) {
       var iz0 = el("div", "scit-zadnje scit-izbira", "<b>" + ubezi(t("scitIzbiraNaslov")) + "</b> " + ubezi(t("scitIzbiraOpis")) + " ");

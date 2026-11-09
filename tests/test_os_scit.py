@@ -1118,5 +1118,49 @@ class CnameTest(unittest.TestCase):
         self.assertEqual(os_scit.razcleni_seznam(besedilo, abp=True), ["ads.example-oglas.com"])
 
 
+
+class PoMeriTest(unittest.TestCase):
+    """Lastnik 9. 11. 2026: filtri po meri (kot AdGuard), enaka pravila kot TV ScitPoMeriPravila."""
+
+    def test_naslov_in_oznaka(self):
+        self.assertIsNone(os_scit.napaka_naslova("https://raw.githubusercontent.com/x/y/hosts"))
+        self.assertEqual(os_scit.napaka_naslova("http://primer.si/hosts"), "https")
+        self.assertEqual(os_scit.napaka_naslova("https://uporabnik:geslo@primer.si/h"), "gostitelj")
+        self.assertEqual(os_scit.napaka_naslova("https://primer.si/a b"), "znaki")
+        self.assertEqual(os_scit.napaka_naslova("https://lokalno/x"), "gostitelj")
+        i = os_scit.id_po_meri("https://primer.si/hosts")
+        self.assertTrue(i.startswith("pm-") and len(i) == 15 and i == os_scit.id_po_meri(" https://primer.si/hosts "))
+        self.assertEqual(os_scit.ime_po_meri("https://raw.githubusercontent.com/x/y/hosts?a=1"), "raw.githubusercontent.com … hosts")
+
+    def test_dodaj_vklop_odstrani(self):
+        url = "https://primer.si/hosts"
+        vsebine = {url: b"! Title: test\n||oglas.example^\n0.0.0.0 sled.example\n", "https://primer.si/html": b"<html>x</html>",
+                   dict((o, u) for o, u, _k in os_scit.VIRI)["si-cert"]: b"cert.example\n"}
+
+        def prenesi(u, etag, cas=60.0):
+            if u in vsebine:
+                return 200, vsebine[u], ""
+            raise OSError("ni")
+        with tempfile.TemporaryDirectory() as m:
+            s = os_scit.Seznami(m, prenesi_fn=prenesi, kljuc_fn=lambda: None)
+            # Brez niti v ozadju (sicer bi pisala v mapo, ko jo preizkus ze pobrise): osvezitev klice preizkus sam.
+            s.osvezi = lambda: True
+            s.osvezi_in_zgradi = lambda: None
+            self.assertEqual(s.dodaj_po_meri("http://primer.si/hosts"), "naslov")
+            self.assertEqual(s.dodaj_po_meri("https://primer.si/html"), "ni_seznam")
+            self.assertEqual(s.dodaj_po_meri(url), "dodan")
+            self.assertEqual(s.dodaj_po_meri(url), "ze_dodan")
+            os_scit.Seznami.osvezi_in_zgradi(s)
+            self.assertEqual(s.kategorija("x.oglas.example"), "oglasi")
+            self.assertEqual(s.kategorija("sled.example"), "oglasi")
+            ident = os_scit.id_po_meri(url)
+            self.assertEqual(s.stanje()["poMeri"][0]["id"], ident)
+            s.nastavi_po_meri(ident, False)
+            os_scit.Seznami.osvezi_in_zgradi(s)
+            self.assertIsNone(s.kategorija("oglas.example"))
+            s.nastavi_po_meri(ident, None)
+            self.assertEqual(os_scit.po_meri(m), [])
+
+
 if __name__ == "__main__":
     unittest.main()
