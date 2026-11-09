@@ -572,6 +572,17 @@ class CakanjeBrezMeje1024(unittest.TestCase):
             for x in zapri:
                 x.close() if hasattr(x, "close") else os.close(x)
 
+    def test_enkratni_iterator_kot_select(self):
+        """CodeRabbit 9. 11. 2026: select.select sprejme kateri koli iterabilni objekt - tudi generator (en prehod)."""
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        b.send(b"x")
+        self.assertEqual(os_deskriptorji.pripravljeni((x for x in [a]), (x for x in [b]), 1.0), ([a], [b]))
+        self.assertEqual(os_deskriptorji.berljivi(iter([a]), 1.0), [a])
+        # a je berljiv in pisljiv, registriran samo za pisanje: ne sme med berljive
+        self.assertEqual(os_deskriptorji.pripravljeni([], [a], 1.0), ([], [a]))
+
     def test_zaprta_vticnica_vrze_kot_select(self):
         s = socket.socket()
         s.close()

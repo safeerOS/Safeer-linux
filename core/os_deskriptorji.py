@@ -373,8 +373,10 @@ def pripravljeni(bralni, pisalni, cas: Optional[float]):
         for o, d in dogodki.items():
             sel.register(o, d)
         izid = sel.select(None if cas is None else max(0.0, float(cas)))
-        return ([k.fileobj for k, d in izid if d & selectors.EVENT_READ and k.fileobj in bralni],
-                [k.fileobj for k, d in izid if d & selectors.EVENT_WRITE and k.fileobj in pisalni])
+        # CodeRabbit 9. 11. 2026: brez ponovnega »in bralni/pisalni« - generator je po registraciji prazen in bi
+        # vrnil nic; selectors sam vrne samo dogodke, ki smo jih za objekt registrirali (d & key.events).
+        return ([k.fileobj for k, d in izid if d & selectors.EVENT_READ],
+                [k.fileobj for k, d in izid if d & selectors.EVENT_WRITE])
     finally:
         sel.close()
 
