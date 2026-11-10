@@ -640,6 +640,27 @@ def v_krogu_zaupanja(id_naprave: str) -> bool:
         return False
 
 
+def umaknjena(id_naprave: str) -> bool:
+    """Ali je naprava izrecno umaknjena iz kroga zaupanja (core/link_krog.je_umaknjen). Napaka = ne."""
+    try:
+        from core import link_krog
+        return link_krog.je_umaknjen(id_naprave)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _jedro_naprave(id_naprave: str) -> str:
+    """Jedro kljuca naprave (n-<16 hex>) za primerjavo z jedrom iz core/link_dostop; prazno, ce ga ne poznamo."""
+    try:
+        from core import link_krog
+        if link_krog.je_id_iz_kljuca(id_naprave):
+            return id_naprave[:link_krog.DOLZINA_ID_IZ_KLJUCA]
+        c = link_krog.krog().clani.get(id_naprave)
+        return link_krog.id_iz_kljuca(c["kljuc"]) if c and c.get("kljuc") else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _danes() -> Tuple[str, str]:
     t = time.localtime()
     return time.strftime("%Y-%m-%d", t), time.strftime("%Y-%m", t)
@@ -706,6 +727,13 @@ class InternetUpravitelj:
         self._nalozi()
         internet.ob_prometu = self._na_promet
         internet.ob_stanju = self._na_stanje_ponudnika
+        # Pregled TV 10. 11. 2026: umik naprave iz kroga takoj zapre njene tokove in pozabi izbiro (core/link_dostop
+        # poklice ob vsakem odvzemu; tu ukrepamo samo, ce naprava v krogu res ni vec).
+        try:
+            from core import link_dostop
+            link_dostop.ob_odvzemu(self.ob_odvzemu)
+        except Exception as e:  # noqa: BLE001 - brez zapisa dostopov (preizkusi) ostane preverba v telefon()
+            print("[SafeerInternet] umika iz kroga ni mogoce spremljati: %s" % type(e).__name__, flush=True)
 
     # ------------------------------------------------------------------ nastavitve
 
@@ -849,14 +877,41 @@ class InternetUpravitelj:
                 izid.append({"id": str(n.get("id") or ""), "ime": str(n.get("ime") or "")})
         return izid
 
+    def sme_sporocati(self, naprava: str) -> bool:
+        """internet.* sprejmemo samo od naprave v krogu zaupanja ali od telefona, ki ga je uporabnik izrecno izbral -
+        nikoli od umaknjene (pregled TV 10. 11. 2026)."""
+        if not naprava or umaknjena(naprava):
+            return False
+        with self._zaklep:
+            izbran = self.naprava
+        return naprava == izbran or bool(self.zaupana(naprava))
+
+    def ob_odvzemu(self, jedro: str) -> None:
+        """Napravi z jedrom kljuca [jedro] je bil vzet dostop. Ce ni vec v krogu zaupanja: njeni tokovi se koncajo
+        in izbira tega telefona se pozabi (ob vrnitvi ga uporabnik izbere znova)."""
+        kandidati = {t.get("naprava") for t in self.internet.tokovi()} | {self.naprava}
+        for naprava in [n for n in kandidati if n and _jedro_naprave(n) == jedro]:
+            if not umaknjena(naprava):
+                continue
+            koncanih = self.internet.zapri_napravo(naprava)
+            with self._zaklep:
+                pozabi = self.naprava == naprava
+                if pozabi:
+                    self.naprava = ""
+            if pozabi:
+                self._shrani()
+            print("[SafeerInternet] naprava ni vec v krogu: koncanih tokov %d%s" % (koncanih, ", izbira pozabljena" if pozabi else ""),
+                  flush=True)
+
     def telefon(self) -> Optional[str]:
-        """Izbrani telefon, ce je v Linku (izbral ga je uporabnik); sicer prvi iz kroga zaupanja, ki deli internet."""
+        """Izbrani telefon, ce je v Linku (izbral ga je uporabnik); sicer prvi iz kroga zaupanja, ki deli internet.
+        Izbrani, ki je bil iz kroga umaknjen, ne dobi prometa (pregled TV 10. 11. 2026)."""
         vsi = self.telefoni()
         with self._zaklep:
             izbran = self.naprava
         for t in vsi:
             if t["id"] == izbran:
-                return izbran
+                return None if umaknjena(izbran) else izbran
         if izbran:
             return None
         for t in vsi:

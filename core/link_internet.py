@@ -500,9 +500,12 @@ class Tok:
 class InternetPrekLinka:
     """Vsi tokovi tega racunalnika prek ponudnikov v Linku in kar o ponudnikih vemo."""
 
-    def __init__(self, oddaj: Callable[[dict], bool]) -> None:
+    def __init__(self, oddaj: Callable[[dict], bool], zaupan: Optional[Callable[[str], bool]] = None) -> None:
         #: Poslje sporocilo v Link (Povezava.poslji). False, ko povezave ni.
         self._oddaj_v_link = oddaj
+        #: Pregled TV 10. 11. 2026: internet.* samo od naprave v krogu zaupanja (Control poda core/link_krog); umaknjena
+        #: ali tuja naprava ne sme pisati v tokove ne lagati o stanju ponudnika. None = vsi (preizkusi protokola).
+        self._zaupan = zaupan
         self._zaklep = threading.RLock()
         self._tokovi: Dict[str, Tok] = {}
         self._proracuni: Dict[str, Proracun] = {}
@@ -579,6 +582,13 @@ class InternetPrekLinka:
         if not tip.startswith("internet."):
             return False
         od = str(s.get("sender") or "")
+        if tip != "internet.ack" and self._zaupan is not None:
+            try:
+                zaupan = bool(od) and bool(self._zaupan(od))
+            except Exception:  # noqa: BLE001 - krog ni berljiv: ne zaupamo
+                zaupan = False
+            if not zaupan:
+                return True             # nase sporocilo, a ne od zaupane naprave: zavrzeno (brez odgovora)
         if tip == "internet.status":
             tovor = s.get("payload")
             if od and isinstance(tovor, dict):
@@ -737,6 +747,17 @@ class InternetPrekLinka:
     def stevilo_tokov(self) -> int:
         with self._zaklep:
             return len(self._tokovi)
+
+    def zapri_napravo(self, naprava: str, razlog: str = "revoked") -> int:
+        """Naprava ni vec zaupana (umik iz kroga): njeni tokovi se takoj koncajo, o njej ne vemo vec nicesar.
+        Vrne stevilo koncanih tokov."""
+        with self._zaklep:
+            tokovi = [t for t in self._tokovi.values() if t.naprava == naprava]
+            self._ponudniki.pop(naprava, None)
+            self._proracuni.pop(naprava, None)
+        for t in tokovi:
+            t.prekini(razlog)
+        return len(tokovi)
 
     def zapri_vse(self, razlog: str = "shutdown") -> None:
         with self._zaklep:

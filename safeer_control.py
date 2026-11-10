@@ -2031,8 +2031,10 @@ class SafeerControl(_OSNOVA):
     def _pripravi_internet(self) -> None:
         """Tokovi skozi telefon v Linku in krajevni posrednik. Privzeto izklopljeno; vklopi uporabnik."""
         link = self.link
+        # internet.* samo od naprav v krogu zaupanja (pregled TV 10. 11. 2026).
         link.internet = link_internet.InternetPrekLinka(
-            lambda s: bool(link.povezava is not None and link.povezava.poslji(s)))
+            lambda s: bool(link.povezava is not None and link.povezava.poslji(s)),
+            zaupan=lambda od: self.internet.sme_sporocati(od))
         self.internet = link_internet_posrednik.InternetUpravitelj(
             link.internet, lambda: link.naprave_vse, os.path.join(NASTAVITVE_MAPA, "internet.json"),
             sistemski=sistemski_posrednik.SistemskiPosrednik(os.path.join(NASTAVITVE_MAPA, "sistemski-posrednik.json")),
