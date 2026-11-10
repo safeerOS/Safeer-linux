@@ -146,3 +146,6 @@ pregled pa je na strani nasel 6 napacnih SHA-256. Vsaka tocka spodaj je ze bila 
 - **Webmaster pregled:** vsaka sprememba strani safeer.si, Spleta ali lupe gre pred objavo skozi webmaster pregled
   (vsote, povezave 200, sitemap/canonical, telefon, dostopnost, hitrost) - drug agent kot avtor. Napake iz pregleda
   se popravijo ali izrecno prestavijo v zapisnik; prestavljene tocke so prva naloga naslednje izdaje.
+
+## Upravljanje naprav - tipkovnica
+- Navidezna tipkovnica pri upravljanju druge naprave (lastnik, 10. 11. 2026): kadar upravljas s TABLICE ali TELEFONA (dotik) racunalnik ali TV in je za vnos potrebna tipkovnica (polje za besedilo dobi fokus ali ga tapnes), se tipkovnica na tablici/telefonu pokaze SAMA - pri deljenju namizja in pri locenem zaslonu. Kadar upravljas z RACUNALNIKA (racunalnik, TV, tablico ali telefon), se navidezna tipkovnica NE pokaze - racunalnik ima svojo. Odloca vrsta naprave, ki upravlja, ne naprave, ki jo upravljamo.
