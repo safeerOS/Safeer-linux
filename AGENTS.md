@@ -157,3 +157,4 @@ pregled pa je na strani nasel 6 napacnih SHA-256. Vsaka tocka spodaj je ze bila 
   tipkovnica namesto daljinca). Pred spremembo Medijskega centra preveri, kako to dela TV (pravila v *Pravila.kt), in pravila
   prenesi - ne izumljaj drugacnega vedenja. Najdena razlika je napaka in gre v zapisnik.
 - Klik na film v mrezi takoj predvaja z najboljsim virom kot na TV; podrobnosti in izbira toka so v meniju kartice (lastnik, 10. 11. 2026).
+- Strezniki in viri v Medijskem centru (lastnik, 10. 11. 2026): na TV, racunalniku, tablici in telefonu omogocimo samo tisto, kar se na tej napravi dejansko lahko uporabi (doda, poveze in predvaja - izmerjeno, ne predpostavljeno). Vrsta streznika, ki na napravi ne dela, se tam ne pokaze; ki dela, se pokaze na vseh napravah, kjer dela.
