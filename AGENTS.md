@@ -149,3 +149,10 @@ pregled pa je na strani nasel 6 napacnih SHA-256. Vsaka tocka spodaj je ze bila 
 
 ## Upravljanje naprav - tipkovnica
 - Navidezna tipkovnica pri upravljanju druge naprave (lastnik, 10. 11. 2026): kadar upravljas s TABLICE ali TELEFONA (dotik) racunalnik ali TV in je za vnos potrebna tipkovnica (polje za besedilo dobi fokus ali ga tapnes), se tipkovnica na tablici/telefonu pokaze SAMA - pri deljenju namizja in pri locenem zaslonu. Kadar upravljas z RACUNALNIKA (racunalnik, TV, tablico ali telefon), se navidezna tipkovnica NE pokaze - racunalnik ima svojo. Odloca vrsta naprave, ki upravlja, ne naprave, ki jo upravljamo.
+
+## Medijski center - enako kot na TV
+- Medijski center na Linuxu (in Windows) se obnasa tako kot na TV, kjer je uporabnik navajen (lastnik, 10. 11. 2026: »vse uskladi tako
+  kot je na TV«): isti filtri mreze in isti pomen izbire (izbira vira Usenet ali TorBox FILTRIRA mrezo, ne odpira nastavitev),
+  isti vrstni red, iste oznake in isti potek do predvajanja. Razlika je dovoljena samo tam, kjer jo zahteva naprava (miska in
+  tipkovnica namesto daljinca). Pred spremembo Medijskega centra preveri, kako to dela TV (pravila v *Pravila.kt), in pravila
+  prenesi - ne izumljaj drugacnega vedenja. Najdena razlika je napaka in gre v zapisnik.
