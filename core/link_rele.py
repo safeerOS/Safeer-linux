@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -564,6 +565,26 @@ def cev(ws: WsOdjemalec, tcp: socket.socket) -> None:
 
 # ------------------------------------------------------------------ agent huba
 
+#: Pregled TV 10. 11. 2026: najvec socasnih kanalov releja (vsak je nit in povezava): v obe smeri - kanali od zunaj
+#: (AgentHuba, poslje jih rele) in krajevni (LokalniRele). Vec ne sprejmemo, dokler se kateri ne konca.
+NAJVEC_KANALOV = 32
+
+
+def _zacni_kanal(mesta: threading.BoundedSemaphore, delo: Callable[[], None], ob_zavrnitvi: Callable[[], None]) -> bool:
+    """Nit za en kanal, ce je mesto; mesto se sprosti, ko se kanal konca (tudi z napako)."""
+    if not mesta.acquire(blocking=False):
+        ob_zavrnitvi()
+        return False
+
+    def tece() -> None:
+        try:
+            delo()
+        finally:
+            mesta.release()
+    threading.Thread(target=tece, name="safeer-rele-kanal", daemon=True).start()
+    return True
+
+
 class AgentHuba:
     """Drzi hub dosegljiv prek link.safeer.si, dokler je `vrata()` > 0 in je Global Link vklopljen."""
 
@@ -575,6 +596,7 @@ class AgentHuba:
         self.namigi = namigi
         self._nit: Optional[threading.Thread] = None
         self._ws: Optional[WsOdjemalec] = None
+        self._mesta = threading.BoundedSemaphore(NAJVEC_KANALOV)
         self.stanje = "izklopljen"
         #: Cas zadnjega okvirja releja (pong ali klic) na trenutnem poslusalcu; postavi ga _zanka.
         self.zadnji_okvir = 0.0
@@ -677,7 +699,9 @@ class AgentHuba:
                         if op == 0x1 and podatki.startswith(b"{"):
                             s = json.loads(podatki)
                             if s.get("type") == "incoming" and len(str(s.get("kanal", ""))) == 32:
-                                threading.Thread(target=self._kanal, args=(str(s["kanal"]),), daemon=True).start()
+                                kanal = str(s["kanal"])
+                                _zacni_kanal(self._mesta, lambda k=kanal: self._kanal(k),
+                                             lambda: self.dnevnik("[Global Link] prevec kanalov hkrati - kanal zavrnjen"))
                 finally:
                     self._ws = None
                     ws.zapri()
@@ -732,6 +756,7 @@ class LokalniRele:
         self.streznik = None
         self.vrata = 0
         self._tece = True
+        self._mesta = threading.BoundedSemaphore(NAJVEC_KANALOV)
         if poslusaj:
             self.streznik = socket.create_server(("127.0.0.1", 0))
             self.vrata = self.streznik.getsockname()[1]
@@ -758,7 +783,12 @@ class LokalniRele:
                     pass
                 continue
             oddaja = gneca.vzemi_oddajo(naslov[1]) if isinstance(naslov, tuple) and len(naslov) > 1 else False
-            threading.Thread(target=self._kanal, args=(tcp, oddaja), daemon=True).start()
+
+            def zavrni(t=tcp) -> None:
+                self.zadnja_napaka = "prevec_kanalov"
+                with contextlib.suppress(OSError):
+                    t.close()
+            _zacni_kanal(self._mesta, lambda t=tcp, o=oddaja: self._kanal(t, o), zavrni)
 
     def _nas_proces(self, naslov) -> bool:
         """Na Linuxu sprejmemo samo povezave procesov istega uporabnika (uid). Drugje (Windows) ali kadar

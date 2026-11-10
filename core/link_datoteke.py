@@ -1628,8 +1628,17 @@ class _CuvajGlav:
             self._zapri(izteklo)
 
 
+#: Pregled TV 10. 11. 2026: meja socasnih povezav streznika datotek - skupaj in z enega naslova. Vsaka povezava je nit;
+#: naprava v domacem omrezju bi z mnogo tihimi povezavami porabila niti in pomnilnik racunalnika. Predvajalnik
+#: odpre nekaj povezav hkrati (iskanje po filmu, podnapisi), zato ima en naslov dovolj prostora.
+NAJVEC_POVEZAV = 64
+NAJVEC_POVEZAV_NA_NASLOV = 16
+
+
 class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
+    najvec_povezav = NAJVEC_POVEZAV
+    najvec_na_naslov = NAJVEC_POVEZAV_NA_NASLOV
     #: Predvajalnik, ki obstane (pavza), ne drzi niti v nedogled (rok na recv/send PO glavah; glave ima _CuvajGlav).
     rok_po_rokovanju = 120.0
     allow_reuse_address = True
@@ -1644,9 +1653,28 @@ class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.serve
             return False
         if self.obramba is not None and not self.obramba.dovoli(vir):
             return False
+        if not self._zasedi(request, vir):
+            return False
         if self.cuvaj is not None:
             self.cuvaj.zacni(request, vir)
         return True
+
+    def _zasedi(self, request, vir: str) -> bool:
+        """Mesto za povezavo: najvec najvec_povezav skupaj in najvec_na_naslov z enega naslova; sicer zavrnjena."""
+        zaklep = self.__dict__.setdefault("_zaklep_povezav", threading.Lock())
+        with zaklep:
+            odprte: dict = self.__dict__.setdefault("_odprte", {})
+            if len(odprte) >= self.najvec_povezav or sum(1 for v in odprte.values() if v == vir) >= self.najvec_na_naslov:
+                return False
+            odprte[id(request)] = vir
+            return True
+
+    def _sprosti(self, request) -> None:
+        zaklep = self.__dict__.get("_zaklep_povezav")
+        if zaklep is None:
+            return
+        with zaklep:
+            self.__dict__.get("_odprte", {}).pop(id(request), None)
 
     def ob_neuspelem_rokovanju(self, client_address) -> None:
         if self.obramba is not None:
@@ -1655,7 +1683,10 @@ class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.serve
     def shutdown_request(self, request) -> None:
         if self.cuvaj is not None:
             self.cuvaj.koncaj(request)
-        super().shutdown_request(request)
+        try:
+            super().shutdown_request(request)
+        finally:
+            self._sprosti(request)
 
     def handle_error(self, request, client_address) -> None:
         # Prekinjena povezava (naprava je odsla, cuvaj glav jo je zaprl) ni napaka streznika in ne sodi v dnevnik.

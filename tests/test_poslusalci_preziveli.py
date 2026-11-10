@@ -56,10 +56,15 @@ class PoslusalciPrezivijo(unittest.TestCase):
         r.streznik, r.vrata = _Streznik(), 1
         r._tece = True              # zapri() ga ugasne (3d55eab): zanka se konca tudi, ce accept() se vrne povezavo
         r._nas_proces = lambda _n: True
+        r._mesta = link_rele.threading.BoundedSemaphore(link_rele.NAJVEC_KANALOV)
+        r._kanal = mock.Mock()
         niti = _Niti()
         with mock.patch.object(link_rele.threading, "Thread", niti):
             r._sprejemaj()
-        self.assertEqual(niti.ciljev, [r._kanal])
+        # Kanal tece v svoji niti z mestom iz meje kanalov (pregled TV 10. 11. 2026): nit poklice _kanal.
+        self.assertEqual(len(niti.ciljev), 1)
+        niti.ciljev[0]()
+        self.assertEqual(r._kanal.call_count, 1)
 
     def test_od_zunaj(self):
         z = link_neposredno.LokalniOdZunaj.__new__(link_neposredno.LokalniOdZunaj)
