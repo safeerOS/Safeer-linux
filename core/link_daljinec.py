@@ -544,6 +544,11 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             try:
                 seja = zaslon.zacni(posiljatelj, kakovost, cilj, **dodatno)
             except RuntimeError as e:
+                if type(e).__name__ == "ZajemPada":
+                    # Zajem je zapored padel takoj (link_zaslon.OdpovediZajema): gledalec ne sme ponavljati v zanki.
+                    koncaj(izid(False, str(e), {"konec": "zajem", "razlog": str(getattr(e, "razlog", ""))[:32]},
+                                koda="zajem_pada"))
+                    return
                 # ProgramaNi: televizor je hotel program, ki ga ni vec - pove to in gre domov.
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
                 return

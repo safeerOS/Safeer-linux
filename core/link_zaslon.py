@@ -698,6 +698,129 @@ def ukaz_zvok(vir: str, ffmpeg: str = "ffmpeg") -> List[str]:
             "-ac", str(ZVOK_KANALI), "-ar", str(ZVOK_HZ), "-f", "s16le", "-"]
 
 
+#: Zajem, ki konca prej kot v toliko sekundah in brez ene same slike, je odpovedal (10. 11. 2026 na testnem PC: x11grab
+#: z napacno velikostjo zaslona koncal v 0,1 s, izhod 234; gledalec je sejo zahteval znova vsakih ~1,4 s, 18+ sej).
+ZAJEM_HITRO_S = 2.0
+#: Po toliko ZAPOREDNIH takih sejah iste naprave nove seje ne zacnemo vec, gledalec dobi {"konec": "zajem"}.
+ZAJEM_MEJA_ZAPOREDNIH = 3
+#: Nov zagon po vsaj toliko sekundah mirovanja (rocni) steje znova od zacetka; samodejno ponavljanje okno podaljsa.
+ZAJEM_POCAKAJ_S = 30.0
+#: Toliko znakov konca izpisa ffmpeg (stderr) gre v dnevnik, ko zajem odpove - vzrok je bil prej v DEVNULL.
+ZAJEM_REP_ZNAKOV = 2000
+
+
+class RepIzpisa:
+    """Zadnjih `najvec_znakov` izpisa procesa. Medpomnilnik je omejen (4 bajti na znak UTF-8), da dolg izpis
+    ffmpeg med dolgo sejo ne raste v pomnilniku; berejo ga sproti, da proces nikoli ne obstane na polni cevi."""
+
+    def __init__(self, najvec_znakov: int = ZAJEM_REP_ZNAKOV) -> None:
+        self.najvec_znakov = max(1, int(najvec_znakov))
+        self._najvec_bajtov = self.najvec_znakov * 4
+        self._bajti = bytearray()
+        self._zaklep = threading.Lock()
+
+    def dodaj(self, kos: bytes) -> None:
+        with self._zaklep:
+            self._bajti += kos
+            odvec = len(self._bajti) - self._najvec_bajtov
+            if odvec > 0:
+                del self._bajti[:odvec]
+
+    def bajtov(self) -> int:
+        with self._zaklep:
+            return len(self._bajti)
+
+    def besedilo(self) -> str:
+        with self._zaklep:
+            surovo = bytes(self._bajti)
+        return surovo.decode("utf-8", "replace")[-self.najvec_znakov:].strip()
+
+
+def beri_izpis(tok, rep: RepIzpisa) -> None:
+    """Nit: bere stderr procesa do konca in hrani samo rep (ffmpeg ne sme cakati na poln stderr)."""
+    try:
+        while True:
+            kos = tok.read(4096)
+            if not kos:
+                break
+            rep.dodaj(kos)
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            tok.close()
+        except (OSError, ValueError):
+            pass
+
+
+class OdpovediZajema:
+    """Stetje sej, v katerih je zajem padel takoj, po napravah - cista logika brez procesov in GTK (preizkus).
+
+    Sejo znova zahteva GLEDALEC (screen.start, core/link_daljinec -> Zaslon.zacni); streznik sam seje nikoli ne
+    zacne znova. Zato je meja tu: zacetek() pove, ali se seja sme zaceti, konec() steje izid seje."""
+
+    def __init__(self, meja: int = ZAJEM_MEJA_ZAPOREDNIH, hitro_s: float = ZAJEM_HITRO_S,
+                 pocakaj_s: float = ZAJEM_POCAKAJ_S) -> None:
+        self.meja = int(meja)
+        self.hitro_s = float(hitro_s)
+        self.pocakaj_s = float(pocakaj_s)
+        self._naprave: Dict[str, dict] = {}
+        self._zaklep = threading.Lock()
+
+    @staticmethod
+    def razlog_kode(koda: Optional[int]) -> str:
+        """Kratka koda za gledalca in stanje: izhod ffmpeg (npr. izhod_234)."""
+        return "izhod_%d" % koda if isinstance(koda, int) else "brez_slike"
+
+    def zacetek(self, naprava: str, zdaj: float) -> Optional[str]:
+        """None = seja se sme zaceti; sicer razlog, zakaj ne. Zahteva, ki pride vsaj pocakaj_s po zadnji odpovedi ali
+        zavrnitvi (rocni nov zagon), steje znova. Zahteva prej (samodejna ponovitev gledalca) okno podaljsa - sicer bi
+        gledalec, ki ponavlja brez konca, vsakih 30 s spet sprozil tri odpovedi."""
+        with self._zaklep:
+            z = self._naprave.get(naprava)
+            if z is None or z["zaporednih"] < self.meja:
+                return None
+            if zdaj - z["zadnja"] >= self.pocakaj_s:
+                del self._naprave[naprava]
+                return None
+            z["zadnja"] = zdaj
+            return z["razlog"]
+
+    def konec(self, naprava: str, trajanje_s: float, slika: bool, koda: Optional[int], zdaj: float) -> Optional[str]:
+        """Izid seje. Vrne razlog, ce je bila to odpoved, s katero je meja dosezena (gledalec dobi konec)."""
+        with self._zaklep:
+            if slika:
+                self._naprave.pop(naprava, None)        # slika je stekla: zajem dela
+                return None
+            if not isinstance(koda, int) or koda < 0:
+                return None             # zajem smo ustavili mi (konec seje) ali se tece: ni odpoved, niz ostane
+            if trajanje_s >= self.hitro_s:
+                self._naprave.pop(naprava, None)        # ni bil takojsen padec: niz zaporednih je prekinjen
+                return None
+            z = self._naprave.setdefault(naprava, {"zaporednih": 0, "zadnja": zdaj, "razlog": ""})
+            z["zaporednih"] += 1
+            z["zadnja"] = zdaj
+            z["razlog"] = self.razlog_kode(koda)
+            return z["razlog"] if z["zaporednih"] >= self.meja else None
+
+    def stanje(self, naprava: str) -> Optional[dict]:
+        """Ce je naprava ustavljena: {"razlog", "zaporednih"}; sicer None."""
+        with self._zaklep:
+            z = self._naprave.get(naprava)
+            if z is None or z["zaporednih"] < self.meja:
+                return None
+            return {"razlog": z["razlog"], "zaporednih": z["zaporednih"]}
+
+
+class ZajemPada(RuntimeError):
+    """Zajem na tem racunalniku pade takoj (meja zaporednih odpovedi): nove seje ne zacnemo, dokler ni premora."""
+
+    def __init__(self, razlog: str) -> None:
+        super().__init__("Zajem zaslona na tem racunalniku ne deluje (%s). Poskusite znova cez %d s."
+                         % (razlog, int(ZAJEM_POCAKAJ_S)))
+        self.razlog = razlog
+
+
 def vklopljeno_iz_nastavitev(vrednost: object) -> bool:
     """Ali je deljenje zaslona v Safeer Controlu vklopljeno (`zaslon_za_tv` v control.json).
 
@@ -784,6 +907,9 @@ class Zaslon:
         #: Slicica za Prostore: en zajem naenkrat in zadnja (monotonic, izid) za SLICICA_VELJA_S.
         self._slicica_zaklep = threading.Lock()
         self._slicica_zadnja: tuple = (0.0, None)
+        #: Zaporedne takojsnje odpovedi zajema po napravah (meja ponovitev) in kljuc naprave zadnje seje (stanje()).
+        self._odpovedi = OdpovediZajema()
+        self._kljuc_seje = ""
 
     # ------------------------------------------------------------------ stanje
 
@@ -832,6 +958,10 @@ class Zaslon:
         if self._tece_od:
             s["sekund"] = int(time.time() - self._tece_od)
         s["vnosov"] = self._vnosov
+        pada = self._odpovedi.stanje(self._kljuc_seje) if self._kljuc_seje else None
+        if pada is not None:
+            # Zajem je padel ZAJEM_MEJA_ZAPOREDNIH-krat zapored: nova seja te naprave caka premor (screen.status).
+            s["zajem"] = dict(pada, pada=True)
         meritve = self._meritve
         if meritve is not None and self._povezan:
             # Med sejo: meritve in kodirnik, ki ga zajem res uporablja (screen.status jih pokaze).
@@ -934,6 +1064,15 @@ class Zaslon:
         wayland = seja_prikaza.je_wayland()
         if not display and not wayland:
             raise RuntimeError("Zaslona ni mogoce zajeti (seja ni na voljo)")
+        # Ime ne sme biti `kljuc`: spodaj je to pot do kljuca TLS (zagotovi_potrdilo).
+        kljuc_naprave = str(jedro or id_naprave or "").strip()
+        razlog = self._odpovedi.zacetek(kljuc_naprave, time.monotonic())
+        if razlog is not None:
+            # Gledalec sejo zahteva znova sam; po meji zaporednih odpovedi ji ne zacnemo nove (prej 18+ sej v 25 s).
+            self._kljuc_seje = kljuc_naprave
+            print("[zaslon] nove seje ne zacnemo: zajem je %dx zapored padel (%s)" % (self._odpovedi.meja, razlog),
+                  flush=True)
+            raise ZajemPada(razlog)
         k = KAKOVOSTI.get(kakovost) or KAKOVOSTI[PRIVZETA_KAKOVOST]
         self._seja_st += 1
         seja_st = self._seja_st
@@ -975,6 +1114,9 @@ class Zaslon:
             self._kakovost = kakovost if kakovost in KAKOVOSTI else PRIVZETA_KAKOVOST
             self._naprava = id_naprave
             self._jedro = str(jedro or "")
+            self._kljuc_seje = kljuc_naprave
+            # Nit seje vzame kljuc po svoji stevilki (preizkusi nit zamenjajo z lambda *a: argumentov ne dodajamo).
+            self._kljuc_po_seji = (seja_st, kljuc_naprave)
             self._zeton = secrets.token_urlsafe(24)
             self._slika = {"width": sirina, "height": visina, "fps": int(k["fps"])}
             self._izvor = (int(izvor[0]), int(izvor[1]))
@@ -1226,7 +1368,10 @@ class Zaslon:
         return izid
 
     def _streci(self, posluh: socket.socket, ctx: ssl.SSLContext, ukaz: List[str], seja: int,
-                sestavi=None) -> None:
+                sestavi=None, kljuc: Optional[str] = None) -> None:
+        if kljuc is None:
+            st, kljuc_seje = getattr(self, "_kljuc_po_seji", (None, ""))
+            kljuc = kljuc_seje if st == seja else str(self._jedro or self._naprava or "")
         odjemalec = None
         konec_prevzete = None
         slika = zvok = None
@@ -1235,6 +1380,7 @@ class Zaslon:
         konec_seje = threading.Event()
         steklo = False
         pot_meritev = ""
+        nit_izpisa = None
         try:
             sprejet = self._sprejmi(posluh, ctx, seja)
             if sprejet is None:
@@ -1323,9 +1469,17 @@ class Zaslon:
                 if self._seja_st != seja or self._posluh is not posluh:
                     return                  # medtem ustavljeno ali pa se je zacela nova seja
                 # Zajem zazenemo pod kljucem in ga takoj vpisemo: ustavi() ga tako vedno najde.
-                slika = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                # stderr v omejen rep (prej DEVNULL: 10. 11. 2026 vzrok odpovedi ni bil v nobenem dnevniku).
+                slika = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                          stdin=subprocess.DEVNULL, bufsize=0, env=self._okolje_zajema,
                                          **self._zajem_dodatno)
+                zacetek_zajema = time.monotonic()
+                rep_izpisa = RepIzpisa()
+                tok_napak = getattr(slika, "stderr", None)
+                if tok_napak is not None:
+                    nit_izpisa = threading.Thread(target=beri_izpis, args=(tok_napak, rep_izpisa),
+                                                  name="safeer-zaslon-izpis", daemon=True)
+                    nit_izpisa.start()
                 self._proces = slika
                 self._odjemalec = odjemalec
                 self._povezan = True
@@ -1377,6 +1531,8 @@ class Zaslon:
                 n.start()
             steklo = True
             niti[0].join()          # dokler tece slika, tece seja
+            trajanje = time.monotonic() - zacetek_zajema
+            self._po_zajemu(odjemalec, slika, prebrano, trajanje, rep_izpisa, nit_izpisa, kljuc)
             self._preveri_hevc(slika, kodek_seje, prebrano)
             self._preveri_gpu(slika, ukaz, prebrano)
         except (OSError, ssl.SSLError, ValueError):
@@ -1584,6 +1740,33 @@ class Zaslon:
         except Exception:  # noqa: BLE001
             return False
         return bool(prej) and zdaj == prej
+
+    def _po_zajemu(self, odjemalec, slika, prebrano, trajanje: float, rep: RepIzpisa, nit_izpisa,
+                   kljuc: str) -> None:
+        """Zajem je koncal (crpalka slike se je vrnila). Takojsnja odpoved brez slike: rep stderr v dnevnik in stetje;
+        ob meji gledalec dobi {"konec": "zajem"} po isti poti kot {"konec": "dostop"} (_obvesti)."""
+        slika_poslana = bool(prebrano[1])
+        if slika_poslana or trajanje >= ZAJEM_HITRO_S:
+            self._odpovedi.konec(kljuc, trajanje, slika_poslana, 0, time.monotonic())
+            return
+        try:
+            # Crpalka se vrne tudi, ko gledalec odide (pisanje pade) - zajem takrat se tece. Samo kratko cakanje:
+            # dolgo bi zadrzalo konec seje (zaprtje povezave, nova seja); zajem, ki je koncal sam, je ze mrtev.
+            koda = slika.wait(timeout=0.2)
+        except Exception:  # noqa: BLE001 - zajem se tece: to ni odpoved zajema
+            koda = None
+        if not isinstance(koda, int) or koda < 0:
+            return              # se tece ali smo ga ustavili mi: ni odpoved, nic v dnevnik in nic ne stejemo
+        if nit_izpisa is not None:
+            nit_izpisa.join(1.0)        # rep izpisa je cel sele, ko je bralna nit prebrala konec cevi
+        izpis = rep.besedilo()
+        print("[zaslon] zajem je koncal po %.1f s brez slike (koda %s); ffmpeg: %s"
+              % (trajanje, koda, izpis or "(brez izpisa)"), flush=True)
+        razlog = self._odpovedi.konec(kljuc, trajanje, False, koda, time.monotonic())
+        if razlog is not None:
+            print("[zaslon] zajem je %dx zapored padel takoj (%s): nove seje ne zacnemo sami, gledalec izve konec"
+                  % (self._odpovedi.meja, razlog), flush=True)
+            self._obvesti(odjemalec, {"konec": "zajem", "razlog": razlog})
 
     def _izid_zagona(self) -> str:
         """Izid zadnjega zagona na locenem zaslonu ("" | "koncan" | "na_namizju"); napaka pomeni »ne vemo«."""
