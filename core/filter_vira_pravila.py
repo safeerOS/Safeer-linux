@@ -86,8 +86,9 @@ _SLIKA_DISKA = re.compile(r"(^|[^a-z0-9])(iso|bdmv|complete[ ._-]?(uhd[ ._-]?)?b
 
 
 def pot(r: Izdaja, z: tok_izbira.Zmoznosti) -> Pot:
-    """Kodek in zvok iz imena izdaje (tok_izbira.opisi): ime brez oznake kodeka je H.264/AAC. Slike diska ne predvaja nihce."""
-    if _SLIKA_DISKA.search(r.naslov.lower()):
+    """Kodek in zvok iz imena izdaje (tok_izbira.opisi): ime brez oznake kodeka je H.264/AAC. Slike diska ne predvaja nihce.
+    3D izdaje tudi ne (lastnik 10. 11. 2026, tok_izbira.je_3d): naslov s samo 3D izdajami v filtru Usenet ni na voljo."""
+    if _SLIKA_DISKA.search(r.naslov.lower()) or tok_izbira.je_3d(r.naslov):
         return Pot.NE
     o = tok_izbira.opisi(r.naslov)
     video = not (o.hevc and not z.hevc) and not (o.desetbitni and not z.hevc10) and not (o.av1 and not z.av1)

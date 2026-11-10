@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 from . import debrid_pravila as P
+from . import tok_izbira
 from . import usenet_pravila as U
 
 _log = logging.getLogger("safeer.debrid")
@@ -1397,8 +1398,12 @@ class Debrid:
         return (self._tokovi_usenet(izid.izdaje, vezava) if izid.izdaje is not None else None), izid
 
     def _tokovi_usenet(self, zadetki: list, vezava: object) -> list:
+        """Zadetki indeksatorja kot tokovi. 3D izdaj ne ponudimo (lastnik 10. 11. 2026, tok_izbira.je_3d): Usenet gre
+        mimo tok_izbira.zdruzi_dvojnike, zato jih izlocimo tu - za vse poti (samodejno, samo Usenet, TorBox Usenet)."""
         tokovi = []
         for z in zadetki:
+            if tok_izbira.je_3d(z.naslov):
+                continue
             idt = U.id_toka(z.povezava)
             with self._zaklep:
                 self._povezave_nzb[idt] = (z.povezava, vezava)
