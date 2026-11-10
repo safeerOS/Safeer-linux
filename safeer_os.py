@@ -1192,6 +1192,20 @@ def naprave_za_medij() -> list:
             for n in (izid.get("naprave") or []) if n.get("id") and not n.get("ta") and "remote" in (n.get("zmoznosti") or [])]
 
 
+def naprave_za_predvajanje() -> list:
+    """»Predvajaj na TV« (lastnik 10. 11. 2026): naprave ozjega kroga, ki oglasajo media.play (core/predvajaj_na_tv)."""
+    from core import predvajaj_na_tv
+    return predvajaj_na_tv.naprave(_control_naprave("Seznam"))
+
+
+def predvajaj_na_napravi(id_naprave: str, polja: object) -> dict:
+    """Identiteto vsebine poslje napravi (Link media.play prek Controla); TV predvaja z lastnimi viri."""
+    from core import predvajaj_na_tv
+    return predvajaj_na_tv.poslji(lambda: _control_naprave("Seznam"),
+                                  lambda nid, dejanje, parametri: _control_naprave("Ukaz", nid, dejanje, parametri),
+                                  id_naprave, polja)
+
+
 def odpri_medij_na(id_naprave: str, medij: str) -> dict:
     """»Prikazi na TV«: naslov odpre Medijski center izbrane naprave (Link media.open prek Controla)."""
     try:
@@ -5075,6 +5089,8 @@ class SafeerOS(Gtk.Application):
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
             "napraveZaMedij": naprave_za_medij,
             "odpriMedijNa": lambda: odpri_medij_na(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "napraveZaPredvajanje": naprave_za_predvajanje,
+            "predvajajNaNapravi": lambda: predvajaj_na_napravi(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,

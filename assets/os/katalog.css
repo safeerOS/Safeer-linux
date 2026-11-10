@@ -269,6 +269,9 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .kat-meni-kartice [role=menuitem]:hover, .kat-meni-kartice [role=menuitem]:focus-visible { background: var(--media-poudarek); outline: 0; }
 /* Podrobnosti: srcek in ogledano kot prava gumba; epizoda z oznako ogledano. */
 .kat-detail-dejanja { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+/* »Predvajaj na TV« ob epizodi: pod opisom, ne nov stolpec vrstice. */
+.kat-epizoda-info .kat-gumb-tv { margin-top: 8px; }
+.kat-gumb-tv svg { width: 16px; height: 16px; }
 .kat-detail-dejanja .gumb { display: inline-flex; align-items: center; gap: 8px; }
 .kat-detail-dejanja .gumb svg { width: 18px; height: 18px; }
 .kat-gumb-srce[aria-pressed=true] svg { color: var(--rdeca); fill: currentColor; }

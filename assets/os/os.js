@@ -6777,11 +6777,17 @@
       card.setAttribute("data-ime", card.getAttribute("aria-label"));
       // Twitch brez menija kartice (priljubljene in »ogledano« so police, ki gredo v Link): kaj kdo gleda, ostane tu.
       poveziMeniKartice(card, { kljuc: /^twitch/.test(x.vrsta || "") ? "" : kljucVnosa(x), naslov: x.naslov || "",
-                                ogledljivo: !!OGLEDLJIVE[x.vrsta], opis: opisVnosa(x) });
+                                ogledljivo: !!OGLEDLJIVE[x.vrsta], opis: opisVnosa(x),
+                                film: x.vrsta === "film" && !x.peertube_uuid ? x : null });
       card.onclick = function () {
         if (x.vrsta === "twitch-kanal") {
           odpriTwitchKanal(x.login, x.naslov);
-        } else if (x.tmdb_id || x.vrsta === "serija" || (x.vrsta === "film" && !x.peertube_uuid)) {
+        } else if (x.vrsta === "film" && !x.peertube_uuid) {
+          // Lastnik 10. 11. 2026 (kot TV, GlasbaActivity klik -> izberiTok): film se zacne TAKOJ z najboljsim virom;
+          // podrobnosti in »Izberi vir« so v meniju kartice.
+          predvajajFilmTakoj(x);
+        } else if (x.tmdb_id || x.vrsta === "serija") {
+          // Serija: kot TV (izberiSezono) se odprejo sezone in epizode.
           odpriKatalogPodrobnosti(x.id);
         } else if (x.vrsta === "glasba" || x.vrsta === "podcast") {
           nastaviVrsto(x);
@@ -7855,7 +7861,9 @@
 
   // predvajanje: [metoda, argumenti, tiho] namesto »mediaPredvajaj« z id (polica, naslednja epizoda); tiho = brez
   // obvestila, ce ni nicesar (ponudbo epizode je medtem ze zacelo ali preklicalo drugo okno).
-  function odpriKatalogVnos(id, predvajanje) {
+  // moznosti.izberiVir (klik na film v mrezi): ce predvajanje ne uspe, sporocilo z razlogom in gumb »Izberi vir«.
+  function odpriKatalogVnos(id, predvajanje, moznosti) {
+    var izberi = moznosti && typeof moznosti.izberiVir === "function" ? moznosti.izberiVir : null;
     if (!kat.izVrste) { kat.vrstaNapake = 0; kat.zahtevaVnosa++; }   // izbira uporabnika: stevec napak od zacetka,
     // epizoda ali film, ki se se isceta (mediaEpizoda, mediaFilm), se ne zacneta vec (M2)
     kat.izVrste = false;
@@ -7865,7 +7873,8 @@
     var zahteva = ++kat.zahtevaPredvajanja;
     klic(predvajanje ? predvajanje[0] : "mediaPredvajaj", predvajanje ? predvajanje[1] : [id]).then(function (item) {
       if (zahteva !== kat.zahtevaPredvajanja) return;       // uporabnik je medtem izbral drugo vsebino
-      if (!item) return;            // vira ni bilo mogoce razresiti: tiho (sled v sled.log, os_katalog)
+      // Vira ni bilo mogoce razresiti: tiho (sled v sled.log, os_katalog) - razen ob kliku v mrezi (lastnik 10. 11. 2026).
+      if (!item) { if (izberi) obvestiNeuspeh(t("katKlikNiOdziva"), izberi); return; }
       if (item.spotify) {
         // Skladba računa Spotify: predvaja skrit Safeer DRM; upravljanje je v razdelku Spotify (ne v traku predvajalnika).
         if (item.sp_napaka) { spNapaka(item.sp_napaka, true); return; }
@@ -7883,6 +7892,7 @@
           if (typeof kat.skupaj === "number") kat.skupaj = Math.max(kat.katalog.length, kat.skupaj - (prej - kat.katalog.length));
           zapriKatalogPodrobnosti(); narisiKatalog();
         }
+        if (izberi) obvestiNeuspeh(t("katKlikNiToka"), izberi);
         return;
       }
       // Napake predvajanja (tok, napaka, motor ...) so tihe, sled je v sled.log (lastnik 18. 10. 2026). Ostanejo samo
@@ -7897,7 +7907,11 @@
         if (kat.katalog.length !== prejU) { zapriKatalogPodrobnosti(); narisiKatalog(); }
         return;
       }
-      if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
+      if (item.napaka_koda) {
+        if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda));
+        else if (izberi) obvestiNeuspeh(t(razlogNeuspeha(item.napaka_koda)), izberi);
+        return;
+      }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
       // »stran« ob predvajljivem toku je le izvor (npr. stran filma v arhivu); v Splet gre samo, kar nima toka.
@@ -7908,6 +7922,143 @@
       if (kat.vrstaIzvor && id && kat.vrsta[kat.vrstaMesto] === id) zapomniZadnjiSeznam();
       osveziKatTrak();
     }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
+  }
+  // Razlog neuspeha klika v mrezi (koda jedra -> besedilo); neznana koda je splosna napaka.
+  function razlogNeuspeha(koda) {
+    if (koda === "tok") return "katKlikTok";
+    if (/^debrid_/.test(String(koda || ""))) return "katKlikDebrid";
+    return "katKlikNapaka";
+  }
+  // Obvestilo z gumbom »Izberi vir« (kot obvestiRazveljavi): dlje vidno, da ga uporabnik doseze tudi s tipkovnico.
+  function obvestiNeuspeh(besedilo, izberi) {
+    var o = $("obvestilo");
+    o.textContent = ""; o.appendChild(el("span", "", ubezi(besedilo)));
+    var g = el("button", "", ubezi(t("katIzberiVir"))); g.type = "button";
+    g.addEventListener("click", function () { skrijObvestilo(); izberi(); });
+    o.appendChild(g); o.classList.add("z-gumbom", "viden");
+    clearTimeout(obvestiloCas);
+    obvestiloCas = setTimeout(skrijObvestilo, 8000);
+  }
+  // Klik na film (lastnik 10. 11. 2026, kot TV): takoj predvaja z najboljsim virom - izbiro naredi jedro po istih pravilih
+  // (core/os_media.resolve, core/tok_izbira.uredi). Film s TMDB najprej dobi vnos s tokovi (mediaFilm), kot gumb Predvajaj.
+  function predvajajFilmTakoj(x) {
+    var zahteva = ++kat.zahtevaVnosa;          // M2: velja zadnji klik
+    var pojdi = function (vnosId) {
+      if (zahteva !== kat.zahtevaVnosa) return;
+      kat.vrsta = []; narisiVrsto();
+      odpriKatalogVnos(vnosId, null, { izberiVir: function () { izberiVirFilma(x); } });
+    };
+    if (x.tmdb_id) klic("mediaFilm", [x.tmdb_id, x.naslov]).then(function (e) { pojdi(e && e.id ? e.id : x.id); }, function () { pojdi(x.id); });
+    else pojdi(x.id);
+  }
+  // »Izberi vir«: podrobnosti filma z odprtim seznamom virov (rocna izbira).
+  function izberiVirFilma(x) { odpriKatalogPodrobnosti(x.id, null, { izberiVir: true }); }
+
+  // ---- »Predvajaj na TV« (lastnik 10. 11. 2026, #22): poslje se samo identiteta vsebine (assets/os/predvajaj_na_tv_pravila.js,
+  // isto kot TV PredvajajNaTvPravila.kt); TV predvaja z lastnimi viri, o dostopu odloci TV. Ponudimo samo napravam v
+  // ozjem krogu, ki oglasajo media.play (core/predvajaj_na_tv). Odgovor TV je samo besedilo (textContent), nikoli dejanje.
+  var PNT = { naprave: [], cas: 0, nalagam: false, cakajo: [] };
+  function naloziNapraveZaPredvajanje(ob) {
+    if (ob && PNT.cakajo.length < 4) PNT.cakajo.push(ob);
+    if (PNT.nalagam || Date.now() - PNT.cas < 30000) { if (!PNT.nalagam) PNT.cakajo = []; return; }
+    PNT.nalagam = true;
+    var konec = function (seznam) {
+      var prej = JSON.stringify(PNT.naprave);
+      PNT.naprave = (Array.isArray(seznam) ? seznam : []).filter(function (n) {
+        return n && typeof n.id === "string" && n.id && typeof n.ime === "string";
+      }).slice(0, 8).map(function (n) { return { id: n.id.slice(0, 200), ime: n.ime.slice(0, 80) }; });
+      PNT.nalagam = false; PNT.cas = Date.now();
+      var klici = PNT.cakajo; PNT.cakajo = [];
+      if (JSON.stringify(PNT.naprave) !== prej) klici.forEach(function (f) { try { f(); } catch (_) {} });
+    };
+    klic("napraveZaPredvajanje", []).then(konec, function () { konec([]); });
+  }
+  // Id IMDb vnosa: polje imdb_id ali naslov dodatka Stremio (stremio:koren|movie|tt…, tudi med razlicicami).
+  function imdbVnosa(x, tip) {
+    if (x && /^tt\d{7,10}$/.test(String(x.imdb_id || ""))) return String(x.imdb_id);
+    var naslovi = [String((x && x.url) || "")].concat(((x && x.razlicice) || []).map(function (v) { return String((v && v.url) || ""); }));
+    for (var i = 0; i < naslovi.length; i++) {
+      var d = naslovi[i].indexOf("stremio:") === 0 ? naslovi[i].slice(8).split("|") : [];
+      if (d.length >= 3 && d[1] === tip && /^tt\d{7,10}$/.test(d[2])) return d[2];
+    }
+    return "";
+  }
+  function poljaFilma(x) {
+    var id = imdbVnosa(x, "movie");
+    return id ? { vrsta: "film", id: id, naslov: String(x.naslov || "").slice(0, 200) } : null;
+  }
+  function poljaEpizode(item, sezona, ep) {
+    var id = imdbVnosa(item, "series");
+    return id ? { vrsta: "epizoda", id: id, sezona: String(sezona), epizoda: String(ep.stevilka),
+                  naslov: (String(item.naslov || "") + " · " + String(ep.naslov || "")).slice(0, 200) } : null;
+  }
+  // Besedilo izida: ime naprave je iz nasega seznama, iz odgovora samo koda razloga (znana koda pravil ali Linka).
+  function besediloPredvajanjaNa(r, ime) {
+    if (r && r.ok === true) return t("pntZacelo", { ime: ime });
+    var razlog = r && typeof r.razlog === "string" ? r.razlog.slice(0, 40) : "";
+    if (Object.prototype.hasOwnProperty.call(PredvajajNaTvPravila.Zavrnitev, razlog))
+      return t("pntZavrnil", { ime: ime, razlog: PredvajajNaTvPravila.besediloZavrnitve(razlog, jezik) });
+    if (razlog === "cas" || razlog === "ni_poti" || razlog === "ni_povezave" || razlog === "ni_poslano") return t("pntNiOdziva", { ime: ime });
+    return t("pntNiUspelo", { ime: ime });
+  }
+  function predvajajNa(naprava, polja) {
+    var izid = PredvajajNaTvPravila.preveri(true, polja);
+    if (izid.vrsta !== "Sprejeto") { obvesti(PredvajajNaTvPravila.besediloZavrnitve(izid.razlog, jezik)); return; }
+    obvesti(t("pntPosiljam", { ime: naprava.ime }));
+    klic("predvajajNaNapravi", [naprava.id, PredvajajNaTvPravila.sporocilo(izid.zahteva)])
+      .then(function (r) { obvesti(besediloPredvajanjaNa(r, naprava.ime)); }, function () { obvesti(t("pntNiUspelo", { ime: naprava.ime })); });
+  }
+  // Postavke menija: ena TV - »Predvajaj na <ime>«; vec TV - podmeni. Brez TV z zmoznostjo ni postavke.
+  function postavkePredvajajNa(m, ob, polja, osvezi) {
+    naloziNapraveZaPredvajanje(osvezi);
+    if (!polja || !PNT.naprave.length) return;
+    var gumb = function (besedilo, dejanje) {
+      var b = el("button", "", svg("zaslon") + "<span>" + ubezi(besedilo) + "</span>");
+      b.type = "button"; b.setAttribute("role", "menuitem");
+      b.addEventListener("click", dejanje);
+      m.appendChild(b);
+    };
+    if (PNT.naprave.length === 1) {
+      var n = PNT.naprave[0];
+      gumb(t("pntNa", { ime: n.ime }), function () { zapriMeniKartice(true); predvajajNa(n, polja); });
+    } else {
+      gumb(t("pntNaVec"), function (e) { e.stopPropagation(); odpriMeniNaprav(ob, polja); });
+      m.lastChild.setAttribute("aria-haspopup", "menu");
+    }
+  }
+  // Podmeni naprav (isti plavajoci meni; Esc in puscice delujejo kot v meniju kartice).
+  function odpriMeniNaprav(ob, polja) {
+    var m = $("mediaKarticaMeni"); if (!m) return;
+    m.innerHTML = ""; m._kartica = ob;
+    m.setAttribute("aria-label", t("pntNaVec"));
+    var naslov = el("b", "", ubezi(t("pntNaVec"))); naslov.setAttribute("aria-hidden", "true"); m.appendChild(naslov);
+    PNT.naprave.forEach(function (n) {
+      var b = el("button", "", svg("zaslon") + "<span>" + ubezi(n.ime) + "</span>");
+      b.type = "button"; b.setAttribute("role", "menuitem");
+      b.addEventListener("click", function () { zapriMeniKartice(true); predvajajNa(n, polja); });
+      m.appendChild(b);
+    });
+    m.hidden = false;
+    var r = ob.getBoundingClientRect();
+    postaviPlavajoce(m, r.left, r.top + 24, null);
+    m.querySelector("[role=menuitem]").focus();
+  }
+  // Gumb »Predvajaj na« na strani filma in ob epizodi (ista pravila kot meni kartice).
+  function gumbPredvajajNa(polja) {
+    var g = el("button", "gumb kat-gumb-tv"); g.type = "button"; g.hidden = true;
+    var narisi = function () {
+      g.hidden = !polja || !PNT.naprave.length;
+      if (g.hidden) return;
+      var ena = PNT.naprave.length === 1;
+      g.innerHTML = svg("zaslon") + "<span>" + ubezi(ena ? t("pntNa", { ime: PNT.naprave[0].ime }) : t("pntNaVec")) + "</span>";
+      if (ena) g.removeAttribute("aria-haspopup"); else g.setAttribute("aria-haspopup", "menu");
+    };
+    g.onclick = function (e) {
+      e.stopPropagation();
+      if (PNT.naprave.length === 1) predvajajNa(PNT.naprave[0], polja); else odpriMeniNaprav(g, polja);
+    };
+    narisi(); naloziNapraveZaPredvajanje(narisi);
+    return g;
   }
   var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1, usenet_ne_odgovarja: 1 };
   // Film imajo samo torrenti, debrida ni (ali Webtor ni dal toka): naslov IP bi bil viden v roju - nikoli tiho (lastnik
@@ -8022,6 +8173,13 @@
       b.addEventListener("click", function () { zapriMeniKartice(true); dejanje(); });
       m.appendChild(b);
     };
+    if (o.film) {
+      // Kot TV meni kartice (»Izberi vir«): klik predvaja takoj, rocna izbira in podrobnosti so tu.
+      var film = o.film;
+      postavka("info", t("katPodrobnosti"), function () { odpriKatalogPodrobnosti(film.id); });
+      postavka("drsniki", t("katIzberiVir"), function () { izberiVirFilma(film); });
+      postavkePredvajajNa(m, card, poljaFilma(film), function () { if (!m.hidden && m._kartica === card) odpriMeniKartice(card, ob); });
+    }
     var fav = jePriljubljena(o.kljuc);
     if (!o.brezSrca) postavka("srce", t(fav ? "priljubljenaOdstrani" : "priljubljenaDodaj"), function () { preklopiPriljubljeno(o, !fav); });
     if (o.ogledljivo) {
@@ -8889,6 +9047,8 @@
             if (entry && entry.id) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(entry.id); }
           }, function () {});
         };
+        // »Predvajaj na TV« v podatkih epizode (ne nov stolpec mreze vrstice).
+        info.appendChild(gumbPredvajajNa(poljaEpizode(item, season, ep)));
         row.appendChild(play);
         // Viri epizode (razlicice): seznam se odpre pod vrstico, ko ga uporabnik zahteva - dodatkov ne sprasujemo za
         // vsako epizodo vnaprej.
@@ -8996,7 +9156,8 @@
     });
   }
   // rezerva: kaj narediti, ce naslova ni vec v katalogu (polica Priljubljene po ponovnem zagonu): predvajaj ga.
-  function odpriKatalogPodrobnosti(id, rezerva) {
+  // moznosti.izberiVir: seznam virov filma je takoj odprt in dobi fokus (meni kartice »Izberi vir«).
+  function odpriKatalogPodrobnosti(id, rezerva, moznosti) {
     klic("mediaPodrobnosti", [id, jezik]).then(function (item) {
       if (!item || !item.naslov) { if (rezerva) rezerva(); return; }
       var panel = $("mediaPodrobnosti"); panel.hidden = false;
@@ -9005,7 +9166,9 @@
       var info = el("div"); info.appendChild(el("h2", "", ubezi(item.naslov || "")));
       info.appendChild(el("p", "kat-detail-meta", ubezi([item.leto, item.ocena ? "★ " + item.ocena : "", t(item.vrsta === "serija" ? "katSerija" : "katFilm")].filter(Boolean).join(" · "))));
       if (item.opis) info.appendChild(el("p", "", ubezi(item.opis)));
-      info.appendChild(dejanjaPodrobnosti(item));
+      var dejanja = dejanjaPodrobnosti(item);
+      if (item.vrsta === "film") dejanja.appendChild(gumbPredvajajNa(poljaFilma(item)));
+      info.appendChild(dejanja);
       hero.appendChild(info);
       narisiKjeGledati(item);
       RAZL.podrobnosti = item;
@@ -9033,9 +9196,16 @@
         var vnosFilma = item.tmdb_id ? klic("mediaFilm", [item.tmdb_id, item.naslov]).then(function (e) { return e && e.id ? e.id : item.id; },
                                                                                               function () { return item.id; })
                                      : Promise.resolve(item.id);
+        var izberiVir = !!(moznosti && moznosti.izberiVir);
         narisiRazlicice(seznamFilma, vnosFilma, item, 0, 0, function (vnosId) {
           zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
-        });
+        }, izberiVir);
+        if (izberiVir) {
+          seznamFilma.tabIndex = -1;
+          seznamFilma.setAttribute("aria-label", t("katIzberiVir"));
+          seznamFilma.scrollIntoView({ block: "start", behavior: zmanjsanoGibanje() ? "auto" : "smooth" });
+          seznamFilma.focus({ preventScroll: true });
+        }
       } else {
         $("mediaEpizodeNaslov").textContent = t("katEpizode");
         (item.sezone || []).forEach(function (season, index) {

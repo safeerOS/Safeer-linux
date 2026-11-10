@@ -96,6 +96,8 @@ class EpizodaZadnjiKlik(unittest.TestCase):
         var document = { createElement: function () { return new Vozel(); } };
         function ubezi(x) { return x; } function t(x) { return x; } function svg() { return ""; }
         function gumbOgledanoEpizode() { return new Vozel(); }
+        // »Predvajaj na TV« ob epizodi (10. 11. 2026) - tu ni pomemben.
+        function gumbPredvajajNa() { return new Vozel(); } function poljaEpizode() { return null; }
         function zapriKatalogPodrobnosti() {} function narisiVrsto() {} function narisiRazlicice() {}
         var kat = { zahtevaVnosa: 0, vrsta: [] };
         var odprto = [];
