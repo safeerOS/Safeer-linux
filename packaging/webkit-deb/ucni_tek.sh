@@ -19,7 +19,9 @@ SPEEDOMETER="$KOREN/build/pgo/speedometer"
 if [ ! -d "$SPEEDOMETER/.git" ]; then
     git clone -q -b release/3.1 https://github.com/WebKit/Speedometer.git "$SPEEDOMETER"
 fi
-git -C "$SPEEDOMETER" checkout -q 1386415be8fef2f6b6bbdbe1828872471c5d802a
+# Nadaljevanje v vsebniku (root) nad mapo, ki jo je naredil drug uporabnik: git javi »dubious ownership« in ucni tek
+# pade (10. 11. 2026: jsc je ostal brez BOLT). Dovoljenje velja samo za to mapo in ta ukaz.
+git -c safe.directory="$SPEEDOMETER" -C "$SPEEDOMETER" checkout -q 1386415be8fef2f6b6bbdbe1828872471c5d802a
 python3 -m http.server 8123 --bind 127.0.0.1 --directory "$SPEEDOMETER" >/dev/null 2>&1 &
 SRV=$!
 trap 'kill "$SRV" 2>/dev/null || true' EXIT

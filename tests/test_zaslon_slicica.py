@@ -87,6 +87,34 @@ class Dejanje(unittest.TestCase):
         self.assertTrue(gotovo.wait(5))
         return izid
 
+    def _zacni(self, na_voljo):
+        izid, gotovo = {}, threading.Event()
+
+        class _Z:
+            def na_voljo(self):
+                return na_voljo
+
+            def zacni(self, *a, **kw):
+                raise AssertionError("zajem se ne sme zaceti")
+
+        def koncaj(r):
+            izid.update(r)
+            gotovo.set()
+        link_daljinec.izvedi_control("screen.start", {}, lambda _u: None, koncaj, zaslon=_Z())
+        self.assertTrue(gotovo.wait(5))
+        return izid
+
+    def test_brez_ffmpeg_pove_razlog(self):
+        """Lastnik 10. 11. 2026: telefon je dobil samo »Tega zaslona ni mogoce zajeti«, manjkal pa je ffmpeg."""
+        r = self._zacni({"dovoljeno": True, "mozno": False, "ffmpeg": False})
+        self.assertFalse(r.get("ok"))
+        self.assertEqual(r.get("code"), "ni_ffmpeg")
+        self.assertIn("ffmpeg", r.get("message", "") + r.get("sporocilo", "") + str(r))
+        self.assertIn("ni_ffmpeg", link_prostori._KODE_NI)
+        # Z ffmpeg, a brez zaslona, ostane stara koda; izklopljeno deljenje ima prednost pred obema.
+        self.assertEqual(self._zacni({"dovoljeno": True, "mozno": False, "ffmpeg": True}).get("code"), "ni_zajema")
+        self.assertEqual(self._zacni({"dovoljeno": False, "mozno": False, "ffmpeg": False}).get("code"), "ni_dovoljeno")
+
     def test_prek_daljinca(self):
         class _Z:
             def slicica(self, sirina=320):

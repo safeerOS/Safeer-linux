@@ -182,8 +182,11 @@ def preveri_knjiznice():
         if "libsoup-3.0" in pot:
             continue
         # bolt.sh: ce BOLT z obema knjiznicama ne uspe, poskusi z eno; druga je v zapisu oznacena (19. 10. 2026).
+        # Lastnik 10. 11. 2026: knjiznica brez BOLT je NAPAKA, ne opozorilo - paket s tako knjiznico ne gre v izdajo
+        # (zaupni tek 42580203997: llvm-bolt -instrument za libwebkitgtk dvakrat ubit zaradi pomnilnika, paket je
+        # sel naprej samo z opozorilom).
         if "; %s brez BOLT" % os.path.basename(os.path.realpath(pot)) in gradnja:
-            print("OPOZORILO: %s brez BOLT (gradnja.txt)" % pot, flush=True)
+            napaka("%s brez BOLT (gradnja.txt)" % pot)
             continue
         with open(pot, "rb") as f:
             vsebina = f.read()

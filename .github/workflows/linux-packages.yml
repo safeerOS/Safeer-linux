@@ -433,6 +433,8 @@ jobs:
           grep -q '^build.ninja -fprofile-use: [1-9]' gradnja.txt
           grep -q '^build.ninja --emit-relocs: [1-9]' gradnja.txt
           grep -q '^bolt: da (llvm-bolt 22\.' gradnja.txt
+          # Lastnik 10. 11. 2026: obe knjiznici morata biti optimizirani - »brez BOLT« ustavi gradnjo paketa WebKita.
+          if grep -q 'brez BOLT' gradnja.txt; then echo "::error::knjiznica brez BOLT (gradnja.txt)"; exit 1; fi
           grep -qx 'predpona: /usr/lib/safeer-webkit' gradnja.txt
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

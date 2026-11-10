@@ -511,6 +511,11 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if not na_voljo.get("dovoljeno"):
                 koncaj(izid(False, "Uporabnik deljenja zaslona ni vklopil", koda="ni_dovoljeno"))
                 return
+            if not na_voljo.get("ffmpeg", True):
+                # Izmerjeno 10. 11. 2026 na testnem PC: brez ffmpeg je telefon dobil samo »ni mogoce zajeti« in
+                # lastnik ni vedel, kaj manjka. Svoja koda, da druga naprava pove pravi razlog.
+                koncaj(izid(False, "Na tem racunalniku manjka program ffmpeg (paket ffmpeg)", koda="ni_ffmpeg"))
+                return
             if not na_voljo.get("mozno"):
                 koncaj(izid(False, "Tega zaslona ni mogoce zajeti", koda="ni_zajema"))
                 return

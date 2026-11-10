@@ -308,7 +308,7 @@ SLICICA_NAPRAV = 32
 PREDPONA_SLICICE = "data:image/jpeg;base64,"
 _BASE64 = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 #: Kode, ob katerih naprave dolgo ne sprasujemo (ne bo se spremenilo v nekaj sekundah).
-_KODE_NI = frozenset(("neznano_dejanje", "ni_dovoljeno", "ni_brez_potrditve", "ni_na_racunalniku", "ni_zajema",
+_KODE_NI = frozenset(("neznano_dejanje", "ni_dovoljeno", "ni_brez_potrditve", "ni_na_racunalniku", "ni_zajema", "ni_ffmpeg",
                       "dostop", "ni_dostopa", "prepovedano"))
 
 

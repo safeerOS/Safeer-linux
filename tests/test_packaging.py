@@ -574,6 +574,8 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('"pgo_trening.py"',trening)
         compile(trening,'bolt_trening.py','exec')
         ucni=(self.WEBKIT_DEB/'ucni_tek.sh').read_text()
+        # 10. 11. 2026: mapa Speedometra tujega lastnika v vsebniku - brez tega ucni tek pade in knjiznica ostane brez BOLT.
+        self.assertIn('git -c safe.directory="$SPEEDOMETER" -C "$SPEEDOMETER" checkout',ucni)
         self.assertIn('NACIN="${3:-pgo}"',ucni)
         self.assertIn('TRENING="$KOREN/packaging/webkit-deb/bolt_trening.py"',ucni)
         # CI: posel webkit-deb vedno z BOLT, kljuc iz datotek BOLT; profil PGO ni odvisen od BOLT; zapis gradnje preverjen.
@@ -604,6 +606,10 @@ class DebWebkitTests(unittest.TestCase):
             self.assertIn(niz,bolt)
         self.assertIn('xauth dbus procps git gdb\n',posel)
         self.assertIn('"; %s brez BOLT" % os.path.basename(os.path.realpath(pot)) in gradnja',smoke)
+        # Lastnik 10. 11. 2026: knjiznica brez BOLT ustavi paket (prej samo opozorilo, zaupni tek 42580203997).
+        self.assertIn('napaka("%s brez BOLT (gradnja.txt)" % pot)',smoke)
+        self.assertNotIn('OPOZORILO: %s brez BOLT',smoke)
+        self.assertIn("if grep -q 'brez BOLT' gradnja.txt; then",posel)
         # Nadaljevanje (lastnik, 19. 10. 2026): stanje pred BOLT v predpomnilniku tudi ob padcu, nadaljuj.sh brez prevoda.
         nadaljuj=(self.WEBKIT_DEB/'nadaljuj.sh').read_text()
         subprocess.run(['bash','-n',str(self.WEBKIT_DEB/'nadaljuj.sh')],check=True)
@@ -1907,6 +1913,9 @@ sys.exit("neznan ukaz")
         priporocila=re.search(r'^Recommends: (.*)$',os_,re.M).group(1)
         self.assertIn('gstreamer1.0-plugins-good',odvisnosti)
         self.assertNotIn('gstreamer1.0-plugins-good',priporocila)
+        # Lastnik 10. 11. 2026: deljenje zaslona mora delati takoj po namestitvi; brez ffmpeg ga ni (link_zaslon.na_voljo).
+        self.assertRegex(odvisnosti,r'(^|, )ffmpeg(,|$)')
+        self.assertNotIn('ffmpeg',priporocila)
         brskalnik=(ROOT/'build_deb.sh').read_text()
         gtk4=[v for v in re.findall(r'^\s*ODVISNOSTI="(.*)"$',brskalnik,re.M) if 'gir1.2-gtk-4.0' in v]
         self.assertEqual(len(gtk4),2)      # paket izdaje (nas WebKit) in lokalna gradnja (sistemski WebKit)
