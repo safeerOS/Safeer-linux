@@ -3434,6 +3434,8 @@ def main() -> int:
     # ozadju; brez tega naprave samo izgubijo racunalnik in nihce ne ve, zakaj.
     os_stabilnost.vkljuci("safeer-control")
     os_stabilnost.preusmeri_izpis()      # print() v sled.log (stderr), brez skrivnosti
+    # Usklajevanje kljucev v dnevnik Controla (prej ni pisalo nikamor, 10. 11. 2026); vrednosti nikoli.
+    os_stabilnost.v_dnevnik("safeer-control", "safeer.kljuci_sinh")
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")
     GLib.set_application_name("Safeer Control")

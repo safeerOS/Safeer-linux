@@ -8315,6 +8315,8 @@ def main() -> int:
     # Sled ob sesutju (tudi ob SIGSEGV v knjiznici C) in dnevnik neujetih izjem; brez tega je ob
     # sesutju ostalo samo prazno namizje in nobenega podatka o tem, kaj je teklo.
     os_stabilnost.vkljuci("safeer-os")
+    # Usklajevanje kljucev (Control v istem procesu) v ta dnevnik: prej ni pisalo nikamor (10. 11. 2026).
+    os_stabilnost.v_dnevnik("safeer-os", "safeer.kljuci_sinh")
     # print() je sel na stdout (/dev/null pri zagonu iz menija): odslej v sled.log, brez skrivnosti.
     os_stabilnost.preusmeri_izpis()
     # Pod varuhom (core/varuh_procesov.py): NOTIFY_SOCKET ne gre naprej programom, ki jih Safeer OS zazene. Ce je lupina v

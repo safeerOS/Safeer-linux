@@ -1727,5 +1727,12 @@ def most(dbr: Debrid, a: list) -> dict:
         izid = dbr.preveri_izrecno(p) if p in P.VSI + (P.INDEKSATOR,) else {"ok": False, "preverba": P.PREVERBA_OBLIKA}
     elif ukaz == "preveri":
         dbr.preveri_nepreverjene()
-    return dict(dbr.stanje(), ok=bool(izid.get("ok")), preverba=str(izid.get("preverba") or ""),
-                paket=str(izid.get("paket") or ""), cez_s=int(izid.get("cez_s") or 0))
+    odgovor = dict(dbr.stanje(), ok=bool(izid.get("ok")), preverba=str(izid.get("preverba") or ""),
+                   paket=str(izid.get("paket") or ""), cez_s=int(izid.get("cez_s") or 0))
+    # Zakaj ni kljucev z drugih naprav (izmerjeno 10. 11. 2026: vmesnik je molcal). Novo polje, prikaz naredi vmesnik;
+    # brez storitve usklajevanja v tem procesu (Windows, Control loceno) polja ni.
+    from core import uskladitev_kljucev
+    razlog = uskladitev_kljucev.razlog_za_vmesnik()
+    if razlog is not None:
+        odgovor["uskladitev"] = razlog
+    return odgovor
