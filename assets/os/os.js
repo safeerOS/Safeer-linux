@@ -6229,31 +6229,45 @@
         unp.nalagam = false; unpNarisi(r && r.stanje ? r.stanje : (unp.stanje || {}), false);
       }, function () { unp.nalagam = false; if (unp.stanje === null) unp.stanje = {}; });
     }
+    // Lastnik 10. 11. 2026 (kot TV GlasbaActivity, izbira »debrid«): ⚡ storitve s kljucem, »⚡ Usenet« (lasten ponudnik),
+    // »⚡ Vsi viri« (Usenet in storitev), »Brez«, »Nastavitve«. »⚡ Usenet« FILTRIRA mrezo (core/usenet_filter) - okno
+    // Viri se odpre samo, ce ponudnika se ni (»Dodaj ponudnika«).
     var s = debridStanje || { storitve: [] }, z = (s.storitve || []).filter(function (x) { return x.kljuc; });
+    var oznaka = s.oznaka || "⚡", lastni = !!s.usenet_lastni;
     izbira.innerHTML = "";
-    if (!z.length) izbira.add(new Option(t("debridDodaj"), ""));
-    z.forEach(function (x) { izbira.add(new Option((s.oznaka || "⚡") + " " + x.ime, x.id)); });
-    var u_idx = (s.usenet && s.usenet.gostitelj) ? t("usenetIme") : "";
-    var u_unp = (unp.stanje && unp.stanje.vpisan) ? (unp.stanje.ime || unp.stanje.gostitelj) : "";
-    var u_text = u_idx && u_unp ? u_unp + " + " + u_idx : u_idx || u_unp || t("dodajPonudnikaUsenet");
-    izbira.add(new Option(u_text, "usenet"));
+    if (!z.length && !lastni) izbira.add(new Option(t("debridDodaj"), ""));
+    z.forEach(function (x) { izbira.add(new Option(oznaka + " " + x.ime, x.id)); });
+    if (lastni) izbira.add(new Option(oznaka + " Usenet", "usenet"));
+    if (lastni && z.length) izbira.add(new Option(oznaka + " " + t("debridVsiViri"), "vsi"));
     if (z.length) izbira.add(new Option(t("debridBrez"), "brez"));
+    if (!lastni) izbira.add(new Option(t("dodajPonudnikaUsenet"), "dodaj_usenet"));
     izbira.add(new Option(t("debridNastavitve"), "nastavitve"));
-    izbira.value = z.length ? (s.aktivna || "brez") : "";
+    izbira.value = lastni && s.usenet_izbran ? (s.aktivna && z.length ? "vsi" : "usenet")
+      : z.length ? (s.aktivna || "brez") : lastni ? "brez" : "";
+    if (izbira.selectedIndex < 0 && izbira.options && izbira.options.length) izbira.value = izbira.options[0].value;
     izbira.setAttribute("aria-label", t("debridIzbira")); izbira.title = t("debridIzbira");
-    polje.classList.toggle("izbran", !!s.aktivna);
+    polje.classList.toggle("izbran", !!s.aktivna || (lastni && !!s.usenet_izbran));
+  }
+  // Uporabnik je v sistemu izbral manj gibanja: brez gladkega drsenja (pravilo dostopnosti v AGENTS.md).
+  function zmanjsanoGibanje() {
+    try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (_) { return false; }
   }
   function izbranDebrid(v) {
     if (v === "nastavitve" || v === "") { narisiDebrid(true); odpriDebrid(); return; }
-    if (v === "usenet") {
+    if (v === "dodaj_usenet") {
+      // Ponudnika Usenet se ni: okno Viri pri vnosu ponudnika (edini primer, ko izbira odpre okno).
       narisiDebrid(true);
       odpriKatViri();
       var usenetEl = $("unpIme");
-      if (usenetEl) { usenetEl.scrollIntoView({ behavior: "smooth", block: "center" }); usenetEl.focus(); }
+      if (usenetEl) { usenetEl.scrollIntoView({ behavior: zmanjsanoGibanje() ? "auto" : "smooth", block: "center" }); usenetEl.focus(); }
       return;
     }
-    klic("mediaDebrid", ["aktivna", v === "brez" ? "" : v]).then(function (s) { debridStanje = s; narisiDebrid(true); })
-      .catch(function () {});
+    klic("mediaDebrid", ["izbira", v === "brez" ? "" : v]).then(function (s) {
+      if (s && typeof s === "object") debridStanje = s;
+      narisiDebrid(true);
+      // Kot TV (odpriBrskanje po izbiri): nov vir - mreza se nalozi znova (filter Usenet velja ali ne vec).
+      if (katVidno() && (kat.filter === "film" || kat.filter === "serija" || kat.filter === "vse")) naloziKatalog();
+    }).catch(function () {});
   }
   // Lastnik 25. 10. 2026 (kot Android d1fdecc): vrstica pove, ali kljuc VELJA (storitev ga je potrdila), ne samo, da je
   // vpisan. Kljuc brez stanja (iz prejsnje razlicice) ali nepreverjen (izpad ob vpisu) jedro po odprtju okna preveri
@@ -6541,9 +6555,17 @@
     blok.hidden = skrij;
     if (skrij) return;
     // Prazen katalog pri izbranem jeziku: povemo, da je prazno zaradi izbire (ne »ni zadetkov«).
+    var gumb = $("katPraznoDejanje"), vseZvrsti = $("mediaZanri").querySelector('[data-media-genre=""]');
+    var uf = katUsenetFilter();
+    if (uf) {
+      // Filter vira Usenet (kot TV praznoUsenet): Iscem / indeksator ne odgovarja / ni naslovov - brez gumba.
+      $("katPraznoBesedilo").textContent = uf.prazno === "iscem" ? t("katUsenetIscem")
+        : uf.prazno === "ne_odgovarja" ? t("katUsenetNeOdgovarja") : t("katUsenetPrazno", { vsi: t("debridVsiViri") });
+      gumb.hidden = true;
+      return;
+    }
     $("katPraznoBesedilo").textContent = izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) })
       : izbranaDrzavaRadia() ? t("katPraznoDrzava", { drzava: imeDrzave(kat.drzavaRadia) }) : t("katPrazno");
-    var gumb = $("katPraznoDejanje"), vseZvrsti = $("mediaZanri").querySelector('[data-media-genre=""]');
     gumb.hidden = false;
     if (izbranJezik()) {
       gumb.textContent = t("katVsiJeziki");
@@ -6561,27 +6583,38 @@
   }
   // ---- neskoncno drsenje: ko je konec mreze blizu, se sama nalozi naslednja stran (brez gumbov za strani)
   function katImaVec() { return !kat.seznam && kat.nalozen && kat.page < kat.skupaj_strani; }
+  // Stanje filtra vira Usenet zadnje strani ({prazno}) ali null, ce mreza ni filtrirana.
+  function katUsenetFilter() {
+    return kat.usenetFilter && (kat.filter === "film" || kat.filter === "serija") && !kat.seznam ? kat.usenetFilter : null;
+  }
   function narisiNalaganje() {
     var c = $("katNalaganje"); if (!c) return;
-    var vidno = katImaVec() && kat.katalog.length > 0;
+    // Filter Usenet: naslednja stran samo na zahtevo (gumb »Nalozi vec« kot na TV) - samodejno nalaganje ob kratki
+    // (filtrirani) mrezi bi vsako stran zacelo novo kroglo vprasanj indeksatorju (vec kot TV za isto mrezo).
+    var rocno = !!katUsenetFilter();
+    var vidno = katImaVec() && (kat.katalog.length > 0 || rocno);
     c.hidden = !vidno;
+    c.classList.toggle("rocno", rocno && !kat.nalagaVec && !kat.napakaVec);
+    var vec = $("katNalaganjeVec");
+    if (vec) vec.hidden = !(rocno && !kat.nalagaVec && !kat.napakaVec);
     c.classList.toggle("napaka", kat.napakaVec);
     // Vrtavka se vrti samo, ko se naslednja stran res nalaga. Prej se je vrtela ves cas, ko je imel katalog se kaj strani
     // (element je pod robom zaslona in caka na drsenje): vidno okno Safeer Player je risalo ~60 slik/s tudi v mirovanju
     // (izmerjeno 26. 10. 2026: Glasba odprta, nic ne predvaja - sestavljalnik WebKita in GTK ~60 slik/s; Domov brez
     // kataloga 0,3 % jedra). Zaprto okno je risanje ustavilo, zato je lastnik videl, da obremenitev ob zaprtju pade.
     c.classList.toggle("nalaga", !!kat.nalagaVec && !kat.napakaVec);
-    $("katNalaganjeBesedilo").textContent = kat.napakaVec ? t("katNiNalozeno") : t("katNalagamVec");
+    $("katNalaganjeBesedilo").textContent = kat.napakaVec ? t("katNiNalozeno") : (rocno && !kat.nalagaVec) ? "" : t("katNalagamVec");
     $("katNalaganjeZnova").hidden = !kat.napakaVec;
     // Opazovalec javi le spremembo; ce je konec mreze se vedno blizu (nizka stran), ga s ponovnim opazovanjem vprasamo znova.
-    if (vidno && !kat.napakaVec && katOpazovalec) { katOpazovalec.unobserve(c); katOpazovalec.observe(c); }
+    if (vidno && !rocno && !kat.napakaVec && katOpazovalec) { katOpazovalec.unobserve(c); katOpazovalec.observe(c); }
   }
   var katOpazovalec = null;
   function zacniNeskoncnoDrsenje() {
     var c = $("katNalaganje");
     if (!c || !("IntersectionObserver" in window)) return;
     katOpazovalec = new IntersectionObserver(function (vnosi) {
-      if (vnosi.some(function (v) { return v.isIntersecting; }) && katImaVec() && !kat.nalagaVec && !kat.napakaVec) naloziKatalog(true);
+      if (vnosi.some(function (v) { return v.isIntersecting; }) && katImaVec() && !kat.nalagaVec && !kat.napakaVec &&
+          !katUsenetFilter()) naloziKatalog(true);
     }, { root: $("vsebina"), rootMargin: "0px 0px 700px 0px" });
     katOpazovalec.observe(c);
   }
@@ -6688,7 +6721,11 @@
       data.appendChild(naslovKartice);
       var meta = el("span", "kat-meta");
       // Kakovost, jezik in vir v eni diskretni vrstici (lastnik, 17. 10. 2026); kar ni znano, izpade.
-      var vrsticaVira = izSeznama || /^twitch/.test(x.vrsta || "") ? null : katVrsticaVira(x);
+      // Filter vira Usenet (core/usenet_filter): znacka je najboljsa ustrezna izdaja Useneta (»★ 4K«), kakovost iz
+      // kataloga ali drugih virov se ne kaze (TV: v filtru brez oznake kataloga).
+      var vFiltru = typeof x.oznaka_vira === "string";
+      var vrsticaVira = izSeznama || /^twitch/.test(x.vrsta || "") ? null
+        : katVrsticaVira(vFiltru ? Object.assign({}, x, { locljivost: 0, kakovost: "" }) : x);
       // Vrsta (»Filmi«, »Radio«) le, kadar ni ze ime zavihka - v zavihku Radio je »Radio« na vsaki kartici odvec.
       var metaOznaka = kat.filter === x.vrsta ? "" : katOznaka(x.vrsta);
       // »V živo« enkrat: TV v živo ga že nosi kot značko na plakatu.
@@ -6717,6 +6754,7 @@
       // Skladba s seznama, ki je prenos v zivo (core/nazadnje_predvajano: znani prenosi), ima znacko »V zivo«.
       var znacka = vrsticaVira ? "" : x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" || (izSeznama && jeVZivo(x)) ? t("katVZivo") : "");
       if (vrsticaVira && x.vrsta === "tv-v-zivo") znacka = t("katVZivo");
+      if (vFiltru) znacka = x.oznaka_vira;
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
       if (izSeznama && !kat.seznam.yt && !kat.seznam.twitch && !kat.seznam.sp) {
@@ -7850,6 +7888,15 @@
       // Napake predvajanja (tok, napaka, motor ...) so tihe, sled je v sled.log (lastnik 18. 10. 2026). Ostanejo samo
       // stanja, ko mora uporabnik nekaj storiti ali izvedeti (MEDIA_UKREPAJ: prostor na disku, pomnilnik, Twitch ne oddaja).
       if (item.napaka_koda === "p2p_potrditev") { potrdiRoj(item, id, predvajanje); return; }
+      if (item.napaka_koda === "usenet_ni_izdaj") {
+        // Izbran »⚡ Usenet« in indeksator nima izdaje (kot TV): obvestilo in kartica izgine (jedro je pozabilo zapis).
+        obvesti(t("mediaNapaka_usenet_ni_izdaj"));
+        var prejU = (kat.katalog || []).length;
+        kat.katalog = (kat.katalog || []).filter(function (x) { return x.id !== item.id && x.id !== id; });
+        kat.strani.forEach(function (s) { s.vnosi = s.vnosi.filter(function (x) { return x.id !== item.id && x.id !== id; }); });
+        if (kat.katalog.length !== prejU) { zapriKatalogPodrobnosti(); narisiKatalog(); }
+        return;
+      }
       if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
@@ -7862,7 +7909,7 @@
       osveziKatTrak();
     }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
   }
-  var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1 };
+  var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1, usenet_ne_odgovarja: 1 };
   // Film imajo samo torrenti, debrida ni (ali Webtor ni dal toka): naslov IP bi bil viden v roju - nikoli tiho (lastnik
   // 25. 10. 2026, kot Android opozoriPredRojem). Privzeto Preklici (zadrzan Enter ne odpre roja); »Poskusi znova cez
   // minuto« samo z dodatkom Webtor (nov tok najprej prenese Webtor sam), »Dodaj TorBox« samo brez debrida.
@@ -8706,6 +8753,8 @@
       kat.skupaj = (response && typeof response.skupaj === "number") ? response.skupaj : null;
     }
     if (response && typeof response.zvrsti === "boolean") kat.zvrsti = response.zvrsti;
+    // Filter Usenet: stanje zadnjega odgovora (tiha osvezitev ga posodobi - »Iscem« preide v »ni naslovov«).
+    kat.usenetFilter = response && response.usenet_filter ? response.usenet_filter : null;
     kat.nalozen = true;
     var sidro = (tiho || stran > 1) ? katSidro() : null;
     narisiKatalog();
@@ -9622,6 +9671,8 @@ function narisiKatViri() {
   }
   // [polja]: vrednosti vnosov tudi prepise (odprtje, uspesno shranjeno); ob napaki ostane, kar je uporabnik vpisal.
   function unpNarisi(s, polja) {
+    // Ponudnik dodan ali odstranjen: izbirnik virov vzame »⚡ Usenet« iz stanja jedra (usenet_lastni) - to nalozimo znova.
+    if (unp.stanje !== null && !!(unp.stanje && unp.stanje.vpisan) !== !!(s && s.vpisan)) { debridStanje = null; debridPrazno = 0; }
     unp.stanje = s || {};
     // CodeRabbit 9. 11. 2026: po shranitvi ali odstranitvi ponudnika izbor Debrid takoj pokaze novo ime (narisiDebrid
     // unpNarisi ne klice, ker je unp.stanje ze nastavljen - brez rekurzije).
@@ -9778,6 +9829,7 @@ function narisiKatViri() {
     ob("mediaZapri", "click", function () { if (spNaTraku()) spUstaviTrak(); else if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });
     ob("medijiDodatki", "click", function () { zapriMeniDodaj(false); odpriKatViri(); });
     ob("katNalaganjeZnova", "click", function () { kat.napakaVec = false; naloziKatalog(true); });
+    ob("katNalaganjeVec", "click", function () { naloziKatalog(true); });
     ob("katViriZapri", "click", zapriSloje);
     ob("unpObrazec", "submit", unpShrani);
     ob("unpPreveri", "click", unpPreveri);

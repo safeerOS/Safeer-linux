@@ -218,6 +218,9 @@
    vrtita samo med nalaganjem (.nalaga). Neskoncna animacija pod robom zaslona je sicer 26. 10. 2026 drzala okno
    Safeer Player na ~60 slikah/s tudi v mirovanju. */
 .kat-nalaganje:not(.nalaga):not(.napaka) > * { visibility: hidden; }
+/* Filter Usenet: naslednja stran na zahtevo (gumb »Nalozi vec« kot na TV), vrtavke ni. */
+.kat-nalaganje.rocno > #katNalaganjeVec { visibility: visible; }
+.kat-nalaganje.rocno .kat-vrtavka { display: none; }
 @media (prefers-reduced-motion: no-preference) { .kat-nalaganje.nalaga .kat-vrtavka { animation: kat-vrti .8s linear infinite; } }
 @keyframes kat-vrti { to { transform: rotate(360deg); } }
 .kat-prazno { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px 0; padding: 40px 24px; text-align: center;

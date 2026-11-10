@@ -8317,6 +8317,9 @@ def main() -> int:
     os_stabilnost.vkljuci("safeer-os")
     # Usklajevanje kljucev (Control v istem procesu) v ta dnevnik: prej ni pisalo nikamor (10. 11. 2026).
     os_stabilnost.v_dnevnik("safeer-os", "safeer.kljuci_sinh")
+    # Filter vira Usenet (10. 11. 2026): preverbe in klik »samo Usenet« v dnevnik - stevilo zahtev indeksatorju se da
+    # primerjati s TV (SafeerUsenetFilter); v vrstici je samo id IMDb, nikoli kljuc ali naslov indeksatorja.
+    os_stabilnost.v_dnevnik("safeer-os", "safeer.usenet_filter")
     # print() je sel na stdout (/dev/null pri zagonu iz menija): odslej v sled.log, brez skrivnosti.
     os_stabilnost.preusmeri_izpis()
     # Pod varuhom (core/varuh_procesov.py): NOTIFY_SOCKET ne gre naprej programom, ki jih Safeer OS zazene. Ce je lupina v

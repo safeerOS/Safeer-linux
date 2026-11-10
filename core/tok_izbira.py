@@ -26,6 +26,8 @@ class Zmoznosti:
     ac3: bool = True
     dts: bool = True
     truehd: bool = True
+    #: Dekoder HEVC zmore profil Main10 (10-bitni); libmpv da (kot Android TokIzbira.Zmoznosti.hevc10, naloga 142).
+    hevc10: bool = True
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,8 @@ class Opis:
     zvok: str
     slab_posnetek: bool
     gb: float
+    #: 10-bitni HEVC (Main10): »10bit«, »Main10« ali HDR/DV - kot Android TokIzbira.Opis.desetbitni (filter vira).
+    desetbitni: bool = False
 
 
 _V = ((2160, re.compile(r"2160p?|\b4k\b|\buhd\b")), (1440, re.compile(r"1440p")), (1080, re.compile(r"1080[pi]?|\bfhd\b|full[ .-]?hd")),
@@ -46,6 +50,7 @@ _HEVC = re.compile(r"x265|h[ .]?265|hevc")
 _AV1 = re.compile(r"\bav1\b")
 _DV = re.compile(r"\bdv\b|dolby[ .]?vision|\bdovi\b")
 _HDR = re.compile(r"hdr")
+_BIT10 = re.compile(r"10[ .-]?bit|\bmain ?10\b")
 _ZVOK = (("truehd", re.compile(r"true[ .-]?hd")), ("dts", re.compile(r"\bdts")), ("eac3", re.compile(r"\bddp|dd\+|e-?ac-?3|atmos")),
          ("ac3", re.compile(r"\bdd[ .]?[257]|\bac-?3\b|dolby digital")))
 _SLAB = re.compile(r"\b(cam|hdcam|camrip|ts|hdts|telesync|tc|telecine|scr|screener)\b")
@@ -120,7 +125,9 @@ def opisi(besedilo: str) -> Opis:
             gb = 0.0
         if m.group(2).startswith("m"):
             gb /= 1024.0
-    return Opis(visina, bool(_HEVC.search(t)), bool(_AV1.search(t)), bool(_HDR.search(t)), bool(_DV.search(t)), zvok, bool(_SLAB.search(t)), gb)
+    hevc, hdr, dv = bool(_HEVC.search(t)), bool(_HDR.search(t)), bool(_DV.search(t))
+    return Opis(visina, hevc, bool(_AV1.search(t)), hdr, dv, zvok, bool(_SLAB.search(t)), gb,
+                desetbitni=hevc and (bool(_BIT10.search(t)) or hdr or dv))
 
 
 # Jezik zvoka iz imena toka (lastnik, 10. 10. 2026: privzeto anglescina, pri slovenskih filmih slovenscina). Ista

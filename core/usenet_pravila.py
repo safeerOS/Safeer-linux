@@ -209,6 +209,9 @@ class Zadetek:
     naslov: str
     povezava: str
     velikost: int
+    #: Atribut Newznab »password« (0 = ne, 1 = arhiv z geslom, 2 = arhiv v arhivu); None = indeksator ne pove. Filter vira
+    #: (core/filter_vira_pravila) take izdaje ne steje - kot Android UsenetPravila.Zadetek.geslo.
+    geslo: Optional[bool] = None
 
 
 def _ni_javni(gost: str) -> bool:
@@ -283,7 +286,7 @@ def zadetki(xml: str, osn: str) -> list:
     for el in koren.iter():
         if _lokalno(el.tag) != "item":
             continue
-        naslov, povezava, velikost, dolzina = "", "", 0, 0
+        naslov, povezava, velikost, dolzina, geslo = "", "", 0, 0, None
         for o in el:
             ime = _lokalno(o.tag)
             if ime == "title":
@@ -301,6 +304,8 @@ def zadetki(xml: str, osn: str) -> list:
                     velikost = int(o.get("value") or 0)
                 except ValueError:
                     velikost = 0
+            elif ime == "attr" and o.get("name") == "password":
+                geslo = {"0": False, "1": True, "2": True}.get((o.get("value") or "").strip())
         if not naslov or not _dovoljena_povezava(povezava, gost_ix) or povezava in videne:
             continue
         videne.add(povezava)
@@ -309,7 +314,7 @@ def zadetki(xml: str, osn: str) -> list:
         if kljuc_izdaje in videne:
             continue
         videne.add(kljuc_izdaje)
-        izid.append(Zadetek(naslov, povezava, velikost))
+        izid.append(Zadetek(naslov, povezava, velikost, geslo))
         if len(izid) >= NAJVEC_ZADETKOV:
             break
     return izid

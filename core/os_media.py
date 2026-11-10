@@ -14,6 +14,7 @@ import difflib
 import http.client
 import ipaddress
 import json
+import logging
 import math
 import mimetypes
 import os
@@ -38,6 +39,8 @@ from . import izvirni_jezik
 from . import debrid
 from . import debrid_pravila
 from . import usenet_pravila
+from . import usenet_filter
+from . import filter_vira_pravila
 from . import media_servers
 from . import tok_izbira
 from . import os_torrent, os_torrent_tok
@@ -54,6 +57,8 @@ from . import kanali_iptv
 from . import skrivni_dodatki
 from . import webtor
 from core import shramba_json
+
+_log_media = logging.getLogger("safeer.usenet_filter.predvajanje")
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
 VIDEO = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".mpeg", ".mpg", ".ts", ".m3u8"}
@@ -2152,6 +2157,83 @@ class MediaCenter:
 
     #: Iskanje Usenet (zadnje: (kljuc, Future)) - en zaklep za razred, iskanje je eno naenkrat.
     _usenet_zaklep = threading.Lock()
+
+    # --- filter vira Usenet (lastnik 10. 11. 2026: kot TV, izbira »⚡ Usenet« filtrira mrezo in omeji predvajanje)
+    @property
+    def usenet_filter(self) -> "usenet_filter.UsenetFilter":
+        f = self.__dict__.get("_usenet_filter")
+        if f is None:
+            with self._usenet_zaklep:
+                f = self.__dict__.get("_usenet_filter")
+                if f is None:
+                    f = self.__dict__["_usenet_filter"] = usenet_filter.UsenetFilter(
+                        self.config_dir / usenet_filter.IME_DATOTEKE, self.debrid)
+        return f
+
+    @property
+    def usenet_filter_mreze(self) -> "usenet_filter.FilterMreze":
+        m = self.__dict__.get("_usenet_filter_mreze")
+        if m is None:
+            m = self.__dict__["_usenet_filter_mreze"] = usenet_filter.FilterMreze(
+                self.usenet_filter, self._kljuc_razpolozljivosti, self._stremio_naslov_vnosa,
+                lambda: tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)))
+        return m
+
+    def samo_usenet(self) -> bool:
+        try:
+            return bool(self.debrid.samo_usenet())
+        except Exception:  # noqa: BLE001 - brez nastavitev debrida filtra ni
+            return False
+
+    def _razresi_samo_usenet(self, item_id: str, item: dict, tip: str, ident: str) -> dict:
+        """Izbran »⚡ Usenet« (TV izbranSamoUsenet): predvaja SAMO Usenet - brez torrentov, povezav dodatkov in Webtorja.
+        0 izdaj: zapis filtra pozabimo (kartica izgine) in stran pove »ni na voljo prek Useneta«; meja ali izpad
+        indeksatorja zapisa ne pozabita (TV UsenetIskanjePravila.pozabiZapis)."""
+        f = self.usenet_filter
+        tokovi = None
+        izid = debrid.IzidIskanja(None, False, "ni_indeksatorja")
+        if self._usenet_mogoc(tip, ident):
+            # Klik ima prednost pred preverbami filtra (TV Del A): preverbe pocakajo, klik dobi rezervirano mesto kvote.
+            f.zacni_klik()
+            f.prednost_klika()
+            try:
+                ms = f.rezerviraj_iskanje()
+                if ms is None:
+                    izid = debrid.IzidIskanja(None, True, "meja")
+                else:
+                    if ms > 0:
+                        f.spi(ms / 1000.0)
+                    tokovi, izid = self.debrid.usenet_iskanje_tokov(ident)
+                    f.izid_klika(izid.meja, izid.izdaje is not None)
+            finally:
+                f.prednost_klika_konec()
+        razlog = filter_vira_pravila.razlog_iskanja(None if tokovi is None else len(tokovi), izid.meja)
+        if tokovi:
+            from concurrent.futures import Future
+            vrstni = dict(self._jezik_zvoka(item)) if hasattr(self, "_jezik_zvoka") else {}
+            urejeni = tok_izbira.uredi(tokovi, lambda t: str(t.get("opis") or ""),
+                                       tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
+                                       naslov=lambda t: "", **vrstni)
+            # Iste izdaje vzame korak »Usenet takoj« - indeksatorja ne vprasamo dvakrat za isti klik.
+            gotovo: Future = Future()
+            gotovo.set_result(urejeni)
+            with self._usenet_zaklep:
+                self._usenet_iskanje = ((item_id, ident), gotovo)
+            resolved = self._razresi_usenet_takoj(item_id, item, ident, [])
+            if resolved:
+                return resolved
+        _sled_usenet = {filter_vira_pravila.RazlogIskanja.NI_IZDAJ: "indeksator ni dal izdaj",
+                        filter_vira_pravila.RazlogIskanja.MEJA: "indeksator omejuje hitrost (meja)",
+                        filter_vira_pravila.RazlogIskanja.NI_ODGOVORA: "indeksator ni odgovoril",
+                        filter_vira_pravila.RazlogIskanja.NI_INDEKSATORJA: "ni indeksatorja",
+                        filter_vira_pravila.RazlogIskanja.OK: "ni predvajljivega toka"}
+        _log_media.info("tokovi: samo Usenet - %s", _sled_usenet.get(razlog, "?"))
+        if filter_vira_pravila.pozabi_zapis(razlog):
+            k = self.usenet_filter_mreze._kljuc(item)
+            if k:
+                f.pozabi(k)
+            return dict(item, napaka_koda="usenet_ni_izdaj")
+        return dict(item, napaka_koda="usenet_ne_odgovarja")
 
     def _usenet_mogoc(self, tip: str, ident: str) -> bool:
         """Usenet prek TorBoxa (naloga 141) pride v postev: film ali epizoda z id-jem IMDb, vpisan indeksator in TorBox."""
@@ -6462,6 +6544,9 @@ class MediaCenter:
         stremio_url = next((u for u in posebni if u.startswith("stremio:")), "")
         if stremio_url:
             koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
+            if pripravi_torrent and tip in ("movie", "series") and self.samo_usenet():
+                # Lastnik 10. 11. 2026 (kot TV): z izbranim »⚡ Usenet« klik predvaja samo prek Useneta.
+                return self._razresi_samo_usenet(item_id, item, tip, ident)
             tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
             # Webtor rezerva (core/webtor.py): tokovi dodatka Webtor niso neposredne povezave - gredo v svoj korak.
             webtor_tokovi = [t for t in tokovi if t.get("webtor")]

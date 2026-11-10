@@ -558,11 +558,23 @@ class Katalog:
             # Zavihek Twitch: priljubljeni prenosi, kategorija (zvrst) ali iskanje kanalov (core/twitch.py).
             return dict(mc.twitch_katalog(self._niz(a, 0), self._niz(a, 2)), zvrsti=True)
 
-        def prikazi(rezultat):
+        # Lastnik 10. 11. 2026 (kot TV): z izbranim »⚡ Usenet« sta mrezi Filmi in Serije filtrirani - vidno je samo, kar
+        # indeksator ponuja v izdaji, ki jo ta naprava predvaja (core/usenet_filter). Mreza = vse razen strani.
+        usenet = self._niz(a, 1, "vse") in ("film", "serija") and bool(getattr(mc, "samo_usenet", lambda: False)())
+        mreza = json.dumps([a[i] if len(a) > i else None for i in (0, 1, 2, 4, 5, 7, 8)], sort_keys=True, default=str)
+
+        def prikazi(rezultat, od_uporabnika=False):
             # Cesar noben vir ne predvaja, ne kazemo; ostalo iz dodatkov preverimo v ozadju (dogodek mediaNiNaVoljo).
             rezultat = mc.brez_nerazpolozljivih(rezultat)
             if isinstance(rezultat, dict):
-                mc.preveri_razpolozljivost(rezultat.get("vnosi"), lambda idji: self.dogodek("mediaNiNaVoljo", {"idji": idji}))
+                if usenet:
+                    # Filter vira namesto preverbe dodatkov: o vidnosti odloci Usenet (TV filtrirani = samo pokazi).
+                    rezultat = mc.usenet_filter_mreze.prikazi(
+                        mreza, stran, rezultat, od_uporabnika,
+                        ob_osvezitvi=lambda r: self.dogodek("mediaKatalogOsvezen", dict(
+                            r, zvrsti=mc.zvrsti_filtrirajo(self._niz(a, 1, "vse"), izklopljeni))))
+                else:
+                    mc.preveri_razpolozljivost(rezultat.get("vnosi"), lambda idji: self.dogodek("mediaNiNaVoljo", {"idji": idji}))
                 # Stran pokaze gumbe zvrsti samo, kadar izbira zvrsti katalog res filtrira.
                 rezultat = dict(rezultat, zvrsti=mc.zvrsti_filtrirajo(self._niz(a, 1, "vse"), izklopljeni))
             return rezultat
@@ -575,7 +587,7 @@ class Katalog:
             # Izbran jezik vsebine (poleg zvrsti); neznana koda v jedru ne velja.
             jezik=self._niz(a, 8)[:8],
             # Izbrana drzava radia (lastnik 15. 10. 2026); jedro sprejme samo kodo ISO s 2 crkama.
-            drzava_radia=self._niz(a, 9)[:2]))
+            drzava_radia=self._niz(a, 9)[:2]), od_uporabnika=True)
 
     def _radio_drzave(self, _a: list) -> Any:
         """Drzave za izbiro pri radiu: uporabnikova najprej, nato po stevilu postaj. Imena napise stran (Intl)."""
