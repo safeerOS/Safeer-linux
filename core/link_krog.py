@@ -418,7 +418,8 @@ class Krog:
         vnos = {"kljuc": kljuc, "ime": ime, "platforma": platforma, "dodano": dodano, "dodal": dodal}
         if podpis:
             vnos["podpis"] = podpis
-        return self.zdruzi({"clani": {device_id: vnos}})
+        # Vpis naredi ta naprava sama (hub po preverjenem zetonu seznanitve): zanj ne velja preverba prejetih krogov.
+        return self.zdruzi({"clani": {device_id: vnos}}, lokalno=True)
 
     def _smo_mi(self, device_id: str) -> bool:
         """Ali je ta id nasa naprava (isti kljuc)? Samo zase lahko podpisujemo."""
@@ -506,12 +507,40 @@ class Krog:
                     break
         return str((c or {}).get("kljuc") or "")
 
-    def zdruzi(self, tuj, shrani: bool = True, preveri_podpise: bool = False) -> bool:
+    def _kljuc_podpisnika(self, device_id: str) -> str:
+        """Javni kljuc VELJAVNEGA clana (ne umaknjenega), ki sme podpisati vnos ali umik; prazno sicer. Pregled TV
+        10. 11. 2026: umaknjena naprava s svojim kljucem ne sme podpisati vrnitve sebe ali drugih."""
+        c = self.clani.get(device_id)
+        if c is not None and not self._veljaven(c):
+            return ""
+        if c is None and je_id_iz_kljuca(device_id):
+            jedro = device_id[:DOLZINA_ID_IZ_KLJUCA]
+            c = next((d for d in self.clani.values() if self._veljaven(d) and id_iz_kljuca(d["kljuc"]) == jedro), None)
+        return str((c or {}).get("kljuc") or "")
+
+    def _podpis_vnosa_velja(self, nov: dict, ne_sam: bool = False) -> bool:
+        """Podpis vnosa clana s kljucem veljavnega clana, ki ga je dodal. [ne_sam]: podpisnik ni naprava sama -
+        umaknjena naprava se ne more vrniti s svojim podpisom."""
+        kljuc = self._kljuc_podpisnika(nov["dodal"])
+        try:
+            if not kljuc or (ne_sam and id_iz_kljuca(kljuc) == id_iz_kljuca(nov["kljuc"])):
+                return False
+        except Exception:  # noqa: BLE001 - pokvarjen kljuc: ni podpisa
+            return False
+        return preveri_podpis(kljuc, podatki_clana(nov["id"], nov["kljuc"], nov["platforma"], nov["dodano"], nov["dodal"]),
+                              str(nov.get("podpis") or ""))
+
+    def zdruzi(self, tuj, shrani: bool = True, preveri_podpise: bool = False, lokalno: bool = False) -> bool:
         """Zdruzi tuj krog (dict ali JSON niz). Vrne True, ce se je nas krog spremenil.
 
         `preveri_podpise` velja za kroge, ki NE pridejo od nasega huba (naprava, rele, internet):
         nov ali spremenjen clan in umik morata biti podpisana s kljucem tistega, ki ju je dodal, in
         ta mora biti ze v nasem krogu. Tako tuja naprava ne more podtakniti svojega kljuca.
+
+        Vedno (tudi krog od huba, trust.update; pregled TV 10. 11. 2026): vnos, ki bi UMAKNJENO napravo vrnil (novejsi
+        `dodano` od umika), in vnos z drugim kljucem znanega clana veljata samo s podpisom veljavnega clana, ki ni
+        naprava sama; vnos s podpisom, ki ga znan podpisnik ni dal, ne velja. Nepodpisan nov clan od huba ostane
+        mogoc (prva seznanitev: kroga se ne poznamo). [lokalno]: vpis te naprave same (Krog.dodaj), ne prejet krog.
         """
         if isinstance(tuj, str):
             try:
@@ -536,7 +565,7 @@ class Krog:
                     continue
                 umaknil = str(u.get("umaknil") or "")
                 podpis = str(u.get("podpis") or "")
-                if preveri_podpise and not preveri_podpis(self._kljuc_clana(umaknil), podatki_umika(i, ob, umaknil), podpis):
+                if preveri_podpise and not preveri_podpis(self._kljuc_podpisnika(umaknil), podatki_umika(i, ob, umaknil), podpis):
                     continue
                 obstojeci = self.umiki.get(i)
                 zdaj_clan = self.clani.get(i)
@@ -567,12 +596,23 @@ class Krog:
                 if c.get("podpis"):
                     nov["podpis"] = str(c["podpis"])
                 obstojeci = self.clani.get(i)
+                umik = self.umiki.get(i)
+                vrnitev = umik is not None and dodano > float(umik["umaknjeno"])
+                drug_kljuc = obstojeci is not None and obstojeci["kljuc"] != nov["kljuc"] and self._veljaven(obstojeci)
                 if preveri_podpise and (obstojeci is None or obstojeci["kljuc"] != nov["kljuc"]):
                     # Nov clan ali drug kljuc: samo s podpisom clana, ki ga je dodal in ga ze poznamo.
-                    if not preveri_podpis(self._kljuc_clana(nov["dodal"]),
-                                          podatki_clana(i, nov["kljuc"], nov["platforma"], dodano, nov["dodal"]),
-                                          str(nov.get("podpis") or "")):
+                    if not self._podpis_vnosa_velja(nov):
                         continue
+                elif lokalno:
+                    pass
+                elif vrnitev or drug_kljuc:
+                    # Umaknjena naprava se vraca ali znan clan dobi drug kljuc: tudi od huba samo s podpisom (prej je
+                    # novejsi nepodpisan vnos izbrisal umik in naprava je bila spet v krogu).
+                    if not self._podpis_vnosa_velja(nov, ne_sam=vrnitev):
+                        continue
+                elif nov.get("podpis") and self._kljuc_podpisnika(nov["dodal"]) and not self._podpis_vnosa_velja(nov):
+                    # Podpis je, podpisnika poznamo, a ga ni dal on: vnos je ponarejen ali pokvarjen.
+                    continue
                 if (obstojeci is None or obstojeci["dodano"] < dodano
                         or (obstojeci["dodano"] == dodano and obstojeci["kljuc"] != nov["kljuc"]
                             and obstojeci["kljuc"] < nov["kljuc"])):

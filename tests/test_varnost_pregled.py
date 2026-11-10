@@ -33,8 +33,10 @@ class UmikIzKrogaTests(unittest.TestCase):
 
     def test_ponoven_vpis_po_umiku(self):
         self.k.zdruzi({"umiki": {"tv-1": {"umaknjeno": 200.0, "umaknil": "pc"}}})
-        self.k.zdruzi({"clani": {"tv-1": {"kljuc": KLJUC, "ime": "TV", "platforma": "android",
-                                          "dodano": 300.0, "dodal": "pc"}}})
+        # Pregled TV 10. 11. 2026: prejet nepodpisan vnos umika ne izbrise (tests/test_link_varnost_krog.py) - vrne jo
+        # ponovna seznanitev na tej napravi (Krog.dodaj, hub po preverjenem zetonu).
+        with mock.patch.object(link_krog, "javni_kljuc_b64", side_effect=RuntimeError):
+            self.k.dodaj("tv-1", KLJUC, "TV", "android", "pc", dodano=300.0)
         self.assertFalse(self.k.je_umaknjen("tv-1"))
 
     def test_id_iz_kljuca_umaknjenega_clana(self):
