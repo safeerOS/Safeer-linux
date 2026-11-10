@@ -417,7 +417,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
 
                 def odstrani() -> None:
                     try:
-                        ok = datoteke.odstrani_prenos(tid)
+                        # Pregled TV 10. 11. 2026: samo narocnik, ki je prenos prosil.
+                        ok = datoteke.odstrani_prenos(tid, id_naprave=posiljatelj)
                     except Exception:  # noqa: BLE001
                         ok = False
                     koncaj(izid(True, "Odstranjeno z računalnika") if ok

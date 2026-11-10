@@ -2268,9 +2268,16 @@ class Datoteke:
                 _pisi_rabo(pot_opisov, sveze)
         return {"items": izid}
 
-    def odstrani_prenos(self, tid: int, torrenti=None) -> bool:
+    def odstrani_prenos(self, tid: int, torrenti=None, id_naprave: Optional[str] = None,
+                        pot_rabe: Optional[str] = None) -> bool:
         """`magnet.remove`: torrent in njegove prenesene datoteke z racunalnika (samo iz mape prenosov za naprave).
-        Negativna oznaka: prenos, ki ga je Safeer OS zaradi gledanja prenesel sam ([oznaka_gledanja])."""
+        Negativna oznaka: prenos, ki ga je Safeer OS zaradi gledanja prenesel sam ([oznaka_gledanja]).
+
+        [id_naprave] (ukaz z druge naprave; pregled TV 10. 11. 2026): odstrani samo narocnik, ki je prenos prosil
+        (opis prenosa, `narocniki`) - prenosa drugih naprav in prenosa, ki ga je ta racunalnik prenesel sam zaradi
+        gledanja, druga naprava ne odstrani. None = uporabnik tega racunalnika."""
+        if id_naprave is not None and not self._narocnik(int(tid), str(id_naprave), torrenti, pot_rabe):
+            return False
         if int(tid) < 0:
             if self.gledanje is None or self.odstrani_gledanje is None:
                 return False
@@ -2285,6 +2292,23 @@ class Datoteke:
         self.streznik.pozabi_tokove()
         return torrenti.odstrani(int(tid), z_datotekami=True)
 
+
+    def _narocnik(self, tid: int, id_naprave: str, torrenti=None, pot_rabe: Optional[str] = None) -> bool:
+        """Ali je [id_naprave] med narocniki prenosa [tid] (zapis opisov ob zapisu rabe)."""
+        if tid < 0 or not id_naprave:
+            return False
+        try:
+            torrenti = torrenti if torrenti is not None else torrenti_za_naprave()
+            if not torrenti.tece():
+                torrenti.seznam()
+            t = next((x for x in torrenti.seznam() if int(x.get("id", -1)) == tid), None)
+            hash_ = _hash_torrenta(torrenti, t) if t is not None else ""
+            pot_opisov = _pot_opisov(pot_rabe or _pot_rabe_za(torrenti))
+        except Exception:  # noqa: BLE001 - brez zapisa ne vemo, kdo je prenos prosil: ne odstranimo
+            return False
+        if not hash_ or not pot_opisov or t.get("lastna"):
+            return False
+        return id_naprave in ((_beri_opise(pot_opisov).get(hash_) or {}).get("narocniki") or [])
 
     def obdrzi_prenos(self, tid: int, obdrzi: bool, torrenti=None, pot_rabe: Optional[str] = None,
                       id_naprave: str = "") -> bool:
@@ -2702,8 +2726,10 @@ def _beri_opise(pot: str) -> dict:
 def zabelezi_opis(hash_: str, opis: Optional[dict], id_naprave: str, pot_rabe: Optional[str]) -> None:
     """Zapomni si, kaj je naprava povedala o prenosu, in kdo ga je prosil. Kar je enkrat zasebno, ostane zasebno."""
     pot = _pot_opisov(pot_rabe)
-    if not pot or not opis or not re.fullmatch(r"[0-9a-fA-F]{40}", hash_ or ""):
+    # Brez opisa (naprava ni povedala naslova) zapisemo vsaj narocnika: po njem magnet.remove ve, kdo sme prenos odstraniti.
+    if not pot or not (opis or id_naprave) or not re.fullmatch(r"[0-9a-fA-F]{40}", hash_ or ""):
         return
+    opis = opis or {}
     with _RABA_ZAKLEP:
         opisi = _beri_opise(pot)
         vnos = dict(opisi.get(hash_.lower()) or {})
