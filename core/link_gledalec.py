@@ -19,6 +19,42 @@ from typing import Callable, Iterator, Optional, Tuple
 from core import link_vticnik
 
 
+#: Zakaj se je ogled zaslona druge naprave koncal (obvestilo {"konec": ...}), v jezikih vmesnika. Uporabnik vidi stavek,
+#: ne oznake: prej je gledalec ob »zajem« (core/link_zaslon.ZajemPada) pokazal samo to besedo (10. 11. 2026).
+BESEDILA_KONCA = {
+    # Racunalnik je napravo umaknil iz ozjega kroga (core/link_zaslon.preveri_dostop).
+    "dostop": {
+        "sl": "Ta računalnik ti je odvzel upravljanje (ni več v ožjem krogu).",
+        "en": "This computer has taken away your control (no longer in its inner circle).",
+        "de": "Dieser Computer hat dir die Steuerung entzogen (nicht mehr im engen Kreis).",
+        "es": "Este ordenador te ha retirado el control (ya no estás en su círculo de confianza).",
+        "fr": "Cet ordinateur t'a retiré le contrôle (plus dans son cercle de confiance).",
+        "it": "Questo computer ti ha tolto il controllo (non sei più nella sua cerchia ristretta).",
+    },
+    # Zajem slike na tistem racunalniku zapored pade (zaklenjen ali ugasnjen zaslon, odjava): kaj lahko naredi.
+    "zajem": {
+        "sl": "Zaslona računalnika, ki ga gledaš, trenutno ni mogoče prikazati. Na tistem računalniku prižgi in odkleni zaslon, nato poskusi znova čez minuto.",
+        "en": "The screen of the computer you are viewing can't be shown right now. On that computer, turn on and unlock the screen, then try again in a minute.",
+        "de": "Der Bildschirm des Computers, den du ansiehst, kann gerade nicht angezeigt werden. Schalte dort den Bildschirm ein und entsperre ihn, dann versuche es in einer Minute erneut.",
+        "es": "Ahora no se puede mostrar la pantalla del ordenador que estás viendo. En ese ordenador, enciende y desbloquea la pantalla y vuelve a intentarlo dentro de un minuto.",
+        "fr": "L'écran de l'ordinateur que tu regardes ne peut pas être affiché pour le moment. Sur cet ordinateur, allume et déverrouille l'écran, puis réessaie dans une minute.",
+        "it": "Al momento non è possibile mostrare lo schermo del computer che stai guardando. Su quel computer accendi e sblocca lo schermo, poi riprova tra un minuto.",
+    },
+}
+
+
+def sporocilo_konca(jezik, konec, sporocilo=None) -> str:
+    """Besedilo za uporabnika ob koncu ogleda. Stavek, ki ga poslje racunalnik sam (npr. »prevzeto«), ima prednost;
+    znana oznaka dobi besedilo v jeziku `jezik` (sicer anglesko), neznana ostane, kot je."""
+    if sporocilo:
+        return str(sporocilo)
+    konec = str(konec or "")
+    besedila = BESEDILA_KONCA.get(konec)
+    if besedila is None:
+        return konec
+    return besedila.get(str(jezik or "en")[:2], besedila["en"])
+
+
 OKVIR_SLIKA = 1
 OKVIR_ZVOK = 2
 OKVIR_OBVESTILO = 3
