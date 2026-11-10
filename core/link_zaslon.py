@@ -264,7 +264,23 @@ def merilo_za_gledalca(pogled, velikost: tuple) -> float:
 
 
 def _zaslon_geometrija(display: str) -> Optional[tuple]:
-    """Velikost zaslona (xdotool); brez njega ne ugibamo, ampak vrnemo None."""
+    """Velikost zaslona X11 v pikah; ce je ni mogoce izmeriti, None (ne ugibamo).
+
+    Najprej nasa povezava z X (core/x11, brez zunanjega programa), nato xdotool. Izmerjeno 10. 11. 2026 na testnem
+    PC (zaslon 1440x900, xdotool ni namescen): prej je brez xdotool veljalo 1920x1080, x11grab je zavrnil obmocje
+    zunaj zaslona, zajem je koncal v 0,1 s in telefon je v zanki kazal »Povezava je padla«."""
+    if display and display == os.environ.get("DISPLAY", ""):
+        try:
+            from core import x11
+            p = x11.Povezava()
+            try:
+                s, v = p.velikost_korena()
+            finally:
+                p.zapri()
+            if s > 0 and v > 0:
+                return int(s), int(v)
+        except Exception:  # noqa: BLE001 - brez X11 ali knjiznice poskusimo se xdotool
+            pass
     if not shutil.which("xdotool"):
         return None
     try:
@@ -277,6 +293,14 @@ def _zaslon_geometrija(display: str) -> Optional[tuple]:
     except Exception:
         pass
     return None
+
+
+def _izvor_zaslona(display: str) -> tuple:
+    """Velikost zaslona za zajem ali RuntimeError: napacna velikost zajem podre takoj, zato raje jasna zavrnitev."""
+    izvor = _zaslon_geometrija(display)
+    if not izvor:
+        raise RuntimeError("Velikosti zaslona ni mogoce ugotoviti")
+    return izvor
 
 
 def _deljeni_monitor() -> Optional[dict]:
@@ -944,7 +968,7 @@ class Zaslon:
                 izvor = (monitor["sirina"], monitor["visina"])
                 odmik = (monitor["x"], monitor["y"])
             else:
-                izvor = _zaslon_geometrija(display) or (NAJVEC_SIRINA, NAJVEC_VISINA)
+                izvor = _izvor_zaslona(display)
                 odmik = (0, 0)
             sirina, visina = self._prilagodi(izvor, k["sirina"], k["visina"])
         with self._kljucavnica:

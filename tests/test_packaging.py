@@ -1916,6 +1916,8 @@ sys.exit("neznan ukaz")
         # Lastnik 10. 11. 2026: deljenje zaslona mora delati takoj po namestitvi; brez ffmpeg ga ni (link_zaslon.na_voljo).
         self.assertRegex(odvisnosti,r'(^|, )ffmpeg(,|$)')
         self.assertNotIn('ffmpeg',priporocila)
+        # 10. 11. 2026: brez xdotool vnos s telefona na namizju X11 ne dela (core/link_vnos); prej ga paket ni zahteval.
+        self.assertRegex(odvisnosti,r'(^|, )xdotool(,|$)')
         brskalnik=(ROOT/'build_deb.sh').read_text()
         gtk4=[v for v in re.findall(r'^\s*ODVISNOSTI="(.*)"$',brskalnik,re.M) if 'gir1.2-gtk-4.0' in v]
         self.assertEqual(len(gtk4),2)      # paket izdaje (nas WebKit) in lokalna gradnja (sistemski WebKit)

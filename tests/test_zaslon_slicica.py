@@ -76,6 +76,45 @@ class Slicica(unittest.TestCase):
             z._slicica_zaklep.release()
 
 
+class VelikostZaslona(unittest.TestCase):
+    """10. 11. 2026 (testni PC, 1440x900, brez xdotool): velikost zaslona se izmeri, nikoli ne ugiba."""
+
+    class _P:
+        def __init__(self, velikost):
+            self.velikost, self.zaprta = velikost, False
+
+        def velikost_korena(self):
+            return self.velikost
+
+        def zapri(self):
+            self.zaprta = True
+
+    def test_brez_xdotool_izmeri_prek_x11(self):
+        from unittest import mock
+        from core import x11
+        p = self._P((1440, 900))
+        with mock.patch.dict("os.environ", {"DISPLAY": ":0"}), mock.patch.object(x11, "Povezava", return_value=p), \
+                mock.patch.object(link_zaslon.shutil, "which", return_value=None):
+            self.assertEqual(link_zaslon._zaslon_geometrija(":0"), (1440, 900))
+            self.assertEqual(link_zaslon._izvor_zaslona(":0"), (1440, 900))
+        self.assertTrue(p.zaprta)
+
+    def test_neznana_velikost_je_napaka_ne_1920x1080(self):
+        from unittest import mock
+        from core import x11
+        with mock.patch.dict("os.environ", {"DISPLAY": ":0"}), \
+                mock.patch.object(x11, "Povezava", side_effect=OSError("X11 ni na voljo")), \
+                mock.patch.object(link_zaslon.shutil, "which", return_value=None):
+            self.assertIsNone(link_zaslon._zaslon_geometrija(":0"))
+            with self.assertRaises(RuntimeError):
+                link_zaslon._izvor_zaslona(":0")
+        # Velikost 0x0 (X ne odgovori) ni velikost.
+        with mock.patch.dict("os.environ", {"DISPLAY": ":0"}), \
+                mock.patch.object(x11, "Povezava", return_value=self._P((0, 0))), \
+                mock.patch.object(link_zaslon.shutil, "which", return_value=None):
+            self.assertIsNone(link_zaslon._zaslon_geometrija(":0"))
+
+
 class Dejanje(unittest.TestCase):
     def _izvedi(self, zaslon):
         izid, gotovo = {}, threading.Event()
