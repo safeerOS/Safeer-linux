@@ -1201,6 +1201,8 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 #r-media .media-prazno { align-items: center; text-align: center; min-height: 220px; gap: 8px; border-style: solid; border-color: var(--rob); background: var(--media-povrsina); }
 #r-media .media-prazno b { font-size: 20px; }
 #r-media .media-prazno span { font-size: 15px; max-width: 46ch; }
+/* Zakaj ni kljucev z drugih naprav (polje »uskladitev«, os.js narisiRazlogUskladitve): opozorilo, ne napaka. */
+#r-media .media-prazno span.media-prazno-uskladitev { font-size: 14px; color: var(--opozorilo); }
 #r-media .media-prazno .gumb { margin-top: 12px; }
 
 /* ------------------------------------------------------------------ Medijski center na namizju (lastnik, 14. 10. 2026,

@@ -226,6 +226,8 @@
 .kat-prazno { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px 0; padding: 40px 24px; text-align: center;
   border: 1px solid var(--rob); border-radius: 16px; background: var(--media-povrsina); }
 .kat-prazno p { max-width: 52ch; font-size: 16px; }
+/* Zakaj ni kljucev z drugih naprav (polje »uskladitev«): opozorilo, ne napaka. */
+.kat-prazno p.kat-prazno-uskladitev { font-size: 14px; color: var(--opozorilo); }
 html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 /* Osebne police (lastnik, 14. 10. 2026): vodoravne vrste istih kartic kot katalog, na vrhu zavihka; brez praznih polic. */
 .media-police[hidden], .kat-meni-kartice[hidden], .media-naslednja[hidden] { display: none !important; }

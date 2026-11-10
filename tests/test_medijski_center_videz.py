@@ -89,7 +89,7 @@ class Postavitev(unittest.TestCase):
         html = _beri("assets", "os", "index.html")
         self.assertNotIn("media-hero", html)
         self.assertIn('$("mediaPrazno").hidden = samoViri || prikaz.length !== 0 || imaKatalog;', self.js)
-        self.assertIn('<div class="kat-prazno" id="katPrazno" hidden><p class="drobno" id="katPraznoBesedilo"></p><button class="gumb" id="katPraznoDejanje" type="button" hidden></button></div>', html)
+        self.assertIn('<div class="kat-prazno" id="katPrazno" hidden><p class="drobno" id="katPraznoBesedilo"></p><p class="drobno kat-prazno-uskladitev" id="katPraznoUskladitev" role="status" hidden></p><button class="gumb" id="katPraznoDejanje" type="button" hidden></button></div>', html)
         prazno = self.js.split("function narisiPrazenKatalog(skrij) {", 1)[1].split("\n  }\n", 1)[0]
         for niz in ('t("katVsiJeziki")', "izberiZanr(vseZvrsti)", "gumb.onclick = odpriKatViri;"):
             self.assertIn(niz, prazno)
@@ -245,6 +245,7 @@ class Domov(unittest.TestCase):
         koda = self._dom() + _funkcija(self.js, "izbiraJunaka") + _funkcija(self.js, "narisiMediaDomov") + """
         // Police odkrivanja (17. 10. 2026) tu prazne: prazno stanje odloca samo knjiznica.
         function narisiOdkrivanje() {} function odkrivanjeVidno() { return POL.odkr || []; } function junakOdkrivanja() { return null; }
+        function narisiRazlogUskladitve() {}   // razlog brez kljucev: tests/test_mc_uskladitev_razlog.py
         var POL = { nalozeno: "domov", police: [] }, S = { samodejni: [{ id: "sam:odkrij" }] };
         var izid = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
         S.samodejni = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);

@@ -262,6 +262,7 @@
             <div class="media-prazno media-domov-del" id="mediaPrazno" hidden>
               <div class="media-prazno-ikona" id="mediaPraznoZnak"><svg data-ikona="glasba"></svg></div>
               <b id="mediaPraznoNaslov" data-t="mediaPraznoNaslov"></b><span id="mediaPraznoOpis" data-t="mediaPraznoOpis"></span>
+              <span class="media-prazno-uskladitev" id="mediaPraznoUskladitev" role="status" hidden></span>
               <button class="gumb glavni" id="medijiDodajPrazno" type="button"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
             </div>
             <button class="gumb media-vec" id="mediaVec" data-t="mediaNaloziVec" hidden></button>
@@ -293,7 +294,7 @@
               <div class="kat-katalog" id="katMreza"></div>
               <!-- Ob koncu mreze se sama nalozi naslednja stran (kot v predvajalnikih Plex in Spotify), brez gumbov za strani. -->
               <div class="kat-nalaganje" id="katNalaganje" hidden><span class="kat-vrtavka" aria-hidden="true"></span><span id="katNalaganjeBesedilo"></span><button class="gumb" id="katNalaganjeZnova" type="button" data-t="katPoskusiZnova" hidden></button><button class="gumb" id="katNalaganjeVec" type="button" data-t="katNaloziVec" hidden></button></div>
-              <div class="kat-prazno" id="katPrazno" hidden><p class="drobno" id="katPraznoBesedilo"></p><button class="gumb" id="katPraznoDejanje" type="button" hidden></button></div>
+              <div class="kat-prazno" id="katPrazno" hidden><p class="drobno" id="katPraznoBesedilo"></p><p class="drobno kat-prazno-uskladitev" id="katPraznoUskladitev" role="status" hidden></p><button class="gumb" id="katPraznoDejanje" type="button" hidden></button></div>
             </div>
             <div class="media-naslov-vrstice media-tokovi-glava" id="mediaTokoviGlava" hidden><div><span class="media-kicker" data-t="mediaShranjeniTokovi"></span><h2 data-t="mediaTvojePostaje"></h2></div></div>
             <div class="media-viri" id="mediaTokovi" hidden></div>

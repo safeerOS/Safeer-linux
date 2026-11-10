@@ -1542,6 +1542,7 @@
     // prazna krajevna knjiznica s svojim gumbom ostane samo pri Slikah, ki kataloga nimajo.
     var imaKatalog = !!KAT_VRSTE[vrsta];
     $("mediaPrazno").hidden = samoViri || prikaz.length !== 0 || imaKatalog;
+    if (!$("mediaPrazno").hidden) narisiRazlogUskladitve();
     $("mediaPraznoZnak").innerHTML = svg(vrsta === "slike" ? "slika" : vrsta === "glasba" ? "glasba" : "video");
     // Knjiznica nad katalogom je samo za filme, serije in slike; glasba je v katalogu.
     var samoGlasba = prikaz.length > 0 && !neGlasba.length;
@@ -6549,11 +6550,50 @@
   function katVidno() { return S.razdelek === "media"; }
   function katSplet(url) { if (url) odpriVSpletu(url); }
 
+  // Zakaj ni kljucev z drugih naprav (izmerjeno 10. 11. 2026: naprave s kljuci niso bile v ozjem krogu, Medijski center
+  // pa je bil prazen brez razlage). Razlog in besedila v vseh jezikih da jedro (core/debrid.most, polje »uskladitev« iz
+  // uskladitev_kljucev_pravila.razlog_brez_kljucev); brez storitve usklajevanja polja ni in vrstice ne pokazemo.
+  // Samo, ce ta naprava sama nima nobenega kljuca (storitev, ponudnik ali indeksator Usenet) - sicer prazno ni zaradi kljucev.
+  function razlogUskladitve(s) {
+    var u = s && s.uskladitev;
+    if (!u || typeof u !== "object" || !u.besedilo || typeof u.besedilo !== "object" || u.koda === "v_redu") return "";
+    var imaKljuc = (s.storitve || []).some(function (x) { return x && x.kljuc; }) || !!s.usenet_lastni
+      || !!(s.usenet && s.usenet.gostitelj);
+    if (imaKljuc) return "";
+    var b = u.besedilo[jezik] || u.besedilo.en;
+    return typeof b === "string" ? b : "";
+  }
+  // uskladitevCas: kdaj smo stanje kljucev nazadnje prebrali za prazno stanje - razlog se spremeni, ko naprava pride v
+  // ozji krog ali odgovori; prazno stanje ga osvezi najvec na 60 s (brez zanke ob napaki: debridNalagam).
+  var uskladitevCas = 0;
+  // Obe prazni stanji Medijskega centra: katalog (Filmi, Serije, Glasba ...) in prazna knjiznica (Domov, Slike).
+  var PRAZNA_USKLADITEV = [["katPrazno", "katPraznoUskladitev"], ["mediaPrazno", "mediaPraznoUskladitev"]];
+  function narisiRazlogUskladitve() {
+    var besedilo = razlogUskladitve(debridStanje);
+    PRAZNA_USKLADITEV.forEach(function (par) {
+      var p = $(par[1]); if (!p) return;
+      p.hidden = !besedilo;
+      p.textContent = besedilo ? t("katUskladitevKljucev", { razlog: besedilo }) : "";
+    });
+    if (debridNalagam || (debridStanje && Date.now() - uskladitevCas < 60000)
+        || (!debridStanje && debridPrazno && Date.now() - debridPrazno < 30000)) return;
+    debridNalagam = true;
+    klic("mediaDebrid", []).then(function (s) {
+      debridNalagam = false; uskladitevCas = Date.now();
+      if (s && typeof s === "object") { debridStanje = s; debridPrazno = 0; } else debridPrazno = Date.now();
+      // Izbor vira je med tem nalaganjem preskocil izris (debridNalagam) - narisemo ga s svezim stanjem.
+      var polje = $("mediaDebridPolje");
+      if (polje && !polje.hidden) narisiDebrid(true);
+      if (PRAZNA_USKLADITEV.some(function (par) { var b = $(par[0]); return b && !b.hidden; })) narisiRazlogUskladitve();
+    }, function () { debridNalagam = false; uskladitevCas = Date.now(); });
+  }
+
   // Prazen katalog: kratko, zakaj je prazno, in eno dejanje, ki pomaga (vsi jeziki, vse zvrsti ali dodaj vir).
   function narisiPrazenKatalog(skrij) {
     var blok = $("katPrazno"); if (!blok) return;
     blok.hidden = skrij;
     if (skrij) return;
+    narisiRazlogUskladitve();
     // Prazen katalog pri izbranem jeziku: povemo, da je prazno zaradi izbire (ne »ni zadetkov«).
     var gumb = $("katPraznoDejanje"), vseZvrsti = $("mediaZanri").querySelector('[data-media-genre=""]');
     var uf = katUsenetFilter();
@@ -8606,6 +8646,7 @@
     // Prazno stanje sele, ko je odgovor za Domov prisel (ne utripa ob odprtju); ena poteza: Dodaj mapo. Samodejni
     // seznami so tudi knjiznica: z njimi »Tvoja knjiznica se zacne tukaj« ni res (pregled 14. 10. 2026).
     prazno.hidden = !nalozeno || ima || (S.samodejni || []).length > 0;
+    if (!prazno.hidden) narisiRazlogUskladitve();
     if (!ima) { $("mediaPraznoNaslov").textContent = t("mediaPraznoNaslov"); $("mediaPraznoOpis").textContent = t("mediaPraznoOpis");
                 $("medijiDodajPrazno").hidden = false; $("mediaPraznoZnak").innerHTML = svg("glasba"); }
     var izbor = nalozeno && ima ? izbiraJunaka() : null;
