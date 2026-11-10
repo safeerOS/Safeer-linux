@@ -104,14 +104,23 @@ def _cas_zdaj() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+#: Ure naprav se razlikujejo; sporocilo »iz prihodnosti« do toliko sekund se sprejme s casom posiljatelja.
+KLEPET_PREHITEVA_S = 300
+
+
 def _cas_klepeta(vrednost: str) -> str:
-    """Cas posiljatelja v nasi obliki (UTC do sekunde); nerazumljiv cas -> cas prejema."""
+    """Cas posiljatelja v nasi obliki (UTC do sekunde); nerazumljiv cas -> cas prejema. Pregled TV 10. 11. 2026: cas
+    iz prihodnosti (vec kot KLEPET_PREHITEVA_S) ni sprejet kot tak - sicer bi sporocilo z letom 9999 za vedno ostalo
+    na vrhu pogovora - dobi cas prejema."""
     try:
         d = datetime.fromisoformat(str(vrednost).replace("Z", "+00:00"))
         if d.tzinfo is None:
             raise ValueError
-        return d.astimezone(timezone.utc).replace(microsecond=0).isoformat()
-    except (TypeError, ValueError):
+        d = d.astimezone(timezone.utc)
+        if (d - datetime.now(timezone.utc)).total_seconds() > KLEPET_PREHITEVA_S:
+            return _cas_zdaj()
+        return d.replace(microsecond=0).isoformat()
+    except (TypeError, ValueError, OverflowError):
         return _cas_zdaj()
 
 
