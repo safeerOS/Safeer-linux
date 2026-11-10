@@ -156,3 +156,4 @@ pregled pa je na strani nasel 6 napacnih SHA-256. Vsaka tocka spodaj je ze bila 
   isti vrstni red, iste oznake in isti potek do predvajanja. Razlika je dovoljena samo tam, kjer jo zahteva naprava (miska in
   tipkovnica namesto daljinca). Pred spremembo Medijskega centra preveri, kako to dela TV (pravila v *Pravila.kt), in pravila
   prenesi - ne izumljaj drugacnega vedenja. Najdena razlika je napaka in gre v zapisnik.
+- Klik na film v mrezi takoj predvaja z najboljsim virom kot na TV; podrobnosti in izbira toka so v meniju kartice (lastnik, 10. 11. 2026).
