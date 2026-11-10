@@ -17,6 +17,27 @@ def _torrent(hash_=H, indeks=0, opis="", sledilniki=(), ime="", vir="Dodatek"):
             "vir": vir, "kakovost": "", "opis": opis}
 
 
+class Brez3dTests(unittest.TestCase):
+    """Lastnik 10. 11. 2026: 3D izdaje ne prikazemo (film je bil v dveh polovicah slike)."""
+
+    def test_oznake_3d(self):
+        for b in ("Film.1998.1080p.3D.HSBS.BluRay.x264", "Film 1998 3D 1080p", "Film.1998.Half-SBS.1080p", "Film (1998) [3D] [H-SBS]",
+                  "Film.1998.1080p.BluRay.SBS.x264", "Film.1998.3D.Half-OU.1080p", "RD+ 1080p\nFilm.1998.3D.mkv", "Film 3D",
+                  "Jackass.3D.2010.1080p.3D.HSBS"):
+            self.assertTrue(tok_izbira.je_3d(b), b)
+
+    def test_naslov_s_3d_in_podobne_besede_niso_3d(self):
+        for b in ("Film.1998.1080p.BluRay.x264", "Jackass.3D.2010.1080p.BluRay", "Step Up 3D (2010) 720p",
+                  "Film.1998.1080p.x264-SBSGROUP", "R3D.2011.1080p", "Thou.Shalt.Not.1998.720p", "", None):
+            self.assertFalse(tok_izbira.je_3d(b), b)
+
+    def test_zdruzi_dvojnike_ne_vrne_3d(self):
+        t3d = _torrent(hash_="b" * 40, opis="Film.1998.1080p.3D.HSBS 👤 900")
+        rd3d = {"url": "https://x.test/3d.mkv", "opis": "RD+ 1080p", "ime": "Film.1998.Half-SBS.mkv"}
+        navaden = _torrent(hash_="c" * 40, opis="Film.1998.720p 👤 5")
+        self.assertEqual([t.get("hash") for t in tok_izbira.zdruzi_dvojnike([t3d, rd3d, navaden])], ["c" * 40])
+
+
 class ZdruziDvojnikeTests(unittest.TestCase):
     def test_isti_hash_in_indeks_en_vnos(self):
         a = _torrent(opis="Torrentio 1080p", sledilniki=["udp://a:1", "udp://b:2"], vir="A")

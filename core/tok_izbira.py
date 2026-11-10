@@ -283,12 +283,31 @@ def _opisanost(tok: dict) -> tuple:
     return lastnosti, len(besedilo)
 
 
+# 3D (lastnik, 10. 11. 2026: »3D ne sme prikazovati« - na TV je bil film v dveh polovicah slike, SBS; isto velja za namizje).
+# »3d« je oznaka izdaje, razen ko mu sledi letnica: takrat je del naslova (»Film.3D.2010.1080p« je navadna izdaja).
+# Ista pravila kot na TV (TokiPravila.je3d).
+_OZNAKA_3D = re.compile(r"(?<![a-z0-9])3d(?![a-z0-9])(?![\s._-]*\(?(?:19|20)\d\d)")
+_OZNAKA_SBS = re.compile(r"(?<![a-z0-9])(?:h-?sbs|half[\s._-]?sbs|sbs|h-ou|half[\s._-]?ou|h-tab|half[\s._-]?tab)(?![a-z0-9])")
+
+
+def je_3d(besedilo: str) -> bool:
+    """Izdaja je 3D (dve sliki v eni slicici): ne ponudimo je in ne predvajamo."""
+    t = str(besedilo or "").lower()
+    return bool(_OZNAKA_3D.search(t) or _OZNAKA_SBS.search(t))
+
+
+def tok_je_3d(tok) -> bool:
+    return isinstance(tok, dict) and je_3d(" ".join(str(tok.get(k) or "") for k in ("ime", "opis", "kakovost")))
+
+
 def zdruzi_dvojnike(tokovi: Sequence[dict]) -> List[dict]:
     """Torrenti z istim infoHash in indeksom datoteke (fileIdx) iz razlicnih dodatkov (ali dvakrat iz istega) so ista
     izdaja: en vnos na mestu prvega, z najbolj opisanim tokom, zdruzenimi sledilniki (brez dvojnikov, najvec
     NAJVEC_SLEDILNIKOV) in najvecjim znanim stevilom sejalcev (polje `sejalci`). Lastnik 5. 11. 2026 (viri tokov):
     isti film veckrat na seznamu je zmeda, roj pa z vsemi sledilniki skupaj najde vec virov.
-    Neposredne povezave (debrid, Usenet) ostanejo locene tudi z istim hashem - vsaka je svoj racun ali streznik."""
+    Neposredne povezave (debrid, Usenet) ostanejo locene tudi z istim hashem - vsaka je svoj racun ali streznik.
+    3D izdaj (je_3d) ne vrne."""
+    tokovi = [t for t in tokovi if not tok_je_3d(t)]  # 3D izpade ze tu: ne v seznam virov ne v samodejno izbiro
     skupine: dict = {}
     mesta: list = []
     for t in tokovi:
