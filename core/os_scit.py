@@ -858,13 +858,30 @@ def abusech_kljuc() -> Optional[str]:
     return k if k and veljaven_kljuc(k) else None
 
 
+class _PreusmeritevSamoNaIstiHttps(urllib.request.HTTPRedirectHandler):
+    """Preusmeritev samo na https istega gostitelja; vse drugo je napaka PRED zahtevo (neodvisni pregled 12. 11. 2026:
+    urlopen je sledil preusmeritvi na http://127.0.0.1, http://192.168.x.x ... in sele nato preveril naslov)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.lower().startswith("https://") or not isti_gostitelj(req.full_url, newurl):
+            raise urllib.error.HTTPError(req.full_url, code, "preusmeritev ni dovoljena", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class _BrezPreusmeritev(urllib.request.HTTPRedirectHandler):
+    """Zahteva s kljucem ne sledi preusmeritvam (AGENTS.md, pravila iz napak izdaje 1.0.127)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "preusmeritev ni dovoljena", headers, fp)
+
+
 def preveri_kljuc(kljuc: str) -> str:
     """Preverba pri abuse.ch: 'velja', 'neveljaven', 'oblika' ali 'ni_odgovora'. Kljuc ne gre v dnevnik."""
     if not veljaven_kljuc(kljuc):
         return "oblika"
     z = urllib.request.Request(VIRI_URLHAUS.replace("{KLJUC}", kljuc), headers={"User-Agent": "Safeer"})
     try:
-        with urllib.request.urlopen(z, timeout=15) as o:  # noqa: S310 - fiksen naslov https
+        with urllib.request.build_opener(_BrezPreusmeritev()).open(z, timeout=15) as o:  # noqa: S310 - fiksen naslov https
             return "velja" if o.status == 200 else "ni_odgovora"
     except urllib.error.HTTPError as e:
         return "neveljaven" if e.code in (401, 403) else "ni_odgovora"
@@ -1066,13 +1083,15 @@ def prenesi(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
     if etag:
         z.add_header("If-None-Match", etag)
     try:
-        with urllib.request.urlopen(z, timeout=cas) as o:  # noqa: S310 - fiksni naslovi https
+        with urllib.request.build_opener(_PreusmeritevSamoNaIstiHttps()).open(z, timeout=cas) as o:  # noqa: S310
             if not o.geturl().lower().startswith("https://") or not isti_gostitelj(url, o.geturl()):
                 return 0, b"", etag  # preusmeritev drugam: seznama ne vzamemo, ostane prejsnji
             return o.status, o.read(NAJVEC_BAJTOV + 1), o.headers.get("ETag", "") or ""
     except urllib.error.HTTPError as e:
         if e.code == 304:
             return 304, b"", etag
+        if 300 <= e.code < 400:
+            return 0, b"", etag  # prepovedana preusmeritev: seznama ne vzamemo, ostane prejsnji
         raise
 
 
