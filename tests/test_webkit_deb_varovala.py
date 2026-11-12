@@ -75,6 +75,8 @@ class VarovaloPredpone(unittest.TestCase):
             self.assertLess(s.index('predpona_namescena "$PREDPONA"'), s.index('rm -rf "$PREDPONA"'))
         with open(os.path.join(WD, "nadaljuj.sh"), encoding="utf-8") as f:
             s = f.read()
+        self.assertLess(s.index('cp -- "$ARHIV"'), s.index("preveri_arhiv.py"))   # N1: preverba in razpakiranje na isti kopiji
+        self.assertLess(s.index('ARHIV="$KOPIJA_MAPA/'), s.index("preveri_arhiv.py"))
         self.assertLess(s.index("preveri_arhiv.py"), s.index('rm -rf "$PREDPONA" "$Z"'))
         self.assertLess(s.index('rm -rf "$PREDPONA" "$Z"'), s.index("tar -C / "))
 

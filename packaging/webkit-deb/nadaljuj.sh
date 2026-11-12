@@ -42,6 +42,12 @@ export GI_TYPELIB_PATH="$PREDPONA/lib/girepository-1.0"
 
 # --- stanje pred BOLT ---------------------------------------------------------------------------------------------------
 Z="$DELO/predbolt"
+# Neodvisni pregled 12. 11. 2026 (N1): preverba in razpakiranje morata brati ISTO datoteko. ARHIV lahko spremeni drug
+# proces med preverbo in razpakiranjem, zato ga najprej prekopiramo v zasebno mapo (0700) in vse delamo na kopiji.
+KOPIJA_MAPA="$(mktemp -d)"
+trap 'rm -rf "$KOPIJA_MAPA"' EXIT
+cp -- "$ARHIV" "$KOPIJA_MAPA/predbolt.tar.zst"
+ARHIV="$KOPIJA_MAPA/predbolt.tar.zst"
 zstd -q -t "$ARHIV"
 # Root razpakira v /: najprej preveri vsak clan (samo PREDPONA in Z, brez absolutnih poti, »..« in povezav ven;
 # tedenski pregled 4. 11. 2026, N5), sele nato brisanje in razpakiranje.
