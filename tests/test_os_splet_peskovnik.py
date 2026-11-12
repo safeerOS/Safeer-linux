@@ -210,7 +210,9 @@ class MedijskiPogled(unittest.TestCase):
         self.assertIn("function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 1000; }", js)
         # Lastnik 18. 10. 2026: napaka predvajanja (tudi »tok«) je tiha, zato pojasnila nikoli ne prekrije; obvestilo
         # dobijo le stanja, ko mora uporabnik ukrepati (MEDIA_UKREPAJ).
-        self.assertIn('if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }', js)
+        # Od 10. 11. 2026 (705fd7d, klik na film predvaja takoj): ce je uporabnik vir izbral sam (izberi), neuspeh pokaze
+        # obvestiNeuspeh; brez izbire (samodejni poskus) ostane napaka tiha, zato pojasnila peskovnika spet ne prekrije.
+        self.assertIn('if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda));\n        else if (izberi) obvestiNeuspeh(t(razlogNeuspeha(item.napaka_koda)), izberi);', js)
         self.assertNotIn("tok:", js.split("var MEDIA_UKREPAJ = {", 1)[1].split("}", 1)[0])
         besedila = beri("assets", "os", "besedila.js")
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
