@@ -884,8 +884,8 @@ def napaka_naslova(url: str) -> Optional[str]:
         return "dolzina"
     if not u.startswith("https://"):
         return "https"
-    if any(c.isspace() or not 0x21 <= ord(c) <= 0x7E for c in u):
-        return "znaki"
+    if any(c.isspace() or not 0x21 <= ord(c) <= 0x7E or c in "{}" for c in u):
+        return "znaki"             # { } zavrnjeni: {KLJUC} je samo za vgrajeni vir (12. 11. 2026, neodvisni pregled)
     gostitelj = u[8:].split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
     if "@" in gostitelj or not gostitelj or "." not in gostitelj:
         return "gostitelj"
@@ -1220,7 +1220,7 @@ class Seznami:
         spremenjeno, napake = False, []
         for oznaka, url, _kat in self.viri():
             m = self.meta.get(oznaka, {})
-            if "{KLJUC}" in url:
+            if oznaka == "urlhaus" and "{KLJUC}" in url:   # samo vgrajeni vir; filter po meri ne dobi kljuca abuse.ch
                 kljuc = self.kljuc_fn()
                 if not kljuc or not veljaven_kljuc(kljuc):
                     continue            # brez kljuca uporabnika: zadnja kopija ostane, ni napaka
