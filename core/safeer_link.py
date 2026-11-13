@@ -236,6 +236,26 @@ KATEGORIJA_ZAZNAMKI = "bookmarks"
 #: vsako sporocilo brez njega. Okvir ISTEGA izvora (in XSS v glavnem okvirju) bi lahko klical window.SafeerLink
 #: neposredno - stran Linka je lokalna (assets/link, politika navigacije) in okvirjev nima. Preizkus v pravem WebKitu:
 #: tests/test_link_most_zivo.py. Zeton je nov ob vsakem zagonu procesa, nikoli na disku ali v dnevniku.
+def naslov_v_korenu(naslov: str, koren_pot: str) -> bool:
+    """Obrambno varovalo navigacije Link pogleda: True samo za file:// naslov ZNOTRAJ imenika
+    koren_pot (kanonicno). Gol startswith spusti sosednje ime (assets/link-xxx) in .. izhod
+    (assets/link/../../...), zato normaliziramo pot in zahtevamo mejo imenika - sicer bi
+    napadalcev lokalni dokument dobil window.SafeerLink z veljavnim zetonom."""
+    import os
+    from urllib.parse import urlsplit, unquote
+    if not isinstance(naslov, str) or not naslov.startswith("file://"):
+        return False
+    try:
+        pot = unquote(urlsplit(naslov).path)
+    except Exception:
+        return False
+    if not pot:
+        return False
+    koren = os.path.normpath(koren_pot)
+    realna = os.path.normpath(pot)
+    return realna == koren or realna.startswith(koren + os.sep)
+
+
 ZETON_MOSTU = secrets.token_urlsafe(32)
 
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki
@@ -717,7 +737,7 @@ class SafeerLink:
         self.pogled = pogled
 
         pot = os.path.join(self.koren, "assets", "link", "index.html")
-        self._dovoljeni_koren = "file://" + os.path.join(self.koren, "assets", "link")
+        self._dovoljeni_koren = os.path.join(self.koren, "assets", "link")
         pogled.connect("decide-policy", self._na_politiko)
         pogled.load_uri("file://" + pot)
         pogled.connect("load-changed", self._na_nalozeno)
@@ -742,7 +762,7 @@ class SafeerLink:
                              WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION):
                 return False
             naslov = odlocitev.get_navigation_action().get_request().get_uri() or ""
-            if self._dovoljeni_koren and naslov.startswith(self._dovoljeni_koren):
+            if self._dovoljeni_koren and naslov_v_korenu(naslov, self._dovoljeni_koren):
                 return False
             odlocitev.ignore()
             return True
