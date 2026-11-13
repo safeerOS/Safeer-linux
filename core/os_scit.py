@@ -1079,11 +1079,21 @@ class Nabor:
 
 def prenesi(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
     """Pogojni GET; (304, b'', etag) kadar je seznam nespremenjen."""
+    return _prenesi(url, etag, cas, _PreusmeritevSamoNaIstiHttps())
+
+
+def prenesi_s_kljucem(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
+    """Kot prenesi, vendar brez sledenja preusmeritvam: naslov vsebuje uporabnikov kljuc (AGENTS.md, Omrezje s kljucem;
+    neodvisni pregled 13. 11. 2026, najdba 4). Preusmeritev je napaka seznama, ne sledenje."""
+    return _prenesi(url, etag, cas, _BrezPreusmeritev())
+
+
+def _prenesi(url: str, etag: str, cas: float, preusmeritve: urllib.request.HTTPRedirectHandler) -> Tuple[int, bytes, str]:
     z = urllib.request.Request(url, headers={"User-Agent": "Safeer", "Accept": "text/plain"})
     if etag:
         z.add_header("If-None-Match", etag)
     try:
-        with urllib.request.build_opener(_PreusmeritevSamoNaIstiHttps()).open(z, timeout=cas) as o:  # noqa: S310
+        with urllib.request.build_opener(preusmeritve).open(z, timeout=cas) as o:  # noqa: S310
             if not o.geturl().lower().startswith("https://") or not isti_gostitelj(url, o.geturl()):
                 return 0, b"", etag  # preusmeritev drugam: seznama ne vzamemo, ostane prejsnji
             return o.status, o.read(NAJVEC_BAJTOV + 1), o.headers.get("ETag", "") or ""
@@ -1244,8 +1254,11 @@ class Seznami:
                 if not kljuc or not veljaven_kljuc(kljuc):
                     continue            # brez kljuca uporabnika: zadnja kopija ostane, ni napaka
                 url = url.replace("{KLJUC}", kljuc)
+                prenos = prenesi_s_kljucem if self.prenesi is prenesi else self.prenesi   # preizkusi podtaknejo svoj prenos
+            else:
+                prenos = self.prenesi
             try:
-                koda, telo, etag = self.prenesi(url, m.get("etag", ""))
+                koda, telo, etag = prenos(url, m.get("etag", ""))
             except Exception as e:  # noqa: BLE001
                 napake.append("%s: %s" % (oznaka, e.__class__.__name__))
                 continue

@@ -62,3 +62,31 @@ def test_preusmeritev_samo_na_isti_https():
         else:
             raise AssertionError(cilj)
     assert h.redirect_request(z, None, 302, "x", {}, "https://seznam.example/b") is not None
+
+
+def test_osvezi_z_kljucem_ne_sledi_preusmeritvam():
+    """Neodvisni pregled 13. 11. 2026 (4): zahteva s kljucem abuse.ch uporabi prenos brez sledenja preusmeritvam."""
+    import tempfile
+    klici = []
+    stari = os_scit.prenesi_s_kljucem
+    os_scit.prenesi_s_kljucem = lambda url, etag, cas=60.0: (klici.append(url), (0, b"", etag))[1]
+    try:
+        with tempfile.TemporaryDirectory() as m:
+            s = os_scit.Seznami(m, kljuc_fn=lambda: "k" * 40)
+            s.viri = lambda: [("urlhaus", "https://urlhaus-api.abuse.ch/v2/files/exports/{KLJUC}/hostfile.txt", "malware")]
+            s._osvezi()
+    finally:
+        os_scit.prenesi_s_kljucem = stari
+    assert klici == ["https://urlhaus-api.abuse.ch/v2/files/exports/%s/hostfile.txt" % ("k" * 40)]
+
+
+def test_brez_preusmeritve_zavrne_tudi_isti_https():
+    import urllib.request
+    h = os_scit._BrezPreusmeritev()
+    z = urllib.request.Request("https://seznam.example/a")
+    try:
+        h.redirect_request(z, None, 302, "x", {}, "https://seznam.example/b")
+    except Exception as e:  # noqa: BLE001
+        assert e.__class__.__name__ == "HTTPError"
+    else:
+        raise AssertionError("preusmeritev bi morala biti napaka")
