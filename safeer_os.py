@@ -7047,8 +7047,10 @@ class SafeerOS(Gtk.Application):
                 GLib.idle_add(v_glavni)
             # False = prevec hkratnih poizvedb: poskusimo ob naslednjem tiku (1 s), da video ne ostane brez gumba
             stanje["poslano"] = _po.pridobi(stanje["url"], izid)
-        o = _po.aktiven(stanje["odseki"], float(podatki.get("pozicija") or 0), float(podatki.get("trajanje") or 0))
-        if o is None or o == stanje.get("preskocen"):   # preskocen odsek (skok po kljucni slicici) ne pokaze gumba znova
+        # Koncani (preskoceni ali z iztecenim gumbom) ne pokazejo gumba znova in ne zakrijejo drugega odseka.
+        koncani = stanje.setdefault("koncani", set())
+        o = _po.aktiven(stanje["odseki"], float(podatki.get("pozicija") or 0), float(podatki.get("trajanje") or 0), koncani)
+        if o is None:
             stanje["vstop"], stanje["trenutni"] = None, None
             gumb.set_visible(False)
             return
@@ -7056,6 +7058,7 @@ class SafeerOS(Gtk.Application):
         if o != stanje["vstop"]:
             stanje["vstop"], stanje["vstop_cas"] = o, zdaj
         if not _po.gumb_viden(stanje["vstop_cas"], zdaj):
+            koncani.add(o)
             stanje["trenutni"] = None
             gumb.set_visible(False)
             return
@@ -7074,7 +7077,8 @@ class SafeerOS(Gtk.Application):
         cilj = _po.cilj(o, float(servis.podatki().get("trajanje") or 0))
         if cilj is not None:
             if self._medijski_ukaz("skok", float(cilj)):     # neuspel skok: odsek ostane ponujen
-                stanje["trenutni"], stanje["preskocen"] = None, o
+                stanje["trenutni"] = None
+                stanje.setdefault("koncani", set()).add(o)
                 self._medijski_preskok.set_visible(False)
 
     def _medijski_tik(self) -> bool:

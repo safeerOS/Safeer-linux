@@ -97,10 +97,7 @@ def razcleni(besedilo: str) -> list:
         seznam = d.get(api)
         if not isinstance(seznam, list):
             continue
-        veljavnih = 0
         for o in seznam[:_NAJVEC_PREGLEDANIH]:
-            if veljavnih >= _NAJVEC_ODSEKOV:
-                break
             if not isinstance(o, dict):
                 continue
             try:
@@ -115,8 +112,12 @@ def razcleni(besedilo: str) -> list:
                 continue
             if do is not None and do <= od:
                 continue
+            # Preverbe brez trajanja ze tu (CodeRabbit 13. 11. 2026): neuporaben vnos ne sme zasesti mesta veljavnemu.
+            if do is not None and do - od < NAJKRAJSI_S:
+                continue
+            if vrsta in ("uvod", "povzetek") and do is not None and do - od > NAJDALJSI_UVOD_S:
+                continue
             izid.append(Odsek(vrsta, od, do))
-            veljavnih += 1
     return sorted(izid, key=lambda x: x.od)
 
 
@@ -136,12 +137,27 @@ def smiseln(o: Odsek, trajanje: float) -> bool:
     return trajanje > 0 and o.od >= trajanje * ODJAVNA_OD_DELEZA and k >= trajanje * ODJAVNA_DO_DELEZA
 
 
-def aktiven(odseki: list, polozaj: float, trajanje: float) -> Optional[Odsek]:
+def uporabni(odseki: list, trajanje: float) -> list:
+    """Smiselni odseki, najvec _NAJVEC_ODSEKOV na vrsto - meja po preverbi trajanja (CodeRabbit 13. 11. 2026: dva
+    neuporabna vnosa na zacetku ne skrijeta tretjega, veljavnega)."""
+    stevec: dict = {}
+    izid = []
     for o in odseki:
-        if smiseln(o, trajanje):
-            k = _konec(o, trajanje)
-            if o.od <= polozaj < k - PRED_KONCEM_S:
-                return o
+        if smiseln(o, trajanje) and stevec.get(o.vrsta, 0) < _NAJVEC_ODSEKOV:
+            stevec[o.vrsta] = stevec.get(o.vrsta, 0) + 1
+            izid.append(o)
+    return izid
+
+
+def aktiven(odseki: list, polozaj: float, trajanje: float, izkljuceni=()) -> Optional[Odsek]:
+    """Odsek na polozaju. `izkljuceni` (preskoceni ali z iztecenim gumbom) ne zakrijejo drugega odseka na istem mestu
+    (CodeRabbit 13. 11. 2026: povzetek 0-90 s in uvod 60-80 s)."""
+    for o in uporabni(odseki, trajanje):
+        if o in izkljuceni:
+            continue
+        k = _konec(o, trajanje)
+        if o.od <= polozaj < k - PRED_KONCEM_S:
+            return o
     return None
 
 

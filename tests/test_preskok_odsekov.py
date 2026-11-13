@@ -304,7 +304,21 @@ def test_odjavna_mora_biti_na_koncu():
 def test_najvec_dva_odseka_iste_vrste():
     besedilo = '{"intro": [%s]}' % ", ".join('{"start_ms": %d, "end_ms": %d}' % (i * 100000, i * 100000 + 30000)
                                             for i in range(5))
-    assert len(P.razcleni(besedilo)) == 2
+    assert len(P.uporabni(P.razcleni(besedilo), 6000.0)) == 2
+
+
+def test_predolga_uvoda_ne_porabita_meje():
+    """CodeRabbit 13. 11. 2026 (TV): dva predolga uvoda na zacetku ne skrijeta tretjega, veljavnega."""
+    besedilo = ('{"intro": [{"start_ms": 0, "end_ms": 360000}, {"start_ms": 1000, "end_ms": 361000},'
+                ' {"start_ms": 60000, "end_ms": 90000}]}')
+    assert P.aktiven(P.razcleni(besedilo), 70.0, 6000.0) == P.Odsek("uvod", 60.0, 90.0)
+
+
+def test_koncan_odsek_ne_zakrije_drugega():
+    """CodeRabbit 13. 11. 2026 (TV): preskocen povzetek 0-90 s ne skrije uvoda 60-80 s."""
+    odseki = [P.Odsek("povzetek", 0.0, 90.0), P.Odsek("uvod", 60.0, 80.0)]
+    assert P.aktiven(odseki, 65.0, 6000.0) == odseki[0]
+    assert P.aktiven(odseki, 65.0, 6000.0, {odseki[0]}) == odseki[1]
 
 
 def test_neveljavni_na_zacetku_ne_skrijejo_veljavnega():
