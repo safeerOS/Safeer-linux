@@ -161,7 +161,8 @@ def _pot() -> str:
 
 
 def privzete() -> dict:
-    return {"zvok_jezik": "", "izenacevalnik": "ravno", "po_meri": [0.0] * 10}
+    # preskok_odsekov: gumb za preskok uvoda (core/preskok_odsekov.py) - privzeto izklopljen (zasebnost).
+    return {"zvok_jezik": "", "izenacevalnik": "ravno", "po_meri": [0.0] * 10, "preskok_odsekov": False}
 
 
 def nalozi(pot: str = "") -> dict:
@@ -179,6 +180,7 @@ def nalozi(pot: str = "") -> dict:
         n["izenacevalnik"] = podatki["izenacevalnik"]
     if isinstance(podatki.get("po_meri"), list):
         n["po_meri"] = ojacitve(PO_MERI, podatki["po_meri"])
+    n["preskok_odsekov"] = podatki.get("preskok_odsekov") is True
     return n
 
 
@@ -186,7 +188,8 @@ def shrani(n: dict, pot: str = "") -> None:
     pot = pot or _pot()
     cisto = {"zvok_jezik": str(n.get("zvok_jezik") or "")[:3],
              "izenacevalnik": n.get("izenacevalnik") if n.get("izenacevalnik") in IZBIRE_IZENACEVALNIKA else "ravno",
-             "po_meri": ojacitve(PO_MERI, n.get("po_meri"))}
+             "po_meri": ojacitve(PO_MERI, n.get("po_meri")),
+             "preskok_odsekov": n.get("preskok_odsekov") is True}
     try:
         os.makedirs(os.path.dirname(pot), exist_ok=True)
         from core import shramba_json
