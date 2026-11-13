@@ -10,7 +10,7 @@ JEZIKI = ("sl", "en", "de", "es", "fr", "it")
 
 BESEDILA: dict[str, dict[str, str]] = {
     "sl": {
-        "preskok_nastavitev": "Gumb za preskok uvoda (časi: TheIntroDB)", "preskoci_uvod": "Preskoči uvod", "preskoci_povzetek": "Preskoči povzetek", "preskoci_odjavna": "Preskoči odjavno špico", "preskoci_napoved": "Preskoči napoved",
+        "preskok_zasebnost": 'Ob vklopu Safeer pošlje TheIntroDB, kaj gledate (ID filma ali serije, sezona, epizoda), in vaš naslov IP.', "preskok_nastavitev": "Gumb za preskok uvoda (časi: TheIntroDB)", "preskoci_uvod": "Preskoči uvod", "preskoci_povzetek": "Preskoči povzetek", "preskoci_odjavna": "Preskoči odjavno špico", "preskoci_napoved": "Preskoči napoved",
         "poslji": "Pošlji na napravo", "poslano": "Poslano na {ime} – tam potrdi s Sprejmi.", "poslano_odpri": "Poslano na {ime} – tam odpri Safeer OS in potrdi s Sprejmi (obvestilo tam ni vidno).", "poslji_napaka": "{ime} ne odgovarja.", "poslji_stara": "{ime} tega še ne zna – tam posodobi Safeer OS.", "poslji_ni": "V Safeer Linku ni druge naprave.", "poslji_ni_deljeno": "Tega ni mogoče poslati (datoteka ni v deljeni mapi).", "poslji_izklopljeno": "{ime} ne sprejema predvajanja z drugih naprav.",
         "dvd": "Diska ni mogoče prebrati. Zaščitenih diskov (CSS) Safeer ne odklepa.",
         "podnapisi": "Podnapisi", "podnapisi_izklop": "Izklopljeno", "podnapisi_vgrajeni": "Vgrajeni", "podnapisi_v_videu": "Podnapisi v videu",
@@ -39,7 +39,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "povezava": "Povezava s postajo se je prekinila in je ni bilo mogoče obnoviti. Preveri omrežje ali poskusi pozneje.",
     },
     "en": {
-        "preskok_nastavitev": "Skip intro button (times: TheIntroDB)", "preskoci_uvod": "Skip intro", "preskoci_povzetek": "Skip recap", "preskoci_odjavna": "Skip credits", "preskoci_napoved": "Skip preview",
+        "preskok_zasebnost": 'When on, Safeer sends TheIntroDB what you watch (film or series ID, season, episode) and your IP address.', "preskok_nastavitev": "Skip intro button (times: TheIntroDB)", "preskoci_uvod": "Skip intro", "preskoci_povzetek": "Skip recap", "preskoci_odjavna": "Skip credits", "preskoci_napoved": "Skip preview",
         "poslji": "Send to device", "poslano": "Sent to {ime} – confirm there with Accept.", "poslano_odpri": "Sent to {ime} – open Safeer OS on that device and confirm with Accept (a notification is not visible there).", "poslji_napaka": "{ime} is not answering.", "poslji_stara": "{ime} does not know this yet – update Safeer OS there.", "poslji_ni": "No other device in Safeer Link.", "poslji_ni_deljeno": "This cannot be sent (the file is not in a shared folder).", "poslji_izklopljeno": "{ime} does not accept playback from other devices.",
         "dvd": "The disc can't be read. Safeer doesn't unlock protected (CSS) discs.",
         "podnapisi": "Subtitles", "podnapisi_izklop": "Off", "podnapisi_vgrajeni": "Built-in", "podnapisi_v_videu": "Subtitles in the video",
@@ -67,7 +67,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "povezava": "The connection to the station dropped and couldn't be restored. Check the network or try again later.",
     },
     "de": {
-        "preskok_nastavitev": "Intro-Überspringen-Taste (Zeiten: TheIntroDB)", "preskoci_uvod": "Intro überspringen", "preskoci_povzetek": "Rückblick überspringen", "preskoci_odjavna": "Abspann überspringen", "preskoci_napoved": "Vorschau überspringen",
+        "preskok_zasebnost": 'Wenn aktiviert, sendet Safeer an TheIntroDB, was Sie ansehen (Film- oder Serien-ID, Staffel, Folge), und Ihre IP-Adresse.', "preskok_nastavitev": "Intro-Überspringen-Taste (Zeiten: TheIntroDB)", "preskoci_uvod": "Intro überspringen", "preskoci_povzetek": "Rückblick überspringen", "preskoci_odjavna": "Abspann überspringen", "preskoci_napoved": "Vorschau überspringen",
         "poslji": "An Gerät senden", "poslano": "An {ime} gesendet – dort mit Annehmen bestätigen.", "poslano_odpri": "An {ime} gesendet – öffne dort Safeer OS und bestätige mit Annehmen (eine Benachrichtigung ist dort nicht sichtbar).", "poslji_napaka": "{ime} antwortet nicht.", "poslji_stara": "{ime} kennt das noch nicht – dort Safeer OS aktualisieren.", "poslji_ni": "Kein anderes Gerät im Safeer Link.", "poslji_ni_deljeno": "Das kann nicht gesendet werden (Datei nicht in einem freigegebenen Ordner).", "poslji_izklopljeno": "{ime} nimmt keine Wiedergabe von anderen Geräten an.",
         "dvd": "Die Disc kann nicht gelesen werden. Geschützte Discs (CSS) entsperrt Safeer nicht.",
         "podnapisi": "Untertitel", "podnapisi_izklop": "Aus", "podnapisi_vgrajeni": "Eingebettet", "podnapisi_v_videu": "Untertitel im Video",
@@ -96,7 +96,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "povezava": "Die Verbindung zum Sender ist abgebrochen und konnte nicht wiederhergestellt werden. Netzwerk prüfen oder später erneut versuchen.",
     },
     "es": {
-        "preskok_nastavitev": "Botón para saltar la intro (tiempos: TheIntroDB)", "preskoci_uvod": "Saltar intro", "preskoci_povzetek": "Saltar resumen", "preskoci_odjavna": "Saltar créditos", "preskoci_napoved": "Saltar avance",
+        "preskok_zasebnost": 'Al activarlo, Safeer envía a TheIntroDB lo que ves (ID de la película o serie, temporada, episodio) y tu dirección IP.', "preskok_nastavitev": "Botón para saltar la intro (tiempos: TheIntroDB)", "preskoci_uvod": "Saltar intro", "preskoci_povzetek": "Saltar resumen", "preskoci_odjavna": "Saltar créditos", "preskoci_napoved": "Saltar avance",
         "poslji": "Enviar a un dispositivo", "poslano": "Enviado a {ime} – confirma allí con Aceptar.", "poslano_odpri": "Enviado a {ime} – abre Safeer OS en ese dispositivo y confirma con Aceptar (allí no se ve ninguna notificación).", "poslji_napaka": "{ime} no responde.", "poslji_stara": "{ime} aún no sabe hacerlo – actualiza Safeer OS allí.", "poslji_ni": "No hay otro dispositivo en Safeer Link.", "poslji_ni_deljeno": "No se puede enviar (el archivo no está en una carpeta compartida).", "poslji_izklopljeno": "{ime} no acepta reproducción desde otros dispositivos.",
         "dvd": "No se puede leer el disco. Safeer no desbloquea discos protegidos (CSS).",
         "podnapisi": "Subtítulos", "podnapisi_izklop": "Desactivados", "podnapisi_vgrajeni": "Integrados", "podnapisi_v_videu": "Subtítulos del vídeo",
@@ -126,7 +126,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "povezava": "Se perdió la conexión con la emisora y no se pudo restablecer. Revisa la red o inténtalo más tarde.",
     },
     "fr": {
-        "preskok_nastavitev": "Bouton pour passer l’intro (horaires : TheIntroDB)", "preskoci_uvod": "Passer l’intro", "preskoci_povzetek": "Passer le résumé", "preskoci_odjavna": "Passer le générique", "preskoci_napoved": "Passer l’aperçu",
+        "preskok_zasebnost": 'Une fois activé, Safeer envoie à TheIntroDB ce que vous regardez (ID du film ou de la série, saison, épisode) et votre adresse IP.', "preskok_nastavitev": "Bouton pour passer l’intro (horaires : TheIntroDB)", "preskoci_uvod": "Passer l’intro", "preskoci_povzetek": "Passer le résumé", "preskoci_odjavna": "Passer le générique", "preskoci_napoved": "Passer l’aperçu",
         "poslji": "Envoyer à un appareil", "poslano": "Envoyé à {ime} – confirme là-bas avec Accepter.", "poslano_odpri": "Envoyé à {ime} – ouvre Safeer OS sur cet appareil et confirme avec Accepter (aucune notification n'y est visible).", "poslji_napaka": "{ime} ne répond pas.", "poslji_stara": "{ime} ne sait pas encore le faire – mets à jour Safeer OS là-bas.", "poslji_ni": "Aucun autre appareil dans Safeer Link.", "poslji_ni_deljeno": "Impossible à envoyer (le fichier n'est pas dans un dossier partagé).", "poslji_izklopljeno": "{ime} n'accepte pas la lecture depuis d'autres appareils.",
         "dvd": "Impossible de lire le disque. Safeer ne déverrouille pas les disques protégés (CSS).",
         "podnapisi": "Sous-titres", "podnapisi_izklop": "Désactivés", "podnapisi_vgrajeni": "Intégrés", "podnapisi_v_videu": "Sous-titres de la vidéo",
@@ -157,7 +157,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "povezava": "La connexion à la station a été coupée et n'a pas pu être rétablie. Vérifiez le réseau ou réessayez plus tard.",
     },
     "it": {
-        "preskok_nastavitev": "Pulsante per saltare l’intro (tempi: TheIntroDB)", "preskoci_uvod": "Salta intro", "preskoci_povzetek": "Salta riassunto", "preskoci_odjavna": "Salta titoli di coda", "preskoci_napoved": "Salta anteprima",
+        "preskok_zasebnost": 'Se attivo, Safeer invia a TheIntroDB cosa guardi (ID del film o della serie, stagione, episodio) e il tuo indirizzo IP.', "preskok_nastavitev": "Pulsante per saltare l’intro (tempi: TheIntroDB)", "preskoci_uvod": "Salta intro", "preskoci_povzetek": "Salta riassunto", "preskoci_odjavna": "Salta titoli di coda", "preskoci_napoved": "Salta anteprima",
         "poslji": "Invia a un dispositivo", "poslano": "Inviato a {ime} – conferma lì con Accetta.", "poslano_odpri": "Inviato a {ime} – apri Safeer OS su quel dispositivo e conferma con Accetta (lì nessuna notifica è visibile).", "poslji_napaka": "{ime} non risponde.", "poslji_stara": "{ime} non lo sa ancora fare – aggiorna Safeer OS lì.", "poslji_ni": "Nessun altro dispositivo in Safeer Link.", "poslji_ni_deljeno": "Non si può inviare (il file non è in una cartella condivisa).", "poslji_izklopljeno": "{ime} non accetta la riproduzione da altri dispositivi.",
         "dvd": "Impossibile leggere il disco. Safeer non sblocca i dischi protetti (CSS).",
         "podnapisi": "Sottotitoli", "podnapisi_izklop": "Disattivati", "podnapisi_vgrajeni": "Integrati", "podnapisi_v_videu": "Sottotitoli nel video",

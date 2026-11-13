@@ -6391,11 +6391,13 @@ class SafeerOS(Gtk.Application):
             # Gumb za preskok uvoda: poizvedba pove TheIntroDB, kaj gledas - uporabnik ga vklopi sam (privzeto izklopljen).
             preskok = Gtk.CheckButton(label=self._mb("preskok_nastavitev"))
             preskok.set_active(bool(servis.moznosti.get("preskok_odsekov")))
+            preskok.set_tooltip_text(self._mb("preskok_zasebnost"))   # pove, kaj gre tretji osebi
 
             def preklop(g) -> None:
                 servis.moznosti = dict(servis.moznosti, preskok_odsekov=g.get_active())
                 servis.shrani_moznosti(dict(servis.moznosti))
                 self._preskok_stanje = None          # ob naslednjem tiku nova poizvedba (ali brez nje)
+                self._medijski_preskok.set_visible(False)
             preskok.connect("toggled", preklop)
             plosca.append(preskok)
         if servis.izenacevalnik is not None:
@@ -6944,6 +6946,9 @@ class SafeerOS(Gtk.Application):
                 return servis.navigacija(ukaz)
             if tipka in ("Left", "Right"):
                 servis.navigacija("levo" if tipka == "Left" else "desno")
+        if tipka in ("Return", "KP_Enter") and self._medijski_preskok.get_visible():
+            self._medijski_preskoci()        # kot OK na TV: Enter preskoci, dokler je gumb viden
+            return True
         brez_ctrl = not dogodek.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         if tipka in ("Menu", "AudioCycleTrack") or (tipka in ("b", "B") and brez_ctrl):
             # Menu na daljincu odpre Zvok; B in tipka daljinca za zvocni posnetek ga preklopita (kot v VLC).
@@ -7026,22 +7031,24 @@ class SafeerOS(Gtk.Application):
             url = _po.iz_kljuca(str((vnos or {}).get("kljuc") or "")) if servis.moznosti.get("preskok_odsekov") else None
             stanje = self._preskok_stanje = {"uri": uri, "odseki": [], "vstop": None, "trenutni": None,
                                              "url": url, "poslano": False}
-        if stanje.get("url") and not stanje["poslano"] and not podatki.get("zivo"):
-            def izid(odseki, za=uri):
+        # Brez trajanja ni poizvedbe: tok v zivo dobi oznako »zivo« sele po nekaj sekundah brez dolzine.
+        if (stanje.get("url") and not stanje["poslano"] and not podatki.get("zivo")
+                and float(podatki.get("trajanje") or 0) > 0):
+            def izid(odseki, za=stanje):
                 def v_glavni():
-                    st = getattr(self, "_preskok_stanje", None)
-                    if st is not None and st.get("uri") == za:
-                        st["odseki"] = odseki
+                    # Isto stanje, ne isti uri: izklop med poizvedbo naredi novo stanje in odgovor se zavrze.
+                    if getattr(self, "_preskok_stanje", None) is za:
+                        za["odseki"] = odseki
                     return False
                 GLib.idle_add(v_glavni)
             # False = prevec hkratnih poizvedb: poskusimo ob naslednjem tiku (1 s), da video ne ostane brez gumba
             stanje["poslano"] = _po.pridobi(stanje["url"], izid)
         o = _po.aktiven(stanje["odseki"], float(podatki.get("pozicija") or 0), float(podatki.get("trajanje") or 0))
-        if o is None:
+        if o is None or o == stanje.get("preskocen"):   # preskocen odsek (skok po kljucni slicici) ne pokaze gumba znova
             stanje["vstop"], stanje["trenutni"] = None, None
             gumb.set_visible(False)
             return
-        zdaj = time.monotonic()
+        zdaj = _po.ura()
         if o != stanje["vstop"]:
             stanje["vstop"], stanje["vstop_cas"] = o, zdaj
         if not _po.gumb_viden(stanje["vstop_cas"], zdaj):
@@ -7057,12 +7064,13 @@ class SafeerOS(Gtk.Application):
         stanje = getattr(self, "_preskok_stanje", None) or {}
         servis = self._medijski_predvajalnik
         o = stanje.get("trenutni")
-        if servis is None or o is None:
+        if servis is None or o is None or servis.trenutna is None or stanje.get("uri") != servis.trenutna.uri:
+            self._medijski_preskok.set_visible(False)       # gumb starega posnetka ne skoci v nov posnetek
             return
         cilj = _po.cilj(o, float(servis.podatki().get("trajanje") or 0))
         if cilj is not None:
             self._medijski_ukaz("skok", float(cilj))
-            stanje["trenutni"] = None
+            stanje["trenutni"], stanje["preskocen"] = None, o
             self._medijski_preskok.set_visible(False)
 
     def _medijski_tik(self) -> bool:
@@ -7072,6 +7080,11 @@ class SafeerOS(Gtk.Application):
         self._preverba_kanalov_ob_predvajanju()
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "premor":
             self._medijski_predvajalnik.poskusi_nadaljevati()     # obnovljen ustavljen: skok na shranjeni polozaj
+        if not (self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja"):
+            # Premor, napaka, konec ali menjava posnetka: gumb ne ostane s starim odsekom.
+            gumb = getattr(self, "_medijski_preskok", None)
+            if gumb is not None and gumb.get_visible():
+                gumb.set_visible(False)
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja":
             self._medijski_predvajalnik.poskusi_nadaljevati()
             podatki = self._medijski_podatki()

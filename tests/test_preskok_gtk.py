@@ -44,8 +44,10 @@ class PreskokGtk(unittest.TestCase):
         def pridobi(url, izid):
             self.klici.append(url)
             izid(self.odseki)
+            return True
+        # Ura modula, ne time.monotonic (ta je skupen vsem nitim procesa).
         with mock.patch.object(P, "pridobi", pridobi), mock.patch("safeer_os.GLib.idle_add", lambda f: f()), \
-                mock.patch("safeer_os.time.monotonic", lambda: zdaj):
+                mock.patch.object(P, "ura", lambda: zdaj):
             self.S._medijski_preskok_osvezi(self.l, {"pozicija": pozicija, "trajanje": 2900.0, "zivo": False})
 
     def test_gumb_med_uvodom_in_preskok(self):
@@ -84,3 +86,42 @@ class PreskokGtk(unittest.TestCase):
         with mock.patch.object(P, "pridobi", pridobi), mock.patch("safeer_os.GLib.idle_add", lambda f: f()):
             self.S._medijski_preskok_osvezi(self.l, {"pozicija": 10, "trajanje": 0, "zivo": True})
         self.assertEqual(self.klici, [])
+
+    def test_brez_trajanja_ni_poizvedbe(self):
+        """Tok v zivo dobi oznako »zivo« sele po nekaj sekundah - do takrat ga loci samo trajanje 0."""
+        def pridobi(url, izid):
+            self.klici.append(url)
+            return True
+        with mock.patch.object(P, "pridobi", pridobi), mock.patch("safeer_os.GLib.idle_add", lambda f: f()):
+            self.S._medijski_preskok_osvezi(self.l, {"pozicija": 1, "trajanje": 0, "zivo": False})
+        self.assertEqual(self.klici, [])
+
+    def test_izklop_med_poizvedbo_zavrze_odgovor(self):
+        cakajo = []
+
+        def pridobi(url, izid):
+            cakajo.append(izid)
+            return True
+        with mock.patch.object(P, "pridobi", pridobi), mock.patch("safeer_os.GLib.idle_add", lambda f: f()), \
+                mock.patch.object(P, "ura", lambda: 100.0):
+            self.S._medijski_preskok_osvezi(self.l, {"pozicija": 100, "trajanje": 2900.0, "zivo": False})
+            self.l._medijski_predvajalnik.moznosti = {"preskok_odsekov": False}
+            self.l._preskok_stanje = None                       # kot preklop v ploscici
+            self.S._medijski_preskok_osvezi(self.l, {"pozicija": 101, "trajanje": 2900.0, "zivo": False})
+            cakajo[0](self.odseki)                              # pozni odgovor prve poizvedbe
+            self.S._medijski_preskok_osvezi(self.l, {"pozicija": 320, "trajanje": 2900.0, "zivo": False})
+        self.assertFalse(self.l._medijski_preskok.get_visible())
+
+    def test_gumb_starega_posnetka_ne_skoci_v_novega(self):
+        self._tik(320)
+        self.assertTrue(self.l._medijski_preskok.get_visible())
+        self.l._medijski_predvajalnik.trenutna = types.SimpleNamespace(uri="https://tok.example/e3")
+        self.l._medijski_preskok.emit("clicked")
+        self.assertEqual(self.ukazi, [])
+        self.assertFalse(self.l._medijski_preskok.get_visible())
+
+    def test_preskocen_odsek_ne_pokaze_gumba_znova(self):
+        self._tik(320)
+        self.l._medijski_preskok.emit("clicked")
+        self._tik(329)                                          # skok po kljucni slicici pristane malo pred koncem
+        self.assertFalse(self.l._medijski_preskok.get_visible())
