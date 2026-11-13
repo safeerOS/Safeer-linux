@@ -194,7 +194,7 @@ Seznam naprav (`cast.devices`, `mesh.devices`) gre od 1.0.127 (Android 0.5.90) k
 ## Global Link: neposredna pot od zunaj (INTERNET_DIRECT, 15. 10. 2026)
 
 Vrstni red poti: **LAN_DIRECT → INTERNET_DIRECT → SAFEER_RELAY**. Koda: `core/link_neposredno.py` (Linux),
-`link/GlobalLink.kt` (Android, odjemalec). Neobvezno, privzeto izklopljeno: »Neposredna povezava od zunaj«
+`link/GlobalLink.kt` (Android, odjemalec). Od 13. 11. 2026 privzeto VKLOPLJENO (hitrost pri upravljanju naprav; rele je samo rezerva): »Neposredna povezava od zunaj«
 (Safeer Link → Povezava zdoma). Potrebuje stalen javni IPv4 doma in ENA preusmerjena vrata TCP (privzeto 48990)
 na računalnik s središčem. Razlog: oba konca imata simetričen CGNAT, luknjanje UDP ne uspe (webrtc-raziskava,
 POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odhodno povezavo TCP.

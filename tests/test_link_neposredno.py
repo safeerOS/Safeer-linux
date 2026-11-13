@@ -127,9 +127,10 @@ def krog(sock_vrata, s: socket.socket, sporocilo: bytes = b"safeer") -> bytes:
 
 # ------------------------------------------------------------------ nastavitve
 
-def test_nastavitve_privzeto_izklopljeno_in_shranjevanje(tmp_path):
+def test_nastavitve_privzeto_vklopljeno_in_shranjevanje(tmp_path):
     pot = str(tmp_path / "n.json")
-    assert ln.nastavitve(pot) == {"vklopljeno": False, "vrata": ln.PRIVZETA_VRATA}
+    assert ln.nastavitve(pot) == {"vklopljeno": True, "vrata": ln.PRIVZETA_VRATA}   # 13. 11. 2026: neposredna pot je privzeta
+    assert ln.shrani_nastavitve(False, None, pot)["vklopljeno"] is False and ln.nastavitve(pot)["vklopljeno"] is False
     assert ln.shrani_nastavitve(True, 50123, pot) == {"vklopljeno": True, "vrata": 50123}
     with pytest.raises(ValueError):
         ln.shrani_nastavitve(True, 80, pot)
