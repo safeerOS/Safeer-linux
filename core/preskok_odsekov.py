@@ -83,7 +83,7 @@ def razcleni(besedilo: str) -> list:
         return []
     try:
         d = json.loads(besedilo)
-    except ValueError:
+    except (ValueError, RecursionError):   # 16 KB »[[[[« -> RecursionError (ni ValueError), slepi pregled 13. 11.
         return []
     if not isinstance(d, dict):
         return []
@@ -156,7 +156,12 @@ class _BrezPreusmeritev(urllib.request.HTTPRedirectHandler):
 _odpiralnik = urllib.request.build_opener(_BrezPreusmeritev())
 _seja: dict = {}
 _zaklep = threading.Lock()
-_v_teku: set = set()
+#: url -> (zacetek, [izid, ...]); vsi, ki cakajo isti url, dobijo odgovor. Zapis starejsi od _MRTEV_S ne zaseda mesta
+#: (vlakno lahko obvisi v DNS, ki nima roka) - tako dve obviseli poizvedbi ne izklopita preskoka do ponovnega zagona.
+_v_teku: dict = {}
+_NAJVEC_HKRATI = 2
+_NAJVEC_CAKA = 8
+_MRTEV_S = SKUPNI_ROK_S + 2 * ROK_S
 
 
 def _beri(url: str) -> Optional[str]:
@@ -176,7 +181,8 @@ def _beri(url: str) -> Optional[str]:
             while True:
                 if time.monotonic() > rok:
                     return None
-                kos = o.read(min(4096, NAJVEC_BAJTOV + 1 - skupaj))
+                # read1: vrne po enem recv; read(n) bi cakal na n bajtov in skupni rok ne bi veljal (kapljanje)
+                kos = o.read1(min(4096, NAJVEC_BAJTOV + 1 - skupaj))
                 if not kos:
                     break
                 kosi.append(kos)
@@ -188,28 +194,48 @@ def _beri(url: str) -> Optional[str]:
         return None
 
 
-def pridobi(url: str, izid: Callable[[list], None]) -> None:
-    """Odseki za `url` v locenem vlaknu; `izid` se klice v tem vlaknu (klicatelj ga prenese v glavno nit)."""
+def pridobi(url: str, izid: Callable[[list], None]) -> bool:
+    """Odseki za `url` v locenem vlaknu; `izid` se klice v tem vlaknu (ali takoj iz predpomnilnika seje) - klicatelj ga
+    prenese v glavno nit. False: zahteva ni sprejeta (prevec hkratnih) - klicatelj poskusi znova ob naslednjem tiku."""
+    zdaj = time.monotonic()
     with _zaklep:
+        for u in [u for u, (z, _c) in _v_teku.items() if zdaj - z > _MRTEV_S]:
+            del _v_teku[u]
         if url in _seja:
             odseki = _seja[url]
-        elif url in _v_teku or len(_v_teku) >= 2:
-            return
+        elif url in _v_teku:
+            cakajo = _v_teku[url][1]
+            if len(cakajo) >= _NAJVEC_CAKA:
+                return False
+            cakajo.append(izid)
+            return True
+        elif len(_v_teku) >= _NAJVEC_HKRATI:
+            return False
         else:
-            _v_teku.add(url)
+            _v_teku[url] = (zdaj, [izid])
             odseki = None
     if odseki is not None:
         izid(odseki)
-        return
+        return True
 
     def delo():
-        besedilo = _beri(url)
-        odseki = razcleni(besedilo) if besedilo is not None else []
-        with _zaklep:
-            _v_teku.discard(url)
-            if besedilo is not None:
-                if len(_seja) >= 200:
-                    _seja.clear()
-                _seja[url] = odseki
-        izid(odseki)
+        besedilo, odseki = None, []
+        try:
+            besedilo = _beri(url)
+            odseki = razcleni(besedilo) if besedilo is not None else []
+        except Exception:  # noqa: BLE001 - nobena napaka ne sme pustiti zasedenega mesta
+            besedilo, odseki = None, []
+        finally:
+            with _zaklep:
+                zapis = _v_teku.pop(url, None)
+                if besedilo is not None:
+                    if len(_seja) >= 200:
+                        _seja.clear()
+                    _seja[url] = odseki
+        for f in (zapis[1] if zapis else ()):
+            try:
+                f(odseki)
+            except Exception:  # noqa: BLE001 - napaka enega klicatelja ne ustavi ostalih
+                pass
     threading.Thread(target=delo, name="safeer-theintrodb", daemon=True).start()
+    return True

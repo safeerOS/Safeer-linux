@@ -72,3 +72,103 @@ def test_odjemalec_samo_nas_gostitelj(monkeypatch):
 
 def test_preusmeritve_ne_sledimo():
     assert P._BrezPreusmeritev().redirect_request(None, None, 302, "", {}, "https://drugje.example/") is None
+
+
+# ---- slepi pregled 13. 11. 2026: globok JSON, kapljanje, zasedena mesta, cakajoci klicatelji
+
+import threading  # noqa: E402
+
+
+@pytest.fixture
+def cisto(monkeypatch):
+    monkeypatch.setattr(P, "_seja", {})
+    monkeypatch.setattr(P, "_v_teku", {})
+
+
+def _pocakaj(dogodek):
+    assert dogodek.wait(5)
+
+
+def test_globok_json_ni_napaka():
+    assert P.razcleni("[" * 16000) == []
+
+
+def test_napaka_v_vlaknu_sprosti_mesto_in_odgovori(cisto, monkeypatch):
+    def pade(_url):
+        raise RecursionError
+    monkeypatch.setattr(P, "_beri", pade)
+    konec, izidi = threading.Event(), []
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=1", lambda o: (izidi.append(o), konec.set()))
+    _pocakaj(konec)
+    assert izidi == [[]] and P._v_teku == {}
+
+
+def test_isti_url_dobijo_vsi_klicatelji(cisto, monkeypatch):
+    spust = threading.Event()
+    monkeypatch.setattr(P, "_beri", lambda _u: (spust.wait(5), '{"intro": [{"start_ms": 1000, "end_ms": 61000}]}')[1])
+    url, izidi, oba = "https://api.theintrodb.org/v4/media?tmdb_id=2", [], threading.Event()
+
+    def izid(o):
+        izidi.append(o)
+        if len(izidi) == 2:
+            oba.set()
+    assert P.pridobi(url, izid) and P.pridobi(url, izid)
+    spust.set()
+    _pocakaj(oba)
+    assert len(izidi) == 2 and izidi[0] and izidi[0] == izidi[1]
+
+
+def test_prevec_hkratnih_vrne_false_in_kasneje_uspe(cisto, monkeypatch):
+    spust = threading.Event()
+    monkeypatch.setattr(P, "_beri", lambda _u: (spust.wait(5), "{}")[1])
+    konci = [threading.Event() for _ in range(3)]
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=3", lambda o: konci[0].set())
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=4", lambda o: konci[1].set())
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=5", lambda o: konci[2].set()) is False
+    spust.set()
+    _pocakaj(konci[0]), _pocakaj(konci[1])
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=5", lambda o: konci[2].set())
+    _pocakaj(konci[2])
+
+
+def test_obviseli_zapis_ne_zaseda_mesta(cisto, monkeypatch):
+    monkeypatch.setattr(P, "_beri", lambda _u: "{}")
+    star = P.time.monotonic() - P._MRTEV_S - 1
+    P._v_teku.update({"a": (star, []), "b": (star, [])})
+    konec = threading.Event()
+    assert P.pridobi("https://api.theintrodb.org/v4/media?tmdb_id=6", lambda o: konec.set())
+    _pocakaj(konec)
+
+
+class _Kapljanje:
+    status = 200
+    headers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+    klici_read = 0
+
+    def read(self, *_a):   # read(n) caka na n bajtov - pri kapljanju skupni rok ne velja
+        _Kapljanje.klici_read += 1
+        return b"["
+
+    def read1(self, *_a):
+        return b"["
+
+
+def test_kapljanje_ustavi_skupni_rok(monkeypatch):
+    ura = [100.0]
+
+    def monotonic():
+        ura[0] += 1.0
+        return ura[0]
+    monkeypatch.setattr(P._odpiralnik, "open", lambda *_a, **_k: _Kapljanje())
+    monkeypatch.setattr(P.time, "monotonic", monotonic)
+    _Kapljanje.klici_read = 0
+    assert P._beri("https://api.theintrodb.org/v4/media?tmdb_id=7") is None
+    assert _Kapljanje.klici_read == 0
+    assert ura[0] < 100.0 + P.SKUPNI_ROK_S + 5

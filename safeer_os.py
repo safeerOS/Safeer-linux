@@ -7022,18 +7022,20 @@ class SafeerOS(Gtk.Application):
         uri = servis.trenutna.uri
         stanje = getattr(self, "_preskok_stanje", None)
         if stanje is None or stanje.get("uri") != uri:
-            stanje = self._preskok_stanje = {"uri": uri, "odseki": [], "vstop": None, "trenutni": None}
             vnos = self._katalog.vnos_predvajanega(uri) if self._katalog is not None else None
             url = _po.iz_kljuca(str((vnos or {}).get("kljuc") or "")) if servis.moznosti.get("preskok_odsekov") else None
-            if url and not podatki.get("zivo"):
-                def izid(odseki, za=uri):
-                    def v_glavni():
-                        st = getattr(self, "_preskok_stanje", None)
-                        if st is not None and st.get("uri") == za:
-                            st["odseki"] = odseki
-                        return False
-                    GLib.idle_add(v_glavni)
-                _po.pridobi(url, izid)
+            stanje = self._preskok_stanje = {"uri": uri, "odseki": [], "vstop": None, "trenutni": None,
+                                             "url": url, "poslano": False}
+        if stanje.get("url") and not stanje["poslano"] and not podatki.get("zivo"):
+            def izid(odseki, za=uri):
+                def v_glavni():
+                    st = getattr(self, "_preskok_stanje", None)
+                    if st is not None and st.get("uri") == za:
+                        st["odseki"] = odseki
+                    return False
+                GLib.idle_add(v_glavni)
+            # False = prevec hkratnih poizvedb: poskusimo ob naslednjem tiku (1 s), da video ne ostane brez gumba
+            stanje["poslano"] = _po.pridobi(stanje["url"], izid)
         o = _po.aktiven(stanje["odseki"], float(podatki.get("pozicija") or 0), float(podatki.get("trajanje") or 0))
         if o is None:
             stanje["vstop"], stanje["trenutni"] = None, None
