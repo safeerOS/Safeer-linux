@@ -60,6 +60,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Safeer je samo GTK4 in WebKitGTK 6.0 (GTK3 umaknjen 18. 10. 2026): nove kode za GTK3 ne pisi.
 - Nov modul v `core/` dodaj v seznam v `packaging/install_os_payload.sh` oziroma `install_control_payload.sh` (test `tests/test_tovor_uvozi.py`).
 - Dostop drugih naprav: o vsebinah te naprave odloca samo ta naprava (core/link_dostop.py); nic iz dohodnega sporocila ne sme podeliti dostopa.
+- Zamenjava obstojecega kljuca ali dodatka (lastnik, 13. 11. 2026): ce ga uporabnik preizkusi na svoji napravi in deluje varno, potrditev drugih naprav ni potrebna. Naprava, na kateri je bil preizkus, sporoci napravam v ozjem krogu, da je novi kljuc ali dodatek varen, in uskladitev steče sama. V kodi se ni. Varovala: sporocilo samo oznaci »preizkuseno« (nikoli ne podeli dostopa ali zetona), veljati sme samo s podpisom naprave iz kroga in za natancno ta kljuc/dodatek (odtis), umik naprave iz kroga preklice tudi njeno oznako, kljuc se ne izpise v dnevnik.
 - Brez nadomestkov (»TODO«, lazni podatki, prazni gumbi) v vmesniku; kar ni narejeno, se ne pokaze.
 - Besedila vmesnika v vseh jezikih, ki jih datoteka ze ima (sl, en, de, es, fr, it).
 - Barve in videz iz enega vira (`assets/os/tokens.css`; QML dobi paleto iz njega prek core/os_lupina.paleta()), ne trdo kodirane barve po datotekah.
