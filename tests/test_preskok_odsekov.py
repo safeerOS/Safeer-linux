@@ -310,3 +310,12 @@ def test_najvec_dva_odseka_iste_vrste():
 def test_neveljavni_na_zacetku_ne_skrijejo_veljavnega():
     besedilo = '{"intro": [{"start_ms": -5}, {"start_ms": "x"}, {"start_ms": true}, {"start_ms": 1000, "end_ms": 61000}]}'
     assert P.razcleni(besedilo) == [P.Odsek("uvod", 1.0, 61.0)]
+
+
+def test_odvrzeno_vlakno_ne_prepise_novejsega_odgovora(cisto, monkeypatch):
+    monkeypatch.setattr(P, "_beri", lambda _u: "{}")
+    nov = [P.Odsek("uvod", 1.0, 61.0)]
+    P._seja[URL % 13] = nov                           # novejsa poizvedba je ze shranila odgovor
+    P._zivih[0] = 1
+    P._delo(URL % 13, object())                       # staro (odvrzeno) vlakno konca s praznim odgovorom
+    assert P._seja[URL % 13] is nov

@@ -7073,9 +7073,9 @@ class SafeerOS(Gtk.Application):
             return
         cilj = _po.cilj(o, float(servis.podatki().get("trajanje") or 0))
         if cilj is not None:
-            self._medijski_ukaz("skok", float(cilj))
-            stanje["trenutni"], stanje["preskocen"] = None, o
-            self._medijski_preskok.set_visible(False)
+            if self._medijski_ukaz("skok", float(cilj)):     # neuspel skok: odsek ostane ponujen
+                stanje["trenutni"], stanje["preskocen"] = None, o
+                self._medijski_preskok.set_visible(False)
 
     def _medijski_tik(self) -> bool:
         if self._koncano:

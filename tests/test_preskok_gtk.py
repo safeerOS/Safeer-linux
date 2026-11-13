@@ -33,11 +33,12 @@ class PreskokGtk(unittest.TestCase):
         katalog = mock.MagicMock()
         katalog.vnos_predvajanega.return_value = {"kljuc": "tmdb:tv:1396:1:2"}
         self.l = types.SimpleNamespace(_medijski_preskok=Gtk.Button(), _medijski_predvajalnik=servis, _katalog=katalog,
-                                       _mb=lambda k: k, _medijski_ukaz=lambda u, a: self.ukazi.append((u, a)))
+                                       _mb=lambda k: k, _medijski_ukaz=lambda u, a: (self.ukazi.append((u, a)), self.skok_uspe)[1])
         self.l._medijski_preskoci = lambda: self.S._medijski_preskoci(self.l)
         # Enako kot safeer_os pri gradnji okna predvajalnika (connect("clicked", ... _medijski_preskoci())).
         self.l._medijski_preskok.connect("clicked", lambda _g: self.l._medijski_preskoci())
         self.klici = []
+        self.skok_uspe = True
         self.odseki = P.razcleni('{"intro":[{"start_ms":314551,"end_ms":331127}],"credits":[{"start_ms":2848149,"end_ms":null}]}')
 
     def _tik(self, pozicija, zdaj=100.0):
@@ -125,3 +126,10 @@ class PreskokGtk(unittest.TestCase):
         self.l._medijski_preskok.emit("clicked")
         self._tik(329)                                          # skok po kljucni slicici pristane malo pred koncem
         self.assertFalse(self.l._medijski_preskok.get_visible())
+
+    def test_neuspel_skok_pusti_gumb(self):
+        self._tik(320)
+        self.skok_uspe = False
+        self.l._medijski_preskok.emit("clicked")
+        self.assertEqual(self.ukazi, [("skok", 331.127)])
+        self.assertTrue(self.l._medijski_preskok.get_visible())   # odsek ostane ponujen

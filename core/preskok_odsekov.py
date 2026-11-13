@@ -277,7 +277,8 @@ def _delo(url: str, zeton) -> None:
                 del _v_teku[url]
             else:
                 zapis = None                 # odvrzen (obvisel) ali ga ima novejsa poizvedba
-            if besedilo is not None:
+            # Odvrzeno (obviselo) vlakno ne prepise odgovora novejse poizvedbe za isti url (CodeRabbit 13. 11.).
+            if besedilo is not None and (zapis is not None or url not in _seja):
                 if len(_seja) >= 200:
                     _seja.clear()
                 _seja[url] = odseki
