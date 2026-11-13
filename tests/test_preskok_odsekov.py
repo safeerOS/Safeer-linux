@@ -60,69 +60,69 @@ def test_gumb_viden_15_s():
     assert not P.gumb_viden(1.0, 16.0)
 
 
-# ---- omrezje: nadomestek http.client.HTTPSConnection (nic ne gre na internet)
+# ---- omrezje: nadomestna vticnica in TLS (nic ne gre na internet)
 
+import socket  # noqa: E402
 import threading  # noqa: E402
-import time  # noqa: E402
 
 
-class _Vticnica:
-    def __init__(self):
-        self.prekinjena = threading.Event()
-
-    def shutdown(self, _kako):
-        self.prekinjena.set()
+def _http(status=200, telo=b"{}", glave=None):
+    g = {"Content-Length": str(len(telo))} if glave is None else glave
+    return (("HTTP/1.1 %d X\r\n" % status) + "".join("%s: %s\r\n" % kv for kv in g.items()) + "\r\n").encode() + telo
 
 
-class _Odgovor:
-    klici_read = 0
+class _Tls:
+    def __init__(self, odgovor=b"", po_bajt=False, ura=None, korak=0.0):
+        self._podatki, self.po_bajt, self._ura, self._korak = odgovor, po_bajt, ura, korak
+        self.casi, self.dogodki, self.poslano = [], [], b""
 
-    def __init__(self, status=200, telo=b"{}", glave=None, kapljaj=False):
-        self.status, self._telo, self._glave, self._kapljaj = status, telo, glave or {}, kapljaj
+    def __enter__(self):
+        return self
 
-    def getheader(self, kljuc):
-        return self._glave.get(kljuc)
+    def __exit__(self, *_a):
+        return False
 
-    def read(self, *_a):         # read(n) caka na n bajtov - pri kapljanju skupni rok ne bi veljal
-        _Odgovor.klici_read += 1
-        return b""
+    def _tik(self):
+        if self._ura is not None:
+            self._ura[0] += self._korak
 
-    def read1(self, n):
-        if self._kapljaj:
-            return b"["
-        kos, self._telo = self._telo[:n], self._telo[n:]
+    def settimeout(self, cas):
+        self.casi.append(cas)
+
+    def do_handshake(self):
+        self.dogodki.append("rokovanje")
+        self._tik()
+
+    def sendall(self, podatki):
+        self.dogodki.append("poslji")
+        self.poslano += podatki
+        self._tik()
+
+    def recv(self, n):
+        self._tik()
+        n = 1 if self.po_bajt else n
+        kos, self._podatki = self._podatki[:n], self._podatki[n:]
         return kos
 
 
-class _Povezava:
-    odgovor = staticmethod(lambda povezava: _Odgovor())
-    ustvarjene: list = []
+class _Surova:
+    def __enter__(self):
+        return self
 
-    def __init__(self, gostitelj, vrata, timeout=None, context=None):
-        self.gostitelj, self.vrata, self.timeout, self.context = gostitelj, vrata, timeout, context
-        self.sock = _Vticnica()
-        self.pot = self.glave = None
-        _Povezava.ustvarjene.append(self)
-
-    def connect(self):
-        pass
-
-    def request(self, metoda, pot, headers=None):
-        self.metoda, self.pot, self.glave = metoda, pot, headers
-
-    def getresponse(self):
-        return _Povezava.odgovor(self)
-
-    def close(self):
-        pass
+    def __exit__(self, *_a):
+        return False
 
 
 @pytest.fixture
 def omrezje(monkeypatch):
-    _Povezava.ustvarjene = []
-    _Povezava.odgovor = staticmethod(lambda povezava: _Odgovor())
-    monkeypatch.setattr(P, "_Povezava", _Povezava)
-    return _Povezava
+    stanje = {"tls": _Tls(_http()), "povezave": []}
+
+    def povezi(naslov, rok_s):
+        stanje["povezave"].append((naslov, rok_s))
+        return _Surova()
+    monkeypatch.setattr(P, "_povezi", povezi)
+    monkeypatch.setattr(P, "_ovij", lambda _s: stanje["tls"])
+    return stanje
 
 
 @pytest.fixture
@@ -139,63 +139,86 @@ def _pocakaj(dogodek):
 URL = "https://api.theintrodb.org/v4/media?tmdb_id=%d"
 
 
-def test_odjemalec_samo_nas_gostitelj_in_preverjen_tls(omrezje):
-    def pade(_p):
-        raise OSError("brez omrezja")
-    omrezje.odgovor = staticmethod(pade)
-    assert P._beri("https://napadalec.example/v4/media?imdb_id=tt0133093") is None
-    assert P._beri("http://api.theintrodb.org/v4/media?imdb_id=tt0133093") is None
-    assert P._beri("https://api.theintrodb.org:8443/v4/media?imdb_id=tt0133093") is None
-    assert omrezje.ustvarjene == []
-    assert P._beri("https://api.theintrodb.org/v4/media?imdb_id=tt0133093") is None   # napaka omrezja -> None
-    (pov,) = omrezje.ustvarjene
-    assert (pov.gostitelj, pov.vrata, pov.pot) == ("api.theintrodb.org", 443, "/v4/media?imdb_id=tt0133093")
-    assert pov.context is P._KONTEKST and pov.context.check_hostname and pov.context.verify_mode == P.ssl.CERT_REQUIRED
-    assert pov.glave["Accept-Encoding"] == "identity" and "Cookie" not in pov.glave
+def test_odjemalec_samo_nas_gostitelj(omrezje):
+    for slab in ("https://napadalec.example/v4/media?imdb_id=tt0133093",
+                 "http://api.theintrodb.org/v4/media?imdb_id=tt0133093",
+                 "https://api.theintrodb.org:8443/v4/media?imdb_id=tt0133093",
+                 "https://api.theintrodb.org/v4/media?imdb_id=tt0133093%0d%0aX:1 HTTP/1.0\r\n"):
+        assert P._beri(slab) is None
+    assert omrezje["povezave"] == []
+    assert P._beri("https://api.theintrodb.org/v4/media?imdb_id=tt0133093") == "{}"
+    ((naslov, rok_s),) = omrezje["povezave"]
+    assert naslov == ("api.theintrodb.org", 443) and 0 < rok_s <= P.ROK_S
+    tls = omrezje["tls"]
+    assert tls.dogodki == ["rokovanje", "poslji"]          # nic ne gre ven pred koncanim rokovanjem TLS
+    assert tls.poslano.startswith(b"GET /v4/media?imdb_id=tt0133093 HTTP/1.0\r\nHost: api.theintrodb.org\r\n")
+    assert b"Accept-Encoding: identity\r\n" in tls.poslano and b"Cookie" not in tls.poslano
 
 
-def test_preusmeritve_ne_sledimo(omrezje):
-    omrezje.odgovor = staticmethod(lambda _p: _Odgovor(302, glave={"Location": "https://drugje.example/"}))
-    assert P._beri(URL % 1) is None
-    assert len(omrezje.ustvarjene) == 1
+def test_tls_nas_kontekst_in_ime_gostitelja():
+    a, b = socket.socketpair()
+    try:
+        tls = P._ovij(a)
+        assert tls.context is P._KONTEKST and tls.server_hostname == P.GOSTITELJ
+        assert P._KONTEKST.check_hostname and P._KONTEKST.verify_mode == P.ssl.CERT_REQUIRED
+        tls.close()
+    finally:
+        a.close()
+        b.close()
 
 
-def test_kapljanje_ustavi_skupni_rok(omrezje, monkeypatch):
+@pytest.mark.parametrize("odgovor,izid", [
+    (_http(302, b"", {"Location": "https://drugje.example/"}), None),       # preusmeritvi ne sledimo
+    (_http(404, b"ne"), ""),                                                 # ni podatkov - velja za sejo
+    (_http(200, b"{}", {"Transfer-Encoding": "chunked"}), None),
+    (_http(200, b"{}", {"Content-Length": "50"}), None),                     # odrezan odgovor
+    (_http(200, b"{}", {"Content-Encoding": "gzip", "Content-Length": "2"}), None),
+    (_http(200, b"x" * (P.NAJVEC_BAJTOV + 1)), None),
+    (b"SMTP 200 nekaj\r\n\r\n{}", None),
+    (_http(200, b'{"intro": []}'), '{"intro": []}'),
+])
+def test_razclenitev_odgovora(omrezje, odgovor, izid):
+    omrezje["tls"] = _Tls(odgovor)
+    assert P._beri(URL % 1) == izid
+
+
+def test_kapljanje_ne_podaljsa_skupnega_roka(omrezje, monkeypatch):
     ura = [100.0]
-
-    def tik():
-        ura[0] += 1.0
-        return ura[0]
-    omrezje.odgovor = staticmethod(lambda _p: _Odgovor(kapljaj=True))
-    monkeypatch.setattr(P, "ura", tik)
-    _Odgovor.klici_read = 0
+    monkeypatch.setattr(P, "ura", lambda: ura[0])
+    omrezje["tls"] = _Tls(b"HTTP/1.1 200 OK\r\n" + b"X" * 5000, po_bajt=True, ura=ura, korak=1.0)
     assert P._beri(URL % 7) is None
-    assert _Odgovor.klici_read == 0
-    assert ura[0] < 100.0 + P.SKUPNI_ROK_S + 5
+    tls = omrezje["tls"]
+    assert all(0 < c <= P.ROK_S for c in tls.casi)
+    assert len(tls.casi) <= P.SKUPNI_ROK_S + 2           # vsaka operacija dobi samo preostanek roka
 
 
-def test_straza_prekine_kapljanje_glav(omrezje, monkeypatch):
-    """Streznik poslje glave po bajt: getresponse visi - straza mora prekiniti povezavo ob skupnem roku."""
-    monkeypatch.setattr(P, "SKUPNI_ROK_S", 0.3)
-
-    def visi(povezava):
-        if not povezava.sock.prekinjena.wait(5):
-            raise AssertionError("straza ni prekinila povezave")
-        raise OSError("prekinjeno")
-    omrezje.odgovor = staticmethod(visi)
-    zacetek = time.monotonic()
+def test_pocasno_rokovanje_ustavi_rok_in_nic_ne_poslje(omrezje, monkeypatch):
+    ura = [100.0]
+    monkeypatch.setattr(P, "ura", lambda: ura[0])
+    omrezje["tls"] = _Tls(_http(), ura=ura, korak=P.SKUPNI_ROK_S + 1)    # rokovanje porabi ves rok
     assert P._beri(URL % 8) is None
-    assert time.monotonic() - zacetek < 2.0
-    assert omrezje.ustvarjene[0].sock.prekinjena.is_set()
+    assert omrezje["tls"].poslano == b""
 
 
 def test_404_velja_za_sejo(omrezje, cisto):
-    omrezje.odgovor = staticmethod(lambda _p: _Odgovor(404, b""))
+    omrezje["tls"] = _Tls(_http(404, b""))
     konec, izidi = threading.Event(), []
     assert P.pridobi(URL % 9, lambda o: (izidi.append(o), konec.set()))
     _pocakaj(konec)
     assert P.pridobi(URL % 9, izidi.append)          # iz predpomnilnika seje, brez nove zahteve
-    assert izidi == [[], []] and len(omrezje.ustvarjene) == 1
+    assert izidi == [[], []] and len(omrezje["povezave"]) == 1
+
+
+def test_neuspel_zagon_vlakna_sprosti_mesto(cisto, monkeypatch):
+    class Nit:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(P.threading, "Thread", Nit)
+    assert P.pridobi(URL % 12, lambda o: None) is False
+    assert P._zivih == [0] and P._v_teku == {}
 
 
 def test_globok_json_ni_napaka():
@@ -282,3 +305,8 @@ def test_najvec_dva_odseka_iste_vrste():
     besedilo = '{"intro": [%s]}' % ", ".join('{"start_ms": %d, "end_ms": %d}' % (i * 100000, i * 100000 + 30000)
                                             for i in range(5))
     assert len(P.razcleni(besedilo)) == 2
+
+
+def test_neveljavni_na_zacetku_ne_skrijejo_veljavnega():
+    besedilo = '{"intro": [{"start_ms": -5}, {"start_ms": "x"}, {"start_ms": true}, {"start_ms": 1000, "end_ms": 61000}]}'
+    assert P.razcleni(besedilo) == [P.Odsek("uvod", 1.0, 61.0)]

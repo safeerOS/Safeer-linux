@@ -9,7 +9,6 @@ Odsek, ki ni smiseln (uvod 0..24 h, odjavna od zacetka), se zavrze: baza je skup
 """
 from __future__ import annotations
 
-import http.client
 import json
 import re
 import socket
@@ -34,6 +33,8 @@ ODJAVNA_OD_DELEZA = 0.75
 ODJAVNA_DO_DELEZA = 0.9
 GUMB_VIDEN_S = 15.0
 _NAJVEC_ODSEKOV = 2
+#: Pregledamo najvec toliko vnosov vrste: neveljavni na zacetku ne skrijejo veljavnega.
+_NAJVEC_PREGLEDANIH = 16
 _NAJVEC_CAS_MS = 24 * 3600 * 1000
 VRSTE = (("recap", "povzetek"), ("intro", "uvod"), ("credits", "odjavna"), ("preview", "napoved"))
 _RX_IMDB = re.compile(r"tt\d{7,10}")
@@ -96,7 +97,10 @@ def razcleni(besedilo: str) -> list:
         seznam = d.get(api)
         if not isinstance(seznam, list):
             continue
-        for o in seznam[:_NAJVEC_ODSEKOV]:
+        veljavnih = 0
+        for o in seznam[:_NAJVEC_PREGLEDANIH]:
+            if veljavnih >= _NAJVEC_ODSEKOV:
+                break
             if not isinstance(o, dict):
                 continue
             try:
@@ -112,6 +116,7 @@ def razcleni(besedilo: str) -> list:
             if do is not None and do <= od:
                 continue
             izid.append(Odsek(vrsta, od, do))
+            veljavnih += 1
     return sorted(izid, key=lambda x: x.od)
 
 
@@ -158,7 +163,6 @@ def ura() -> float:
 
 
 _KONTEKST = ssl.create_default_context()     # lasten kontekst: preverba TLS ni odvisna od globalnega privzetega
-_Povezava = http.client.HTTPSConnection      # http.client ne sledi preusmeritvam in ne bere posrednikov iz okolja
 _seja: dict = {}
 _zaklep = threading.Lock()
 #: url -> (zacetek, [izid, ...], zeton). Vsi, ki cakajo isti url, dobijo odgovor; zapis starejsi od _MRTEV_S se odvrze
@@ -169,64 +173,86 @@ _NAJVEC_HKRATI = 2
 _NAJVEC_ZIVIH = 4
 _NAJVEC_CAKA = 8
 _MRTEV_S = SKUPNI_ROK_S + 2 * ROK_S
-_GLAVE = {"Accept": "application/json", "Accept-Encoding": "identity", "User-Agent": "Safeer OS (https://safeer.si)"}
+_NAJVEC_GLAV = 8 * 1024
+_RX_POT = re.compile(r"/v4/media\?[A-Za-z0-9_=&%.-]{1,200}")
+
+
+def _povezi(naslov, rok_s):
+    """TCP povezava (preizkusi jo zamenjajo). DNS nima roka - zato meja zivih vlaken."""
+    return socket.create_connection(naslov, timeout=rok_s)
+
+
+def _ovij(surova):
+    """TLS z nasim kontekstom in imenom gostitelja; rokovanje posebej, z rokom (preizkusi jo zamenjajo)."""
+    return _KONTEKST.wrap_socket(surova, server_hostname=GOSTITELJ, do_handshake_on_connect=False)
+
+
+def _odgovor(podatki: bytes) -> Optional[str]:
+    """Telo odgovora HTTP/1.0, "" za 404 (ni podatkov - velja za sejo) ali None."""
+    glava, locilo, telo = podatki.partition(b"\r\n\r\n")
+    if not locilo or len(glava) > _NAJVEC_GLAV:
+        return None
+    vrstice = glava.decode("latin-1").split("\r\n")
+    deli = vrstice[0].split(" ", 2)
+    if len(deli) < 2 or not deli[0].startswith("HTTP/1.") or not deli[1].isdigit():
+        return None
+    status = int(deli[1])
+    if status == 404:
+        return ""
+    if status != 200:
+        return None                              # tudi preusmeritev: ne sledimo
+    glave = {}
+    for v in vrstice[1:]:
+        ime, _, vrednost = v.partition(":")
+        glave[ime.strip().lower()] = vrednost.strip()
+    if glave.get("transfer-encoding") or glave.get("content-encoding", "identity").lower() != "identity":
+        return None
+    dolzina = glave.get("content-length")
+    if dolzina is not None and (not dolzina.isdigit() or int(dolzina) != len(telo)):
+        return None                              # odrezan ali podaljsan odgovor
+    if len(telo) > NAJVEC_BAJTOV:
+        return None
+    return telo.decode("utf-8", "replace")
 
 
 def _beri(url: str) -> Optional[str]:
-    """Telo odgovora, "" za 404 (ni podatkov - velja za sejo) ali None. Straza prekine povezavo ob skupnem roku, tudi
-    med glavami in kosi (kapljanje po bajt), ne samo med branjem telesa."""
+    """Poizvedba z enim skupnim rokom: povezava, rokovanje TLS, posiljanje in vsako branje dobijo samo preostanek roka
+    (kapljanje po bajt ga ne podaljsa). Brez straze iz druge niti: SSLSocket.shutdown iz druge niti bi lahko poslal
+    zahtevo nesifrirano. DNS nima roka (meja zivih vlaken v pridobi)."""
     deli = urllib.parse.urlsplit(url)
     if deli.scheme != "https" or deli.hostname != GOSTITELJ or deli.port not in (None, 443):
         return None
     pot = deli.path + ("?" + deli.query if deli.query else "")
-    rok = ura() + SKUPNI_ROK_S
-    povezava = _Povezava(GOSTITELJ, 443, timeout=ROK_S, context=_KONTEKST)
-    straza = None
-    try:
-        povezava.connect()
-        ostane = rok - ura()
-        if ostane <= 0:
-            return None
-
-        def prekini():
-            try:
-                povezava.sock.shutdown(socket.SHUT_RDWR)
-            except Exception:  # noqa: BLE001 - ze zaprta
-                pass
-        straza = threading.Timer(ostane, prekini)
-        straza.daemon = True
-        straza.start()
-        povezava.request("GET", pot, headers=_GLAVE)
-        o = povezava.getresponse()
-        if o.status == 404:
-            return ""
-        if o.status != 200:
-            return None
-        dolzina = o.getheader("Content-Length")
-        if dolzina and dolzina.isdigit() and int(dolzina) > NAJVEC_BAJTOV:
-            return None
-        kosi, skupaj = [], 0
-        while True:
-            if ura() > rok:
-                return None
-            # read1: vrne po enem recv; read(n) bi cakal na n bajtov
-            kos = o.read1(min(4096, NAJVEC_BAJTOV + 1 - skupaj))
-            if not kos:
-                break
-            kosi.append(kos)
-            skupaj += len(kos)
-            if skupaj > NAJVEC_BAJTOV:
-                return None
-        return b"".join(kosi).decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001 - brez povezave, prekinjeno ali napaka: brez gumba, predvajanje tece naprej
+    if not _RX_POT.fullmatch(pot):
         return None
-    finally:
-        if straza is not None:
-            straza.cancel()
-        try:
-            povezava.close()
-        except Exception:  # noqa: BLE001
-            pass
+    rok = ura() + SKUPNI_ROK_S
+
+    def ostane() -> float:
+        r = rok - ura()
+        if r <= 0:
+            raise TimeoutError("skupni rok")
+        return min(r, ROK_S)
+    zahteva = ("GET %s HTTP/1.0\r\nHost: %s\r\nAccept: application/json\r\nAccept-Encoding: identity\r\n"
+               "User-Agent: Safeer OS (https://safeer.si)\r\nConnection: close\r\n\r\n" % (pot, GOSTITELJ)).encode("ascii")
+    try:
+        with _povezi((GOSTITELJ, 443), ostane()) as surova:
+            with _ovij(surova) as tls:
+                tls.settimeout(ostane())
+                tls.do_handshake()
+                tls.settimeout(ostane())
+                tls.sendall(zahteva)
+                podatki = bytearray()
+                while True:
+                    tls.settimeout(ostane())
+                    kos = tls.recv(4096)
+                    if not kos:
+                        break
+                    podatki += kos
+                    if len(podatki) > NAJVEC_BAJTOV + _NAJVEC_GLAV:
+                        return None
+        return _odgovor(bytes(podatki))
+    except Exception:  # noqa: BLE001 - brez povezave, rok, TLS ali napaka: brez gumba, predvajanje tece naprej
+        return None
 
 
 def _poklici(f, odseki) -> None:
@@ -286,5 +312,12 @@ def pridobi(url: str, izid: Callable[[list], None]) -> bool:
     if odseki is not None:
         _poklici(izid, odseki)
     if zeton is not None:
-        threading.Thread(target=_delo, args=(url, zeton), name="safeer-theintrodb", daemon=True).start()
+        try:
+            threading.Thread(target=_delo, args=(url, zeton), name="safeer-theintrodb", daemon=True).start()
+        except RuntimeError:                       # »can't start new thread« (pomnilnik): mesto ne sme ostati zasedeno
+            with _zaklep:
+                _zivih[0] -= 1
+                if url in _v_teku and _v_teku[url][2] is zeton:
+                    del _v_teku[url]
+            return False
     return sprejeto

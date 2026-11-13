@@ -6947,8 +6947,12 @@ class SafeerOS(Gtk.Application):
             if tipka in ("Left", "Right"):
                 servis.navigacija("levo" if tipka == "Left" else "desno")
         if tipka in ("Return", "KP_Enter") and self._medijski_preskok.get_visible():
-            self._medijski_preskoci()        # kot OK na TV: Enter preskoci, dokler je gumb viden
-            return True
+            # Kot OK na TV - a Enter na gumbu, vnosu ali drsniku ostane njihov (tipke lovimo v fazi zajema okna).
+            fokus = okno.get_focus()
+            if fokus is None or fokus is self._medijski_preskok or not isinstance(
+                    fokus, (Gtk.Button, Gtk.Editable, Gtk.CheckButton, Gtk.Scale, Gtk.DropDown, Gtk.ListView, Gtk.GridView)):
+                self._medijski_preskoci()
+                return True
         brez_ctrl = not dogodek.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
         if tipka in ("Menu", "AudioCycleTrack") or (tipka in ("b", "B") and brez_ctrl):
             # Menu na daljincu odpre Zvok; B in tipka daljinca za zvocni posnetek ga preklopita (kot v VLC).
