@@ -1335,8 +1335,9 @@ class Seznami:
         if s is not None and s.loaded.is_set():
             try:
                 k = s.store.match_host(ime, scit_gostitelji.sme_gostitelj)
-            except Exception:
+            except Exception as e:  # noqa: BLE001 - poskodovan seznam: brskanje ne zastane, seznam se popravi (13. 11. 2026)
                 k = None
+                s.popravi(e.__class__.__name__)
             if k in KATEGORIJA_SEZNAMA_GROZNJ:
                 return KATEGORIJA_SEZNAMA_GROZNJ[k]
         return None
@@ -1354,7 +1355,8 @@ class Seznami:
         if s is not None and s.loaded.is_set():
             try:
                 k = s.store.match_host(ime, scit_gostitelji.sme_gostitelj)
-            except Exception:  # noqa: BLE001 - seznam groženj ni berljiv: raje blokirano (fail-closed)
+            except Exception as e:  # noqa: BLE001 - seznam groženj ni berljiv: raje blokirano (fail-closed), popravilo v ozadju
+                s.popravi(e.__class__.__name__)
                 return "groznje"
             if k in KATEGORIJA_SEZNAMA_GROZNJ:
                 return KATEGORIJA_SEZNAMA_GROZNJ[k]
