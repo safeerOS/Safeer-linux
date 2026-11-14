@@ -61,14 +61,21 @@
  
 --- a/Source/WebCore/loader/CrossOriginAccessControl.cpp
 +++ b/Source/WebCore/loader/CrossOriginAccessControl.cpp
-@@ -97,6 +97,10 @@
+@@ -97,6 +97,17 @@
      preflightRequest.setHTTPHeaderField(HTTPHeaderName::AccessControlRequestMethod, request.httpMethod());
      preflightRequest.setPriority(request.priority());
      preflightRequest.setFirstPartyForCookies(request.firstPartyForCookies());
 +    // HSTS upgrade of the preflight follows the request it precedes (same-site only, see NetworkDataTaskSoup): an OPTIONS
 +    // preflight to a known HSTS host must not go over clear HTTP, where a person in the middle could answer it.
++    // The flag of the original request can still be unspecified here (measured 14. 11. 2026, v8: preflight and beacon
++    // OPTIONS went over HTTP): then it is derived like WebKit derives it for cookies, from the requesting origin and the
++    // top-level URL, and an empty or opaque top-level URL means cross-site (no upgrade).
 +    if (!request.isSameSiteUnspecified())
 +        preflightRequest.setIsSameSite(request.isSameSite());
++    else {
++        Ref targetOrigin = SecurityOrigin::create(request.url());
++        preflightRequest.setIsSameSite(securityOrigin.isSameSiteAs(targetOrigin) && SecurityOrigin::create(request.firstPartyForCookies())->isSameSiteAs(targetOrigin));
++    }
      preflightRequest.setIsAppInitiated(request.isAppInitiated());
      if (!referrer.isNull())
          preflightRequest.setHTTPReferrer(referrer);
