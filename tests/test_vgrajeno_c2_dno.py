@@ -1,7 +1,7 @@
 """Vgrajeno dno C2 najemnisko vohunske opreme: blokada NEODVISNO od podpisanega feeda (core/adblock.py)."""
 import unittest
 
-from core import adblock
+from core import adblock, scit_gostitelji
 
 
 class VgrajenoDnoC2(unittest.TestCase):
@@ -13,6 +13,11 @@ class VgrajenoDnoC2(unittest.TestCase):
             self.assertNotIn("/", d)
             self.assertNotIn(":", d)
             self.assertIn(".", d)
+
+    def test_noben_vnos_ni_googlov_koren_ne_skupni_gostitelj(self):
+        # dno obide filter sme_gostitelj: vnos pod googleapis/web.app/... bi ga obsel (slepi pregled 14. 11. 2026)
+        for d in adblock.ZASILNE_MERCENARY_C2:
+            self.assertEqual(scit_gostitelji.vrsta(d), scit_gostitelji.NAVADEN, d)
 
     def test_dno_blokira_brez_feeda(self):
         # noben feed ni registriran razen dna: blokada mora veljati

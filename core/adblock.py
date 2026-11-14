@@ -1338,7 +1338,8 @@ for _domain in ZASILNI_VZORCI_ZLONAMERNIH_DOMEN:
 ZASILNE_MERCENARY_C2 = frozenset({
     # Vgrajeno dno mercenary-spyware C2 (botnet_c2). Vir: Zero Breach Toolkit (interplains) CC0,
     # commit 3b6e48f0; Citizen Lab / Recorded Future / Amnesty. Neodvisno od podpisanega feeda:
-    # prekine eksfiltracijo tudi po okuzbi, ce se feed ne nalozi. Pripravljeno 13. 11. 2026.
+    # prekine povezavo na C2 ob navigaciji v Splet in brskalnik, tudi ce se feed ne nalozi. NI zascita na ravni sistema ali
+    # DNS (core/os_scit.py dna ne uporablja). Pripravljeno 13. 11. 2026.
     "ancient-thing.it",  # Paragon Graphite
     "api.cutlink.site",  # Unnamed commercial spyware vendor
     "asistentcomercialonline.com",  # Intellexa Predator
