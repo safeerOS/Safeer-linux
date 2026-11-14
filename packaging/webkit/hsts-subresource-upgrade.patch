@@ -59,3 +59,16 @@
      continueHTTPRedirection();
  }
  
+--- a/Source/WebCore/loader/CrossOriginAccessControl.cpp
++++ b/Source/WebCore/loader/CrossOriginAccessControl.cpp
+@@ -97,6 +97,10 @@
+     preflightRequest.setHTTPHeaderField(HTTPHeaderName::AccessControlRequestMethod, request.httpMethod());
+     preflightRequest.setPriority(request.priority());
+     preflightRequest.setFirstPartyForCookies(request.firstPartyForCookies());
++    // HSTS upgrade of the preflight follows the request it precedes (same-site only, see NetworkDataTaskSoup): an OPTIONS
++    // preflight to a known HSTS host must not go over clear HTTP, where a person in the middle could answer it.
++    if (!request.isSameSiteUnspecified())
++        preflightRequest.setIsSameSite(request.isSameSite());
+     preflightRequest.setIsAppInitiated(request.isAppInitiated());
+     if (!referrer.isNull())
+         preflightRequest.setHTTPReferrer(referrer);
