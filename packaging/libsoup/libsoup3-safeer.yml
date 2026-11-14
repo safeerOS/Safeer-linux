@@ -46,3 +46,11 @@ sources:
   # (soup-cookie-jar.c), vrstice NULL v bazi HSTS (soup-hsts-enforcer-db.c, soup-hsts-policy.c) in preizkuse gorvodne zbirke.
   - type: patch
     path: libsoup-cookie-hsts-hardening.patch
+  # Nas popravek C9 (14. 11. 2026, nikamor poslan): meja razsirjanja stisnjenega telesa. libsoup je razsiril poljubno
+  # kolicino (izmerjeno na paketu 1.0.135: 10 MB gzip -> 10 GiB brez napake, send_and_read in WebKit zbirata v
+  # pomnilnik do OOM). Ko je razsirjeno telo vecje od 1 MiB, je lahko najvec 200-krat vecje od bajtov s povezave (pri
+  # dcb/dcz plus velikost slovarja), sicer G_IO_ERROR_MESSAGE_TOO_LARGE; razmerje velja za celo verigo kodiranj.
+  # Prave strani 3-22:1 (20 odgovorov gzip/brotli z nasim libsoup, 14. 11. 2026), 200:1 je privzeto v Apachejevem DeflateInflateRatioLimit.
+  # Preizkus content-decoding-ratio-test: brez popravka pade, s popravkom uspe (3x izmenicno na testnem PC).
+  - type: patch
+    path: libsoup-decode-ratio-limit.patch

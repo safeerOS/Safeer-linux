@@ -1895,7 +1895,7 @@ sys.exit("neznan ukaz")
 
     def test_libsoup_utrditev_piskotkov_in_hsts(self):
         """Nas popravek libsoup (13. 11. 2026): piskotek gostitelja IP samo za tocen naslov, Cookie se ob preusmeritvi na
-        drug gostitelj odstrani, HSTS velja tudi za ime s koncno piko. Uporabi se ZADNJI (gradi na obeh prejsnjih)."""
+        drug gostitelj odstrani, HSTS velja tudi za ime s koncno piko. Uporabi se za obema prejsnjima (gradi na njiju)."""
         modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
         self.assertLess(modul.index('path: libsoup-connect-origin-content-encoding.patch'),
                         modul.index('path: libsoup-cookie-hsts-hardening.patch'))
@@ -1905,6 +1905,20 @@ sys.exit("neznan ukaz")
                          'tests/cookies-test.c','tests/hsts-test.c','tests/hsts-db-test.c','tests/redirect-test.c'):   # porocilo B (14. 11.)
             self.assertIn('+++ b/'+datoteka,popravek)
         for niz in ('g_hostname_is_ip_address (host)','SOUP_HEADER_COOKIE','without_dot'):
+            self.assertIn(niz,popravek)
+
+    def test_libsoup_meja_razsirjanja(self):
+        """Nas popravek C9 (14. 11. 2026): stisnjeno telo, razsirjeno nad 1 MiB, je lahko najvec 200-krat vecje od bajtov s
+        povezave (dcb/dcz plus slovar), za celo verigo kodiranj. Uporabi se ZADNJI (gradi na treh datotekah prejsnjih)."""
+        modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
+        self.assertLess(modul.index('path: libsoup-cookie-hsts-hardening.patch'),
+                        modul.index('path: libsoup-decode-ratio-limit.patch'))
+        popravek=(ROOT/'packaging/libsoup/libsoup-decode-ratio-limit.patch').read_text()
+        for datoteka in ('libsoup/content-decoder/soup-converter-wrapper.c','libsoup/content-decoder/soup-converter-wrapper.h',
+                         'libsoup/content-decoder/soup-content-decoder.c','tests/content-decoding-ratio-test.c','tests/meson.build'):
+            self.assertIn('+++ b/'+datoteka,popravek)
+        for niz in ('#define SOUP_DECODE_MAX_RATIO 200','#define SOUP_DECODE_RATIO_MIN_DECODED (1024 * 1024)',
+                    'G_IO_ERROR_MESSAGE_TOO_LARGE','soup_compression_dictionary_request_get_dictionary'):
             self.assertIn(niz,popravek)
 
     def test_webkit_hsts_podviri_307(self):
