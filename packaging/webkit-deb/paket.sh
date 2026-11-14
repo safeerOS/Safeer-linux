@@ -33,7 +33,7 @@ rm -rf "$BUILD_ROOT"
 mkdir -p "$BUILD_ROOT/DEBIAN" "$IZHOD"
 ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/vgradi.sh" "$BUILD_ROOT" "$ARHIV")"
 G="$BUILD_ROOT$PREDPONA/share/webkitgtk-safeer/gradnja.txt"
-# Razlicici iz zapisa gradnje (vrstici »webkitgtk: webkitgtk-2.54.1 <sha>« in »libsoup: libsoup-3.8.0 <sha>«).
+# Razlicici iz zapisa gradnje (vrstici »webkitgtk: webkitgtk-2.54.1 <sha>« in »libsoup: libsoup-3.8.1 <sha>«).
 WEBKIT_RAZLICICA="$(sed -n 's/^webkitgtk: webkitgtk-\([0-9][0-9.]*\) .*/\1/p' "$G")"
 SOUP_RAZLICICA="$(sed -n 's/^libsoup: libsoup-\([0-9][0-9.]*\) .*/\1/p' "$G")"
 LIBXML_RAZLICICA="$(sed -n 's/^libxml2: libxml2-\([0-9][0-9.]*\) .*/\1/p' "$G")"

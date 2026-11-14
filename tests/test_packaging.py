@@ -1871,31 +1871,46 @@ sys.exit("neznan ukaz")
             self.assertIn('build/safeer-webkit.tar.zst',r.stderr)
 
     def test_libsoup_s_popravkom_puscanja_connect(self):
-        """Nas popravek libsoup (Launchpad #2170998): CONNECT skozi posrednik (DoH v Spletu) ne pusca SoupConnection.
-        Isti modul gradita .deb (zgradi.sh) in Flatpak."""
+        """Nas popravek puscanja (Launchpad #2170998) je od libsoup 3.8.1 gorvodno (NEWS: »[Safeer]«): modul gradi 3.8.1 ali
+        novejsi in ga ne nosi vec (dvojna uporaba bi padla - patch --forward zazna, da je ze uporabljen). Isti modul gradita
+        .deb (zgradi.sh) in Flatpak."""
         modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
-        self.assertIn('path: soup-cookie-jar-connect-leak.patch',modul)
-        popravek=(ROOT/'packaging/libsoup/soup-cookie-jar-connect-leak.patch').read_text()
-        self.assertIn('+        g_clear_object (&conn);',popravek)
+        self.assertNotIn('soup-cookie-jar-connect-leak.patch',modul)
+        self.assertFalse((ROOT/'packaging/libsoup/soup-cookie-jar-connect-leak.patch').exists())
+        razlicica=re.search(r'libsoup-(\d+)\.(\d+)\.(\d+)\.tar\.xz',modul)
+        self.assertIsNotNone(razlicica)
+        self.assertGreaterEqual(tuple(int(x) for x in razlicica.groups()),(3,8,1))
         for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
             self.assertIn('packaging/libsoup/libsoup3-safeer.yml',(ROOT/manifest).read_text())
 
     def test_libsoup_popravka_connect_izvor_in_content_encoding(self):
         """Nasa popravka libsoup (8. 11. 2026, GNOME #562/#563): odgovor posrednika na CONNECT ne spremeni stanja izvora,
-        najvec 5 kodiranj v Content-Encoding. Uporabi se ZA popravkom puscanja (vrstni red v modulu)."""
+        najvec 5 kodiranj v Content-Encoding. Na libsoup 3.8.1 (popravek puscanja je ze gorvodno)."""
         modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
-        self.assertLess(modul.index('path: soup-cookie-jar-connect-leak.patch'),
-                        modul.index('path: libsoup-connect-origin-content-encoding.patch'))
         popravek=(ROOT/'packaging/libsoup/libsoup-connect-origin-content-encoding.patch').read_text()
         for datoteka in ('libsoup/cookies/soup-cookie-jar.c','libsoup/hsts/soup-hsts-enforcer.c','libsoup/auth/soup-auth-manager.c',
                          'libsoup/content-decoder/soup-content-decoder.c','tests/proxy-connect-test.c',
                          'tests/content-encoding-limit-test.c'):
             self.assertIn('+++ b/'+datoteka,popravek)
 
+    def test_libsoup_utrditev_piskotkov_in_hsts(self):
+        """Nas popravek libsoup (13. 11. 2026): piskotek gostitelja IP samo za tocen naslov, Cookie se ob preusmeritvi na
+        drug gostitelj odstrani, HSTS velja tudi za ime s koncno piko. Uporabi se ZADNJI (gradi na obeh prejsnjih)."""
+        modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
+        self.assertLess(modul.index('path: libsoup-connect-origin-content-encoding.patch'),
+                        modul.index('path: libsoup-cookie-hsts-hardening.patch'))
+        popravek=(ROOT/'packaging/libsoup/libsoup-cookie-hsts-hardening.patch').read_text()
+        for datoteka in ('libsoup/cookies/soup-cookie.c','libsoup/hsts/soup-hsts-enforcer.c','libsoup/soup-session.c',
+                         'libsoup/cookies/soup-cookie-jar.c','libsoup/hsts/soup-hsts-enforcer-db.c','libsoup/hsts/soup-hsts-policy.c',
+                         'tests/cookies-test.c','tests/hsts-test.c','tests/hsts-db-test.c','tests/redirect-test.c'):   # porocilo B (14. 11.)
+            self.assertIn('+++ b/'+datoteka,popravek)
+        for niz in ('g_hostname_is_ip_address (host)','SOUP_HEADER_COOKIE','without_dot'):
+            self.assertIn(niz,popravek)
+
     def test_webkit_hsts_podviri_307(self):
         """HSTS za podvire (|| namesto &&): medizvorni fetch/XHR brez preusmeritve, vse drugo s sinteticno 307 (POST ostane POST)."""
         popravek=(ROOT/'packaging/webkit/hsts-subresource-upgrade.patch').read_text()
-        self.assertIn('+        || !m_isBlockingCookies;',popravek)
+        self.assertIn('+        && (isTopLevelNavigation() || m_currentRequest.isSameSite());',popravek)   # v8 14. 11.: samo istomestni podviri, nikoli ob blokiranih piskotkih
         self.assertIn('+    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);',popravek)
         self.assertIn('+        m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
         # Brez preusmeritve samo medizvorni fetch/XHR v nacinu CORS; navigacije (vsi okvirji) in isti izvor prek 307

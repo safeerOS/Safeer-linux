@@ -1,0 +1,603 @@
+From: Safeer team <info@safeer.si>
+Subject: [PATCH] cookies, hsts, session: IP host cookie matching, trailing-dot host names, Cookie on cross-origin redirect
+
+See README.md for the description, reproducers and measurements.
+---
+diff --git a/libsoup/cookies/soup-cookie-jar.c b/libsoup/cookies/soup-cookie-jar.c
+index f611e34..b0134c0 100644
+--- a/libsoup/cookies/soup-cookie-jar.c
++++ b/libsoup/cookies/soup-cookie-jar.c
+@@ -371,7 +371,8 @@ get_cookies (SoupCookieJar *jar,
+ 				g_hash_table_insert (priv->domains,
+ 						     g_strdup (cur),
+ 						     new_head);
+-			} else if (soup_cookie_applies_to_uri (cookie, uri) &&
++			} else if (soup_cookie_domain_matches (cookie, host) &&
++			           soup_cookie_applies_to_uri (cookie, uri) &&
+ 			           cookie_is_valid_for_same_site_policy (cookie, is_safe_method, uri, top_level,
+ 				                                         site_for_cookies, is_top_level_navigation,
+ 									 for_http) &&
+diff --git a/libsoup/cookies/soup-cookie.c b/libsoup/cookies/soup-cookie.c
+index ca9b7e2..64a78eb 100644
+--- a/libsoup/cookies/soup-cookie.c
++++ b/libsoup/cookies/soup-cookie.c
+@@ -87,6 +87,37 @@ soup_cookie_copy (SoupCookie *cookie)
+ 	return copy;
+ }
+ 
++/* An IP address, or a host that resolvers treat as one: the last label is numeric, as in
++ * "1.2.772", "1.2.3.04", "0x7f.1" or "1.2.3.4." (WHATWG URL ends-in-a-number rule). */
++static gboolean
++host_is_ip_like (const char *host)
++{
++	gsize len = strlen (host);
++	const char *last, *end, *p;
++
++	if (g_hostname_is_ip_address (host))
++		return TRUE;
++	while (len > 0 && host[len - 1] == '.')
++		len--;
++	if (!len)
++		return FALSE;
++	end = host + len;
++	last = g_strrstr_len (host, len, ".");
++	last = last ? last + 1 : host;
++	if (end - last >= 2 && last[0] == '0' && (last[1] == 'x' || last[1] == 'X')) {
++		for (p = last + 2; p < end; p++) {
++			if (!g_ascii_isxdigit (*p))
++				return FALSE;
++		}
++		return TRUE;
++	}
++	for (p = last; p < end; p++) {
++		if (!g_ascii_isdigit (*p))
++			return FALSE;
++	}
++	return TRUE;
++}
++
+ /**
+  * soup_cookie_domain_matches:
+  * @cookie: a #SoupCookie
+@@ -105,6 +136,20 @@ soup_cookie_domain_matches (SoupCookie *cookie, const char *host)
+ 	g_return_val_if_fail (cookie != NULL, FALSE);
+ 	g_return_val_if_fail (host != NULL, FALSE);
+ 
++	/* A cookie without a domain matches no host (soup_cookie_set_domain() accepts NULL). */
++	if (!cookie->domain)
++		return FALSE;
++
++	/* RFC 6265, 5.1.3: domain-match by suffix applies only to host names. A cookie for an IP
++	 * address must match that exact address, otherwise "Domain=3.4" set by 1.2.3.4 would be sent to 7.7.3.4. */
++	if (host_is_ip_like (host)) {
++		const char *domain = cookie->domain;
++
++		if (*domain == '.')
++			domain++;
++		return !g_ascii_strcasecmp (domain, host);
++	}
++
+ 	return soup_host_matches_host (cookie->domain, host);
+ }
+ 
+diff --git a/libsoup/hsts/soup-hsts-enforcer-db.c b/libsoup/hsts/soup-hsts-enforcer-db.c
+index 1657ee0..ae4fb23 100644
+--- a/libsoup/hsts/soup-hsts-enforcer-db.c
++++ b/libsoup/hsts/soup-hsts-enforcer-db.c
+@@ -154,6 +154,10 @@ query_all_callback (void *data, int argc, char **argv, char **colname)
+ 
+ 	now = time (NULL);
+ 
++	/* A damaged or hand-edited row may hold NULL values (strtoul (NULL) would crash). */
++	if (argc < N_COL || !argv[COL_HOST] || !argv[COL_MAX_AGE] || !argv[COL_EXPIRY])
++		return 0;
++
+ 	host = argv[COL_HOST];
+ 	expire_time = strtoul (argv[COL_EXPIRY], NULL, 10);
+ 
+diff --git a/libsoup/hsts/soup-hsts-enforcer.c b/libsoup/hsts/soup-hsts-enforcer.c
+index fe2cc9d..06f79bf 100644
+--- a/libsoup/hsts/soup-hsts-enforcer.c
++++ b/libsoup/hsts/soup-hsts-enforcer.c
+@@ -413,33 +413,63 @@ super_domain_of (const char *domain)
+ 	return iter;
+ }
+ 
+-static gboolean
+-soup_hsts_enforcer_must_enforce_secure_transport (SoupHSTSEnforcer *hsts_enforcer,
+-						  const char *domain)
++/* "example.com." (and "example.com..") name the same host as "example.com". Returns a copy
++ * without the trailing dots, or NULL when @domain has none (or would become empty). */
++static char *
++domain_without_trailing_dots (const char *domain)
+ {
+-        SoupHSTSEnforcerPrivate *priv = soup_hsts_enforcer_get_instance_private (hsts_enforcer);
+-	const char *super_domain = domain;
++	gsize len = strlen (domain);
+ 
+-	g_return_val_if_fail (domain != NULL, FALSE);
++	if (len < 2 || domain[len - 1] != '.')
++		return NULL;
++	while (len > 0 && domain[len - 1] == '.')
++		len--;
++	return len ? g_strndup (domain, len) : NULL;
++}
+ 
+-        g_mutex_lock (&priv->mutex);
++/* The policy of @domain itself, or of a parent domain with includeSubDomains. Called with the lock held. */
++static gboolean
++policy_applies (SoupHSTSEnforcer *hsts_enforcer,
++		const char *domain)
++{
++	const char *super_domain = domain;
+ 
+-	if (soup_hsts_enforcer_has_valid_policy (hsts_enforcer, domain)) {
+-                g_mutex_unlock (&priv->mutex);
++	if (soup_hsts_enforcer_has_valid_policy (hsts_enforcer, domain))
+ 		return TRUE;
+-        }
+ 
+ 	while ((super_domain = super_domain_of (super_domain)) != NULL) {
+ 		if (soup_hsts_enforcer_host_includes_subdomains (hsts_enforcer, super_domain) &&
+-		    soup_hsts_enforcer_has_valid_policy (hsts_enforcer, super_domain)) {
+-                        g_mutex_unlock (&priv->mutex);
++		    soup_hsts_enforcer_has_valid_policy (hsts_enforcer, super_domain))
+ 			return TRUE;
+-                }
+ 	}
+ 
++	return FALSE;
++}
++
++static gboolean
++soup_hsts_enforcer_must_enforce_secure_transport (SoupHSTSEnforcer *hsts_enforcer,
++						  const char *domain)
++{
++        SoupHSTSEnforcerPrivate *priv = soup_hsts_enforcer_get_instance_private (hsts_enforcer);
++	char *without_dot;
++	gboolean retval;
++
++	g_return_val_if_fail (domain != NULL, FALSE);
++
++	/* Without this a request for http://example.com./ would avoid the policy for example.com. */
++	without_dot = domain_without_trailing_dots (domain);
++
++        g_mutex_lock (&priv->mutex);
++
++	/* The name without trailing dots first; then, as before this change, the name as written, so a policy
++	 * stored under a dotted name (also a parent with includeSubDomains) keeps applying. */
++	retval = policy_applies (hsts_enforcer, without_dot ? without_dot : domain) ||
++		 (without_dot && policy_applies (hsts_enforcer, domain));
++
+         g_mutex_unlock (&priv->mutex);
++	g_free (without_dot);
+ 
+-	return FALSE;
++	return retval;
+ }
+ 
+ static void
+@@ -605,20 +635,41 @@ soup_hsts_enforcer_has_valid_policy (SoupHSTSEnforcer *hsts_enforcer,
+ 				     const char *domain)
+ {
+ 	char *canonicalized = NULL;
++	char *without_dot;
++	const char *original = domain;
+ 	gboolean retval;
+ 
+ 	g_return_val_if_fail (SOUP_IS_HSTS_ENFORCER (hsts_enforcer), FALSE);
+ 	g_return_val_if_fail (domain != NULL, FALSE);
+ 
++	/* Same normalisation as must_enforce_secure_transport, so the public API agrees with it. */
++	without_dot = domain_without_trailing_dots (domain);
++	if (without_dot)
++		domain = without_dot;
++
+ 	if (g_hostname_is_ascii_encoded (domain)) {
+ 		canonicalized = g_hostname_to_unicode (domain);
+-		g_return_val_if_fail (canonicalized, FALSE);
++		if (!canonicalized) {
++			g_free (without_dot);
++			g_return_val_if_reached (FALSE);
++		}
+ 	}
+ 
+ 	retval = SOUP_HSTS_ENFORCER_GET_CLASS (hsts_enforcer)->has_valid_policy (hsts_enforcer,
+ 										 canonicalized ? canonicalized : domain);
+ 
++	/* A policy stored with the trailing dot by an older version (or set by the application under that name)
++	 * still applies to that spelling. */
++	if (!retval && without_dot) {
++		char *original_unicode = g_hostname_is_ascii_encoded (original) ? g_hostname_to_unicode (original) : NULL;
++
++		retval = SOUP_HSTS_ENFORCER_GET_CLASS (hsts_enforcer)->has_valid_policy (hsts_enforcer,
++											 original_unicode ? original_unicode : original);
++		g_free (original_unicode);
++	}
++
+ 	g_free (canonicalized);
++	g_free (without_dot);
+ 
+ 	return retval;
+ }
+diff --git a/libsoup/hsts/soup-hsts-policy.c b/libsoup/hsts/soup-hsts-policy.c
+index 3e0c519..51f3590 100644
+--- a/libsoup/hsts/soup-hsts-policy.c
++++ b/libsoup/hsts/soup-hsts-policy.c
+@@ -291,7 +291,24 @@ soup_hsts_policy_new_from_response (SoupMessage *msg)
+ 		if (include_subdomains_value)
+ 			goto out;
+ 
+-		policy = soup_hsts_policy_new (g_uri_get_host (uri), max_age, include_subdomains);
++		{
++			/* "example.com." is the same host as "example.com": a policy received for it is stored under
++			 * the name without trailing dots, which is what the enforcer looks up. An IP address written
++			 * with a trailing dot ("1.2.3.4.") is still an IP address and gets no policy. */
++			const char *host = g_uri_get_host (uri);
++			gsize len;
++			char *without_dots;
++
++			if (!host)
++				goto out;
++			len = strlen (host);
++			while (len > 1 && host[len - 1] == '.')
++				len--;
++			without_dots = g_strndup (host, len);
++			if (!g_hostname_is_ip_address (without_dots))
++				policy = soup_hsts_policy_new (without_dots, max_age, include_subdomains);
++			g_free (without_dots);
++		}
+ 	out:
+ 		soup_header_free_param_list (params);
+ 		return policy;
+diff --git a/libsoup/soup-session.c b/libsoup/soup-session.c
+index 510d962..14ceb58 100644
+--- a/libsoup/soup-session.c
++++ b/libsoup/soup-session.c
+@@ -1233,6 +1233,9 @@ soup_session_redirect_message (SoupSession *session,
+         if (!soup_uri_host_equal (soup_message_get_uri (msg), new_uri)) {
+                 soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_AUTHORIZATION);
+                 soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_PROXY_AUTHORIZATION);
++                /* A Cookie header set by the application is a credential too (the cookie jar adds its own
++                 * cookies for the new URI when the message restarts). */
++                soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_COOKIE);
+                 soup_message_set_auth (msg, NULL);
+         }
+ 
+diff --git a/tests/cookies-test.c b/tests/cookies-test.c
+index c110fdc..7b14fba 100644
+--- a/tests/cookies-test.c
++++ b/tests/cookies-test.c
+@@ -604,6 +604,67 @@ do_get_cookies_empty_host_test (void)
+ 	g_uri_unref (uri);
+ }
+ 
++static void
++do_cookies_ip_host_test (void)
++{
++	SoupCookieJar *jar = soup_cookie_jar_new ();
++	GUri *setter = g_uri_parse ("http://1.2.3.4/", SOUP_HTTP_URI_FLAGS, NULL);
++	GUri *other = g_uri_parse ("http://7.7.3.4/", SOUP_HTTP_URI_FLAGS, NULL);
++	SoupCookie *cookie;
++	char *cookies;
++
++	/* RFC 6265 5.1.3: an IP address host only domain-matches itself. */
++	soup_cookie_jar_set_cookie (jar, setter, "suffix=1; Domain=3.4");
++	soup_cookie_jar_set_cookie (jar, setter, "exact=1");
++	cookies = soup_cookie_jar_get_cookies (jar, other, TRUE);
++	g_assert_null (cookies);
++	cookies = soup_cookie_jar_get_cookies (jar, setter, TRUE);
++	g_assert_cmpstr (cookies, ==, "exact=1");
++	g_free (cookies);
++
++	/* A cookie that is already in the jar (persistent storage, soup_cookie_jar_add_cookie())
++	 * must not be sent to another IP address either. */
++	soup_cookie_jar_add_cookie (jar, soup_cookie_new ("stored", "1", ".3.4", "/", -1));
++	cookies = soup_cookie_jar_get_cookies (jar, other, TRUE);
++	g_assert_null (cookies);
++
++	/* No domain at all never matches, for an IP address or a host name (no g_critical). */
++	cookie = soup_cookie_new ("x", "1", "1.2.3.4", "/", -1);
++	soup_cookie_set_domain (cookie, NULL);
++	g_assert_false (soup_cookie_domain_matches (cookie, "1.2.3.4"));
++	g_assert_false (soup_cookie_domain_matches (cookie, "example.com"));
++	soup_cookie_free (cookie);
++
++	/* Hosts that resolvers treat as IPv4 addresses (shorthand, octal, hex, trailing dot)
++	 * follow the same exact-match rule. */
++	cookie = soup_cookie_new ("y", "1", ".2.772", "/", -1);
++	g_assert_false (soup_cookie_domain_matches (cookie, "9.2.772"));
++	soup_cookie_free (cookie);
++	cookie = soup_cookie_new ("y", "1", ".3.04", "/", -1);
++	g_assert_false (soup_cookie_domain_matches (cookie, "1.2.3.04"));
++	soup_cookie_free (cookie);
++	cookie = soup_cookie_new ("y", "1", ".7.0x", "/", -1);
++	g_assert_false (soup_cookie_domain_matches (cookie, "9.7.0x"));
++	soup_cookie_free (cookie);
++	cookie = soup_cookie_new ("y", "1", ".0x1", "/", -1);
++	g_assert_false (soup_cookie_domain_matches (cookie, "7.0x1"));
++	soup_cookie_free (cookie);
++	cookie = soup_cookie_new ("y", "1", ".3.4.", "/", -1);
++	g_assert_false (soup_cookie_domain_matches (cookie, "7.7.3.4."));
++	soup_cookie_free (cookie);
++	cookie = soup_cookie_new ("y", "1", "1.2.772", "/", -1);
++	g_assert_true (soup_cookie_domain_matches (cookie, "1.2.772"));
++	soup_cookie_free (cookie);
++	/* A host name is unchanged: suffix matching still applies. */
++	cookie = soup_cookie_new ("z", "1", ".example.com", "/", -1);
++	g_assert_true (soup_cookie_domain_matches (cookie, "www.example.com"));
++	soup_cookie_free (cookie);
++
++	g_uri_unref (setter);
++	g_uri_unref (other);
++	g_object_unref (jar);
++}
++
+ static void
+ send_callback (GObject *source_object,
+ 	       GAsyncResult *res,
+@@ -1308,6 +1369,7 @@ main (int argc, char **argv)
+ 	g_test_add_func ("/cookies/parsing/control-characters", do_cookies_parsing_control_characters);
+         g_test_add_func ("/cookies/parsing/name-value-max-size", do_cookies_parsing_name_value_max_size);
+ 	g_test_add_func ("/cookies/get-cookies/empty-host", do_get_cookies_empty_host_test);
++	g_test_add_func ("/cookies/ip-host", do_cookies_ip_host_test);
+ 	g_test_add_func ("/cookies/remove-feature", do_remove_feature_test);
+ 	g_test_add_func ("/cookies/secure-cookies", do_cookies_strict_secure_test);
+ 	g_test_add_func ("/cookies/prefix", do_cookies_prefix_test);
+diff --git a/tests/hsts-db-test.c b/tests/hsts-db-test.c
+index 9b1e580..a9a0ea6 100644
+--- a/tests/hsts-db-test.c
++++ b/tests/hsts-db-test.c
+@@ -4,6 +4,7 @@
+ #include <glib/gstdio.h>
+ 
+ #include <stdio.h>
++#include <sqlite3.h>
+ #include "soup-uri-utils-private.h"
+ 
+ #define DB_FILE "hsts-db.sqlite"
+@@ -187,6 +188,34 @@ do_hsts_db_large_max_age_test (void)
+ 	g_remove (DB_FILE);
+ }
+ 
++static void
++do_hsts_db_old_rows_test (void)
++{
++	SoupHSTSEnforcer *enforcer;
++	sqlite3 *db;
++	char *sql;
++	gint64 now = g_get_real_time () / G_USEC_PER_SEC;
++
++	/* A database written by an older version: a policy stored with a trailing dot keeps protecting that
++	 * spelling, and a damaged row with NULL values is skipped (it used to crash in strtoul). */
++	g_remove (DB_FILE);
++	g_assert_cmpint (sqlite3_open (DB_FILE, &db), ==, SQLITE_OK);
++	sql = g_strdup_printf ("CREATE TABLE soup_hsts_policies (id INTEGER PRIMARY KEY, host TEXT UNIQUE, max_age INTEGER, "
++			       "expiry INTEGER, include_subdomains INTEGER);"
++			       "INSERT INTO soup_hsts_policies VALUES (1, 'dotted.example.', 31536000, %" G_GINT64_FORMAT ", 0);"
++			       "INSERT INTO soup_hsts_policies VALUES (2, 'broken.example', NULL, NULL, NULL);",
++			       now + 31536000);
++	g_assert_cmpint (sqlite3_exec (db, sql, NULL, NULL, NULL), ==, SQLITE_OK);
++	g_free (sql);
++	sqlite3_close (db);
++
++	enforcer = soup_hsts_enforcer_db_new (DB_FILE);
++	g_assert_true (soup_hsts_enforcer_has_valid_policy (enforcer, "dotted.example."));
++	g_assert_false (soup_hsts_enforcer_has_valid_policy (enforcer, "broken.example"));
++	g_object_unref (enforcer);
++	g_remove (DB_FILE);
++}
++
+ int
+ main (int argc, char **argv)
+ {
+@@ -209,6 +238,7 @@ main (int argc, char **argv)
+ 	g_test_add_func ("/hsts-db/basic", do_hsts_db_persistency_test);
+ 	g_test_add_func ("/hsts-db/subdomains", do_hsts_db_subdomains_test);
+ 	g_test_add_func ("/hsts-db/large-max-age", do_hsts_db_large_max_age_test);
++	g_test_add_func ("/hsts-db/old-rows", do_hsts_db_old_rows_test);
+ 
+ 	ret = g_test_run ();
+ 
+diff --git a/tests/hsts-test.c b/tests/hsts-test.c
+index dcc4629..9da2c99 100644
+--- a/tests/hsts-test.c
++++ b/tests/hsts-test.c
+@@ -336,6 +336,76 @@ do_hsts_superdomain_test (void)
+ 	g_object_unref (enforcer);
+ }
+ 
++static void
++hsts_enforced_only (SoupSession *session, const char *uri, gboolean expected_enforced)
++{
++	SoupMessage *msg = soup_message_new ("GET", uri);
++	gboolean enforced = FALSE;
++	GBytes *body;
++
++	g_signal_connect (msg, "hsts-enforced", G_CALLBACK (hsts_enforced_cb), &enforced);
++	soup_message_add_flags (msg, SOUP_MESSAGE_NO_REDIRECT);
++	/* Only the upgrade decision matters here; the TLS name check of "localhost." may fail. */
++	body = soup_session_send_and_read (session, msg, NULL, NULL);
++	g_assert_true (enforced == expected_enforced);
++	g_clear_pointer (&body, g_bytes_unref);
++	g_object_unref (msg);
++}
++
++static void
++do_hsts_trailing_dot_test (void)
++{
++	SoupHSTSEnforcer *enforcer = soup_hsts_enforcer_new ();
++	SoupSession *session = hsts_session_new (enforcer);
++	SoupHSTSPolicy *policy;
++	SoupMessage *msg;
++
++	/* "localhost." names the same host as "localhost". */
++	session_get_uri (session, "https://localhost/long-lasting", SOUP_STATUS_OK, FALSE);
++	g_assert_true (soup_hsts_enforcer_has_valid_policy (enforcer, "localhost."));
++	g_assert_true (soup_hsts_enforcer_has_valid_policy (enforcer, "localhost.."));
++	hsts_enforced_only (session, "http://localhost./", TRUE);
++	hsts_enforced_only (session, "http://localhost../", TRUE);
++	soup_test_session_abort_unref (session);
++	g_object_unref (enforcer);
++
++	/* A policy created with a trailing dot (application, session policy, database of an older
++	 * version) keeps its name and still applies to that spelling. */
++	policy = soup_hsts_policy_new_full ("example.org.", 3600, NULL, FALSE);
++	g_assert_cmpstr (soup_hsts_policy_get_domain (policy), ==, "example.org.");
++	soup_hsts_policy_free (policy);
++	enforcer = soup_hsts_enforcer_new ();
++	soup_hsts_enforcer_set_session_policy (enforcer, "example.net.", FALSE);
++	g_assert_true (soup_hsts_enforcer_has_valid_policy (enforcer, "example.net."));
++	g_object_unref (enforcer);
++
++	/* A parent stored with a trailing dot and includeSubDomains still covers its subdomains written
++	 * with a trailing dot (as before this change). */
++	enforcer = soup_hsts_enforcer_new ();
++	session = hsts_session_new (enforcer);
++	soup_hsts_enforcer_set_session_policy (enforcer, "localhost.", TRUE);
++	hsts_enforced_only (session, "http://sub.localhost./", TRUE);
++	soup_test_session_abort_unref (session);
++	g_object_unref (enforcer);
++
++	/* An IP address with a trailing dot gets no policy (and no g_critical). */
++	msg = soup_message_new ("GET", "https://1.2.3.4./");
++	soup_message_headers_append (soup_message_get_response_headers (msg),
++				     "Strict-Transport-Security", "max-age=31536000");
++	g_assert_null (soup_hsts_policy_new_from_response (msg));
++	g_object_unref (msg);
++
++	/* A policy received for "example.com." is stored under "example.com", not dropped. */
++	msg = soup_message_new ("GET", "https://example.com./");
++	soup_message_headers_append (soup_message_get_response_headers (msg),
++				     "Strict-Transport-Security", "max-age=31536000");
++	policy = soup_hsts_policy_new_from_response (msg);
++	g_assert_nonnull (policy);
++	g_assert_cmpstr (soup_hsts_policy_get_domain (policy), ==, "example.com");
++	soup_hsts_policy_free (policy);
++	g_object_unref (msg);
++}
++
+ static void
+ do_hsts_multiple_headers_test (void)
+ {
+@@ -660,6 +730,7 @@ main (int argc, char **argv)
+ 	g_test_add_func ("/hsts/persistency", do_hsts_persistency_test);
+ 	g_test_add_func ("/hsts/subdomains", do_hsts_subdomains_test);
+ 	g_test_add_func ("/hsts/superdomain", do_hsts_superdomain_test);
++	g_test_add_func ("/hsts/trailing-dot", do_hsts_trailing_dot_test);
+ 	g_test_add_func ("/hsts/multiple-headers", do_hsts_multiple_headers_test);
+ 	g_test_add_func ("/hsts/insecure-sts", do_hsts_insecure_sts_test);
+ 	g_test_add_func ("/hsts/missing-values", do_hsts_missing_values_test);
+diff --git a/tests/meson.build b/tests/meson.build
+index f477f65..9080537 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -95,7 +95,8 @@ tests = [
+   {'name': 'http2', 'slow': true},
+   {'name': 'http2-body-stream', 'slow': true},
+   {'name': 'hsts'},
+-  {'name': 'hsts-db'},
++  {'name': 'hsts-db',
++   'dependencies': [sqlite_dep]},
+   {'name': 'logger', 'slow': true},
+   {'name': 'misc'},
+   {'name': 'multipart'},
+diff --git a/tests/redirect-test.c b/tests/redirect-test.c
+index 0dc26a7..708c696 100644
+--- a/tests/redirect-test.c
++++ b/tests/redirect-test.c
+@@ -10,6 +10,9 @@
+ 
+ GUri *base_uri;
+ char *server2_uri;
++static char *server2_cookie_check_uri;
++G_LOCK_DEFINE_STATIC (server2_cookie);
++static char *server2_cookie;
+ SoupSession *async_session;
+ 
+ typedef struct {
+@@ -249,6 +252,31 @@ do_large_body_before_redirect_test (void)
+ 	soup_test_session_abort_unref (session);
+ }
+ 
++static void
++do_cookie_cross_origin_redirect_test (void)
++{
++	SoupSession *session = soup_test_session_new (NULL);
++	GUri *uri = g_uri_parse_relative (base_uri, "/cookie-to-server2", SOUP_HTTP_URI_FLAGS, NULL);
++	SoupMessage *msg = soup_message_new_from_uri ("GET", uri);
++	GBytes *body;
++
++	/* A Cookie header set by the application is a credential like Authorization: it must
++	 * not follow a redirect to another origin. */
++	soup_message_headers_replace (soup_message_get_request_headers (msg), "Cookie", "session=secret");
++	soup_message_headers_replace (soup_message_get_request_headers (msg), "Authorization", "Bearer secret");
++	body = soup_test_session_async_send (session, msg, NULL, NULL);
++	soup_test_assert_message_status (msg, SOUP_STATUS_OK);
++	G_LOCK (server2_cookie);
++	g_assert_cmpstr (server2_cookie, ==, "(none)|(none)");
++	g_clear_pointer (&server2_cookie, g_free);
++	G_UNLOCK (server2_cookie);
++
++	g_bytes_unref (body);
++	g_object_unref (msg);
++	g_uri_unref (uri);
++	soup_test_session_abort_unref (session);
++}
++
+ static void
+ server_callback (SoupServer        *server,
+ 		 SoupServerMessage *msg,
+@@ -297,6 +325,9 @@ server_callback (SoupServer        *server,
+ 		else
+ 			soup_server_message_set_status (msg, SOUP_STATUS_NOT_FOUND, NULL);
+ 		return;
++	} else if (!strcmp (path, "/cookie-to-server2")) {
++		soup_server_message_set_redirect (msg, SOUP_STATUS_FOUND, server2_cookie_check_uri);
++		return;
+ 	} else if (!strcmp (path, "/server2")) {
+ 		soup_server_message_set_status (msg, SOUP_STATUS_FOUND, NULL);
+ 		soup_message_headers_replace (response_headers,
+@@ -373,6 +404,16 @@ server2_callback (SoupServer        *server,
+ 		  GHashTable        *query,
+ 		  gpointer           data)
+ {
++	if (!strcmp (path, "/cookie-check")) {
++		SoupMessageHeaders *headers = soup_server_message_get_request_headers (msg);
++		const char *cookie = soup_message_headers_get_one (headers, "Cookie");
++		const char *auth = soup_message_headers_get_one (headers, "Authorization");
++
++		G_LOCK (server2_cookie);
++		g_free (server2_cookie);
++		server2_cookie = g_strdup_printf ("%s|%s", cookie ? cookie : "(none)", auth ? auth : "(none)");
++		G_UNLOCK (server2_cookie);
++	}
+ 	soup_server_message_set_status (msg, SOUP_STATUS_OK, NULL);
+ }
+ 
+@@ -400,6 +441,11 @@ main (int argc, char **argv)
+         g_uri_unref (uri2);
+ 	server2_uri = g_uri_to_string (uri2_with_path);
+ 	g_uri_unref (uri2_with_path);
++	uri2 = soup_test_server_get_uri (server2, "http", NULL);
++	uri2_with_path = g_uri_parse_relative (uri2, "/cookie-check", SOUP_HTTP_URI_FLAGS, NULL);
++	g_uri_unref (uri2);
++	server2_cookie_check_uri = g_uri_to_string (uri2_with_path);
++	g_uri_unref (uri2_with_path);
+ 
+ 	loop = g_main_loop_new (NULL, TRUE);
+ 
+@@ -415,9 +461,13 @@ main (int argc, char **argv)
+ 
+ 	g_test_add_func ("/redirect/large-body-before-redirect",
+ 			 do_large_body_before_redirect_test);
++	g_test_add_func ("/redirect/cookie-cross-origin",
++			 do_cookie_cross_origin_redirect_test);
+ 
+ 	ret = g_test_run ();
+ 
++	g_free (server2_cookie_check_uri);
++
+ 	g_main_loop_unref (loop);
+ 	g_uri_unref (base_uri);
+ 	soup_test_server_quit_unref (server);

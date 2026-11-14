@@ -1,14 +1,27 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,13 +1365,43 @@
+@@ -799,8 +799,9 @@
+         if (body && !body->isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
+             request.setHTTPBody(WTF::move(body));
+ 
++        // Restore the Content-Type only together with a body: a GET that follows a 302 must not get it back.
+         String originalContentType = m_firstRequest.httpContentType();
+-        if (!originalContentType.isEmpty())
++        if (!originalContentType.isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
+             request.setHTTPHeaderField(WebCore::HTTPHeaderName::ContentType, originalContentType);
+     }
+ 
+@@ -1365,13 +1366,44 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
-+    // Only subresource requests to blocked domains may skip the upgrade; any other request to a known
-+    // HSTS host must be upgraded to https (RFC 6797, section 8.3).
-     return isTopLevelNavigation()
+-    return isTopLevelNavigation()
 -        && !m_isBlockingCookies;
-+        || !m_isBlockingCookies;
++    // Subresource requests are upgraded only when they are same-site with the page (RFC 6797, section 8.3, for the
++    // site the user visits). Upgrading cross-site subresources would let third parties read HSTS state: a tracking
++    // "supercookie" and history sniffing (onload/onerror, timing). Nothing is upgraded while cookies are blocked (also top-level, as before).
++    return !m_isBlockingCookies
++        && (isTopLevelNavigation() || m_currentRequest.isSameSite());
 +}
 +
 +// A subresource request that carries an Origin of another origin (or an opaque "null" origin): fetch() and

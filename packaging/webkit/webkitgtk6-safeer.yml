@@ -76,6 +76,8 @@ sources:
   - type: archive
     url: https://webkitgtk.org/releases/webkitgtk-2.54.2.tar.xz
     sha256: a76345b391bef6211fb5ab6cfab2e86b285d18cda17cbb9ade595f1252b86065
+  # 14. 11. 2026 (v7): podviri se nadgradijo SAMO, ce so istomestni s stranjo (isSameSite) - prvi popravek je medmestno
+  # nadgradil in dal tretjim stranem branje stanja HSTS (supercookie). Izmerjeno: medmestna slika HTTP, istomestna TLS.
   # Nas popravek (8. 11. 2026, zaupno do prijave WebKitu): HSTS se uveljavi tudi za podvire in okvirje (|| namesto &&
   # v NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade). Izmerjeno na testnem PC s safeer-webkit 1.0.134: slika,
   # skripta in iframe do gostitelja s politiko HSTS so sli po http (3/3), piskotek istega mesta tudi.

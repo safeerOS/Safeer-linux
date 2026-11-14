@@ -13,6 +13,7 @@ import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKRIPTA = os.path.join(KOREN, "tests", "hsts_podviri_preizkus.py")
+SKRIPTA_MEDMESTNO = os.path.join(KOREN, "tests", "hsts_medmestno_preizkus.py")
 
 
 def _webkit_na_voljo():
@@ -44,8 +45,9 @@ class HstsPodviri(unittest.TestCase):
         # Razsirjeno (9. 11. 2026, testni PC izmenicno 1.0.134 / 1.0.134.1): vse druge vrste zahtev do gostitelja HSTS.
         for vrsta in ("css", "pisava", "ozadje css", "video", "avdio", "xhr", "beacon", "websocket", "obrazec v okvirju"):
             self.assertEqual(izid.get(vrsta), ["TLS"], "%s ni nadgrajen na https: %s" % (vrsta, izid))
-        self.assertTrue(any(s.startswith("TLS") for s in izid.get("poddomena (includeSubDomains)", [])), izid)
-        self.assertNotIn("HTTP", izid.get("poddomena (includeSubDomains)", []), izid)
+        # v7 (14. 11. 2026): poddomena DRUGEGA mesta (a.hsts2.localhost, stran na www.hsts.localhost) ostane po HTTP -
+        # nadgradnja bi tretji strani dala branje stanja HSTS (supercookie); prvi popravek je ta primer nadgradil.
+        self.assertIn("HTTP", izid.get("poddomena (includeSubDomains)", []), izid)
         self.assertNotIn("HTTP", izid.get("eventsource", []), izid)
         self.assertFalse([v for v, s in izid.items() if isinstance(s, list) and "PISKOTEK V CISTEM HTTP" in s], izid)
         if izid.get("_zaupano"):
@@ -68,6 +70,24 @@ class HstsPodviri(unittest.TestCase):
             # Slepi pregled v6 (najdba A): odziv, nadgrajen na mestu, ne sme okvirju istega naslova http dati izvora http.
             self.assertEqual(stanja.pop("okvir_iz_predpomnilnika", None), "https:", izid)
             self.assertEqual(stanja, {"preflight": "ok", "crossorigin": "ok", "modul": "nalozen", "nul": "ok"}, izid)
+
+    def test_medmestni_podvir_ni_nadgrajen_istomestni_je(self):
+        """HSTS stanje se ne sme dati brati medmestno (14. 11. 2026, testni PC, 3 izmenicni teki treh gradenj: brez popravka
+        HTTP/HTTP, prvi popravek TLS/TLS (uhajanje), v7 HTTP za medmestno in TLS za istomestno). Kontrola: navigacija na vrhu TLS."""
+        if not _webkit_na_voljo():
+            self.skipTest("potrebuje WebKit 6.0")
+        with tempfile.TemporaryDirectory() as mapa:
+            r = subprocess.run(["xvfb-run", "-a", sys.executable, SKRIPTA_MEDMESTNO, mapa], capture_output=True, text=True, timeout=120)
+        vrstice = [v for v in r.stdout.splitlines() if v.startswith("JSON ")]
+        self.assertTrue(vrstice, r.stdout[-2000:] + r.stderr[-2000:])
+        izid = json.loads(vrstice[-1][5:])
+        kontrola = [v for k, v in izid.items() if "control" in k][0]
+        medmestno = [v for k, v in izid.items() if "cross-site" in k][0]
+        istomestno = [v for k, v in izid.items() if "same-site" in k][0]
+        self.assertTrue(any(s.startswith("TLS") for s in kontrola), izid)      # politika je res nalozena
+        self.assertTrue(medmestno and all(s.startswith("HTTP") for s in medmestno), izid)
+        self.assertTrue(istomestno and all(s.startswith("TLS") for s in istomestno), izid)
+
 
 if __name__ == "__main__":
     unittest.main()
