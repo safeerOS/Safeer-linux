@@ -235,7 +235,57 @@ class RazresevalnikTest(unittest.TestCase):
         self.assertEqual(r.vrata, 0)
 
 
-class UsmeriTest(unittest.TestCase):
+class _BrezPomocnika(unittest.TestCase):
+    """Pot brez root pomocnika (resolvectl naravnost). Na racunalniku z namescenim paketom safeer-os je
+    /usr/lib/safeer-os/scit-dns rootov in pomocnik() vrne True - testni PC 14. 11. 2026: usmeri() je poklical pkexec
+    namesto resolvectl in trije preizkusi so padli samo tam (na prenosniku brez paketa so uspeli). Preizkus izbere pot
+    sam, ne racunalnik; pot s pomocnikom preverja PomocnikPot."""
+
+    def setUp(self):
+        prej = os_scit.pomocnik
+        os_scit.pomocnik = lambda: False
+        self.addCleanup(setattr, os_scit, "pomocnik", prej)
+
+
+class PomocnikPot(unittest.TestCase):
+    """S pomocnikom (paket .deb) usmeri, povrni in uredi_domene poklicejo samo pomocnika s fiksnim dejanjem prek
+    pkexec z absolutno potjo - nikoli resolvectl naravnost (ta brez sirokega pravila ne bi smel nastaviti DNS)."""
+
+    def setUp(self):
+        self.klici = []
+        self.koda = 0
+
+        def zazeni(ukaz, cas=8.0):
+            self.klici.append(ukaz)
+            if ukaz[:3] == ["resolvectl", "domain", "eth9"]:
+                return 0, "Link 2 (eth9): ~.\n"
+            return self.koda, ""
+        z = Zamenjave(_zazeni=zazeni, pomocnik=lambda: True, pot_pomocnika=lambda: os_scit.POMOCNIK)
+        z.__enter__()
+        self.addCleanup(z.__exit__)
+
+    def _root(self, *argumenti):
+        return os_scit.root_ukaz.ukaz(os_scit.POMOCNIK, *argumenti)
+
+    def test_usmeri(self):
+        self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), "")
+        self.assertEqual(self.klici, [self._root("usmeri", "eth9", "5354")])
+        self.assertTrue(os.path.isabs(self.klici[0][0]), "pkexec z absolutno potjo")
+        self.koda = os_scit.KODA_BREZ_REZERVE
+        self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), os_scit.BREZ_REZERVE)
+        self.koda = 1
+        self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), "pravilo")
+
+    def test_povrni_in_domene(self):
+        self.assertTrue(os_scit.povrni("eth9"))
+        self.assertEqual(self.klici, [self._root("povrni", "eth9")])
+        del self.klici[:]
+        os_scit.uredi_domene("eth9")
+        self.assertEqual(self.klici[-1], self._root("domene", "eth9"))
+        self.assertFalse([k for k in self.klici if k[0] == "resolvectl" and k[1] != "domain"], self.klici)
+
+
+class UsmeriTest(_BrezPomocnika):
     def test_rezerva_za_docker(self):
         """resolvectl dobi nas razresevalnik PRVI in streznike usmerjevalnika kot rezervo: brez njih bi
         /run/systemd/resolve/resolv.conf ostal brez uporabnega streznika (Docker izpusti loopback).
@@ -476,7 +526,7 @@ class Sistem:
         return [k for k in self.klici if k[0] == "resolvectl" and len(k) > 3 or k[:2] == ["resolvectl", "revert"]]
 
 
-class VrnitevDns(unittest.TestCase):
+class VrnitevDns(_BrezPomocnika):
     """Ob izklopu Scita ali izhodu iz Safeer OS vmesnik dobi nazaj streznike NetworkManagerja. `resolvectl revert`
     bi pobrisal tudi te - NetworkManager jih znova poslje sele ob naslednji povezavi, racunalnik pa bi bil do takrat
     brez DNS (preverjeno na pravem systemd-resolved: tools/scit_lab)."""

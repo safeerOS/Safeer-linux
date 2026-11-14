@@ -49,6 +49,15 @@ class OmejitevDatotek(unittest.TestCase):
         self.assertGreaterEqual(os_stabilnost.NAJVEC_DATOTEK, 8192)
 
 
+    def test_tek_preizkusov_ima_mejo_programa(self):
+        """Vsi preizkusi tecejo v enem procesu kot Safeer OS, zato z isto mejo (tests/conftest.py, testni PC 14. 11. 2026:
+        mehka meja 1024 je pri ~80 % polnega teka podrla proces)."""
+        import resource
+        from core import os_stabilnost
+        mehka, trda = resource.getrlimit(resource.RLIMIT_NOFILE)
+        cilj = os_stabilnost.NAJVEC_DATOTEK if trda == resource.RLIM_INFINITY else min(trda, os_stabilnost.NAJVEC_DATOTEK)
+        self.assertTrue(mehka == resource.RLIM_INFINITY or mehka >= cilj, (mehka, trda, cilj))
+
 class HubKeepAlive(unittest.TestCase):
     def test_tiha_povezava_se_zapre(self):
         from core import link_hub_streznik
