@@ -1335,6 +1335,107 @@ _threat_trie = ReverseDomainTrie()
 for _domain in ZASILNI_VZORCI_ZLONAMERNIH_DOMEN:
     _threat_trie.insert(_domain)
 
+ZASILNE_MERCENARY_C2 = frozenset({
+    # Vgrajeno dno mercenary-spyware C2 (botnet_c2). Vir: Zero Breach Toolkit (interplains) CC0,
+    # commit 3b6e48f0; Citizen Lab / Recorded Future / Amnesty. Neodvisno od podpisanega feeda:
+    # prekine eksfiltracijo tudi po okuzbi, ce se feed ne nalozi. Pripravljeno 13. 11. 2026.
+    "ancient-thing.it",  # Paragon Graphite
+    "api.cutlink.site",  # Unnamed commercial spyware vendor
+    "asistentcomercialonline.com",  # Intellexa Predator
+    "awake-wood.io",  # Paragon Graphite
+    "barbequebros.com",  # Intellexa Predator
+    "boundbreeze.com",  # Intellexa Predator
+    "branchbreeze.com",  # Intellexa Predator
+    "c3p0solutions.com",  # Intellexa Predator
+    "caddylane.com",  # Intellexa Predator
+    "canylane.com",  # Intellexa Predator
+    "cdn.cutlink.site",  # Unnamed commercial spyware vendor
+    "clockpatcher.com",  # Intellexa Predator
+    "colabfile.com",  # Intellexa Predator
+    "craftilly.com",  # Intellexa Predator
+    "dollgoodies.com",  # Intellexa Predator
+    "drivemountain.com",  # Intellexa Predator
+    "eclipsemonitor.com",  # Intellexa Predator
+    "external-astra.com",  # Paragon Graphite
+    "external-cag.com",  # Paragon Graphite
+    "external-cap.com",  # Paragon Graphite
+    "external-drt.com",  # Paragon Graphite
+    "fearevolve.com",  # Candiru AdFection
+    "flickerxxx.com",  # Intellexa Predator
+    "forti.external-muki.com",  # Paragon Graphite
+    "forti.external-shotgun3.com",  # Paragon Graphite
+    "forti.external-sht-prd-4.com",  # Paragon Graphite
+    "forti.external-sht.com",  # Paragon Graphite
+    "forti.external-staging-02.com",  # Paragon Graphite
+    "forti.internal-stg.com",  # Paragon Graphite
+    "forti.paraccess.com",  # Paragon Graphite
+    "gamestuts.com",  # Intellexa Predator
+    "gettravelright.com",  # Intellexa Predator
+    "gilfonts.com",  # Intellexa Predator
+    "gobbledgums.com",  # Intellexa Predator
+    "humansprinter.com",  # Intellexa Predator
+    "imjustarandomsite.3utilities.com",  # Unnamed commercial spyware vendor
+    "infoshoutout.com",  # Intellexa Predator
+    "insightenterprisells.com",  # Candiru AdFection
+    "internal-abba.com",  # Paragon Graphite
+    "jobmarcher.com",  # Candiru AdFection
+    "keep-badinigroups.com",  # Intellexa Predator
+    "kz-ordas.com",  # Intellexa Predator
+    "lawrdo.com",  # Intellexa Predator
+    "longtester.com",  # Intellexa Predator
+    "mappins.io",  # Intellexa Predator
+    "mdundobeats.com",  # Intellexa Predator
+    "modern-money.org",  # Paragon Graphite
+    "mountinnovate.com",  # Intellexa Predator
+    "mundoautopro.com",  # Intellexa Predator
+    "myprivatedrive.net",  # Intellexa Predator
+    "myread.io",  # Intellexa Predator
+    "mystudyup.com",  # Intellexa Predator
+    "nightskyco.com",  # Intellexa Predator
+    "noticiafamosos.com",  # Intellexa Predator
+    "noticiafresca.net",  # Intellexa Predator
+    "onelifestyle24.com",  # Intellexa Predator
+    "openstreetpro.com",  # Intellexa Predator
+    "outdooutcome.com",  # Candiru AdFection
+    "pedalmastery.com",  # Intellexa Predator
+    "pinnedplace.com",  # Intellexa Predator
+    "plasticbells.com",  # Candiru AdFection
+    "remixspot.com",  # Intellexa Predator
+    "roadsidefoodie.com",  # Intellexa Predator
+    "secneed.com",  # Intellexa Predator
+    "secsafty.com",  # Intellexa Predator
+    "shopstodrop.com",  # Intellexa Predator
+    "speedbrawse.com",  # Intellexa Predator
+    "stableconnect.net",  # Intellexa Predator
+    "starryedge.com",  # Intellexa Predator
+    "statuepops.com",  # Intellexa Predator
+    "steepmatch.com",  # Intellexa Predator
+    "streamable-vid.com",  # Intellexa Predator
+    "strictplace.com",  # Intellexa Predator
+    "suggestutterly.com",  # Candiru AdFection
+    "svcsync.com",  # Intellexa Predator
+    "themastersphere.com",  # Intellexa Predator
+    "traillites.com",  # Intellexa Predator
+    "trigship.com",  # Intellexa Predator
+    "unibilateral.com",  # Intellexa Predator
+    "updatepoints.com",  # Intellexa Predator
+    "wtar.io",  # Intellexa Predator
+    "www.anglesyen.org",  # Variston Heliconia
+    "www.sufficeconfigure.com",  # Variston Heliconia
+    "zipzone.io",  # Intellexa Predator
+})
+
+# Vgrajeno dno (14. 11. 2026): C2 najemnisko vohunske opreme ostane blokiran, tudi ce se podpisani feed ne nalozi (prva
+# uporaba, omrezje, rollback). Lasten trie + kriticna kategorija botnet_c2: blokira tudi na pravi bancni strani, enako
+# kot feed. Ne gre skozi _threat_trie, ker se ta na bancni strani preskoci.
+_mercenary_trie = ReverseDomainTrie()
+for _domain in ZASILNE_MERCENARY_C2:
+    _mercenary_trie.insert(_domain)
+
+
+def _mercenary_c2_matcher(url: str):
+    return "botnet_c2" if _mercenary_trie.is_blocked(_url_host(url)) else None
+
 
 def _url_host(url: str) -> str:
     """Checks if the given URL or domain belongs to a known malicious C2, malware, or phishing domain using O(k) ReverseDomainTrie."""
@@ -1616,6 +1717,9 @@ def register_threat_matcher(matcher) -> None:
     """Adds a matcher (url -> category or None), e.g. the signed Safeer threat feed."""
     if matcher not in _extra_threat_matchers:
         _extra_threat_matchers.append(matcher)
+
+
+register_threat_matcher(_mercenary_c2_matcher)
 
 
 def is_threat_domain(url: str) -> bool:
