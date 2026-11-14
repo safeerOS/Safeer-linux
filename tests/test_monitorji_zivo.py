@@ -22,8 +22,15 @@ SKRIPTA = r'''
 import os, subprocess, sys, time
 sys.path.insert(0, os.path.join(sys.argv[1], "tests"))
 from wayland_okolje import koncaj_drevo
+IMENA = ("Safeer OS namizje", "Safeer Cinnamon")     # namizje QML; delovna povrsina WebKit (rezerva brez Qt)
+ime = [None]
 def geo():
-    r = subprocess.run(["xwininfo", "-name", "Safeer OS namizje"], capture_output=True, text=True)
+    r = None
+    for i in ([ime[0]] if ime[0] else IMENA):
+        r = subprocess.run(["xwininfo", "-name", i], capture_output=True, text=True)
+        if r.returncode == 0:
+            ime[0] = i
+            break
     v = {}
     for vrstica in r.stdout.splitlines():
         vrstica = vrstica.strip()
@@ -43,6 +50,7 @@ os_ = subprocess.Popen(["dbus-run-session", "--", sys.executable, "safeer_os.py"
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     print("ZACETEK", pocakaj((0, 0, 2560, 1024), 60), flush=True)
+    print("NAMIZJE", ime[0], flush=True)
     subprocess.run(["xrandr", "--setmonitor", "LEVI", "1280/340x1024/270+0+0", "none"], check=True)
     subprocess.run(["xrandr", "--setmonitor", "DESNI", "1280/340x1024/270+1280+0", "none"], check=True)
     print("DVA", pocakaj((0, 0, 1280, 1024)), flush=True)
@@ -72,8 +80,17 @@ class PriklopMonitorja(unittest.TestCase):
             okolje["PATH"] = lazni + os.pathsep + okolje.get("PATH", os.environ.get("PATH", "/usr/bin:/bin"))
             r = subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 2560x1024x24", sys.executable, "-c", SKRIPTA, KOREN],
                                capture_output=True, text=True, timeout=150, env=okolje)
-        izid = {v.split()[0]: v.split(" ", 1)[1] for v in r.stdout.splitlines() if v[:1].isupper()}
+        izid = {v.split()[0]: v.split(" ", 1)[1] for v in r.stdout.splitlines() if v[:1].isupper() and " " in v}
         print(izid)
+        # Brez PySide6 (testni PC 14. 11. 2026: kopija brez build/vendor) Safeer OS pokaze delovno povrsino WebKit
+        # »Safeer Cinnamon« in prej je preizkus 100 s cakal okno QML ter padel z (None, None, None, None). Obe namizji
+        # morata slediti monitorju; kjer je Qt na voljo, pa mora biti namizje QML (pokritost QML se ne izgubi tiho).
+        try:
+            import PySide6  # noqa: F401
+            qml = True
+        except ImportError:
+            qml = False
+        self.assertEqual(izid.get("NAMIZJE"), "Safeer OS namizje" if qml else "Safeer Cinnamon", (izid, r.stderr[-1500:]))
         self.assertEqual(izid.get("ZACETEK"), "(0, 0, 2560, 1024)", r.stderr[-1500:])
         self.assertEqual(izid.get("DVA"), "(0, 0, 1280, 1024)")
         self.assertEqual(izid.get("ODKLOP"), "(1280, 0, 1280, 1024)")

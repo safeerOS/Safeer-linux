@@ -25,6 +25,10 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 Gtk.init()
+# Preizkus meri v CSS px okna 1:1 (meja traku 1200 px). Na pravem zaslonu z vecjim besedilom (prenosnik 14. 11. 2026:
+# Xft.dpi 154, text-scaling-factor 1,6) WebKitGTK 2.54 iz gtk-xft-dpi naredi devicePixelRatio 1,6: okno 1260 px je imelo
+# innerWidth 787 in vseh 11 preizkusov je padlo v setUp. Pod Xvfb je DPI ze 96; tu ga nastavimo za ta proces.
+Gtk.Settings.get_default().props.gtk_xft_dpi = 96 * 1024
 
 import safeer_os as so  # noqa: E402
 from core.agent import nastavitve as agent_nastavitve  # noqa: E402
@@ -112,7 +116,7 @@ class _Stran(unittest.TestCase):
         self.okno.present()
         self.addCleanup(self.okno.destroy)
         self.assertTrue(_cakaj(lambda: self._js("!!window.SafeerOS && !!document.getElementById('gumbVrstica')") is True, 20))
-        self.assertTrue(_cakaj(lambda: self._js("innerWidth") == sirina, 10), self._js("innerWidth"))
+        self.assertTrue(_cakaj(lambda: self._js("innerWidth") == sirina, 10), self._js("[innerWidth, devicePixelRatio]"))
         # Odgovor »zacetek« je prisel (besedila prevedena).
         self.assertTrue(_cakaj(lambda: self._js("document.querySelector('[data-razdelek=nastavitve] span').textContent") == "Nastavitve", 10))
 

@@ -61,6 +61,13 @@ def pytest_configure(config):
     # niti (npr. doh_proxy._accept_loop) unicilo predmet GTK/WebKit - GObject sme koncati samo glavna nit, sicer
     # segfault (izmerjeno pri polnem teku). Zato smeti pobiramo sami, na glavni niti, po vsakem preizkusu.
     gc.disable()
+    # Meja odprtih deskriptorjev kot v programu: Safeer OS jo ob zagonu dvigne (os_stabilnost.vkljuci), en proces
+    # preizkusov pa je tekel z mehko mejo 1024 (testni PC 14. 11. 2026, seja ssh). Pri ~80 % polnega teka je bilo odprtih
+    # ~1020 (spletni procesi WebKit, memfd, pidfd) in WebKit ob load_uri ni odprl /dev/null: »read_null != -1«
+    # (gspawn.c, do_posix_spawn) -> abort, faulthandler se je pri izpisu sesul (SIGSEGV). Isto kot sesutje 16. 10. 2026
+    # (tests/test_sesutje_deskriptorji.py). Preizkusi, ki merijo mejo, si jo nastavijo sami (podproces ali addCleanup).
+    from core import os_stabilnost
+    os_stabilnost.dvigni_omejitev_datotek()
     # Vodilo seje: zasebno za ves tek (glej zasebno_vodilo). Naslov mora biti nastavljen: brez njega in brez
     # XDG_RUNTIME_DIR GLib poskusi `dbus-launch --autolaunch` na zaslonu xvfb, ki obvisi in drzi zaklep vodila - vsi
     # Gio.bus_get_sync (tudi glavna nit) so cakali (gdb, 18. 10. 2026).
