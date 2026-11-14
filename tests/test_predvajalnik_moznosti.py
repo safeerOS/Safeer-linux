@@ -297,7 +297,13 @@ class Izenacevalnik(unittest.TestCase):
             pot = os.path.join(mapa, "p.json")
             self.assertEqual(pm.nalozi(pot), pm.privzete())
             pm.shrani({"zvok_jezik": "sl", "izenacevalnik": "po_meri", "po_meri": [3] * 10}, pot)
-            self.assertEqual(pm.nalozi(pot), {"zvok_jezik": "sl", "izenacevalnik": "po_meri", "po_meri": [3.0] * 10})
+            self.assertEqual(pm.nalozi(pot), {"zvok_jezik": "sl", "izenacevalnik": "po_meri", "po_meri": [3.0] * 10,
+                                              "preskok_odsekov": False})
+            # Gumb za preskok uvoda (13. 11. 2026): privzeto izklopljen, shrani se samo pravi True (ne "da", 1 ...).
+            pm.shrani(dict(pm.privzete(), preskok_odsekov=True), pot)
+            self.assertIs(pm.nalozi(pot)["preskok_odsekov"], True)
+            pm.shrani(dict(pm.privzete(), preskok_odsekov="da"), pot)
+            self.assertIs(pm.nalozi(pot)["preskok_odsekov"], False)
             with open(pot, "w") as d:
                 json.dump({"izenacevalnik": "<script>", "po_meri": "x", "zvok_jezik": 5}, d)
             self.assertEqual(pm.nalozi(pot), pm.privzete())
