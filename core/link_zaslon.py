@@ -22,6 +22,8 @@ import glob
 import json
 import math
 import os
+import re
+from collections import deque
 import shutil
 import socket
 import secrets
@@ -32,6 +34,7 @@ import subprocess
 import sys
 import threading
 import time
+import sys
 from typing import Callable, Dict, List, Optional, Tuple
 
 from core import budnost, link_kazalec, link_vticnik, link_zaslon_meritve, link_zaslon_profil
@@ -105,6 +108,7 @@ ROKOVANJE_S = 10
 #: (ZaslonOdjemalec.TISINA_MS); kdor dvakrat toliko ne vzame nobenega bajta, ga ni vec. Brez te omejitve je
 #: seja visela, dokler ni obupalo jedro (cetrt ure ali nikoli), z njo pa zajem in programi na locenem zaslonu.
 ROK_PISANJA_S = 20.0
+VRSTA_SLIKE_S = 0.1
 #: Najvecja slika, ki jo posiljamo (televizor je 4K, a 1080p je za namizje dovolj in hitreje).
 NAJVEC_SIRINA, NAJVEC_VISINA = 1920, 1080
 #: Najvecja slika s HEVC, kadar televizor v screen.start izrecno pove, da jo dekodira ("maxsize": {"hevc": [w, h]}).
@@ -997,6 +1001,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
     # Brez B-slik in z rednim kljucnim okvirjem: televizor se lahko prikljuci hitro,
     # izguba paketa pa se popravi v eni sekundi.
     u += ["-g", str(gop if gop > 0 else max(1, fps)), "-bf", "0", "-flags", "+low_delay",
+          "-bsf:v", "hevc_metadata=aud=insert" if hevc else "h264_metadata=aud=insert",
           "-f", "hevc" if hevc else "h264", "-"]
     return u
 
@@ -1448,6 +1453,131 @@ def strazi_kms(slika: _ProcesSlike, zazeni_x11: Callable[[], subprocess.Popen],
             slika.terminate()
             return False
     return False
+def _neposlani_bajti(vticnica):
+    if not sys.platform.startswith("linux"):
+        return 0
+    try:
+        import fcntl
+        import termios
+        return int.from_bytes(fcntl.ioctl(vticnica.fileno(), termios.TIOCOUTQ, bytes(4)), sys.byteorder)
+    except (ImportError, OSError, ValueError, AttributeError, TypeError):
+        return 0
+
+
+class _VrstaSlik:
+    def __init__(self, fps, opis, izmeri=lambda: 0):
+        self.pogoj = threading.Condition()
+        self.slike = deque()
+        self.meja = max(1, math.ceil(fps * VRSTA_SLIKE_S))
+        self.opis = opis
+        opis.update(izpuscene_slike=0, najvec_vrsta_slik=0, najvec_neposlanih_bajtov=0)
+        self.izmeri = izmeri
+        self.zacetek = time.monotonic()
+        self.vzorci = deque()
+        self.zastoj_od = None
+        self.caka_kljuc = False
+        self.konec = False
+
+    def poslano(self, bajtov):
+        with self.pogoj:
+            self.vzorci.append((time.monotonic(), bajtov))
+            self.meja_bajtov()
+
+    def meja_bajtov(self):
+        zdaj = time.monotonic()
+        # Dve sekundi zgladita sunke kljucnih slik; spodnja meja varuje mirno namizje pred lazno preobremenitvijo.
+        while self.vzorci and self.vzorci[0][0] <= zdaj - 2.0:
+            self.vzorci.popleft()
+        hitrost = sum(b for _, b in self.vzorci) / max(0.1, min(2.0, zdaj - self.zacetek))
+        return max(256 * 1024, hitrost * VRSTA_SLIKE_S)
+
+    def _zastoj(self):
+        bajtov = self.izmeri()
+        self.opis["najvec_neposlanih_bajtov"] = max(self.opis["najvec_neposlanih_bajtov"], bajtov)
+        if bajtov <= self.meja_bajtov():
+            self.zastoj_od = None
+            return False
+        zdaj = time.monotonic()
+        if self.zastoj_od is None:
+            self.zastoj_od = zdaj
+        # Izpuscanje ne sme obiti roka pisanja in ohraniti seje z gledalcem, ki ne bere vec.
+        if zdaj - self.zastoj_od >= ROK_PISANJA_S:
+            raise TimeoutError("Zastoj vrste pisanja")
+        return True
+
+    def _izpusti(self):
+        self.opis["izpuscene_slike"] += len(self.slike)
+        self.slike.clear()
+        self.caka_kljuc = True
+
+    def dodaj(self, podatki, kljuc):
+        with self.pogoj:
+            if self.konec:
+                return
+            if self._zastoj():
+                self._izpusti()
+                self.opis["izpuscene_slike"] += 1
+                return
+            if self.caka_kljuc and not kljuc:
+                self.opis["izpuscene_slike"] += 1
+                return
+            self.slike.append((podatki, kljuc))
+            self.opis["najvec_vrsta_slik"] = max(self.opis["najvec_vrsta_slik"], len(self.slike))
+            if len(self.slike) > self.meja:
+                self._izpusti()
+                if kljuc:
+                    self.opis["izpuscene_slike"] -= 1
+                    self.slike.append((podatki, kljuc))
+            if kljuc:
+                self.caka_kljuc = False
+            self.pogoj.notify()
+
+    def vzemi(self):
+        with self.pogoj:
+            while True:
+                self.pogoj.wait_for(lambda: self.slike or self.konec)
+                if not self.slike:
+                    return None
+                # Med cakanjem na TLS so tudi ze zbrane slike lahko zastarele; starega kljuca ne posljemo.
+                if self._zastoj():
+                    self._izpusti()
+                    continue
+                return self.slike.popleft()[0]
+
+    def zapri(self):
+        with self.pogoj:
+            self.konec = True
+            self.pogoj.notify_all()
+
+
+def _slike(izhod, kos, kodek, prebrano):
+    # AUD oznaci celo sliko tudi ob vec rezinah; rezanje po read() bi poskodovalo pretok.
+    aud = re.compile(b"\x00\x00(?:\x00)?\x01" + (b"\x46" if kodek == "hevc" else b"\x09"))
+    nal = re.compile(b"\x00\x00(?:\x00)?\x01(.)", re.DOTALL)
+    zbrano = b""
+
+    def kljuc(slika):
+        vrste = [m[1][0] for m in nal.finditer(slika)]
+        return any(16 <= (v >> 1) & 63 <= 21 for v in vrste) if kodek == "hevc" else any(v & 31 == 5 for v in vrste)
+
+    while True:
+        podatki = izhod.read(kos)
+        if not podatki:
+            if zbrano:
+                yield zbrano, kljuc(zbrano)
+            return
+        if prebrano is not None:
+            prebrano[0] += len(podatki)
+            prebrano[1] |= ZACETEK_NAL in zbrano[-3:] + podatki
+        zbrano += podatki
+        meje = list(aud.finditer(zbrano))
+        while len(meje) > 1:
+            meja = meje[1].start()
+            slika, zbrano = zbrano[:meja], zbrano[meja:]
+            yield slika, kljuc(slika)
+            meje = list(aud.finditer(zbrano))
+        if len(zbrano) > 32 * 1024 * 1024:
+            raise ValueError("Slika brez meje AUD presega omejitev")
 
 
 def privzeti_monitor() -> Optional[str]:
@@ -2319,6 +2449,13 @@ class Zaslon:
                        if kodek_seje == "h264" and not profil_spremenil else None)
             if profil_spremenil:
                 self._zakasnitev_slike = None     # ukaz po profilu (velikost, kodek) ni izmerjen: brez ziga slike
+            # Tudi zajem po profilu in wf-recorder potrebujeta meje za varno izpuscanje celih slik.
+            ukaz = list(ukaz)
+            if "-c" in ukaz and "-c:v" not in ukaz:
+                ukaz += ["-p", "aud=1"]
+            elif "-bsf:v" not in ukaz:
+                ukaz[-1:-1] = ["-bsf:v", "hevc_metadata=aud=insert" if kodek_seje == "hevc"
+                               else "h264_metadata=aud=insert"]
             kodirnik = kodirnik_ukaza(ukaz, self._strojno)
             meritve = link_zaslon_meritve.Meritve(pot="hub" if prek else "neposredno", kodek=kodek_seje,
                                                   kakovost=raven_ime, kodirnik=vrsta_kodirnika(kodirnik))
@@ -2404,7 +2541,8 @@ class Zaslon:
                 prebrano = [0, False]       # bajtov slike in ali je bila v toku ze kaka enota NAL
                 niti.append(threading.Thread(target=self._crpaj,
                                              args=(slika, OKVIR_SLIKA, odjemalec, 32 * 1024, prebrano),
-                                             kwargs={"merilo": meritve, "kodek": kodek_seje},
+                                             kwargs={"merilo": meritve, "kodek": kodek_seje,
+                                                     "fps": None if na_kms else self._slika["fps"]},
                                              name="safeer-zaslon-slika", daemon=True))
                 if na_kms:
                     niti.append(threading.Thread(
@@ -2817,7 +2955,7 @@ class Zaslon:
         return bool(zamenjano)
 
     def _crpaj(self, proces, vrsta: int, odjemalec, kos: int, prebrano=None,
-               merilo=None, kodek: str = "h264") -> None:
+               merilo=None, kodek: str = "h264", fps=None) -> None:
         """Bere en vir (slika ali zvok) in ga v okvirjih poslje televizorju. Vsak okvir je en `sendall`
         na oviti vticnici, ta pa jamci, da se okvirja dveh virov nikoli ne prepleteta.
 
@@ -2830,6 +2968,24 @@ class Zaslon:
 
         Zigi zajema (okvir OKVIR_ZIG pred sliko ali zvokom, v istem sendall): zvok iz stetja bajtov (ZigiZvoka), slika samo za
         svez kos H.264 iz izmerjenega kodirnika (ZigiSlike, `proces.svez`); `kodek` je kodek te seje."""
+        vrsta_slik = None
+        if vrsta == OKVIR_SLIKA and kodek is not None and fps:
+            vrsta_slik = _VrstaSlik(fps, merilo.opis if merilo is not None else {},
+                                     lambda: _neposlani_bajti(odjemalec))
+
+            def beri():
+                try:
+                    for podatki, kljuc in _slike(proces.stdout, kos, kodek, prebrano):
+                        vrsta_slik.dodaj(podatki, kljuc)
+                        if vrsta_slik.konec:
+                            break
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    vrsta_slik.zapri()
+
+            # Zajem praznimo tudi med zastojem TLS, da se stare slike ne kopicijo v cevi kodirnika.
+            threading.Thread(target=beri, name="safeer-zaslon-branje", daemon=True).start()
         tihih = 0
         # Meritev: lokalne zastavice pripadajo samo tej niti (en _crpaj na vir na sejo), brez kljucavnic na vroci poti.
         seja_cas = self._seja_st
@@ -2846,10 +3002,10 @@ class Zaslon:
         poravnav_prej = 0
         try:
             while True:
-                podatki = proces.stdout.read(kos)
+                podatki = vrsta_slik.vzemi() if vrsta_slik is not None else proces.stdout.read(kos)
                 if not podatki:
                     break
-                if prebrano is not None:
+                if prebrano is not None and vrsta_slik is None:
                     prebrano[0] += len(podatki)
                     if not prebrano[1] and ZACETEK_NAL in podatki:
                         prebrano[1] = True
@@ -2893,6 +3049,8 @@ class Zaslon:
                 okvir = _okvir_z_zigom(vrsta, zig, poslano, podatki)
                 if merilo is None:
                     odjemalec.sendall(okvir)
+                    if vrsta_slik is not None:
+                        vrsta_slik.poslano(len(okvir))
                 else:
                     try:
                         merilo.zacni_pisanje(vrsta)     # zastoj je v meritvah viden, medtem ko traja
@@ -2903,6 +3061,8 @@ class Zaslon:
                     try:
                         odjemalec.sendall(okvir)
                         predano = len(okvir)
+                        if vrsta_slik is not None:
+                            vrsta_slik.poslano(predano)
                     finally:
                         # Tudi pisanje, ki pade (rok pisanja), je cakalo: steje v zasedenost, bajtov pa nima.
                         try:
@@ -2919,6 +3079,9 @@ class Zaslon:
                     _cas(ime_cas + "_po_5s", seja_cas, bajti_skupaj=bajti_cas)
         except (OSError, ssl.SSLError, ValueError, AttributeError):
             pass
+        finally:
+            if vrsta_slik is not None:
+                vrsta_slik.zapri()
 
     def _v_zaslon(self, dogodek: dict) -> dict:
         """Tocka iz slike (kot jo vidi tablica) v tocko zaslona: slika je lahko pomanjsana."""
@@ -3038,7 +3201,10 @@ class Zaslon:
                 meritve.tcp(link_vticnik.tcp_info(odjemalec))
                 if time.monotonic() - dnevnik >= MERITVE_DNEVNIK_S:
                     dnevnik = time.monotonic()
-                    print("[zaslon] meritve: %s" % link_zaslon_meritve.opis_posnetka(meritve.posnetek()), flush=True)
+                    print("[zaslon] meritve: %s" % (link_zaslon_meritve.opis_posnetka(meritve.posnetek())
+                          + " izpuscene_slike=%d najvec_vrsta_slik=%d najvec_neposlanih_bajtov=%d"
+                          % (meritve.opis.get("izpuscene_slike", 0), meritve.opis.get("najvec_vrsta_slik", 0),
+                             meritve.opis.get("najvec_neposlanih_bajtov", 0))), flush=True)
             except Exception:  # noqa: BLE001 - meritve ne smejo podreti seje
                 pass
 
