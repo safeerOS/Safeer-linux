@@ -32,6 +32,8 @@ LAZNI_FFMPEG = '''#!/usr/bin/env python3
 import os, sys, time
 razmik = float(os.environ.get("SAFEER_LAZNI_FFMPEG_RAZMIK_S", "0.0005"))
 kos = bytes(int(os.environ.get("SAFEER_LAZNI_FFMPEG_KOS", "1500")))
+if "s16le" not in sys.argv:
+    kos = bytes.fromhex("0000000109f00000016588") + kos + bytes([128])
 izhod = sys.stdout.buffer
 try:
     while True:
@@ -107,7 +109,14 @@ class _Televizor:
             telo = bytes(zbrano[5:5 + dolzina])
             del zbrano[:5 + dolzina]
             self.bajtov += 5 + dolzina
-            if vrsta in (1, 2) and telo.count(0) != len(telo):
+            ostanek = telo
+            if vrsta == 1:
+                glava = bytes.fromhex("0000000109f00000016588")
+                if not telo.startswith(glava) or not telo.endswith(bytes([128])):
+                    self.napaka = "manjka cela slika"
+                    return
+                ostanek = telo[len(glava):-1]
+            if vrsta in (1, 2) and ostanek.count(0) != len(ostanek):
                 self.napaka = "pokvarjeno telo okvirja vrste %d" % vrsta
                 return
             self.okvirjev[vrsta] += 1
