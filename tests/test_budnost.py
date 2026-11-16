@@ -104,10 +104,19 @@ class TestBudnost(unittest.TestCase):
         self.assertEqual(b.stanje(), {"pomoc": 4})
 
     def test_pokrov_in_rocno_spanje_ostaneta(self):
-        # Zadržanja na ravni sistema (logind) bi prenosnik z zaprtim pokrovom pustila budnega v torbi.
+        # Zaprt pokrov (logind) sme zadrzati SAMO prenos slike zaslona na drugo napravo (lastnik, 16. 11. 2026): ostalo
+        # (predvajanje, datoteke, samodejno spanje) pokrova ne drzi - prenosnik v torbi mora zaspati. Logind klici
+        # so zato samo v PokrovLogind, ne v BudnostDbus/BudnostWindows, in samo link_zaslon jo uporablja.
         vir = beri("core", "budnost.py")
-        for niz in ("login1", "handle-lid-switch", "systemd-inhibit"):
-            self.assertNotIn(niz, vir)
+        zacetek, konec = vir.index("class PokrovLogind"), vir.index("# ----", vir.index("POKROV = PokrovLogind"))
+        zunaj = vir[:zacetek] + vir[konec:]
+        for niz in ("handle-lid-switch", "systemd-inhibit"):
+            self.assertNotIn(niz, vir[:vir.index("# ----", vir.index("class BudnostDbus"))].split("def _logind_inhibit_pokrov")[0])
+        self.assertNotIn("PokrovLogind", zunaj.replace("POKROV = PokrovLogind", "").replace("PokrovLogind:", ""))
+        for ime in os.listdir(os.path.join(KOREN, "core")):
+            if ime.endswith(".py") and ime not in ("budnost.py", "link_zaslon.py"):
+                self.assertNotIn("budnost.POKROV", beri("core", ime), ime)
+        self.assertNotIn("POKROV", beri("safeer_os.py"))
 
     def test_povezava_z_vodilom_ostane(self):
         # Zadržanje pripada povezavi: če jo po klicu spustimo, ga upravitelj seje takoj odstrani (izmerjeno v Cinnamonu 6.6).
@@ -259,6 +268,73 @@ class BudnostWindows(unittest.TestCase):
         import struct
         if struct.calcsize("P") == 8:
             self.assertEqual(ctypes.sizeof(budnost.tip_reason_context()), 32)
+
+
+class TestPokrovMedPrenosom(unittest.TestCase):
+    """Zaprt pokrov ne uspava racunalnika, dokler tece slika na TV (16. 11. 2026: ob zaprtju sta ugasnila slika in
+    Bluetooth, dnevnik »Lid closed. Suspending...«). Ko prenos mine, prenosnik v torbi spet zaspi."""
+
+    def naredi(self, zaprt=False, napaka=False, drugi=False):
+        self.odprti, self.zaprti, self.uspavan = [], [], []
+        pokrov = {"zaprt": zaprt}
+
+        def odpri(program, opis):
+            if napaka:
+                raise RuntimeError("ni logind")
+            r, w = os.pipe()
+            os.close(w)
+            self.odprti.append(r)
+            return r
+        return budnost.PokrovLogind("Safeer", odpri=odpri, pokrov_zaprt=lambda: pokrov["zaprt"],
+                                    uspavaj=lambda: self.uspavan.append(1), drugi_drzijo=lambda: drugi), pokrov
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_dve_seji_ena_kljucavnica_do_konca_zadnje(self):
+        p, _ = self.naredi()
+        self.assertTrue(p.drzi("zaslon-1"))
+        self.assertTrue(p.drzi("zaslon-2"))
+        self.assertEqual(len(self.odprti), 1)
+        p.sprosti("zaslon-1")
+        self.assertTrue(p.drzi_se(), "stara seja ne sme sprostiti ključavnice nove")
+        p.sprosti("zaslon-2")
+        self.assertFalse(p.drzi_se())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_po_prenosu_zaprt_pokrov_uspava(self):
+        p, _ = self.naredi(zaprt=True)
+        p.drzi("zaslon-1")
+        self.assertEqual(self.uspavan, [], "med prenosom ne spi")
+        p.sprosti("zaslon-1")
+        self.assertEqual(self.uspavan, [1], "prenosnik v torbi mora zaspati")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_po_prenosu_ne_uspava_ce_pokrov_drzi_se_kdo(self):
+        # 16. 11. 2026: lastnik je imel rocno ključavnico; Safeer je ni smel povoziti z uspavanjem.
+        p, _ = self.naredi(zaprt=True, drugi=True)
+        p.drzi("zaslon-1")
+        p.sprosti("zaslon-1")
+        self.assertEqual(self.uspavan, [])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_po_prenosu_odprt_pokrov_ne_uspava(self):
+        p, _ = self.naredi(zaprt=False)
+        p.drzi("zaslon-1")
+        p.sprosti("zaslon-1")
+        self.assertEqual(self.uspavan, [])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_brez_logind_pokrov_deluje_kot_vedno(self):
+        p, _ = self.naredi(napaka=True)
+        self.assertFalse(p.drzi("zaslon-1"))
+        p.sprosti("zaslon-1")
+        self.assertEqual(self.uspavan, [])
+
+    def test_seja_zaslona_drzi_in_sprosti_kljucavnico(self):
+        koda = beri("core", "link_zaslon.py")
+        self.assertIn('budnost.POKROV.drzi("zaslon-%d" % seja', koda)
+        pred_finally = koda.index('budnost.POKROV.sprosti("zaslon-%d" % seja)')
+        self.assertIn("konec_seje.set()", koda[pred_finally - 200:pred_finally],
+                      "sprostitev mora biti v finally seje, tudi ob napaki")
 
 
 if __name__ == "__main__":

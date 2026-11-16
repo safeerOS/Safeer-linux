@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
-from core import link_kazalec, link_vticnik, link_zaslon_meritve, link_zaslon_profil
+from core import budnost, link_kazalec, link_vticnik, link_zaslon_meritve, link_zaslon_profil
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
 from core.link_mediji import dogodek_v_tipko
 from core.link_plosek import Plosek
@@ -1340,6 +1340,8 @@ class Zaslon:
                 if hasattr(self.drugi, "mediji"):
                     niti.append(threading.Thread(target=self._porocaj_medij, args=(odjemalec, slika),
                                                  name="safeer-zaslon-medij", daemon=True))
+            # Slika tece na drugi napravi: zaprt pokrov prenosnika racunalnika ne uspava (do konca seje).
+            budnost.POKROV.drzi("zaslon-%d" % seja, "Slika racunalnika tece na drugi napravi")
             for n in niti:
                 n.start()
             steklo = True
@@ -1350,6 +1352,7 @@ class Zaslon:
             pass
         finally:
             konec_seje.set()                # niti utripa in meritev nehajo
+            budnost.POKROV.sprosti("zaslon-%d" % seja)     # pokrov spet deluje; zaprt pokrov takrat uspava
             povzetek = self._povzetek(meritve) if steklo else None
             # Najprej shutdown: druge niti (zvok, vnos) drzijo vticnico in sam close televizorju
             # ne bi poslal konca - ta bi gledal zamrznjeno sliko.
