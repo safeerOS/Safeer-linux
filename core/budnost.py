@@ -1,7 +1,9 @@
 """Računalnik naj ne zaspi sam, dokler Safeer predvaja ali dela za drugo napravo.
 
 Zadržimo samo SAMODEJNO spanje ob nedejavnosti, med videom tudi ohranjevalnik zaslona, zaklep in ugašanje zaslona -
-tako kot vsak predvajalnik. Zaprt pokrov in ročno spanje delujeta kot vedno: prenosnik v torbi mora zaspati.
+tako kot vsak predvajalnik. Zaprt pokrov in ročno spanje delujeta kot vedno: prenosnik v torbi mora zaspati. Edina izjema je PokrovLogind: dokler
+teče slika zaslona na drugi napravi (televizorju), zaprt pokrov prenosnika ne uspava (lastnik, 16. 11. 2026: ob
+zaprtju pokrova sta ugasnila slika na TV in Bluetooth); ob koncu prenosa pokrov spet deluje, zaprt pokrov pa takrat uspava.
 Zadržanje velja, dokler živi naša povezava z vodilom seje; če se program sesuje, ga upravitelj seje sprosti sam.
 
 Linux - vmesniki po vrsti: org.gnome.SessionManager (Cinnamon, GNOME, MATE - en klic za spanje in zaslon), sicer
@@ -17,7 +19,9 @@ izbere zaledje po platformi; vmesnik (nastavi, po_dejavnosti, sprosti_vse, stanj
 from __future__ import annotations
 
 import logging
+import os
 import sys
+import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -135,6 +139,109 @@ class BudnostDbus:
                                "org.freedesktop.ScreenSaver", "UnInhibit", "(u)", (zeton,), None)
             except Exception:  # noqa: BLE001 - seja se končuje ali storitve ni več: žeton je tako ali tako mrtev
                 pass
+
+
+# ------------------------------------------------------------------------------------------- Zaprt pokrov (Linux)
+def _logind_inhibit_pokrov(program: str, opis: str) -> int:
+    """Ključavnica logind »handle-lid-switch« (mode block): vrne datotečni opisnik; ključavnica velja, dokler je odprt."""
+    from gi.repository import Gio, GLib  # noqa: WPS433
+    vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    izid, fds = vodilo.call_with_unix_fd_list_sync(
+        "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Inhibit",
+        GLib.Variant("(ssss)", ("handle-lid-switch", program, opis, "block")), GLib.VariantType("(h)"),
+        Gio.DBusCallFlags.NONE, 1500, None, None)
+    return int(fds.get(izid.unpack()[0]))
+
+
+def _logind_pokrov_zaprt() -> bool:
+    from gi.repository import Gio, GLib  # noqa: WPS433
+    vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    izid = vodilo.call_sync("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.DBus.Properties",
+                            "Get", GLib.Variant("(ss)", ("org.freedesktop.login1.Manager", "LidClosed")),
+                            GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 1500, None)
+    return bool(izid.unpack()[0])
+
+
+def _logind_drugi_drzijo_pokrov() -> bool:
+    """Ali pokrov ta trenutek zadrzuje se kdo drug (logind ListInhibitors: handle-lid-switch, block)."""
+    from gi.repository import Gio, GLib  # noqa: WPS433
+    vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    izid = vodilo.call_sync("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                            "ListInhibitors", None, GLib.VariantType("(a(ssssuu))"), Gio.DBusCallFlags.NONE, 1500, None)
+    return any("handle-lid-switch" in kaj.split(":") and nacin == "block"
+               for kaj, _kdo, _zakaj, nacin, _uid, _pid in izid.unpack()[0])
+
+
+def _logind_uspavaj() -> None:
+    from gi.repository import Gio, GLib  # noqa: WPS433
+    vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    vodilo.call_sync("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                     "Suspend", GLib.Variant("(b)", (False,)), None, Gio.DBusCallFlags.NONE, 3000, None)
+
+
+class PokrovLogind:
+    """Zaprt pokrov prenosnika ne uspava računalnika, dokler dela za drugo napravo (slika zaslona na televizorju).
+
+    Brez tega je logind ob zaprtju pokrova uspaval računalnik, ugasnila sta slika na TV in Bluetooth (izmerjeno
+    16. 11. 2026, dnevnik: »Lid closed. Suspending...«). Ključavnica je na ravni logind in brez roota; velja, dokler je
+    odprt njen opisnik, zato ob sesutju programa izgine sama. Več razlogov (sej) hkrati ena ključavnica. Ko zadnji
+    razlog odpade in je pokrov zaprt, računalnik zaspi takoj: prenosnik v torbi mora zaspati (zato se prenos ob izpadu
+    Wi-Fi, ki seje ne pusti živeti, konča z uspavanjem)."""
+
+    def __init__(self, program: str = "Safeer", odpri: Optional[Callable] = None,
+                 pokrov_zaprt: Optional[Callable] = None, uspavaj: Optional[Callable] = None,
+                 drugi_drzijo: Optional[Callable] = None) -> None:
+        self.program = program
+        self._drugi = drugi_drzijo or _logind_drugi_drzijo_pokrov
+        self._odpri = odpri or _logind_inhibit_pokrov
+        self._zaprt = pokrov_zaprt or _logind_pokrov_zaprt
+        self._uspavaj = uspavaj or _logind_uspavaj
+        self._razlogi: set = set()
+        self._fd: Optional[int] = None
+        self._kljucavnica = threading.Lock()
+
+    def drzi(self, razlog: str, opis: str = "") -> bool:
+        """Zadrži ključavnico za `razlog`. Vrne, ali zaprt pokrov res ne uspava (False: ni Linuxa ali ni logind)."""
+        if not sys.platform.startswith("linux"):
+            return False
+        with self._kljucavnica:
+            if razlog in self._razlogi:
+                return self._fd is not None
+            if self._fd is None:
+                try:
+                    self._fd = self._odpri(self.program, opis or self.program)
+                except Exception as e:  # noqa: BLE001 - brez logind pokrov deluje kot vedno
+                    _log.warning("Ključavnice pokrova ni mogoče vzeti: %s", e)
+                    return False
+            self._razlogi.add(razlog)
+            return True
+
+    def sprosti(self, razlog: str) -> None:
+        with self._kljucavnica:
+            if razlog not in self._razlogi:
+                return
+            self._razlogi.discard(razlog)
+            if self._razlogi or self._fd is None:
+                return
+            fd, self._fd = self._fd, None
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            # Uspavamo samo, ce pokrova ne drzi nihce drug (npr. lastnikova rocna kljucavnica): njegova je odlocitev.
+            if self._zaprt() and not self._drugi():
+                self._uspavaj()
+        except Exception as e:  # noqa: BLE001
+            _log.warning("Preverba pokrova po prenosu ni uspela: %s", e)
+
+    def drzi_se(self) -> bool:
+        with self._kljucavnica:
+            return self._fd is not None
+
+
+#: Ena ključavnica na proces (Safeer OS, Control in prenos zaslona tečejo v istem procesu).
+POKROV = PokrovLogind("Safeer")
 
 
 # ---------------------------------------------------------------------------------------------------------- Windows
