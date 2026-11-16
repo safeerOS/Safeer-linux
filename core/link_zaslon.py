@@ -969,12 +969,14 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # Pomanjsava na procesorju (lanczos) je bila pri 2560x1440 -> 1080p vecina dela ffmpeg (346 % CPU). Graficna
         # sliko pretvori in pomanjsa sama (74 % CPU). Nacin `default` (algoritem izbere gonilnik) izrecno: ffmpeg >= 6
         # brez njega vzame `hq`, ta pa je bil na Intel iHD za besedilo 3 dB slabsi (PSNR svetlosti 34,3 proti 37,4 dB;
-        # lanczos 37,5 dB), barve pa so enake kot s procesorjem (55 dB). Kjer slike ne pomanjsamo, ostane pretvorba na
-        # procesorju - tam je poceni in izmerjena.
+        # lanczos 37,5 dB), barve pa so enake kot s procesorjem (55 dB). Zamik in poraba (16. 11. 2026, orodja/zamik-zajema.py, 4 izmenicni krogi, ~1680 slik na varianto, 1080p60 brez
+        # pomanjsave, Intel iHD): pretvorba barv na procesorju 87 ms (p50) / 100 ms (p90) in 120 % jedra; na graficni
+        # (scale_vaapi) + async_depth 1: 74 / 84 ms in 24 % jedra. Cena: PSNR proti izvirniku 35,1 namesto 36,4 dB
+        # (matrika barv enaka, BT.601). SAFEER_ZASLON_GPU=0 vrne pretvorbo na procesor.
         barve444 = barve444 and hevc and not lestvica
         if barve444:
             filter_slike = "format=vuyx,hwupload"
-        elif gpu and lestvica:
+        elif gpu:
             filter_slike = f"hwupload,{SCALE_VAAPI.format(sirina=sirina, visina=visina)}"
         else:
             filter_slike = f"{filter_lestvica}format=nv12,hwupload"
@@ -2089,8 +2091,8 @@ class Zaslon:
                 self._geometrija_x11 = (display, (int(izvor[0]), int(izvor[1])), (int(odmik[0]), int(odmik[1])))
                 # Starejsi gledalec: ukaz kot doslej (brez novega argumenta).
                 kaz = {} if kazalec_v_sliki else {"kazalec_v_sliki": False}
-                # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
-                gpu = (sirina, visina) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
+                # Graficna pretvori barve (in po potrebi pomanjsa) - zamik in poraba glej ukaz_ffmpeg.
+                gpu = gpu_lestvica_mozna(self.ffmpeg, vaapi)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
                                    kodek=self._kodek, gop=gop, gpu=gpu, **kaz, **na_monitor)
@@ -2111,7 +2113,7 @@ class Zaslon:
                                                                     kazalec_v_sliki, gop), s, v, "h264", "rgb")
                     barve = profil.get("kodek") == "hevc444" and izvorna and bool(vaapi)
                     kod = "hevc" if barve else kodek
-                    gpu_p = (s, v) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
+                    gpu_p = gpu_lestvica_mozna(self.ffmpeg, vaapi)
                     return (ukaz_ffmpeg(display, s, v, izvor[0], izvor[1], fps_p, str(raven["bitrate"]), vaapi,
                                         self.ffmpeg, int(raven["qp"]), kodek=kod, gop=gop, gpu=gpu_p,
                                         barve444=barve, **kaz, **na_monitor),
