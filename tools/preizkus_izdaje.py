@@ -55,7 +55,7 @@ PREPOVEDANA_POT = "/usr/bin/safeer-"
 
 OK, NAPAKA, OPOZORILO = "OK", "NAPAKA", "OPOZORILO"
 
-_GNU_STACK = re.compile(r"^\s*GNU_STACK\s+(?:0x[0-9a-fA-F]+\s+){5}([RWE ]{3})\s+0x", re.M)
+_GNU_STACK = re.compile(r"^\s*GNU_STACK\s+(?:0x[0-9a-fA-F]+\s+){5}([RWE ]{3})\s+(?:0x[0-9a-fA-F]+|\d+)\s*$", re.M)
 _OSPREDJE = (
     re.compile(r"(?:topResumedActivity|mResumedActivity|ResumedActivity)[:=]\s*ActivityRecord\{\S+ \S+ ([\w.]+)/"),
     re.compile(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/"),
@@ -341,7 +341,11 @@ def preveri_utrjenost(porocilo: Porocilo, ime: str, koren: str, zacasna: str, ro
             # Staticen program nima PLT/GOT za lene vezave - BIND_NOW tam nima pomena, a vodja naj ve zanj.
             opozorila.append("%s: brez dinamicnega odseka (staticen), BIND_NOW ni preverljiv" % rel)
         elif not zdaj:
-            tezave.append("%s: brez BIND_NOW (-Wl,-z,now)" % rel)
+            if os.path.basename(pot).startswith("libjxl.so"):
+                # Ubuntujev libjxl0.7 nima BIND_NOW (izmerjeno 21. 10. 2026; enako izjemo ima tools/preveri_utrjenost.sh)
+                opozorila.append("%s: brez BIND_NOW (Ubuntujev libjxl, izjema)" % rel)
+            else:
+                tezave.append("%s: brez BIND_NOW (-Wl,-z,now)" % rel)
     if opozorila:
         porocilo.najdba(OPOZORILO, ime, "%d opozoril utrjenosti" % len(opozorila), izpis=opozorila)
     if tezave:

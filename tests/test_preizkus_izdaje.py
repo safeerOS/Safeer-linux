@@ -239,6 +239,10 @@ def test_gnu_stack_in_bind_now():
     assert pi.gnu_stack(rw) == "RW "
     assert pi.gnu_stack(rwe) == "RWE"
     assert pi.gnu_stack("  LOAD 0x0 ...\n") is None
+    # readelf na Mintu 22 za GNU_STACK izpise poravnavo »0« brez »0x« (izmerjeno 16. 11. 2026, safeer-webkit 1.0.136):
+    # prej je bil segment »manjka« in 10 od 16 ELF napacno padlo
+    assert pi.gnu_stack(rw.replace("RW  0x10", "RW  0")) == "RW "
+    assert pi.gnu_stack(rw.replace("RW  0x10", "RWE 0")) == "RWE"
     dyn = "Dynamic section at offset 0x10 contains 2 entries:\n 0x1 (NEEDED) Shared library: [libc.so.6]\n"
     assert pi.bind_now(dyn + " 0x18 (BIND_NOW)\n") is True
     assert pi.bind_now(dyn + " 0x1e (FLAGS)  BIND_NOW\n") is True
