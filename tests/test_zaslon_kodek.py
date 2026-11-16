@@ -365,8 +365,7 @@ class Seja(unittest.TestCase):
         with mock.patch.object(link_zaslon, "hevc_mozen", return_value=True), \
                 mock.patch.object(link_zaslon, "ukaz_ffmpeg", ukaz), \
                 mock.patch.object(link_zaslon, "_zaslon_geometrija", return_value=(1920, 1080)), \
-                mock.patch.object(link_zaslon, "gpu_lestvica_mozna",
-                                  side_effect=AssertionError("brez pomanjsave preizkus ni potreben")), \
+                mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=False), \
                 mock.patch.object(link_zaslon, "vaapi_naprava", return_value="/dev/dri/renderD128"):
             seja = self.z.zacni("fon", "najvisja", "desktop", kodeki=["hevc", "h264"], zmoznosti=["gop"])
             self.assertEqual(seja["codec"], "hevc")
@@ -587,15 +586,28 @@ class PomanjsavaNaGraficni(unittest.TestCase):
         self.assertEqual(u[u.index("-qp") + 1], "18")
         self.assertTrue(link_zaslon.ukaz_pomanjsa_gpu(u))
 
-    def test_brez_pomanjsave_ali_brez_graficne_ostane_stara_pot(self):
+    def test_brez_pomanjsave_barve_tudi_na_graficni_brez_graficne_stara_pot(self):
+        # 16. 11. 2026 (izmerjeno, 4 izmenicni krogi): pretvorba barv na procesorju 87 ms in 120 % jedra, na graficni
+        # 74 ms in 24 %. Zato gre tudi slika brez pomanjsave (1080p -> 1080p) na graficno; brez nje ostane stara pot.
         enako = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "8M", self.VAAPI, gpu=True)
-        self.assertEqual(self._vf(enako), "format=nv12,hwupload")
-        self.assertFalse(link_zaslon.ukaz_pomanjsa_gpu(enako))
+        self.assertEqual(self._vf(enako), "hwupload,scale_vaapi=1920:1080:format=nv12:mode=default")
+        self.assertTrue(link_zaslon.ukaz_pomanjsa_gpu(enako))
+        cpu = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "8M", self.VAAPI, gpu=False)
+        self.assertEqual(self._vf(cpu), "format=nv12,hwupload")
+        self.assertFalse(link_zaslon.ukaz_pomanjsa_gpu(cpu))
         procesor = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", None, gpu=True)
         self.assertIn("libx264", procesor)
         self.assertNotIn("scale_vaapi", " ".join(procesor))
         prej = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI)
         self.assertEqual(self._vf(prej), "scale=1920:1080:flags=lanczos,format=nv12,hwupload")
+
+    def test_vaapi_kodirnik_ne_drzi_dveh_slik_v_vrsti(self):
+        # async_depth privzeto 2: izhod caka, da se vrsta napolni = ena slika zamika (izmerjeno 87 -> 75 ms).
+        for kodek in ("h264", "hevc"):
+            u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "8M", self.VAAPI, kodek=kodek)
+            self.assertEqual(u[u.index("-async_depth") + 1], "1")
+        sw = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "8M", None)
+        self.assertNotIn("-async_depth", sw)
 
     def test_preizkus_brez_graficne_ali_izklopljen_se_ne_zazene(self):
         with mock.patch.object(link_zaslon.subprocess, "run", side_effect=AssertionError("ne sme zagnati")):
