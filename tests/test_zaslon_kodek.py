@@ -404,6 +404,9 @@ class LazniGledalec:
     def sendall(self, b):
         self.poslano.append(bytes(b))
 
+    def setsockopt(self, raven, moznost, vrednost):
+        self.moznost = (raven, moznost, vrednost)
+
     def settimeout(self, t):
         pass
 
@@ -474,6 +477,21 @@ class KodekPoPoti(unittest.TestCase):
         finally:
             z.ustavi()
         return seja, gledalec.glava(), zagnano[0]
+
+    def test_wf_recorder_ohrani_razmik_in_doda_meje(self):
+        with mock.patch.object(link_zaslon, "ukaz_ffmpeg", return_value=[
+                "wf-recorder", "-c", "libx264", "-p", "g=600"]):
+            _, _, ukaz = self._seja(False, ["h264"])
+        self.assertIn("aud=1", ukaz)
+        self.assertIn("g=600", ukaz)
+        self.assertEqual(sum(a.startswith("g=") for a in ukaz), 1)
+
+    def test_profil_brez_mej_ohrani_razmik_in_doda_meje(self):
+        with mock.patch.object(link_zaslon, "ukaz_ffmpeg", return_value=[
+                "ffmpeg", "-c:v", "libx264rgb", "-g", "600", "-f", "h264", "-"]):
+            _, _, ukaz = self._seja(False, ["h264"])
+        self.assertEqual(ukaz[ukaz.index("-bsf:v") + 1], "h264_metadata=aud=insert")
+        self.assertEqual(ukaz[ukaz.index("-g") + 1], "600")
 
     def test_prek_huba_hevc(self):
         seja, glava, ukaz = self._seja(True, ["hevc", "h264"])
