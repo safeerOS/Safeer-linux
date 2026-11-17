@@ -162,10 +162,14 @@ class SignedThreatFeedTests(unittest.TestCase):
         service = self.service()
         self.server.scenario = "valid-100"
         service.update_now()
+        # Podpisi kot jih klice _match (match_url_rule(url), match_host(host, sme_gostitelj)): s starimi enoargumentnimi lambdami
+        # je _match vrgel TypeError in sprozil popravilo v ozadju, ki je pisalo v mapo med tearDown (CI 17. 11. 2026).
         service.store.match_url = lambda url: "ads"
-        service.store.match_host = lambda host: "tracker"
+        service.store.match_url_rule = lambda url: "ads"
+        service.store.match_host = lambda host, *args: "tracker"
         self.assertIsNone(service.match("https://ads.example/"))
         self.assertIsNone(service.match("tracker.example"))
+        self.assertEqual(service.popravil, 0)            # brez izjeme ni popravila v ozadju
 
 
 class ConformanceCorpusTests(unittest.TestCase):
