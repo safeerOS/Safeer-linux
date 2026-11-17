@@ -38,6 +38,16 @@ if [ -n "$DAV1D" ]; then
     install -D -m 644 -t "$WK/share/doc/gst-plugin-dav1d" "$DAV1D/LICENSE-MIT" "$DAV1D/LICENSE-APACHE" "$DAV1D/gradnja.txt"
     echo "vgradi.sh: dav1ddec $(stat -c %s "$DAV1D/libgstdav1d.so") B v $PREDPONA/lib/gstreamer-1.0 ($(head -1 "$DAV1D/gradnja.txt"))" >&2
 fi
+# SAFEER_GTK4SINK=MAPA (izhod packaging/webkit-deb/gtk4sink.sh): gtk4paintablesink v PREDPONA/lib/gstreamer-1.0 - brez njega
+# Safeer Player na Linuxu odpre film v golem lastnem oknu (autovideosink) in cel zaslon ne dela (lastnik, 17. 11. 2026).
+# Odvisnosti (libgtk-4-1, libgstreamer-gl1.0-0 ...) doda dpkg-shlibdeps spodaj, ker je vticnik med ELF datotekami paketa.
+GTK4SINK="${SAFEER_GTK4SINK:-}"
+if [ -n "$GTK4SINK" ]; then
+    [ -f "$GTK4SINK/libgstgtk4.so" ] || { echo "vgradi.sh: v $GTK4SINK ni libgstgtk4.so (packaging/webkit-deb/gtk4sink.sh)" >&2; exit 1; }
+    install -D -m 644 "$GTK4SINK/libgstgtk4.so" "$WK/lib/gstreamer-1.0/libgstgtk4.so"
+    install -D -m 644 -t "$WK/share/doc/gst-plugin-gtk4" "$GTK4SINK/LICENSE-MPL-2.0" "$GTK4SINK/gradnja.txt"
+    echo "vgradi.sh: gtk4paintablesink $(stat -c %s "$GTK4SINK/libgstgtk4.so") B v $PREDPONA/lib/gstreamer-1.0 ($(head -1 "$GTK4SINK/gradnja.txt"))" >&2
+fi
 # Knjiznice, ki jih ima vsak sistem v drugi razlicici (soname), gredo v paket (RUNPATH $ORIGIN), da se .deb namesti tudi
 # na Linux Mint 23 / Ubuntu 26.04 in Debian 13 (21. 10. 2026 izmerjeno v vsebnikih: libicu74, libjxl0.7, libjpeg8
 # niso na voljo - »not installable«; prototip z vgrajenimi se namesti, ldd brez manjkajocih, WebKit 2.54.1 se nalozi).
@@ -95,6 +105,9 @@ grep -v -e "no dependency information found for" -e "binaries to analyze should 
 [ -s "$DELO/odvisnosti" ] || { echo "vgradi.sh: dpkg-shlibdeps ni vrnil odvisnosti" >&2; exit 1; }
 if [ -n "$DAV1D" ] && ! grep -qE '(^|, )libdav1d7( |,|$)' "$DELO/odvisnosti"; then
     cat "$DELO/odvisnosti" >&2; echo "vgradi.sh: med odvisnostmi ni libdav1d7 (dav1ddec)" >&2; exit 1
+fi
+if [ -n "$GTK4SINK" ] && ! grep -qE '(^|, )libgtk-4-1( |,|$)' "$DELO/odvisnosti"; then
+    cat "$DELO/odvisnosti" >&2; echo "vgradi.sh: med odvisnostmi ni libgtk-4-1 (gtk4paintablesink)" >&2; exit 1
 fi
 cat "$DELO/odvisnosti"
 rm -rf "$DELO"

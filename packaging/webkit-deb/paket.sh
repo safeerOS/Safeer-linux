@@ -3,7 +3,7 @@
 # Paket safeer-webkit_<razlicica>_amd64.deb: nas WebKitGTK 6.0 in libsoup 3 (s popravki Safeerja, Clang 22, ThinLTO, PGO,
 # BOLT) v /usr/lib/safeer-webkit - EN paket za Safeer OS in Safeer Browser (lastnik, 19. 10. 2026).
 #
-#   paket.sh ARHIV.tar.zst [IZHODNA_MAPA]     npr. SAFEER_DAV1D=build/dav1d paket.sh build/safeer-webkit.tar.zst build
+#   paket.sh ARHIV.tar.zst [IZHODNA_MAPA]     npr. SAFEER_DAV1D=build/dav1d SAFEER_GTK4SINK=build/gtk4sink paket.sh build/safeer-webkit.tar.zst build
 #
 # Zakaj en paket: do 1.0.127~pred je imel vsak paket svojo kopijo (/usr/lib/safeer-os/webkit, /usr/lib/safeer-browser/webkit,
 # ~135 MB vsaka, razlicni datoteki zaradi predpone). Meritev 18. 10. 2026 na testnem PC: ko teceta oba programa, so strani
@@ -79,10 +79,18 @@ install -d "$BUILD_ROOT/usr/share/doc/$PAKET"
         echo " all copies or substantial portions of the Software."
     fi
     echo
-    echo "Files: $PREDPONA/lib/gstreamer-1.0/*"
+    echo "Files: $PREDPONA/lib/gstreamer-1.0/libgstdav1d.so"
     echo "Copyright: The gst-plugins-rs contributors"
     echo "License: MIT or Apache-2.0"
     echo " See $PREDPONA/share/doc/gst-plugin-dav1d/."
+    # gtk4paintablesink (Safeer Player na Linuxu): MPL-2.0, izvor crates.io gst-plugin-gtk4 (packaging/webkit-deb/gtk4sink.sh).
+    if [ -f "$BUILD_ROOT$PREDPONA/lib/gstreamer-1.0/libgstgtk4.so" ]; then
+        echo
+        echo "Files: $PREDPONA/lib/gstreamer-1.0/libgstgtk4.so"
+        echo "Copyright: The gst-plugins-rs contributors"
+        echo "License: MPL-2.0"
+        echo " See $PREDPONA/share/doc/gst-plugin-gtk4/ (licence text and build record)."
+    fi
     # Knjiznice, ki jih vgradi.sh vgradi zaradi prenosnosti .deb (pregled Gemini 1.0.131: glavna datoteka jih mora navesti).
     for d in "$BUILD_ROOT$PREDPONA"/share/doc/vgrajene/*/; do
         [ -f "$d/copyright" ] || continue
