@@ -84,5 +84,29 @@ class DodatniNaslovPridePredNapravo(unittest.TestCase):
         self.assertEqual(naslovi[0], "192.0.2.10")
 
 
+class KabelBrezNosilca(unittest.TestCase):
+    """Lastnik 17. 11. 2026: kabel se uporablja samo, ce je racunalnik res priklopljen nanj; sicer lokalni Wi-Fi."""
+
+    RUNNING = 0x40
+
+    def _vmesniki(self, kabel_priklopljen):
+        z_kabla = UP | (self.RUNNING if kabel_priklopljen else 0)
+        return link_zvok._brez_nosilca([("lo", "127.0.0.1", UP | 0x8 | self.RUNNING),
+                                        ("enp1s0", "203.0.113.3", z_kabla),
+                                        ("wlp0s20f3", "192.0.2.10", UP | self.RUNNING)])
+
+    def test_izvlecen_kabel_ni_med_naslovi(self):
+        naslovi = link_zvok.lastni_naslovi("", lambda: self._vmesniki(False), lambda c: "192.0.2.10")
+        self.assertEqual(naslovi, ["192.0.2.10"])
+
+    def test_priklopljen_kabel_je_med_naslovi(self):
+        naslovi = link_zvok.lastni_naslovi("", lambda: self._vmesniki(True), lambda c: "192.0.2.10")
+        self.assertEqual(naslovi, ["192.0.2.10", "203.0.113.3"])
+
+    def test_nosilec_ne_spremeni_ostalih_zastavic(self):
+        izid = link_zvok._brez_nosilca([("a", "192.0.2.1", UP | self.RUNNING | 0x10), ("b", "192.0.2.2", UP | 0x10)])
+        self.assertEqual(izid, [("a", "192.0.2.1", UP | self.RUNNING | 0x10), ("b", "192.0.2.2", 0x10)])
+
+
 if __name__ == "__main__":
     unittest.main()
