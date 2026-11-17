@@ -250,32 +250,35 @@ class UsmeriTest(unittest.TestCase):
             return 0, ""
         izvirni = os_scit._zazeni
         os_scit._zazeni = zazeni
+        izvirna_pot = os_scit._rootova_pot
+        os_scit._rootova_pot = lambda pot: False    # brez odvisnosti od gostitelja (pomocnik root)
         try:
-            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1", "1.1.1.1"]), "")
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.0.2.1", "1.1.1.1"]), "")
             self.assertEqual(klici, [["resolvectl", "dns", "eth9", "127.0.0.1:5354"],
-                                     ["resolvectl", "dns", "eth9", "127.0.0.1:5354", "192.168.0.1", "1.1.1.1"]])
+                                     ["resolvectl", "dns", "eth9", "127.0.0.1:5354", "192.0.2.1", "1.1.1.1"]])
             del klici[:]
             self.assertEqual(os_scit.usmeri("eth9", 5355, []), "")
             self.assertEqual(klici, [["resolvectl", "dns", "eth9", "127.0.0.1:5355"]])
             # Prvi korak ne uspe (ni dovoljenja): drugega ni.
             del klici[:]
             os_scit._zazeni = lambda ukaz, cas=8.0: (klici.append(ukaz), (1, ""))[1]
-            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), "pravilo")
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.0.2.1"]), "pravilo")
             self.assertEqual(len(klici), 1)
             # Drugi korak (rezerva) pade: ne uspeh, ampak BREZ_REZERVE (pregled 4. 11. 2026 - prej tiho uspeh).
             del klici[:]
             os_scit._zazeni = lambda ukaz, cas=8.0: (klici.append(ukaz), (0, "") if len(klici) == 1 else (1, ""))[1]
-            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.168.0.1"]), os_scit.BREZ_REZERVE)
+            self.assertEqual(os_scit.usmeri("eth9", 5354, ["192.0.2.1"]), os_scit.BREZ_REZERVE)
             self.assertEqual(len(klici), 2)
         finally:
             os_scit._zazeni = izvirni
+            os_scit._rootova_pot = izvirna_pot
         self.assertFalse([k for k in klici if "domain" in k or "revert" in k])
 
     def test_trenutni_streznik(self):
         izvirni = os_scit._zazeni
-        os_scit._zazeni = lambda ukaz, cas=8.0: (0, "Link 2 (eth9)\n    Current DNS Server: 192.168.0.1\n       DNS Servers: 127.0.0.1:5354 192.168.0.1\n")
+        os_scit._zazeni = lambda ukaz, cas=8.0: (0, "Link 2 (eth9)\n    Current DNS Server: 192.0.2.1\n       DNS Servers: 127.0.0.1:5354 192.0.2.1\n")
         try:
-            self.assertEqual(os_scit.trenutni_streznik("eth9"), "192.168.0.1")
+            self.assertEqual(os_scit.trenutni_streznik("eth9"), "192.0.2.1")
         finally:
             os_scit._zazeni = izvirni
 
@@ -444,7 +447,9 @@ class Zamenjave:
     """Zacasno zamenja funkcije modula os_scit (klici sistema) in jih na koncu vrne."""
 
     def __init__(self, **nove):
-        self.nove = nove
+        # Preizkusi ne smejo biti odvisni od gostitelja: na racunalniku z namescenim paketom obstaja koren pomocnik
+        # /usr/lib/safeer-os/scit-dns in koda izbere pkexec namesto resolvectl (17. 11. 2026: 3 preizkusi padli samo tam).
+        self.nove = {"_rootova_pot": lambda pot: False, **nove}
         self.stare = {}
 
     def __enter__(self):
@@ -482,25 +487,36 @@ class VrnitevDns(unittest.TestCase):
     brez DNS (preverjeno na pravem systemd-resolved: tools/scit_lab)."""
 
     def test_strezniki_networkmanagerja(self):
-        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "192.168.0.1 | 192.168.0.2\n2001\\:db8\\:\\:1 | fe80\\:\\:1\n"))])
+        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "192.0.2.1 | 192.0.2.2\n2001\\:db8\\:\\:1 | fe80\\:\\:1\n"))])
         with Zamenjave(_zazeni=s):
-            self.assertEqual(os_scit.upstream_strezniki("eth9"), ["192.168.0.1", "192.168.0.2", "2001:db8::1", "fe80::1"])
-        s = Sistem([(["nmcli"], (0, "127.0.0.1 | 192.168.0.1 | 192.168.0.1 | ni-naslov | 0.0.0.0\n\\:\\:1\n"))])
+            self.assertEqual(os_scit.upstream_strezniki("eth9"), ["192.0.2.1", "192.0.2.2", "2001:db8::1", "fe80::1"])
+        s = Sistem([(["nmcli"], (0, "127.0.0.1 | 192.0.2.1 | 192.0.2.1 | ni-naslov | 0.0.0.0\n\\:\\:1\n"))])
         with Zamenjave(_zazeni=s):
-            self.assertEqual(os_scit.upstream_strezniki("eth9"), ["192.168.0.1"], "brez povratne zanke, dvojnikov in smeti")
+            self.assertEqual(os_scit.upstream_strezniki("eth9"), ["192.0.2.1"], "brez povratne zanke, dvojnikov in smeti")
         with Zamenjave(_zazeni=Sistem([(["nmcli"], (10, ""))])):
             self.assertEqual(os_scit.upstream_strezniki("eth9"), [])
+
+    def test_samo_povratna_zanka_vzame_dhcp(self):
+        """17. 11. 2026: profil NetworkManagerja je imel ipv4.dns 127.0.0.1 (ignore-auto-dns): Scit je po zagonu ostal
+        brez strezniko naprej, odgovor SERVFAIL, ves racunalnik brez DNS. Vzame se DNS iz ponudbe DHCP."""
+        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "127.0.0.1\n")),
+                    (["nmcli", "-g", "DHCP4.OPTION"], (0, "ip_address = 192.0.2.78 | domain_name_servers = 192.0.2.1 192.0.2.1 127.0.0.1 | routers = 192.0.2.1\n"))])
+        with Zamenjave(_zazeni=s):
+            self.assertEqual(os_scit.upstream_strezniki("eth9"), ["192.0.2.1"])
+        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "127.0.0.1\n")), (["nmcli", "-g", "DHCP4.OPTION"], (0, "routers = 192.0.2.1\n"))])
+        with Zamenjave(_zazeni=s):
+            self.assertEqual(os_scit.upstream_strezniki("eth9"), [], "brez ponudbe DNS se ne ugiba (router ni DNS)")
         self.assertEqual(os_scit.za_vticnico("fe80::1", "wlan0"), "fe80::1%wlan0")
         self.assertEqual(os_scit.za_vticnico("2001:db8::1", "wlan0"), "2001:db8::1")
-        self.assertEqual(os_scit.za_vticnico("192.168.0.1", "wlan0"), "192.168.0.1")
+        self.assertEqual(os_scit.za_vticnico("192.0.2.1", "wlan0"), "192.0.2.1")
         self.assertEqual(os_scit.za_vticnico("169.254.1.1", "wlan0"), "169.254.1.1")
 
     def test_povrni(self):
-        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "192.168.0.1\nfe80\\:\\:1\n")),
+        s = Sistem([(["nmcli", "-g", "IP4.DNS,IP6.DNS"], (0, "192.0.2.1\nfe80\\:\\:1\n")),
                     (["resolvectl", "domain", "eth9"], (0, "Link 2 (eth9): lan\n"))])
         with Zamenjave(_zazeni=s):
             self.assertTrue(os_scit.povrni("eth9"))
-        self.assertEqual(s.nastavitve(), [["resolvectl", "dns", "eth9", "192.168.0.1", "fe80::1"]])
+        self.assertEqual(s.nastavitve(), [["resolvectl", "dns", "eth9", "192.0.2.1", "fe80::1"]])
         # NetworkManager za vmesnik nima streznikov: takrat (in samo takrat) revert.
         s = Sistem([(["nmcli"], (0, "\n\n"))])
         with Zamenjave(_zazeni=s):
@@ -541,22 +557,22 @@ class VrnitevDns(unittest.TestCase):
     def test_ostanek(self):
         with Zamenjave(dns_vmesnika=lambda v: "", nekdo_poslusa=lambda vrata: False):
             self.assertTrue(os_scit.je_ostanek("eth9"), "vmesnik brez streznikov (stari revert)")
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: False):
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.0.2.1", nekdo_poslusa=lambda vrata: False):
             self.assertTrue(os_scit.je_ostanek("eth9"), "nas streznik, na katerem nihce ne poslusa (sesutje)")
         # Kdo poslusa, je vedno zamenjano: prava vrata 5354 racunalnika (ali vticnica, ki jo je pustil drug preizkus) bi
         # izid spreminjala - preizkus je padal sam, v polnem teku pa je bil zelen (CI 20. 10. 2026).
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.0.2.1", nekdo_poslusa=lambda vrata: True,
                        vrata_nasa=lambda vrata: False, tuj_scit=lambda dns, nasa: True):
             self.assertFalse(os_scit.je_ostanek("eth9"), "tam tece Scit drugega prijavljenega uporabnika")
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.0.2.1", nekdo_poslusa=lambda vrata: True,
                        vrata_nasa=lambda vrata: True, tuj_scit=lambda dns, nasa: False):
             self.assertFalse(os_scit.je_ostanek("eth9"), "poslusa nas proces (Scit)")
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.168.0.1", nekdo_poslusa=lambda vrata: True,
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:5354 192.0.2.1", nekdo_poslusa=lambda vrata: True,
                        vrata_nasa=lambda vrata: False, tuj_scit=lambda dns, nasa: False):
             self.assertTrue(os_scit.je_ostanek("eth9"), "vrata je po sesutju zasedel tuj proces, ki ni Scit")
-        with Zamenjave(dns_vmesnika=lambda v: "192.168.0.1", nekdo_poslusa=lambda vrata: False):
+        with Zamenjave(dns_vmesnika=lambda v: "192.0.2.1", nekdo_poslusa=lambda vrata: False):
             self.assertFalse(os_scit.je_ostanek("eth9"))
-        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:9999 192.168.0.1", nekdo_poslusa=lambda vrata: False):
+        with Zamenjave(dns_vmesnika=lambda v: "127.0.0.1:9999 192.0.2.1", nekdo_poslusa=lambda vrata: False):
             self.assertFalse(os_scit.je_ostanek("eth9"), "tuja nastavitev, ne nasa")
         self.assertFalse(os_scit.nekdo_poslusa(1))
 
@@ -600,12 +616,12 @@ class LastniDns(unittest.TestCase):
             self.assertTrue(primer("# stub\nnameserver 127.0.0.53\noptions edns0 trust-ad\nsearch lan\n"))
             self.assertTrue(primer("nameserver 127.0.0.54\n"))
             self.assertFalse(primer("search .\n"), "brez streznika glibc vprasa 127.0.0.1 (lasten streznik DNS)")
-            self.assertFalse(primer("nameserver 192.168.0.1\n"))
-            self.assertFalse(primer("nameserver 127.0.0.53\nnameserver 192.168.0.1\n"))
+            self.assertFalse(primer("nameserver 192.0.2.1\n"))
+            self.assertFalse(primer("nameserver 127.0.0.53\nnameserver 192.0.2.1\n"))
             self.assertFalse(primer("nameserver 127.0.0.1\n"))
             self.assertFalse(primer("# nameserver 127.0.0.53\n"))
-            self.assertTrue(primer("nameserver 192.168.0.1\n", "hosts: mymachines resolve [!UNAVAIL=return] files myhostname dns\n"))
-            self.assertFalse(primer("nameserver 192.168.0.1\n", "hosts: files dns # resolve\n"))
+            self.assertTrue(primer("nameserver 192.0.2.1\n", "hosts: mymachines resolve [!UNAVAIL=return] files myhostname dns\n"))
+            self.assertFalse(primer("nameserver 192.0.2.1\n", "hosts: files dns # resolve\n"))
             self.assertFalse(os_scit.programi_uporabljajo_resolved(os.path.join(m, "ni"), os.path.join(m, "ni")))
 
     def test_ne_dotakne_se_dns(self):
@@ -660,25 +676,25 @@ class UporabiTest(unittest.TestCase):
         return sc
 
     def test_nastavi_in_strazi(self):
-        dns = {"eth9": "192.168.0.1"}
-        trenutni = {"eth9": "192.168.0.1"}
+        dns = {"eth9": "192.0.2.1"}
+        trenutni = {"eth9": "192.0.2.1"}
         klici = []
 
         def usmeri(v, vrata, rezerva):
             # Kam posredujemo, mora biti znano, preden resolved poslje prvo poizvedbo.
-            self.assertEqual(sc.strezniki, ["192.168.0.1", "fe80::1%eth9"])
+            self.assertEqual(sc.strezniki, ["192.0.2.1", "fe80::1%eth9"])
             klici.append(("usmeri", v, vrata, tuple(rezerva)))
             dns[v] = "127.0.0.1:%d %s" % (vrata, " ".join(rezerva))
             trenutni[v] = ""
             return ""
         with tempfile.TemporaryDirectory() as m, Zamenjave(
-                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1", "fe80::1"],
+                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.0.2.1", "fe80::1"],
                 dns_vmesnika=lambda v: dns[v], trenutni_streznik=lambda v: trenutni[v], usmeri=usmeri,
                 pravilo_namesceno=lambda: True, uredi_domene=lambda v: klici.append(("domene", v)),
                 izprazni_predpomnilnik=lambda: klici.append(("predpomnilnik",))):
             sc = self._scit(m, scit=True)
             sc._uporabi()
-            self.assertEqual(klici, [("usmeri", "eth9", 5354, ("192.168.0.1", "fe80::1")), ("domene", "eth9"), ("predpomnilnik",)])
+            self.assertEqual(klici, [("usmeri", "eth9", 5354, ("192.0.2.1", "fe80::1")), ("domene", "eth9"), ("predpomnilnik",)])
             self.assertEqual((sc.vmesniki, sc.napaka), (["eth9"], ""))
             # Vse je na mestu: naslednji pregled nicesar ne nastavlja.
             del klici[:]
@@ -686,12 +702,12 @@ class UporabiTest(unittest.TestCase):
             sc._uporabi()
             self.assertEqual(klici, [])
             # resolved je presel na rezervo (nas razresevalnik mu ni odgovoril pravocasno): nastavimo znova.
-            trenutni["eth9"] = "192.168.0.1"
+            trenutni["eth9"] = "192.0.2.1"
             sc._uporabi()
             self.assertEqual([k[0] for k in klici], ["usmeri", "predpomnilnik"])
             # NetworkManager je po novi povezavi poslal svoje streznike.
             del klici[:]
-            dns["eth9"] = "192.168.0.1"
+            dns["eth9"] = "192.0.2.1"
             sc._uporabi()
             self.assertEqual([k[0] for k in klici], ["usmeri", "predpomnilnik"])
 
@@ -699,8 +715,8 @@ class UporabiTest(unittest.TestCase):
         """resolvectl bi brez pravila polkit odprl okno za geslo (iz straze vsakih 20 s): brez dovoljenja ga ne klicemo."""
         klici = []
         with tempfile.TemporaryDirectory() as m, Zamenjave(
-                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1"],
-                dns_vmesnika=lambda v: "192.168.0.1", trenutni_streznik=lambda v: "192.168.0.1",
+                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.0.2.1"],
+                dns_vmesnika=lambda v: "192.0.2.1", trenutni_streznik=lambda v: "192.0.2.1",
                 usmeri=lambda *a: klici.append("usmeri") or "", povrni=lambda v: klici.append("povrni") or True,
                 pravilo_namesceno=lambda: False, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m, scit=True)
@@ -714,10 +730,10 @@ class UporabiTest(unittest.TestCase):
         """Vmesnik, ki ga ze varuje delujoc Scit drugega prijavljenega uporabnika (druga vrata), pustimo pri miru -
         sicer bi strazi obeh nastavitev izmenicno prepisovali."""
         klici = []
-        dns = {"eth9": "127.0.0.1:5355 192.168.0.1"}
+        dns = {"eth9": "127.0.0.1:5355 192.0.2.1"}
         poslusa = {5355: True}
         with tempfile.TemporaryDirectory() as m, Zamenjave(
-                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1"],
+                vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.0.2.1"],
                 dns_vmesnika=lambda v: dns[v], trenutni_streznik=lambda v: "127.0.0.1:5355",
                 nekdo_poslusa=lambda vrata: poslusa.get(vrata, False),
                 lastniki_vrat=lambda vrata: {os.getuid() + 1001}, _odgovori_kanarcku=lambda vrata, cas: True,
@@ -730,8 +746,8 @@ class UporabiTest(unittest.TestCase):
             poslusa[5355] = False
             sc._uporabi()
             self.assertEqual((klici, sc.vmesniki), (["usmeri"], ["eth9"]))
-        self.assertFalse(os_scit.tuj_scit("127.0.0.1:5354 192.168.0.1", 5354), "to smo mi")
-        self.assertFalse(os_scit.tuj_scit("192.168.0.1", 5354))
+        self.assertFalse(os_scit.tuj_scit("127.0.0.1:5354 192.0.2.1", 5354), "to smo mi")
+        self.assertFalse(os_scit.tuj_scit("192.0.2.1", 5354))
         self.assertFalse(os_scit.tuj_scit("", 5354))
 
     def test_brez_rezerve_ni_uspeh(self):
@@ -767,8 +783,8 @@ class UporabiTest(unittest.TestCase):
     def test_brez_omrezja_in_pozneje_povezan(self):
         povezani = []
         with tempfile.TemporaryDirectory() as m, Zamenjave(
-                vmesniki_povezani=lambda: list(povezani), upstream_strezniki=lambda v: ["192.168.0.1"],
-                dns_vmesnika=lambda v: "192.168.0.1", trenutni_streznik=lambda v: "", usmeri=lambda *a: "",
+                vmesniki_povezani=lambda: list(povezani), upstream_strezniki=lambda v: ["192.0.2.1"],
+                dns_vmesnika=lambda v: "192.0.2.1", trenutni_streznik=lambda v: "", usmeri=lambda *a: "",
                 pravilo_namesceno=lambda: True, uredi_domene=lambda v: None, izprazni_predpomnilnik=lambda: None):
             sc = self._scit(m)
             sc._uporabi()
@@ -776,7 +792,7 @@ class UporabiTest(unittest.TestCase):
             self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), ([], "ni_omrezja", []))
             povezani.append("wlan0")
             sc._uporabi()
-            self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), (["wlan0"], "", ["192.168.0.1"]))
+            self.assertEqual((sc.vmesniki, sc.napaka, sc.strezniki), (["wlan0"], "", ["192.0.2.1"]))
             del povezani[:]
             sc._uporabi()
             self.assertEqual((sc.vmesniki, sc.napaka), ([], "ni_omrezja"))
@@ -800,7 +816,7 @@ class UporabiTest(unittest.TestCase):
         klici = []
         with tempfile.TemporaryDirectory() as m, Zamenjave(
                 razlog_nemoznosti=lambda: "", vmesniki_povezani=lambda: ["eth9", "wlan0", "eth1"],
-                upstream_strezniki=lambda v: [] if v == "eth1" else ["192.168.0.1"],
+                upstream_strezniki=lambda v: [] if v == "eth1" else ["192.0.2.1"],
                 je_ostanek=lambda v: v != "wlan0", pravilo_namesceno=lambda: True,
                 povrni=lambda v: klici.append(v) or True):
             sc = os_scit.Scit(IzjemeInPremor.Shramba(), mapa=m)
@@ -809,7 +825,7 @@ class UporabiTest(unittest.TestCase):
             self.assertIsNone(sc.razresevalnik, "izklopljen Scit se ob zagonu ne zazene")
         del klici[:]
         with tempfile.TemporaryDirectory() as m, Zamenjave(
-                razlog_nemoznosti=lambda: "", vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.168.0.1"],
+                razlog_nemoznosti=lambda: "", vmesniki_povezani=lambda: ["eth9"], upstream_strezniki=lambda v: ["192.0.2.1"],
                 je_ostanek=lambda v: True, pravilo_namesceno=lambda: False, povrni=lambda v: klici.append(v) or True):
             os_scit.Scit(IzjemeInPremor.Shramba(), mapa=m)._zagon()
         self.assertEqual(klici, [], "brez pravila polkit (Scit ni bil nikoli vklopljen) nicesar")
@@ -891,7 +907,7 @@ class VrataInZanke(unittest.TestCase):
     def test_lastniki_vrat_iz_proc(self):
         with tempfile.TemporaryDirectory() as m:
             self._proc(m, udp=self._vrstica(self._v4("127.0.0.1", 5354), uid=1001)
-                       + self._vrstica(self._v4("192.168.0.5", 5354), uid=7)          # drug naslov: ne sprejme
+                       + self._vrstica(self._v4("192.0.2.5", 5354), uid=7)          # drug naslov: ne sprejme
                        + self._vrstica(self._v4("0.0.0.0", 5355), uid=0),
                        udp6=self._vrstica(self._v6("::", 5356), uid=65534),
                        tcp=self._vrstica(self._v4("127.0.0.1", 5354), st="0A", uid=1001)
@@ -940,12 +956,12 @@ class VrataInZanke(unittest.TestCase):
                                    ({os.getuid() + 1500, os.getuid() + 1501}, True)):
             with self.subTest(lastniki=lastniki), Zamenjave(
                     nekdo_poslusa=lambda v: True, lastniki_vrat=lambda v, l=lastniki: set(l),
-                    _odgovori_kanarcku=lambda v, c, k=kanarcek: k, dns_vmesnika=lambda v: "127.0.0.1:5355 192.168.0.1"):
-                self.assertFalse(os_scit.tuj_scit("127.0.0.1:5355 192.168.0.1", 5354))
+                    _odgovori_kanarcku=lambda v, c, k=kanarcek: k, dns_vmesnika=lambda v: "127.0.0.1:5355 192.0.2.1"):
+                self.assertFalse(os_scit.tuj_scit("127.0.0.1:5355 192.0.2.1", 5354))
                 self.assertTrue(os_scit.je_ostanek("eth9"))
         with Zamenjave(nekdo_poslusa=lambda v: True, lastniki_vrat=lambda v: {os.getuid() + 1500},
-                       _odgovori_kanarcku=lambda v, c: True, dns_vmesnika=lambda v: "127.0.0.1:5355 192.168.0.1"):
-            self.assertTrue(os_scit.tuj_scit("127.0.0.1:5355 192.168.0.1", 5354))
+                       _odgovori_kanarcku=lambda v, c: True, dns_vmesnika=lambda v: "127.0.0.1:5355 192.0.2.1"):
+            self.assertTrue(os_scit.tuj_scit("127.0.0.1:5355 192.0.2.1", 5354))
             self.assertFalse(os_scit.je_ostanek("eth9"))
 
     def test_zanka_naprej(self):

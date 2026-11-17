@@ -388,7 +388,32 @@ def upstream_strezniki(vmesnik: str) -> List[str]:
             continue
         if not naslov.is_loopback and not naslov.is_unspecified and v not in strezniki:
             strezniki.append(v)
+    if not strezniki and koda == 0:
+        # NetworkManager ima za povezavo samo 127.0.0.1 (stara nastavitev »ipv4.dns 127.0.0.1« z ignore-auto-dns): brez
+        # tega bi Scit po ponovnem zagonu odgovarjal samo SERVFAIL (17. 11. 2026: ves racunalnik brez DNS). DNS, ki ga je
+        # usmerjevalnik res ponudil prek DHCP, je isti »DNS usmerjevalnika«, ki ga Scit sicer privzeto uporablja.
+        strezniki = _dhcp_strezniki(vmesnik)
     return strezniki
+
+
+def _dhcp_strezniki(vmesnik: str) -> List[str]:
+    """Strezniki DNS iz ponudbe DHCP (DHCP4.OPTION domain_name_servers), brez povratne zanke in dvojnikov."""
+    koda, izpis = _zazeni(["nmcli", "-g", "DHCP4.OPTION", "device", "show", vmesnik])
+    rezultat: List[str] = []
+    if koda != 0:
+        return rezultat
+    for vrstica in izpis.replace("|", "\n").splitlines():
+        ime, _, vrednost = vrstica.partition("=")
+        if ime.strip() != "domain_name_servers":
+            continue
+        for v in vrednost.split():
+            try:
+                naslov = ipaddress.ip_address(v)
+            except ValueError:
+                continue
+            if naslov.version == 4 and not naslov.is_loopback and not naslov.is_unspecified and v not in rezultat:
+                rezultat.append(v)
+    return rezultat
 
 
 def za_vticnico(streznik: str, vmesnik: str) -> str:
