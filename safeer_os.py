@@ -6236,8 +6236,52 @@ class SafeerOS(Gtk.Application):
         self._medijski_vrsta.set_wrap(True)
         postavitev.append(self._medijski_vrsta)
         okno.set_child(postavitev)
+        # Cel zaslon = samo video (lastnik, 17. 11. 2026: »res cez celi zaslon«): napis, drsnik, gumbi in vrsta se skrijejo,
+        # ob premiku miske se za 3 s pokazejo (kot v VLC). Velja za vsako pot v cel zaslon (gumb, F11, dvojni klik, upravitelj oken).
+        self._medijski_postavitev = postavitev
+        self._medijski_upravljanje = [self._medijski_napis, premik, gumbi, self._medijski_vrsta]
+        self._medijski_cel_casovnik = 0
+        okno.connect("notify::fullscreened", lambda o, _p: self._medijski_upravljanje_cel_zaslon(o))
+        gibanje = Gtk.EventControllerMotion()
+        self._medijski_zadnja_miska = (0.0, 0.0)
+        gibanje.connect("motion", lambda _k, x, y: self._medijski_miska_se_je_premaknila(okno, x, y))
+        okno.add_controller(gibanje)
         self.add_window(okno)
         self._medijski_predvajalnik_okno = okno
+
+    def _medijski_upravljanje_cel_zaslon(self, okno, pokazi: Optional[bool] = None) -> None:
+        """Cel zaslon skrije upravljanje in robove okna; izhod iz celega zaslona jih vrne."""
+        cel = okno.is_fullscreen()
+        pokazi = (not cel) if pokazi is None else pokazi
+        if not cel and self._medijski_cel_casovnik:
+            GLib.source_remove(self._medijski_cel_casovnik)
+            self._medijski_cel_casovnik = 0
+        for g in self._medijski_upravljanje:
+            g.set_visible(pokazi)
+        rob = 16 if not cel else 0
+        for stran in ("top", "bottom", "start", "end"):
+            getattr(self._medijski_postavitev, "set_margin_" + stran)(rob)
+
+    def _medijski_miska_se_je_premaknila(self, okno, x: float, y: float) -> None:
+        """GTK4 ob spremembi gradnikov pod mirujoco misko sam poslje »motion«: upravljanje pokazi samo ob pravem premiku."""
+        px, py = self._medijski_zadnja_miska
+        self._medijski_zadnja_miska = (x, y)
+        if abs(x - px) + abs(y - py) >= 3:
+            self._medijski_pokazi_upravljanje_za_hip(okno)
+
+    def _medijski_pokazi_upravljanje_za_hip(self, okno) -> None:
+        if not okno.is_fullscreen():
+            return
+        self._medijski_upravljanje_cel_zaslon(okno, pokazi=True)
+        if self._medijski_cel_casovnik:
+            GLib.source_remove(self._medijski_cel_casovnik)
+
+        def skrij() -> bool:
+            self._medijski_cel_casovnik = 0
+            if okno.is_fullscreen():
+                self._medijski_upravljanje_cel_zaslon(okno, pokazi=False)
+            return False
+        self._medijski_cel_casovnik = GLib.timeout_add_seconds(3, skrij)
 
     def _medijski_miska_drsnika(self, _kontroler, dogodek) -> bool:
         if dogodek is None:       # GTK ob odprtju okenca (popover) poslje dogodek brez podatkov
@@ -6922,11 +6966,25 @@ class SafeerOS(Gtk.Application):
         return os_media_besedila.besedilo(kljuc, _jezik())
 
     def _medijski_cel_zaslon(self, okno) -> bool:
-        if okno.is_fullscreen():
-            okno.unfullscreen()
-        else:
-            okno.fullscreen()
+        self._nastavi_cel_zaslon_okna(okno, not okno.is_fullscreen())
         return True
+
+    @staticmethod
+    def _nastavi_cel_zaslon_okna(okno, vklop: bool) -> None:
+        """Cel zaslon okna s starsem (set_transient_for): Muffin (Cinnamon) ga zaradi tipa okna DIALOG ne razsiri.
+        Izmerjeno 17. 11. 2026 na prenosniku: _NET_WM_WINDOW_TYPE_DIALOG, po kliku »Cel zaslon« brez
+        _NET_WM_STATE_FULLSCREEN (lastnik: »res cez celi zaslon« ne gre). Stars se ob vklopu odstrani, ob izklopu vrne."""
+        if vklop:
+            if okno.get_transient_for() is not None:
+                okno._safeer_stars_cel_zaslon = okno.get_transient_for()
+                okno.set_transient_for(None)
+            okno.fullscreen()
+            return
+        okno.unfullscreen()
+        stars = getattr(okno, "_safeer_stars_cel_zaslon", None)
+        if stars is not None:
+            okno._safeer_stars_cel_zaslon = None
+            okno.set_transient_for(stars)
 
     def _medijska_tipka(self, okno, dogodek) -> bool:
         tipka = Gdk.keyval_name(dogodek.keyval)
@@ -6982,7 +7040,7 @@ class SafeerOS(Gtk.Application):
         if tipka and tipka.lower() in ("n", "p") and not dogodek.state & Gdk.ModifierType.CONTROL_MASK:
             return self._medijski_ukaz("naslednja" if tipka.lower() == "n" else "prejsnja")
         if tipka == "Escape" and okno.is_fullscreen():
-            okno.unfullscreen()
+            self._nastavi_cel_zaslon_okna(okno, False)
             return True
         return False
 
