@@ -208,6 +208,23 @@ class Varovalo:
     def _krsitev(self, kaj, cilji):
         ime = os.environ.get("PYTEST_CURRENT_TEST", "?")
         opis = ", ".join("%d(%s)" % (p, _comm(p)) for p in cilji) or "?"
+        for p in cilji:                          # diagnostika: stanje, stars in veriga prednikov kriviteljev
+            veriga, q = [], p
+            for _ in range(8):
+                try:
+                    with open("/proc/%d/stat" % q, "rb") as f:
+                        st = f.read().decode("utf-8", "replace")
+                    comm_q, ostalo = st.split("(", 1)[1].rsplit(")", 1)
+                    polja = ostalo.split()
+                    veriga.append("%d(%s,%s)" % (q, comm_q, polja[0]))
+                    q = int(polja[1])
+                except (OSError, ValueError, IndexError):
+                    veriga.append("%d(?)" % q)
+                    break
+                if q <= 1:
+                    veriga.append(str(q))
+                    break
+            opis += " [veriga %s; koren %d]" % (" <- ".join(veriga), self.koren)
         vrstica = "%s | %s | %s | %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), ime, kaj, opis)
         self.krsitve.append(vrstica.strip())
         try:
