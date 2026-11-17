@@ -94,7 +94,7 @@ NAJVEC_NASLOVOV = 4
 #: Uporabnikov most "br0" (naslov omrezja je na njem) ni med njimi - Docker svoje imenuje "br-<oznaka>".
 NAVIDEZNI_VMESNIKI = ("docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "lxc", "lxd", "podman", "cni",
                       "flannel", "cali", "kube", "dummy")
-_IFF_UP, _IFF_LOOPBACK, _IFF_POINTOPOINT = 0x1, 0x8, 0x10
+_IFF_UP, _IFF_LOOPBACK, _IFF_POINTOPOINT, _IFF_RUNNING = 0x1, 0x8, 0x10, 0x40
 
 
 _AF_INET = 2
@@ -113,6 +113,13 @@ def _ifaddrs_v_seznam(zacetek) -> List[tuple]:
             izid.append(((e.ifa_name or b"").decode("utf-8", "replace"), naslov, int(e.ifa_flags)))
         zapis = e.ifa_next
     return izid
+
+
+def _brez_nosilca(zapisi: List[tuple]) -> List[tuple]:
+    """Vmesnik brez nosilca (IFF_RUNNING ni postavljen: kabel izvlecen, Wi-Fi nepovezan) ni vmesnik, prek katerega nas
+    kdo doseze. Naslov ostane v seznamu, a ne velja za »gor«: kabel se uporabi samo, ce je racunalnik res priklopljen
+    nanj (lastnik, 17. 11. 2026); sicer napravi povemo samo naslove omrezja, ki ga ima (npr. lokalni Wi-Fi)."""
+    return [(ime, n, z & ~_IFF_UP if not z & _IFF_RUNNING else z) for ime, n, z in zapisi]
 
 
 def _naslovi_getifaddrs() -> Optional[List[tuple]]:
@@ -138,7 +145,7 @@ def _naslovi_getifaddrs() -> Optional[List[tuple]]:
         if libc.getifaddrs(ctypes.byref(glava)) != 0:
             return None
         try:
-            return _ifaddrs_v_seznam(glava)
+            return _brez_nosilca(_ifaddrs_v_seznam(glava))
         finally:
             libc.freeifaddrs(glava)
     except Exception:
