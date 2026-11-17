@@ -3622,7 +3622,7 @@ class VdelaniSplet:
             try:
                 z["pogled"].evaluate_javascript(self.JS_USTAVI_PREDVAJANJE, -1, None, None, None, None, None)
                 poslano += 1
-            except Exception:  # noqa: BLE001 - zavihek v zapiranju ne sme prekiniti zaprtja okna
+            except Exception:  # noqa: BLE001, S110 - zavihek v zapiranju ne sme prekiniti zaprtja okna
                 pass
         return poslano
 
