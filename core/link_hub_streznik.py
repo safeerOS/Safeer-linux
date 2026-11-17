@@ -49,6 +49,26 @@ PRIVZETA_VRATA = 8990
 POT_WS = "/cast/ws"
 #: Deljene datoteke prek Huba (tok in prenos tudi prek Global Linka).
 POT_DATOTEKE = "/cast/d/"
+POT_SLICICE = "/cast/thumb/"
+#: Mreza slicic z zastarelim zetonom naredi desetine zahtev hkrati: za /cast/thumb/ steje en dogodek obrambe na vir na
+#: ROK_SLICIC_S, sicer bi vir (in z njim ves Link) zaprli za 10 minut (pregled 25. 10. 2026, S3; prej samo Windows).
+ROK_SLICIC_S = 10.0
+_zavrnjene_slicice: Dict[str, float] = {}
+_zavrnjene_slicice_kljuc = threading.Lock()
+
+
+def _steje_zavrnjeno_slicico(vir: str, zdaj: Optional[float] = None) -> bool:
+    """Ali zavrnjena zahteva /cast/thumb/ tega vira steje za obrambo (prva v ROK_SLICIC_S da, ostale ne)."""
+    zdaj = time.monotonic() if zdaj is None else zdaj
+    with _zavrnjene_slicice_kljuc:
+        if zdaj - _zavrnjene_slicice.get(vir, -1e9) < ROK_SLICIC_S:
+            return False
+        _zavrnjene_slicice[vir] = zdaj
+        if len(_zavrnjene_slicice) > 1024:
+            for k in sorted(_zavrnjene_slicice, key=_zavrnjene_slicice.get)[:512]:
+                _zavrnjene_slicice.pop(k, None)
+        return True
+
 #: Deljenje med napravami (core/link_hub_deljenje.py): besedilo, oddaja datoteke in njen prevzem.
 POT_BESEDILO = "/cast/share/text"
 #: Ime, ki ga napravi da uporabnik (zivi v krogu zaupanja, vidijo ga vse naprave).
@@ -2737,7 +2757,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         from core import link_datoteke
         return link_datoteke.je_pot_streznika(pot[5:])
 
-    def _streznik_datotek(self):
+    def _streznik_datotek(self, pot: str = ""):
         """Streznik datotek te naprave za zahtevo (tisti, ki pozna zeton) ali None; obrambi pove izid."""
         dobi = getattr(self.server, "datoteke", None)
         streznik = dobi() if callable(dobi) else None
@@ -2751,7 +2771,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             return None
         if z and streznik.zeton_velja(z):
             self._zaupaj()
-        else:
+        elif not pot.startswith(POT_SLICICE) or _steje_zavrnjeno_slicico(self._vir()):
             self._sovrazno("brez_zaupanja")
         return streznik
 
@@ -2767,7 +2787,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     def _datoteka(self, pot: str, samo_glava: bool) -> None:
         """Pot streznika datotek prek Huba (Global Link: rele pripelje samo do vrat Huba). Isti zeton in ista
         pravila kot doma (core/link_datoteke.postrezi_pot): datoteka, slicica, tok torrenta, sprotni tok."""
-        streznik = self._streznik_datotek()
+        streznik = self._streznik_datotek(pot)
         if streznik is None:
             return
         from core import link_datoteke
