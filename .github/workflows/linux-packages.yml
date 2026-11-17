@@ -319,8 +319,8 @@ jobs:
     # safeer-browser. Gotov arhiv je v predpomnilniku s kljucem iz datotek gradnje: ob spremembi samo kode Safeerja
     # posel traja nekaj minut (pakiranje). Od 25. 10. 2026 je gotov arhiv tudi artefakt s kljucem (vse veje, webkit-kljuc):
     # nova veja z istim kljucem WebKita ne prevaja, ampak samo prenese arhiv (SHA-256) in ga zapakira ter preveri.
-    needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]
-    if: ${{ !cancelled() && needs.webkit-kljuc.result == 'success' && needs.dav1d-deb.result == 'success' && (needs.webkit-deb-profil.result == 'success' || (needs.webkit-deb-profil.result == 'skipped' && needs.webkit-kljuc.outputs.webkit_run != '')) }}
+    needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb, gtk4sink-deb]
+    if: ${{ !cancelled() && needs.webkit-kljuc.result == 'success' && needs.dav1d-deb.result == 'success' && needs.gtk4sink-deb.result == 'success' && (needs.webkit-deb-profil.result == 'success' || (needs.webkit-deb-profil.result == 'skipped' && needs.webkit-kljuc.outputs.webkit_run != '')) }}
     permissions:
       contents: read
       actions: read
@@ -440,11 +440,15 @@ jobs:
         with:
           name: dav1d-deb
           path: build/dav1d
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gtk4sink-deb
+          path: build/gtk4sink
       - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
         run: bash packaging/webkit-deb/knjiznice.sh
       - name: Package safeer-webkit (shared by safeer-os and safeer-browser)
         run: |
-          DEB="$(SAFEER_DAV1D=build/dav1d bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst .)"
+          DEB="$(SAFEER_DAV1D=build/dav1d SAFEER_GTK4SINK=build/gtk4sink bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst .)"
           test "$DEB" = "./safeer-webkit_$(cat packaging/VERSION)_amd64.deb"
           dpkg-deb -f "$DEB" Package Version Architecture Depends Installed-Size
           dpkg-deb -f "$DEB" Version | grep -Fx "$(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION)")"
@@ -460,6 +464,9 @@ jobs:
           # Dekoder AV1 dav1ddec v predponi nasega WebKita, libdav1d7 iz noble.
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-webkit/lib/gstreamer-1.0/libgstdav1d.so'
           dpkg-deb -f "$DEB" Depends | grep -E '(^|, )libdav1d7( |,|$)'
+          # Vticnik za video v oknu GTK4 (Safeer Player): gtk4paintablesink + libgtk-4-1 v Depends.
+          dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-webkit/lib/gstreamer-1.0/libgstgtk4.so'
+          dpkg-deb -f "$DEB" Depends | grep -E '(^|, )libgtk-4-1( |,|$)'
           # Prenosnost (21. 10. 2026: .deb se ni namestil na Linux Mint 23 / Ubuntu 26.04 / Debian 13): knjiznice z
           # razlicnim soname po sistemih so v paketu (vgradi.sh), Depends jih ne sme zahtevati.
           if dpkg-deb -f "$DEB" Depends | grep -E '(^|, )(libicu[0-9]+|libjxl0\.[0-9]+|libhwy[0-9a-z]*|libjpeg8|libxml2|libxslt1\.1)( |,|$)'; then echo "::error::Depends zahteva knjiznico, ki mora biti v paketu"; exit 1; fi
@@ -557,6 +564,44 @@ jobs:
         with:
           name: dav1d-deb
           path: build/dav1d/
+          retention-days: 14
+  gtk4sink-deb:
+    # Vticnik gtk4paintablesink (gst-plugins-rs, packaging/webkit-deb/gtk4sink.sh) v paket safeer-webkit: noble (Linux Mint
+    # 22) nima paketa gstreamer1.0-gtk4. Brez njega Safeer Player na Linuxu odpre film v golem oknu in cel zaslon ne dela
+    # (lastnik, 17. 11. 2026). Gradnja na ubuntu-24.04 (isti GStreamer 1.24 in GTK 4.14 kot Linux Mint 22), nato iz
+    # predpomnilnika s kljucem iz skripte.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Restore gtk4paintablesink (built earlier from the same script)
+        id: gtk4sink
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: build/gtk4sink
+          key: gtk4sink-deb-${{ hashFiles('packaging/webkit-deb/gtk4sink.sh') }}
+      - name: Build gst-plugin-gtk4 against the noble GStreamer and GTK 4
+        if: steps.gtk4sink.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev pkg-config
+          bash packaging/webkit-deb/gtk4sink.sh build/gtk4sink
+      - name: Save gtk4paintablesink
+        if: steps.gtk4sink.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: build/gtk4sink
+          key: gtk4sink-deb-${{ hashFiles('packaging/webkit-deb/gtk4sink.sh') }}
+      - name: Build record
+        run: |
+          ls -l build/gtk4sink
+          cat build/gtk4sink/gradnja.txt
+          echo "::notice::gtk4paintablesink: $(paste -sd '|' build/gtk4sink/gradnja.txt)"
+          grep -q '^gst-plugin-gtk4 0\.14\.5 ' build/gtk4sink/gradnja.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gtk4sink-deb
+          path: build/gtk4sink/
           retention-days: 14
   rqbit-deb:
     # Nas rqbit (motor torrentov, core/os_torrent.py) za paket .deb Safeer OS: uradni vir v9.0.1, pripet z commitom in

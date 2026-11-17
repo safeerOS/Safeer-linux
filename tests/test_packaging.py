@@ -895,6 +895,52 @@ class DebWebkitTests(unittest.TestCase):
                 zasebni_webkit.nastavi(str(brskalnik))
                 self.assertNotIn('GST_PLUGIN_PATH',os.environ)
 
+    def test_gtk4sink_vezan_v_skripte_in_ci(self):
+        """gtk4paintablesink (Safeer Player na Linuxu, lastnik 17. 11. 2026): skripta pripne crate z SHA-256, vgradi.sh ga da
+        v PREDPONA/lib/gstreamer-1.0 pred dpkg-shlibdeps, paket.sh navede licenco MPL-2.0, CI ga zgradi in paket zahteva."""
+        skripta=(self.WEBKIT_DEB/'gtk4sink.sh').read_text()
+        self.assertIn('RAZLICICA=0.14.5\n',skripta)
+        self.assertRegex(skripta,r'\nSHA256=[0-9a-f]{64}\n')
+        for niz in ('https://static.crates.io/crates/gst-plugin-gtk4/gst-plugin-gtk4-$RAZLICICA.crate','sha256sum -c',
+                    'build --release --locked','LICENSE-MPL-2.0','gradnja.txt','gtk4paintablesink'):
+            self.assertIn(niz,skripta)
+        subprocess.run(['bash','-n',str(self.WEBKIT_DEB/'gtk4sink.sh')],check=True)
+        vgradi=(self.WEBKIT_DEB/'vgradi.sh').read_text()
+        self.assertIn('SAFEER_GTK4SINK',vgradi)
+        self.assertLess(vgradi.index('"$WK/lib/gstreamer-1.0/libgstgtk4.so"'),vgradi.index('dpkg-shlibdeps -O'))
+        paket=(self.WEBKIT_DEB/'paket.sh').read_text()
+        self.assertIn('License: MPL-2.0',paket)
+        potek=(ROOT/'.github'/'workflows'/'linux-packages.yml').read_text()
+        self.assertIn('\n  gtk4sink-deb:\n',potek)
+        posel=potek.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
+        self.assertIn('gtk4sink-deb]',posel)
+        self.assertIn('SAFEER_GTK4SINK=build/gtk4sink',posel)
+        self.assertIn("libgstgtk4.so",posel)
+        self.assertIn("libgtk-4-1",posel)
+
+    def test_vgradi_gtk4sink_zahteva_vticnik_in_libgtk4(self):
+        """SAFEER_GTK4SINK: manjkajoca datoteka ali vticnik, ki ni povezan z libgtk-4, ustavi gradnjo paketa."""
+        for orodje in ('dpkg-shlibdeps','zstd','file'):
+            if not shutil.which(orodje):
+                self.skipTest('ni %s'%orodje)
+        with tempfile.TemporaryDirectory() as d:
+            arhiv=self._lazni_arhiv(d)
+            mapa=Path(d)/'gtk4'
+            mapa.mkdir()
+            shutil.copy('/bin/true',mapa/'libgstgtk4.so')
+            (mapa/'LICENSE-MPL-2.0').write_text('licenca\n')
+            (mapa/'gradnja.txt').write_text('gst-plugin-gtk4 0.14.5 (preizkus)\n')
+            okolje=dict(os.environ,SAFEER_GTK4SINK=str(mapa))
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'vgradi.sh'),str(Path(d)/'koren'),str(arhiv)],
+                             env=okolje,capture_output=True,text=True)
+            self.assertNotEqual(r.returncode,0,r.stdout)
+            self.assertIn('ni libgtk-4-1',r.stderr)
+            okolje['SAFEER_GTK4SINK']=str(Path(d)/'ni')
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'vgradi.sh'),str(Path(d)/'koren'),str(arhiv)],
+                             env=okolje,capture_output=True,text=True)
+            self.assertNotEqual(r.returncode,0)
+            self.assertIn('ni libgstgtk4.so',r.stderr)
+
     def test_dav1d_skripta_pripne_crate_in_preveri_vticnik(self):
         """packaging/webkit-deb/dav1d.sh: gst-plugin-dav1d 0.14.5 s SHA-256 iz crates.io, odvisnosti iz Cargo.lock
         (--locked), strip, preverba v GStreamerju sistema (rang nad av1dec)."""
@@ -1011,9 +1057,9 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('name: dav1d-deb',posel)
         # dav1ddec gre enkrat v paket safeer-webkit (posel webkit-deb); programa ga dobita z odvisnostjo.
         wk=potek.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
-        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]\n',wk)
+        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb, gtk4sink-deb]\n',wk)
         self.assertIn('name: dav1d-deb\n          path: build/dav1d',wk)
-        self.assertIn('SAFEER_DAV1D=build/dav1d bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst .',wk)
+        self.assertIn('SAFEER_DAV1D=build/dav1d SAFEER_GTK4SINK=build/gtk4sink bash packaging/webkit-deb/paket.sh build/safeer-webkit.tar.zst .',wk)
         self.assertIn("grep -F './usr/lib/safeer-webkit/lib/gstreamer-1.0/libgstdav1d.so'",wk)
         self.assertIn("Depends | grep -E '(^|, )libdav1d7( |,|$)'",wk)
         for ime,naslednji,potrebe in (('brskalnik','safeer-os','webkit-deb'),('safeer-os','qt-xcb','[webkit-deb, rqbit-deb]')):
@@ -1371,7 +1417,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertNotIn('matrix',profil)
         self.assertIn('image: ubuntu:24.04',posel)
         # PGO je privzet (lastnik, 15. 10. 2026): lasten ucni tek gradnje noble, profil v predpomnilniku.
-        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb]',posel)
+        self.assertIn('needs: [webkit-kljuc, webkit-deb-profil, dav1d-deb, gtk4sink-deb]',posel)
         self.assertIn('SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-webkit\n',profil)
         self.assertIn('bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-webkit build/pgo/profraw',profil)
         self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1',posel)
