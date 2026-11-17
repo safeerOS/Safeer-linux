@@ -89,6 +89,16 @@ def _pgrp(pid):
         return None
 
 
+def _zombi(pid):
+    """Zombi (stanje Z): proces se je koncal, signal ga ne more ne zadeti ne ogroziti. V vsebniku CI ga PID 1 ne pobere, zato
+    ostane osirotel clan skupine (CI 17. 11. 2026: python3 (Z) <- 1 v test_tok_za_napravo)."""
+    try:
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            return f.read().decode("utf-8", "replace").rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return False
+
+
 def cas_zagona(pid):
     """Cas zagona procesa (/proc/<pid>/stat polje 22, takti od zagona sistema) - z njim je proces dolocen enolicno,
     tudi ko se PID ponovno uporabi. None, ce procesa ni (zombi ga se ima)."""
@@ -203,7 +213,7 @@ class Varovalo:
         clani = [p for p in _vsi_procesi() if _pgrp(p) == pgid]
         # Clan, ki se je med iskanjem koncal (zombi pobran, /proc/<pid> izginil), signala ne more vec prejeti in ne
         # ogrozi tujega procesa; brez tega pade preizkus na pocasnem tekacu (CI 17. 11. 2026, test_tok_za_napravo 2x).
-        return all(self.potomec(p) for p in clani if _pgrp(p) is not None)
+        return all(self.potomec(p) for p in clani if _pgrp(p) is not None and not _zombi(p))
 
     def _krsitev(self, kaj, cilji):
         ime = os.environ.get("PYTEST_CURRENT_TEST", "?")
