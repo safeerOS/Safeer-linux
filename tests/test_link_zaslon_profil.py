@@ -144,5 +144,18 @@ class Kazalec(unittest.TestCase):
         self.assertFalse(skrit["viden"])
 
 
+class ZiviZaslonBrezMedpomnilnika(unittest.TestCase):
+    def test_vaapi_ukaz_ima_async_depth_1(self):
+        for kodek in ("h264", "hevc"):
+            u = lz.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", "/dev/dri/renderD128", "ffmpeg", 24, kodek)
+            i = u.index("-async_depth")
+            self.assertEqual(u[i + 1], "1")
+            self.assertLess(i, u.index("-bf"))
+
+    def test_procesorski_ukaz_nima_async_depth(self):
+        u = lz.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None, "ffmpeg", 24)
+        self.assertNotIn("-async_depth", u)
+
+
 if __name__ == "__main__":
     unittest.main()

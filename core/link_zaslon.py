@@ -596,7 +596,10 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
               "-vf", filter_slike,
               "-c:v", "hevc_vaapi" if hevc else "h264_vaapi",
               "-profile:v", ("rext" if barve444 else "main") if hevc else "high",
-              "-rc_mode", "CQP", "-qp", str(qp)]
+              "-rc_mode", "CQP", "-qp", str(qp),
+              # Zivi zaslon: kodirnik ne drzi vec slik hkrati v teku (privzeto 2). Izmerjeno 17. 11. 2026 (H.264, zajem+kodiranje+
+              # dekodiranje na istem racunalniku, 60 fps, 3 ponovitve izmenicno): mediana 74-77 ms brez, 58-64 ms z -async_depth 1.
+              "-async_depth", "1"]
     else:
         u += ["-vf", f"{filter_lestvica}format=yuv420p",
               "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-profile:v", "high",
