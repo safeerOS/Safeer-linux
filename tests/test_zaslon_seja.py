@@ -341,15 +341,20 @@ class TelevizorKiNeBere(_Osnova):
 
     def test_seja_se_konca_po_omejitvi_pisanja(self):
         staro = getattr(link_zaslon, "ROK_PISANJA_S", None)
-        link_zaslon.ROK_PISANJA_S = 0.5
+        # 2 s (v produkciji 20 s): 0,5 s je na pocasnem CI (izsek 1/6, 17. 11. 2026) kos bralec zastal dlje, seja se je
+        # koncala po omejitvi pisanja ze PRED zaustavitvijo branja (trajanje_s 0,6; _proces je bil None) in test je padel.
+        link_zaslon.ROK_PISANJA_S = 2.0
         try:
             tv = self.televizor(self.zacni())
             self.assertTrue(tv.povezan.wait(8))
-            self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+            # Zajem zgrabimo takoj, ko obstaja: po koncu seje je _proces spet None.
+            self.assertTrue(_pocakaj(lambda: self.z._proces is not None, 8.0), "zajem se ni zagnal")
             zajem = self.z._proces
-            self.assertIsNotNone(zajem)
+            self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+            self.assertTrue(self.z.stanje()["tece"],
+                            "seja se je koncala se pred zaustavitvijo branja (bralec je zastal dlje od roka pisanja)")
             tv.beri = False
-            self.assertTrue(_pocakaj(lambda: not self.z.stanje()["tece"], 6.0),
+            self.assertTrue(_pocakaj(lambda: not self.z.stanje()["tece"], 12.0),
                             "televizor ne bere, seja pa po omejitvi pisanja se vedno tece")
             self.assertTrue(_pocakaj(lambda: zajem.poll() is not None, 4.0), "zajem slike po koncu seje se tece")
         finally:
