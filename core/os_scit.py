@@ -408,7 +408,8 @@ def nm_domene(vmesnik: str) -> List[str]:
         koda, izpis = _zazeni(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN", "device", "show", vmesnik])
     domene: List[str] = []
     for v in _vrednosti_nmcli(izpis) if koda == 0 else []:
-        if re.fullmatch(r"~?[A-Za-z0-9._-]{1,253}", v) and v not in domene:
+        # Brez vezaja na zacetku (po morebitni »~«): sicer bi »--help« iz DHCP prisel v argv resolvectl kot moznost (N8).
+        if re.fullmatch(r"~?[A-Za-z0-9._][A-Za-z0-9._-]{0,252}", v) and v not in domene:
             domene.append(v)
     return domene
 

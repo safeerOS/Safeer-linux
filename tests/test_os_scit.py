@@ -588,6 +588,14 @@ class VrnitevDns(_BrezPomocnika):
         with Zamenjave(_zazeni=s):
             self.assertEqual(os_scit.nm_domene("eth9"), ["lan"])
 
+    def test_iskalna_domena_z_vezajem_na_zacetku_ne_pride_v_argv(self):
+        # Pregled N8 (15. 11. 2026): DHCP omrezja poslje »--help« ali »-h« kot iskalno domeno; v argv resolvectl bi bila
+        # to moznost, ne domena. Veljavna imena (lan, ~vpn.example, ~., sub-domena) ostanejo.
+        s = Sistem([(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN,IP4.SEARCHES,IP6.SEARCHES"],
+                     (0, "--help\n-h\n~--version\nlan\n~vpn.example\n~.\nsub-domena.example\n"))])
+        with Zamenjave(_zazeni=s):
+            self.assertEqual(os_scit.nm_domene("eth9"), ["lan", "~vpn.example", "~.", "sub-domena.example"])
+
     def test_ostanek(self):
         with Zamenjave(dns_vmesnika=lambda v: "", nekdo_poslusa=lambda vrata: False):
             self.assertTrue(os_scit.je_ostanek("eth9"), "vmesnik brez streznikov (stari revert)")
