@@ -166,6 +166,12 @@ DOSTOP_PREVERI_S = 1.0
 #: Ob odvzemu dostopa: najvec toliko casa cakamo, da gledalec dobi {"konec": "dostop"}; seja (zajem, vnos) je takrat
 #: ze ustavljena, povezava se zapre najpozneje po tem roku - tudi ce gledalec ne bere (polna vrsta pisanja).
 OBVESTILO_ROK_S = 0.5
+#: Razmik, s katerim straza seje X11 preverja velikost zajetega zaslona, in stevilo zaporednih razlik, preden sejo
+#: koncamo (RandR ob zaprtju pokrova ali odklopu monitorja za trenutek niha). Izmerjeno 17. 11. 2026: pokrov zaprt med
+#: sejo -> X ostane samo z HDMI-1 2560x1440, ffmpeg pa je se vedno zajemal 1920x1080 od zgoraj levo in televizor je
+#: kazal povecan izrez.
+GEOMETRIJA_PREVERI_S = 1.0
+GEOMETRIJA_RAZLIK = 2
 
 
 def _privzeti_dostop(naprava: str) -> bool:
@@ -547,6 +553,21 @@ def _deljeni_monitor() -> Optional[dict]:
     finally:
         p.zapri()
     return monitorji[0] if len(monitorji) > 1 else None
+
+
+def _geometrija_zajema(display: str) -> Optional[tuple]:
+    """(velikost, odmik) zajema X11, kot ju izbere zacetek seje: primarni monitor (vec monitorjev), sicer ves zaslon.
+    None, ce je ni mogoce izmeriti: straza seje takrat nic ne sklepa (ne ugibamo)."""
+    try:
+        monitor = _deljeni_monitor()
+        if monitor and monitor["sirina"] and monitor["visina"]:
+            return (int(monitor["sirina"]), int(monitor["visina"])), (int(monitor["x"]), int(monitor["y"]))
+        koren = _zaslon_geometrija(display)
+    except Exception:  # noqa: BLE001 - X ta trenutek ne odgovarja: ne sklepamo
+        return None
+    if not koren:
+        return None
+    return (int(koren[0]), int(koren[1])), (0, 0)
 
 
 #: Kljucna slika: starejsi gledalec jo potrebuje vsako sekundo (enoto, ki jo izpusti, popravi sele ona). Gledalec, ki
@@ -1985,6 +2006,7 @@ class Zaslon:
             self._zmoznosti = {str(z) for z in (zmoznosti or []) if isinstance(z, str)}
             # Kazalec kot podatek in sestava po profilu - samo namizje X11 (spodaj); drugje None.
             self._kazalec_x11 = None
+            self._geometrija_x11 = None
             self._po_profilu = None
             self._omrezje = str(omrezje or "")[:16]
             # Dolga skupina slik samo gledalcu, ki enot ne izpusca; HEVC samo, ce ga naprava hoce in racunalnik zmore.
@@ -2064,6 +2086,7 @@ class Zaslon:
                 # (core/link_kazalec.py; lastnik 25. 10. 2026: dvojni kazalec v gledalcu Windows).
                 kazalec_v_sliki = link_kazalec.ZMOZNOST not in self._zmoznosti
                 self._kazalec_x11 = None if kazalec_v_sliki else (display, tuple(odmik))
+                self._geometrija_x11 = (display, (int(izvor[0]), int(izvor[1])), (int(odmik[0]), int(odmik[1])))
                 # Starejsi gledalec: ukaz kot doslej (brez novega argumenta).
                 kaz = {} if kazalec_v_sliki else {"kazalec_v_sliki": False}
                 # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
@@ -2406,6 +2429,10 @@ class Zaslon:
             if self._kazalec_x11 is not None:
                 niti.append(threading.Thread(target=self._posiljaj_kazalec, args=(odjemalec, konec_seje),
                                              name="safeer-zaslon-kazalec", daemon=True))
+            if getattr(self, "_geometrija_x11", None) is not None:
+                niti.append(threading.Thread(target=self._strazi_geometrijo,
+                                             args=(seja, konec_seje, self._geometrija_x11),
+                                             name="safeer-zaslon-geometrija", daemon=True))
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
             niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,),
                                          kwargs={"meritve": meritve, "slika": slika, "kljucni": omejevalnik},
@@ -2575,6 +2602,28 @@ class Zaslon:
                 return
             if konec.wait(DOSTOP_PREVERI_S):
                 return
+
+    def _strazi_geometrijo(self, seja: int, konec: threading.Event, zacetna: tuple) -> None:
+        """X11: velikost in odmik zajetega zaslona sta bila dolocena ob zacetku seje (ukaz ffmpeg ima fiksen
+        -video_size in odmik). Ce se zaslon trajno spremeni (pokrov zaprt, monitor odklopljen), bi gledalec dobival
+        napacen izrez, vnos pa bi zadel napacne tocke: sejo zato koncamo z razlogom `zaslon_spremenjen`, gledalec jo
+        zacne znova z novo velikostjo. Kratek preskok RandR (GEOMETRIJA_RAZLIK zaporednih razlik) ne steje."""
+        display, izvor, odmik = zacetna
+        razlik = 0
+        while not konec.wait(GEOMETRIJA_PREVERI_S):
+            if self._seja_st != seja:
+                return
+            zdaj = _geometrija_zajema(display)
+            if zdaj is None or zdaj == (tuple(izvor), tuple(odmik)):
+                razlik = 0
+                continue
+            razlik += 1
+            if razlik < GEOMETRIJA_RAZLIK:
+                continue
+            print("[zaslon] velikost zaslona se je spremenila (%dx%d+%d+%d -> %dx%d+%d+%d), seja se konca" % (
+                izvor[0], izvor[1], odmik[0], odmik[1], zdaj[0][0], zdaj[0][1], zdaj[1][0], zdaj[1][1]), flush=True)
+            self.ustavi(seja=seja, obvestilo={"konec": "zaslon_spremenjen"})
+            return
 
     def _dovoljeno(self, naprava: str, jedro: str) -> bool:
         """Ali ima naprava (po jedru preverjenega kljuca, ce ga seja ima) upravljanje tega racunalnika. Napaka = ne."""
