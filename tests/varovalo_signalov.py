@@ -201,7 +201,9 @@ class Varovalo:
 
     def _skupina_dovoljena(self, pgid):
         clani = [p for p in _vsi_procesi() if _pgrp(p) == pgid]
-        return all(self.potomec(p) for p in clani)
+        # Clan, ki se je med iskanjem koncal (zombi pobran, /proc/<pid> izginil), signala ne more vec prejeti in ne
+        # ogrozi tujega procesa; brez tega pade preizkus na pocasnem tekacu (CI 17. 11. 2026, test_tok_za_napravo 2x).
+        return all(self.potomec(p) for p in clani if _pgrp(p) is not None)
 
     def _krsitev(self, kaj, cilji):
         ime = os.environ.get("PYTEST_CURRENT_TEST", "?")
