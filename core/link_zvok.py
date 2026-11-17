@@ -97,11 +97,68 @@ NAVIDEZNI_VMESNIKI = ("docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "lxc
 _IFF_UP, _IFF_LOOPBACK, _IFF_POINTOPOINT = 0x1, 0x8, 0x10
 
 
+_AF_INET = 2
+
+
+def _ifaddrs_v_seznam(zacetek) -> List[tuple]:
+    """Sprehod po verigi `struct ifaddrs` (getifaddrs): (ime, naslov IPv4, zastavice) za VSAK naslov IPv4, tudi dodatne
+    (secondary) naslove istega vmesnika. `zacetek` je kazalec na prvi zapis (ali None)."""
+    izid: List[tuple] = []
+    zapis = zacetek
+    while zapis:
+        e = zapis.contents
+        a = e.ifa_addr
+        if a and a.contents.sa_family == _AF_INET:
+            naslov = socket.inet_ntoa(bytes(a.contents.sa_data[2:6]))      # sockaddr_in: 2 B vrata, nato 4 B naslov
+            izid.append(((e.ifa_name or b"").decode("utf-8", "replace"), naslov, int(e.ifa_flags)))
+        zapis = e.ifa_next
+    return izid
+
+
+def _naslovi_getifaddrs() -> Optional[List[tuple]]:
+    """Vsi naslovi IPv4 vseh vmesnikov prek libc getifaddrs; None, ce klica ni (drug sistem) ali ne uspe."""
+    try:
+        import ctypes
+        import ctypes.util
+
+        class SockAddr(ctypes.Structure):
+            _fields_ = [("sa_family", ctypes.c_ushort), ("sa_data", ctypes.c_ubyte * 14)]
+
+        class Ifaddrs(ctypes.Structure):
+            pass
+
+        Ifaddrs._fields_ = [("ifa_next", ctypes.POINTER(Ifaddrs)), ("ifa_name", ctypes.c_char_p),
+                            ("ifa_flags", ctypes.c_uint), ("ifa_addr", ctypes.POINTER(SockAddr)),
+                            ("ifa_netmask", ctypes.POINTER(SockAddr)), ("ifa_ifu", ctypes.POINTER(SockAddr)),
+                            ("ifa_data", ctypes.c_void_p)]
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        libc.getifaddrs.argtypes = [ctypes.POINTER(ctypes.POINTER(Ifaddrs))]
+        libc.freeifaddrs.argtypes = [ctypes.POINTER(Ifaddrs)]
+        glava = ctypes.POINTER(Ifaddrs)()
+        if libc.getifaddrs(ctypes.byref(glava)) != 0:
+            return None
+        try:
+            return _ifaddrs_v_seznam(glava)
+        finally:
+            libc.freeifaddrs(glava)
+    except Exception:
+        return None
+
+
 def naslovi_vmesnikov() -> List[tuple]:
     """(ime, naslov IPv4, zastavice) omreznih vmesnikov tega racunalnika.
 
-    Linux pove ime in zastavice (predor VPN ima POINTOPOINT). Windows da samo naslove, ki jih ima ime
-    racunalnika - ime je takrat prazno, zastavica samo "vklopljen"."""
+    Linux: VSI naslovi IPv4 vsakega vmesnika (getifaddrs) - prej samo primarni (SIOCGIFADDR), zato dodatni naslov
+    (kabel v drugem podomrezju) ni bil med naslovi, ki jih povemo napravi (17. 11. 2026: hosts = Wi-Fi + primarni kabel).
+    Ce klica ni, kot prej (primarni naslov). Windows da samo naslove, ki jih ima ime racunalnika."""
+    vsi = _naslovi_getifaddrs()
+    if vsi is not None:
+        return vsi
+    return _naslovi_vmesnikov_primarni()
+
+
+def _naslovi_vmesnikov_primarni() -> List[tuple]:
+    """Prejsnji nacin: en (primarni) naslov na vmesnik prek ioctl; Windows: naslovi imena racunalnika, ime prazno."""
     try:
         import fcntl
         import struct
