@@ -3611,6 +3611,21 @@ class VdelaniSplet:
                 ob_odgovoru(i)
         d.choose(self._okno_za_dialog(pogled), preklic, koncano, None)
 
+    #: Pavza vseh predvajalnikov na strani (video, zvok): ob zaprtju okna Splet glasba ne sme teci naprej (lastnik 17. 11. 2026).
+    JS_USTAVI_PREDVAJANJE = "document.querySelectorAll('video,audio').forEach(function(m){try{m.pause();}catch(e){}});"
+
+    def ustavi_predvajanje(self) -> int:
+        """Takoj ustavi predvajanje v vseh zavihkih (pavza, stran ostane nalozena: ponovno odprtje je takojsnje).
+        Vrne stevilo zavihkov, ki jim je bila pavza poslana."""
+        poslano = 0
+        for z in list(self.zavihki):
+            try:
+                z["pogled"].evaluate_javascript(self.JS_USTAVI_PREDVAJANJE, -1, None, None, None, None, None)
+                poslano += 1
+            except Exception:  # noqa: BLE001 - zavihek v zapiranju ne sme prekiniti zaprtja okna
+                pass
+        return poslano
+
     def zapri_dialoge(self) -> None:
         """Zaprtje Spleta (✕, Esc, »Odpri v brskalniku«) zapre tudi njegove odprte dialoge - brez tega bi dialog ostal
         sam na namizju nad skritim Spletom. Odgovor je -1 (kot zaprtje dialoga brez izbire)."""

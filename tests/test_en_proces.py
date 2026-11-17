@@ -116,7 +116,8 @@ class SpletOb(unittest.TestCase):
             s = f.read()
         telo = s.split("def _skrij_splet_na_namizju", 1)[1].split("\n    def ", 1)[0]
         self.assertIn("sprazni_predpomnilnik()", telo)
-        self.assertIn("timeout_add_seconds(60, self._sprosti_splet_na_namizju)", telo)
+        # 17. 11. 2026: rok sprostitve zavihkov je konstanta (600 s; predpomnilnik se sprazni takoj, predvajanje se ustavi takoj)
+        self.assertIn("timeout_add_seconds(SPROSTI_SPLET_PO_S, self._sprosti_splet_na_namizju)", telo)
 
     def test_predpomnilnik_brez_zapiranja_zavihkov(self):
         from core import os_splet
