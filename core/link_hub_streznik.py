@@ -1818,8 +1818,11 @@ class Hub:
                 if link_pot.RANG_POTI.get(nova_pot, 0) < link_pot.RANG_POTI.get(stara_pot, 0):
                     return False
                 zacetnik_stare = getattr(obstojeca, "podatki", {}).get("zacel", "")
+                # Prednost manjsega id velja samo za ZIVO staro povezavo: kabel izvlecen med sejo (izmerjeno 17. 11. 2026)
+                # je pustil staro (odprl jo je ta Hub) v TCP ponovnih poskusih ~15 min, TV pa je prek Wi-Fi vsakic dobil
+                # podvojen_sosed in seja zaslona se ni zacela.
                 if (nova_pot == stara_pot and zacetnik_stare == min(sosed_id, self.nas_id)
-                        and zacel != zacetnik_stare):
+                        and zacel != zacetnik_stare and _ziva(obstojeca)):
                     return False
                 if nova_pot == stara_pot and zacel == zacetnik_stare and _ziva(obstojeca):
                     # Isti sosed nas klice znova, stara povezava pa se utripa: klical je isti Hub pod drugim id-jem

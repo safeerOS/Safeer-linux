@@ -66,6 +66,27 @@ class PodvojenaSosednja(_Hubi):
         self.assertEqual((odgovor["status"], odgovor["error_code"]), ("rejected", "podvojen_sosed"))
         self.assertTrue(nova.podatki.get("zapri_po_odgovoru"))
 
+    def test_mrtva_stara_ki_jo_je_odprl_manjsi_id_se_zamenja(self):
+        """Kabel izvlecen med sejo (17. 11. 2026): staro povezavo je odprl ta Hub (manjsi id), jo kabel ne prenasa vec,
+        nova prek Wi-Fi jo mora zamenjati - prej je bila zavrnjena (podvojen_sosed) do izteka TCP (~15 min)."""
+        stara = Cev(self.tab)
+        stara.zadnji_prejem = time.monotonic() - lhs.ZIVA_SOSEDNJA_S - 1
+        self.assertTrue(self.pc.dodaj_soseda("hub-tab", stara, "hub-pc"))
+        nova = Cev(self.tab)
+        self.assertTrue(self.pc.dodaj_soseda("hub-tab", nova, "hub-tab"))
+        self.assertIs(self.pc._sosedje["hub-tab"], nova)
+        self.assertTrue(stara.zaprta)
+
+    def test_ziva_stara_ki_jo_je_odprl_manjsi_id_ostane(self):
+        """Hkratni klic obeh strani: zivo povezavo, ki jo je odprl manjsi id, ne sme zamenjati nova z druge strani."""
+        stara = Cev(self.tab)
+        stara.zadnji_prejem = time.monotonic()
+        self.assertTrue(self.pc.dodaj_soseda("hub-tab", stara, "hub-pc"))
+        nova = Cev(self.tab)
+        self.assertFalse(self.pc.dodaj_soseda("hub-tab", nova, "hub-tab"))
+        self.assertIs(self.pc._sosedje["hub-tab"], stara)
+        self.assertFalse(stara.zaprta)
+
     def test_mrtva_stara_se_zamenja(self):
         stara = Cev(self.tab)
         stara.zadnji_prejem = time.monotonic() - lhs.ZIVA_SOSEDNJA_S - 1
