@@ -1581,14 +1581,17 @@ PESKOVNIK_PONOVNO_S = 30.0
 
 
 #: Ukazna zastavica za okno Safeer Player (Medijski center v svojem oknu); --predvajaj <datoteka> je nekaj drugega.
-#: Plosca Splet na namizju: (naslov, »Odpri v brskalniku«, »Zapri (Esc)«).
+#: Plosca Splet na namizju: (naslov, »Odpri v brskalniku«, »Zapri (Esc)«, »Minimiziraj«).
+#: Skrit Splet sprosti zavihke po toliko sekundah mirovanja (predvajanje se ob zaprtju ustavi takoj, stran ostane nalozena,
+#: da je ponovno odprtje takojsnje; lastnik 17. 11. 2026).
+SPROSTI_SPLET_PO_S = 600
 BESEDILA_SPLETA_NA_NAMIZJU = {
-    "sl": ("Splet", "Odpri v brskalniku", "Zapri (Esc)"),
-    "en": ("Web", "Open in browser", "Close (Esc)"),
-    "de": ("Web", "Im Browser öffnen", "Schließen (Esc)"),
-    "es": ("Web", "Abrir en el navegador", "Cerrar (Esc)"),
-    "fr": ("Web", "Ouvrir dans le navigateur", "Fermer (Échap)"),
-    "it": ("Web", "Apri nel browser", "Chiudi (Esc)"),
+    "sl": ("Splet", "Odpri v brskalniku", "Zapri (Esc)", "Minimiziraj (predvajanje teče v ozadju)"),
+    "en": ("Web", "Open in browser", "Close (Esc)", "Minimize (keeps playing in the background)"),
+    "de": ("Web", "Im Browser öffnen", "Schließen (Esc)", "Minimieren (Wiedergabe läuft im Hintergrund weiter)"),
+    "es": ("Web", "Abrir en el navegador", "Cerrar (Esc)", "Minimizar (sigue reproduciendo en segundo plano)"),
+    "fr": ("Web", "Ouvrir dans le navigateur", "Fermer (Échap)", "Réduire (la lecture continue en arrière-plan)"),
+    "it": ("Web", "Apri nel browser", "Chiudi (Esc)", "Riduci a icona (la riproduzione continua in background)"),
 }
 
 ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
@@ -3286,6 +3289,11 @@ class SafeerOS(Gtk.Application):
             v_brskalniku = Gtk.Button(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[1])
             v_brskalniku.connect("clicked", lambda *_: self._splet_namizja_v_brskalnik())
             glava.append(v_brskalniku)
+            minimiziraj = Gtk.Button(label="–")
+            minimiziraj.set_tooltip_text(BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[3])
+            # Minimiziranje NE skrije okna in ne sprozi sprostitve zavihkov: predvajanje tece naprej v ozadju.
+            minimiziraj.connect("clicked", lambda *_: self._plosca_spleta.minimize() if self._plosca_spleta is not None else None)
+            glava.append(minimiziraj)
             zapri = Gtk.Button(label="✕")
             zapri.set_tooltip_text(BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[2])
             zapri.connect("clicked", lambda *_: self._skrij_splet_na_namizju())
@@ -3339,16 +3347,17 @@ class SafeerOS(Gtk.Application):
             return False
         self._plosca_spleta.set_visible(False)
         if self._spletni_namizje is not None:
+            self._spletni_namizje.ustavi_predvajanje()    # glasba utihne takoj (ne po sprostitvi zavihkov)
             self._spletni_namizje.zapri_dialoge()      # dialog ne ostane sam nad skritim Spletom
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
         # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
         if self._spletni_namizje is not None:
             self._spletni_namizje.sprazni_predpomnilnik()
         GLib.timeout_add_seconds(2, lambda: (pomnilnik.obrezuj(), False)[1])
-        # Skrit Splet drzi spletni proces (~250 MiB): po minuti ga zapremo; naslednje iskanje ga odpre na novo.
+        # Skrit Splet drzi spletni proces (~250 MiB): po SPROSTI_SPLET_PO_S ga zapremo; naslednje iskanje ga odpre na novo.
         if getattr(self, "_sprosti_splet_id", 0):
             GLib.source_remove(self._sprosti_splet_id)
-        self._sprosti_splet_id = GLib.timeout_add_seconds(60, self._sprosti_splet_na_namizju)
+        self._sprosti_splet_id = GLib.timeout_add_seconds(SPROSTI_SPLET_PO_S, self._sprosti_splet_na_namizju)
         if not _ima_delovno(self) and self.okno is None and not any(o.get_visible() for o in self.get_windows()):
             # Samostojni Safeer Player je ze zaprt (_zapri_predvajalnik), Splet je bil zadnje okno: kot zaprtje
             # zadnjega okna - skrito okno sicer drzi proces brez vsega vidnega.
