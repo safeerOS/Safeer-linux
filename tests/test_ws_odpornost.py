@@ -123,6 +123,35 @@ class Odpornost(unittest.TestCase):
                          "razdeljeno sporocilo mora priti nazaj celo")
         self.assertEqual(json.loads(sporocilo)["type"], "sync.data")
 
+    def test_najvecja_kategorija_sinhronizacije_pride_celo(self):
+        """Zapiski Line (kategorija do 1 MiB) z ovojnico: prej jo je meja 1 MiB zavrnila (19. 11. 2026)."""
+        celota = json.dumps({"id": "s1", "type": "sync.data",
+                             "payload": {"category": "safeer.notes.v1", "version": 1, "timestamp": 1,
+                                         "data": "x" * (1024 * 1024)}})
+
+        def velik(povezava):
+            telo = celota.encode()
+            povezava.sendall(bytes([0x81, 127]) + struct.pack("!Q", len(telo)) + telo)   # _okvir zna le kratke okvirje
+            time.sleep(1.0)
+
+        vrata = streznik(velik)
+        odjemalec = link_hub.WsOdjemalec(f"ws://127.0.0.1:{vrata}/cast/ws",
+                                         timeout=2.0, bralni_timeout=5.0)
+        odjemalec.odpri()
+        try:
+            sporocilo = odjemalec.prejmi()
+        finally:
+            odjemalec.zapri()
+        self.assertEqual(sporocilo, celota)
+
+    def test_meje_sporocila_so_skladne(self):
+        """Ena meja na vseh poteh sinhronizacije (Hub, odjemalec, mesh, vrsta) - sicer sinhronizacija tiho obstane."""
+        from core import link_hub_streznik, link_ws
+        self.assertEqual(link_hub.NAJVECJE_SPOROCILO, link_ws.NAJVECJE_SPOROCILO)
+        self.assertEqual(link_hub_streznik.NAJVEC_MESH_SPOROCILO, link_ws.NAJVECJE_SPOROCILO)
+        self.assertGreaterEqual(link_ws.NAJVECJE_SPOROCILO, 1024 * 1024 + 64 * 1024)
+        self.assertGreaterEqual(link_ws.NAJVEC_BAJTOV_V_VRSTI, link_ws.NAJVECJE_SPOROCILO + 256 * 1024)
+
     def test_prevelik_okvir_zavrnemo(self):
         """Napovedane dolzine ne verjamemo na besedo."""
         def ogromen(povezava):

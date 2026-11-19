@@ -95,7 +95,7 @@ NAJVEC_SEJ = 64
 MESH = "mesh1"
 #: Najvec sosednjih Hubov in najvecje sporocilo, ki ga sosed sme poslati za eno napravo.
 NAJVEC_SOSEDOV = 16
-NAJVEC_MESH_SPOROCILO = 1024 * 1024
+NAJVEC_MESH_SPOROCILO = 1024 * 1024 + 128 * 1024   # skladno z link_ws.NAJVECJE_SPOROCILO
 
 #: Safeer Chat: najvec cakajocih sporocil na napravo in koliko casa pocakajo.
 KLEPET_NA_NAPRAVO = 100

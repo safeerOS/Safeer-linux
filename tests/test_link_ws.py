@@ -220,6 +220,12 @@ class SondaNeZapre(unittest.TestCase):
         self.assertFalse(self.p.poslji("x"))
         self.assertTrue(self.p.zaprta)
 
+    def test_najvecje_sporocilo_in_navadno_gresta_v_vrsto(self):
+        """Kategorija sinhronizacije (do 1 MiB) ne sme povezave zapreti kot gluhe (19. 11. 2026)."""
+        self.assertTrue(self.p.poslji("x" * (1024 * 1024)))
+        self.assertTrue(self.p.poslji("y" * (400 * 1024)))
+        self.assertFalse(self.p.zaprta)
+
     def test_sonda_ne_steje_v_bajte(self):
         velika = "x" * (link_ws.NAJVEC_BAJTOV_V_VRSTI - 10)      # okvir z glavo (10 B) natanko napolni mejo bajtov
         self.assertTrue(self.p.poslji(velika))
