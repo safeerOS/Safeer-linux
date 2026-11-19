@@ -138,7 +138,7 @@ NAJVEC_NEPREVERJENIH = 256
 MESH = "mesh1"
 #: Najvecje sporocilo, ki ga sosed sme poslati za eno napravo (tehnicna meja okvirja, link_ws.NAJVECJE_SPOROCILO).
 #: Stevila sosedov ne omejuje stevilka (glej DESKRIPTORJEV_NAPRAVE).
-NAJVEC_MESH_SPOROCILO = 1024 * 1024
+NAJVEC_MESH_SPOROCILO = 1024 * 1024 + 128 * 1024   # skladno z link_ws.NAJVECJE_SPOROCILO
 #: Sosed sam utripa vsakih 10 s (Linux UTRIP_S, Android pingInterval). Sosednja povezava, ki je v tem roku nekaj
 #: prejela, je ziva: ponovni klic istega soseda (isti Hub pod drugim id-jem, npr. `n-x` in `n-x-control`) je ne
 #: zamenja - sicer povezava niha in odgovori gredo v zaprto vticnico (tablica, 17. 10. 2026).
