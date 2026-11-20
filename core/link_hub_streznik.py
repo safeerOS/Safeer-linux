@@ -283,7 +283,14 @@ class _Namestnik:
         if self.posredno:
             tovor["relay"] = True       # sosed naj preda svojemu sosedu (en sam vmesni skok)
         ovoj = {"id": link_ws.nakljucni(8), "type": "mesh.route", "payload": tovor}
-        return bool(self.povezava.poslji(json.dumps(ovoj, ensure_ascii=False)))
+        izpis = json.dumps(ovoj, ensure_ascii=False)
+        # Sporocilo se v `msg` ubeži drugic (vsak narekovaj in poševnica dobita znak vec): ~1,1 MB sync.data z veliko narekovaji
+        # bi postal ~2,2 MB, sosed bi ga zavrnil, nasa vrsta pa zaprla skupno povezavo, tudi ko je prazna (CodeRabbit Linux).
+        # Takega sporocila ne posljemo; povezava ostane, klicatelj dobi False.
+        if len(izpis) > NAJVEC_MESH_SPOROCILO // 4 and len(izpis.encode("utf-8")) > NAJVEC_MESH_SPOROCILO:
+            print("[SafeerHub] mesh.route: sporocilo presega okvir Huba, ni poslano", flush=True)
+            return False
+        return bool(self.povezava.poslji(izpis))
 
     def zapri(self, *_a, **_k) -> None:
         # Zapreti se da samo sosednjo povezavo, ne posamezne oddaljene naprave.
