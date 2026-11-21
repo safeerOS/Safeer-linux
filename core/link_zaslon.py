@@ -355,6 +355,49 @@ def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
     return _HEVC[kljuc]
 
 
+#: Zgornja meja hitrosti zivega zaslona v Mbit/s (lastnik 21. 11. 2026: 100 Mbit/s kabel, prostor za protokol in
+#: nihanja). Izmerjeno 21. 11. 2026 (Intel iHD 24.1, 1080p60, slika s sumom in gibanjem): CQP qp 16 = 551 Mbit/s,
+#: qp 8 = 757 Mbit/s - brez meje tak prizor (film z zrnom, igra) zasuje vsako domaco povezavo. QVBR z isto kakovostjo:
+#: mirno namizje 0,9 Mbit/s (kot CQP 0,9), sum 60 Mbit/s. Izklop: SAFEER_ZASLON_OMEJITEV=0 (ostane CQP kot prej).
+NAJVEC_MBIT = 75
+CILJ_MBIT = 60
+#: Izid preizkusa `omejitev_mozna` po (ffmpeg, naprava, kodirnik).
+_OMEJITEV: dict = {}
+
+
+def omejitev_vklopljena() -> bool:
+    return os.environ.get("SAFEER_ZASLON_OMEJITEV", "1").strip() != "0"
+
+
+def omejitev_mozna(ffmpeg: str, vaapi: Optional[str], kodirnik: str) -> bool:
+    """Ali gonilnik zna kakovost z zgornjo mejo hitrosti (QVBR): enkraten kratek preizkus, izid si zapomnimo.
+    Starejsi gonilniki (iHD brez HuC) znajo samo CQP - tam ostane CQP brez meje, kot doslej."""
+    if not ffmpeg or not vaapi or not omejitev_vklopljena():
+        return False
+    kljuc = "%s|%s|%s" % (ffmpeg, vaapi, kodirnik)
+    if kljuc not in _OMEJITEV:
+        try:
+            r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
+                                "-f", "lavfi", "-i", "color=black:size=320x240:rate=30", "-frames:v", "3",
+                                "-vf", "format=nv12,hwupload", "-c:v", kodirnik] + nacin_hitrosti(24, True) +
+                               ["-bf", "0", "-f", "null", "-"],
+                               # Izhoda NE zbiramo (kot gpu_lestvica_mozna): lazni ffmpeg v preizkusih pise tok brez konca -
+                               # s capture_output je preizkus 21. 11. 2026 porabil 18 GB in sprozil OOM celega racunalnika.
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, stdin=subprocess.DEVNULL)
+            _OMEJITEV[kljuc] = r.returncode == 0
+        except Exception:  # noqa: BLE001 - brez preizkusa ostanemo pri CQP
+            _OMEJITEV[kljuc] = False
+    return _OMEJITEV[kljuc]
+
+
+def nacin_hitrosti(qp: int, z_mejo: bool) -> List[str]:
+    """Moznosti kodirnika VAAPI za hitrost: kakovost po kvantizatorju, z mejo (QVBR) ali brez (CQP). Ena funkcija za
+    preizkus in za sejo, da se ne razideta."""
+    if z_mejo:
+        return ["-rc_mode", "QVBR", "-global_quality", str(qp), "-b:v", "%dM" % CILJ_MBIT, "-maxrate", "%dM" % NAJVEC_MBIT]
+    return ["-rc_mode", "CQP", "-qp", str(qp)]
+
+
 #: Izid preizkusa `gpu_lestvica_mozna` po (ffmpeg, naprava); kljuc `_GPU_ODPOVED`: zajem s pomanjsavo na graficni je
 #: ze odpovedal (`gpu_odpovedal`).
 _GPU: Dict[str, bool] = {}
@@ -577,8 +620,9 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # Varcnega nacina (low_power) namenoma ne vsiljujemo: na tem prenosniku (Intel Gen12) drug
         # nacin sploh ne obstaja - izmerjeno je z low_power 0 in 1 izid enak do decimalke - na
         # drugih racunalnikih pa lahko gonilnik izbere boljso pot, ce mu je ne zvezemo.
-        # CQP je edini nacin hitrosti, ki ga ta gonilnik zna (CBR, VBR, ICQ in QVBR so preizkuseni
-        # in vsi padejo), obenem pa ga zna vsak - zato kakovost dolocimo s kvantizatorjem.
+        # CQP zna vsak gonilnik - zato kakovost dolocimo s kvantizatorjem. Starejsi gonilnik na tem prenosniku je znal
+        # samo CQP; iHD 24.1 (21. 11. 2026) zna tudi QVBR - kjer preizkus `omejitev_mozna` uspe, ima ista kakovost
+        # zgornjo mejo hitrosti (NAJVEC_MBIT), sicer ostane CQP.
         #
         # Pomanjsava na procesorju (lanczos) je bila pri 2560x1440 -> 1080p vecina dela ffmpeg (346 % CPU). Graficna
         # sliko pretvori in pomanjsa sama (74 % CPU). Nacin `default` (algoritem izbere gonilnik) izrecno: ffmpeg >= 6
@@ -596,7 +640,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
               "-vf", filter_slike,
               "-c:v", "hevc_vaapi" if hevc else "h264_vaapi",
               "-profile:v", ("rext" if barve444 else "main") if hevc else "high",
-              "-rc_mode", "CQP", "-qp", str(qp),
+              ] + nacin_hitrosti(qp, omejitev_mozna(ffmpeg, vaapi, "hevc_vaapi" if hevc else "h264_vaapi")) + [
               # Zivi zaslon: kodirnik ne drzi vec slik hkrati v teku (privzeto 2). Izmerjeno 17. 11. 2026 (H.264, zajem+kodiranje+
               # dekodiranje na istem racunalniku, 60 fps, 3 ponovitve izmenicno): mediana 74-77 ms brez, 58-64 ms z -async_depth 1.
               "-async_depth", "1"]
