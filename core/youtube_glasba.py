@@ -30,6 +30,7 @@ class Element(NamedTuple):
     id: str
     naslov: str
     podnaslov: str
+    slika: str = ""
 
 
 class AlbumSkladba(NamedTuple):
@@ -95,6 +96,12 @@ def _stolpec(v: dict, i: int) -> str:
     return _besedilo(((st[i] or {}).get("musicResponsiveListItemFlexColumnRenderer") or {}).get("text"))
 
 
+def _slika_vrstice(v: dict) -> str:
+    sl = ((((v.get("thumbnail") or {}).get("musicThumbnailRenderer") or {}).get("thumbnail") or {}).get("thumbnails")) or []
+    url = (sl[-1] or {}).get("url", "") if sl else ""
+    return url if str(url).startswith("https://") else ""
+
+
 def razclen_iskanje(d: Any) -> list:
     """Skladbe, albumi in izvajalci; ostalo (videi, epizode, seznami, podcasti, profili) izpusti."""
     izhod: list = []
@@ -111,7 +118,7 @@ def razclen_iskanje(d: Any) -> list:
         if vrsta == "Song" and _ID_POSNETKA.match(posnetek):
             izhod.append(Element(SKLADBA, posnetek, naslov, podnaslov))
         elif vrsta in ("Album", "EP", "Single") and _ID_ALBUMA.match(brskanje):
-            izhod.append(Element(ALBUM, brskanje, naslov, podnaslov))
+            izhod.append(Element(ALBUM, brskanje, naslov, podnaslov, _slika_vrstice(v)))
         elif vrsta == "Artist" and _ID_IZVAJALCA.match(brskanje):
             izhod.append(Element(IZVAJALEC, brskanje, naslov, podnaslov))
     return izhod
