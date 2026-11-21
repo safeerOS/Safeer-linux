@@ -48,5 +48,18 @@ class Omejitev(unittest.TestCase):
         self.assertEqual(tek.call_count, 0)
 
 
+class PreizkusiGonilnikaBrezZbiranjaIzhoda(unittest.TestCase):
+    """21. 11. 2026: preizkus gonilnika z `capture_output=True` je z laznim ffmpeg (pise tok brez konca) porabil 18 GB in
+    sprozil OOM celega racunalnika. Preizkusa, ki stejeta samo izhodno kodo, izhoda ne smeta zbirati."""
+
+    def test_brez_capture_output(self):
+        import inspect
+        for fn in (Z.omejitev_mozna, Z.gpu_lestvica_mozna):
+            vir = inspect.getsource(fn)
+            self.assertNotIn("capture_output=", vir, fn.__name__)        # v komentarju je beseda dovoljena
+            self.assertIn("stdout=subprocess.DEVNULL", vir, fn.__name__)
+            self.assertIn("timeout=", vir, fn.__name__)
+
+
 if __name__ == "__main__":
     unittest.main()
