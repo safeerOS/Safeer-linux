@@ -421,6 +421,27 @@ class Krog:
         # Vpis naredi ta naprava sama (hub po preverjenem zetonu seznanitve): zanj ne velja preverba prejetih krogov.
         return self.zdruzi({"clani": {device_id: vnos}}, lokalno=True)
 
+    def podpisi_lastne(self) -> list:
+        """Podpise vnose, ki jih je dodala ta naprava, a so shranjeni brez podpisa (kot KrogZaupanja.podpisiLastne na
+        Androidu). Brez podpisa jih sosedje v mesh zavrnejo: naprava, ki krog dobi na novo (ponovna namestitev, nova
+        identiteta), takega clana ne spozna. Izmerjeno 21. 11. 2026: vnos glavnega id-ja tega racunalnika je bil brez
+        podpisa - televizor z novo identiteto racunalnika ni videl, racunalnik pa je televizor videl. Vrne podpisane id-je."""
+        podpisani = []
+        with self._zaklep:
+            for device_id, c in list(self.clani.items()):
+                if c.get("podpis") or not self._smo_mi(str(c.get("dodal") or "")):
+                    continue
+                try:
+                    podpis = podpisi(podatki_clana(device_id, c["kljuc"], c.get("platforma", ""), c["dodano"], c["dodal"]))
+                except Exception:  # noqa: BLE001 - brez kljuca ali z nepopolnim vnosom ostane, kot je
+                    continue
+                if podpis:
+                    c["podpis"] = podpis
+                    podpisani.append(device_id)
+            if podpisani:
+                self._shrani()
+        return podpisani
+
     def _smo_mi(self, device_id: str) -> bool:
         """Ali je ta id nasa naprava (isti kljuc)? Samo zase lahko podpisujemo."""
         if not device_id:
