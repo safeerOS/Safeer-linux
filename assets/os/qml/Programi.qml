@@ -329,7 +329,7 @@ Steklo {
         ColumnLayout {
             id: razdelekPril
             objectName: "razdelekPriljubljenih"
-            Layout.fillWidth: true; Layout.topMargin: 6; spacing: 4
+            Layout.fillWidth: true; Layout.topMargin: 6; spacing: 4; Layout.alignment: Qt.AlignTop
             visible: panel.linux && panel.skupina === "priljubljeni" && panel.niz === "" && modelPril.count > 0
             RowLayout {
                 Layout.fillWidth: true
@@ -423,6 +423,9 @@ Steklo {
                 }
             }
         }
+        // Ko je mreza skrita (kategorija Priljubljeni), mora nekaj zapolniti visino, sicer ColumnLayout vrstico
+        // priljubljenih odrine na dno okna in nad njo ostane velika praznina (lastnik, 21. 11. 2026).
+        Item { objectName: "polnilo"; Layout.fillWidth: true; Layout.fillHeight: true; visible: razdelekPril.visible }
         GridView {
             id: mreza
             objectName: "mrezaProgramov"

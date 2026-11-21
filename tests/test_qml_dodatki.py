@@ -306,6 +306,9 @@ class Priljubljeno(Osnova):
         # Vrstni red (povleci ali Alt+puscica) je v kategoriji »★ Priljubljeni«.
         self._js('programi.skupina = "priljubljeni"')
         self.assertTrue(self._pocakaj(lambda: vrsta.property("visible")))
+        # Napaka 21. 11. 2026: vrstica priljubljenih je zdrsnila na dno okna. Razdelek mora biti tik pod kategorijami.
+        razd = self._obj("razdelekPriljubljenih")
+        self.assertTrue(self._pocakaj(lambda: razd.property("y") < 150), razd.property("y"))
         self.assertFalse(self._obj("mrezaProgramov").property("visible"))
         # Alt+desno premakne prvega (Writer) za GIMP - zapisano v shrambo.
         vrsta.forceActiveFocus()

@@ -887,8 +887,11 @@ class Debrid:
         if enc not in self._kljuci:
             try:
                 self._kljuci[enc] = self._desifriraj(enc)
-            except Exception:  # noqa: BLE001 - kljuca ni mogoce prebrati: kot da ga ni
-                self._kljuci[enc] = ""
+            except Exception:  # noqa: BLE001 - kljuca ZDAJ ni mogoce prebrati: kot da ga ni, a neuspeha si NE zapomnimo
+                # 21. 11. 2026: Safeer OS se zazene ob prijavi, se preden je zbirka skrivnosti odklenjena. Prej se je
+                # neuspeh shranil kot prazen kljuc do konca seje - Medijski center je kazal »Dodaj debrid«, filmi in
+                # serije pa niso delali, ceprav je kljuc shranjen. Naslednji klic poskusi znova (indeksator ze tako dela).
+                return None
         return P.ocisti_kljuc(self._kljuci[enc])
 
     def z_kljucem(self) -> list:
