@@ -941,6 +941,14 @@
         <p class="drobno kat-vir-sporocilo" id="vgrSporocilo" role="status" aria-live="polite"></p>
       </form>
     </section>
+    <!-- Lastnik 21. 11. 2026: v oknu Viri je bil viden samo ponudnik Usenet; shranjeni kljuci debrid storitev in
+         indeksator so bili samo v oknu »Debrid storitve« (do njega le prek izbire ob zvrsteh). Tu je njihov povzetek in
+         gumb do istega okna - obrazca ne podvajamo. -->
+    <section class="vgr-sekcija" id="debridSekcija" aria-labelledby="debridSekcijaNaslov">
+      <h4 id="debridSekcijaNaslov" data-t="debridNaslov"></h4>
+      <div class="drobno" id="debridPovzetek" aria-live="polite"></div>
+      <button type="button" class="gumb" id="debridOdpriIzVirov" data-t="debridNastavitve"></button>
+    </section>
     <!-- Lasten ponudnik Usenet (naloga 114, core/usenet_vezava.py): geslo gre samo v sistemsko zbirko in se nikoli ne
          vrne na stran (polje je ob vsakem odprtju prazno); »Preveri« samo na klik, izid je koda iz besedila.js. -->
     <section class="vgr-sekcija unp-sekcija" id="unpSekcija" aria-labelledby="unpNaslov">

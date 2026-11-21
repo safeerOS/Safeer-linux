@@ -6296,6 +6296,18 @@
       + (u.stanje === "zaklenjen" ? opisZaklenjen("usenet", u.gostitelj) : opisStanjaKljuca(u.stanje))
       + (!u.torbox ? " · " + t("usenetBrezTorbox") : u.torbox_pro === false ? " · " + t("usenetBrezPro") : "");
   }
+  // Povzetek v oknu Viri (lastnik 21. 11. 2026): kateri kljuci in indeksator so shranjeni - ista besedila kot v oknu
+  // »Debrid storitve« (opisDebrida, opisUseneta), brez drugega obrazca.
+  function narisiDebridPovzetek(s) {
+    var p = $("debridPovzetek"); if (!p || !s) return;
+    p.innerHTML = "";
+    (s.storitve || []).filter(function (x) { return x.kljuc; }).forEach(function (x) {
+      p.appendChild(el("p", "", "<strong>" + ubezi(x.ime) + "</strong>: " + ubezi(opisDebrida(x))));
+    });
+    var u = s.usenet || {};
+    if (u.gostitelj) p.appendChild(el("p", "", "<strong>" + ubezi(t("usenetIme")) + "</strong>: " + ubezi(opisUseneta(u))));
+    if (!p.childNodes.length) p.appendChild(el("p", "", ubezi(t("debridDodaj"))));
+  }
   function nepreverjeniDebrid(s) {
     return !!s && ((s.storitve || []).some(function (x) { return x.kljuc && x.stanje === "nepreverjen"; })
       || !!(s.usenet && s.usenet.gostitelj && s.usenet.stanje === "nepreverjen"));
@@ -6418,6 +6430,7 @@
   function narisiDebridOkno(s) {
     if (!s) return;
     debridStanje = s; narisiDebrid(!$("mediaDebridPolje").hidden);
+    narisiDebridPovzetek(s);
     var sez = $("debridSeznam"); sez.innerHTML = "";
     (s.storitve || []).forEach(function (x) {
       var vrsta = el("div", "debrid-vrstica"); vrsta.dataset.id = x.id;
@@ -9957,6 +9970,7 @@ function narisiKatViri() {
     naloziKatViri();
     naloziVgrajene();
     naloziUsenetPonudnik();
+    klic("mediaDebrid", []).then(narisiDebridPovzetek).catch(function () {});
     $("mediaStreznikUrl").focus();
   }
   // Gumb "Install" na strani z dodatki Stremio (stremio://): okno Dodatki z naslovom dodatka; doda se sele na Poveži.
@@ -10042,6 +10056,8 @@ function narisiKatViri() {
     ob("katNalaganjeZnova", "click", function () { kat.napakaVec = false; naloziKatalog(true); });
     ob("katNalaganjeVec", "click", function () { naloziKatalog(true); });
     ob("katViriZapri", "click", zapriSloje);
+    // Okno Debrid je v dokumentu pred oknom Viri (bilo bi pod njim): Viri najprej zapremo.
+    ob("debridOdpriIzVirov", "click", function () { $("slojKatViri").classList.remove("viden"); odpriDebrid(); });
     ob("unpObrazec", "submit", unpShrani);
     ob("unpPreveri", "click", unpPreveri);
     ob("unpPozabi", "click", unpPozabi);

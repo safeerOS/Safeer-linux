@@ -220,6 +220,26 @@ class DebridVnos(unittest.TestCase):
         self.assertEqual((self.zbirka.z, len(po["gumbi"])), ({}, 1))
         self.assertTrue(po["fokus_v_vrstici"])
 
+    def test_povzetek_v_oknu_viri(self):
+        """Lastnik 21. 11. 2026: v oknu Viri se mora videti, kateri kljuc debrid storitve je shranjen, in gumb do okna."""
+        if ZIVO:
+            self.skipTest("povzetek je del vmesnika, brez prave storitve")
+        povzetek = "document.getElementById('debridPovzetek').textContent"
+        self.assertTrue(_cakaj(lambda: bool(self._js(povzetek))))
+        self.assertNotIn("TorBox", self._js(povzetek))                  # brez kljuca: samo povabilo k vnosu
+        with mock.patch.object(debrid, "torbox_preveri", return_value=(P.PREVERBA_VELJAVEN, P.TORBOX_PRO)):
+            self._vpisi("torbox", [KLJUC_TB])
+            self._streži()
+        self.assertTrue(_cakaj(lambda: "TorBox" in self._js(povzetek)), self._js(povzetek))
+        self.assertIn("ključ velja ✓ · paket Pro", self._js(povzetek))
+        self.assertNotIn(KLJUC_TB, self._js("document.getElementById('debridSekcija').innerHTML"))
+        self._js("(function () { document.getElementById('slojDebrid').classList.remove('viden');"
+                 " document.getElementById('slojKatViri').classList.add('viden');"
+                 " document.getElementById('debridOdpriIzVirov').click(); return 1; })()")
+        self.assertTrue(self._js("document.getElementById('slojDebrid').classList.contains('viden')"))
+        self.assertFalse(self._js("document.getElementById('slojKatViri').classList.contains('viden')"))
+        self.assertEqual(self._js("document.getElementById('debridOdpriIzVirov').textContent"), "Nastavitve debrida …")
+
     def test_nzbfinder_zavrnjen_naslov_ostane(self):
         self._brez_pravih("nzbfinder.ws")
         pred = self._vpisi("usenet", ["https://nzbfinder.ws", KLJUC_IX])
