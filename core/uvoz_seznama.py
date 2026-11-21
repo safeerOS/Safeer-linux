@@ -13,6 +13,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
+from core import uradni_posnetek
+
 NAJVEC = 400
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
        "Chrome/126.0 Safari/537.36")
@@ -283,18 +285,21 @@ def uvozi(vnos: str) -> Optional[dict]:
     return None
 
 
+def zadetki_iskanja_sekunde(t: str) -> int:
+    deli = [p for p in str(t or "").strip().split(":") if p.isdigit()]
+    if len(deli) not in (2, 3):
+        return 0
+    s = 0
+    for p in deli:
+        s = s * 60 + int(p)
+    return s
+
+
 def zadetki_iskanja(d: Any) -> list[tuple[str, int]]:
     """(id, dolzina v sekundah) zadetkov iskanja po vrsti."""
     izhod: list[tuple[str, int]] = []
 
-    def sekunde(t: str) -> int:
-        deli = [p for p in str(t or "").strip().split(":") if p.isdigit()]
-        if len(deli) not in (2, 3):
-            return 0
-        s = 0
-        for p in deli:
-            s = s * 60 + int(p)
-        return s
+    sekunde = zadetki_iskanja_sekunde
 
     def hodi(x: Any, globina: int) -> None:
         if globina > 60 or len(izhod) >= 12:
@@ -308,6 +313,33 @@ def zadetki_iskanja(d: Any) -> list[tuple[str, int]]:
         v = x.get("videoRenderer")
         if isinstance(v, dict) and v.get("videoId"):
             izhod.append((str(v["videoId"]), sekunde((v.get("lengthText") or {}).get("simpleText") or "")))
+            return
+        for y in x.values():
+            hodi(y, globina + 1)
+
+    hodi(d, 0)
+    return izhod
+
+
+def podrobni_zadetki(d: Any) -> list:
+    """Zadetki z naslovom in kanalom (samo videoRenderer; lockupViewModel kanala ne da zanesljivo)."""
+    izhod: list = []
+
+    def hodi(x: Any, globina: int) -> None:
+        if globina > 60 or len(izhod) >= 12:
+            return
+        if isinstance(x, list):
+            for v in x:
+                hodi(v, globina + 1)
+            return
+        if not isinstance(x, dict):
+            return
+        v = x.get("videoRenderer")
+        if isinstance(v, dict):
+            runs = lambda k: ((v.get(k) or {}).get("runs") or [{}])[0].get("text") or ""  # noqa: E731
+            if v.get("videoId") and runs("title"):
+                izhod.append(uradni_posnetek.Zadetek(str(v["videoId"]), runs("title"), runs("ownerText"),
+                                                     zadetki_iskanja_sekunde((v.get("lengthText") or {}).get("simpleText") or "")))
             return
         for y in x.values():
             hodi(y, globina + 1)
@@ -344,4 +376,10 @@ def najdi(naslov: str, izvajalec: str, sekund: int = 0, brez: tuple[str, ...] = 
                                     % urllib.parse.quote_plus(poizvedba), youtube=True), "ytInitialData")
         except Exception:
             return ""
+    # Najprej uradni posnetek izvajalca (Musike, 21. 11. 2026); sicer dosedanja izbira po dolzini.
+    if izvajalec:
+        uradni = uradni_posnetek.izberi([z for z in podrobni_zadetki(podatki) if z.id not in brez],
+                                        naslov or "", izvajalec, int(sekund or 0))
+        if uradni:
+            return uradni
     return izberi_zadetek(zadetki_iskanja(podatki), int(sekund or 0), brez)
