@@ -280,6 +280,26 @@ class Krog:
             c = self.clani.get(device_id)
             return dict(c) if c and self._veljaven(c) else None
 
+    def vnos_z_podpisom(self, device_id: str) -> Optional[Tuple[str, bool]]:
+        """Isto kot KrogZaupanja.vnosZPodpisom: (dodal, podpisan) za veljavnega clana ali None, ce clana ni ali je umaknjen.
+
+        `podpisan` = vnos je res podpisal clan `dodal` (ki je v krogu in ni umaknjen); preveri se samo podpis, ki ga
+        preveri kljuc porocevalca. Za »porocitev« polnega dostopa (link_dostop.poroceno)."""
+        with self._zaklep:
+            c = self.clan_za_id(device_id)
+            if not c:
+                return None
+            dodal = str(c.get("dodal") or "")
+            podpis = str(c.get("podpis") or "")
+            if not podpis or not dodal:
+                return dodal, False
+            porocevalec = self.clan_za_id(dodal)
+            if not porocevalec:
+                return dodal, False
+            ok = preveri_podpis(str(porocevalec.get("kljuc") or ""),
+                                podatki_clana(c["id"], c["kljuc"], c.get("platforma", ""), float(c["dodano"]), dodal), podpis)
+            return dodal, ok
+
     def je_clan(self, device_id: str) -> bool:
         return self.clan(device_id) is not None
 

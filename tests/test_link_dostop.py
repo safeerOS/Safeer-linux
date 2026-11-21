@@ -917,3 +917,58 @@ class SredisceOddaja(_Osnova):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _KrogZPodpisi(_Krog):
+    """Krog, ki za vsak id pove (dodal, podpisan); umaknjene ne pozna."""
+
+    def __init__(self, clani=(), vnosi=None, umaknjeni=()):
+        super().__init__(clani)
+        self._vnosi = vnosi or {}
+        self._umaknjeni = set(umaknjeni)
+
+    def vnos_z_podpisom(self, device_id):
+        return self._vnosi.get(device_id)
+
+    def je_umaknjen(self, device_id):
+        return device_id in self._umaknjeni
+
+
+class Poroceno(_Osnova):
+    """Poroštvo: naprava, ki jo je v krog vpisala naprava s polnim dostopom na tem racunalniku, ima polni dostop (21. 11. 2026)."""
+
+    def test_pravilo(self):
+        p = link_dostop.poroceno
+        self.assertTrue(p(B, A, True, False, {A}))
+        self.assertFalse(p(B, A, False, False, {A}))        # brez veljavnega podpisa
+        self.assertFalse(p(B, A, True, True, {A}))          # umaknjena
+        self.assertFalse(p(B, A, True, False, set()))       # porocevalec nima polnega dostopa
+        self.assertFalse(p(B, B, True, False, {B}))         # sam sebe ne poroci
+        self.assertFalse(p("", A, True, False, {A}))
+        self.assertFalse(p(B, None, True, False, {A}))
+
+    def _krog_z(self, vnosi, umaknjeni=()):
+        clani = [{"id": B, "kljuc": "KB"}, {"id": A, "kljuc": "KA"}]
+        k = _KrogZPodpisi(clani, vnosi, umaknjeni)
+        return mock.patch.object(link_dostop, "_krog", lambda: k)
+
+    def test_poroceni_dobi_polni_dostop_ena_stopnja(self):
+        link_dostop.nastavi(A, link_dostop.VSE_ZMOZNOSTI)
+        with self._krog_z({B: (A, True)}):
+            self.assertEqual(link_dostop.zmoznosti(B), set(link_dostop.VSE_ZMOZNOSTI))
+            self.assertEqual(link_dostop.zmoznosti_jedra(B), set(link_dostop.VSE_ZMOZNOSTI))
+        # B je porocena, a sama ne porocuje naprej: S, ki jo je vpisal B, nima nic.
+        with self._krog_z({B: (A, True), S: (B, True)}):
+            self.assertEqual(link_dostop.zmoznosti_jedra(S), set())
+
+    def test_brez_podpisa_ali_umaknjena_nic(self):
+        link_dostop.nastavi(A, link_dostop.VSE_ZMOZNOSTI)
+        with self._krog_z({B: (A, False)}):
+            self.assertEqual(link_dostop.zmoznosti(B), set())
+        with self._krog_z({B: (A, True)}, umaknjeni=(B,)):
+            self.assertEqual(link_dostop.zmoznosti(B), set())
+
+    def test_porocevalec_brez_polnega_dostopa_ne_porocuje(self):
+        link_dostop.nastavi(A, [link_dostop.DATOTEKE])
+        with self._krog_z({B: (A, True)}):
+            self.assertEqual(link_dostop.zmoznosti(B), set())
