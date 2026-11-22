@@ -1,4 +1,4 @@
-# WebKitGTK 2.54.2 (API 6.0, GTK 4) - za prehod Safeer OS na GTK4 (lastnik, 14. 10. 2026: en proces, GTK4 na X11
+# WebKitGTK 2.54.3 (API 6.0, GTK 4) - za prehod Safeer OS na GTK4 (lastnik, 14. 10. 2026: en proces, GTK4 na X11
 # prikaze stran z EGL brez kopije okvirja prek procesorja in Xorg). Isti izvor kot webkit2gtk-safeer.yml (GTK3).
 # Lastni popravki izvora: od 8. 11. 2026 hsts-subresource-upgrade.patch (glej sources). Prej (25. 10. 2026) brez, ker sta bila nasa popravka v 2.54.2 gorvodno
 # (datoteki ostaneta v mapi za zgodovino in meritve; patch -p1 --forward na 2.54.2 ju zavrne kot ze uporabljena):
@@ -74,10 +74,14 @@ cleanup:
   - /share/gir-1.0
 sources:
   - type: archive
-    url: https://webkitgtk.org/releases/webkitgtk-2.54.2.tar.xz
-    sha256: a76345b391bef6211fb5ab6cfab2e86b285d18cda17cbb9ade595f1252b86065
+    url: https://webkitgtk.org/releases/webkitgtk-2.54.3.tar.xz
+    sha256: 2779c1b46f88762e8400650271ba14452dc4e30b37059981552d8b562b7d0862
+  # 14. 11. 2026 (v7): podviri se nadgradijo SAMO, ce so istomestni s stranjo (isSameSite) - prvi popravek je medmestno
+  # nadgradil in dal tretjim stranem branje stanja HSTS (supercookie). Izmerjeno: medmestna slika HTTP, istomestna TLS.
   # Nas popravek (8. 11. 2026, zaupno do prijave WebKitu): HSTS se uveljavi tudi za podvire in okvirje (|| namesto &&
   # v NetworkDataTaskSoup::shouldAllowHSTSProtocolUpgrade). Izmerjeno na testnem PC s safeer-webkit 1.0.134: slika,
   # skripta in iframe do gostitelja s politiko HSTS so sli po http (3/3), piskotek istega mesta tudi.
+  # 18. 11. 2026: v14b (kumulativen proti 2.54.2, v 2.54.3 se nanese cisto, zamik +5 vrstic; sha256 20d8d51d6f87...): nadgradnja na mestu
+  # prek odjemalca namesto preusmeritve (CORS, preflight, Authorization), zastavica istega mesta tudi v preflightu in predpomnilniku.
   - type: patch
     path: hsts-subresource-upgrade.patch

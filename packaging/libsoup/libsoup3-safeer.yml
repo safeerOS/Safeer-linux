@@ -1,11 +1,13 @@
-# libsoup 3.8.0 namesto tiste iz runtime-a: org.gnome.Platform//50 ima 3.6.6, //51 pa 3.7.3 (gnome-build-meta,
+# libsoup 3.8.1 namesto tiste iz runtime-a: org.gnome.Platform//50 ima 3.6.6, //51 pa 3.7.3 (gnome-build-meta,
 # elements/sdk/libsoup.bst, preverjeno 15. 10. 2026). 3.8.0 popravi CVE-2026-3099 (Digest nonce), CVE-2026-66337
 # (multipart, branje cez mejo) in posredovanje shranjene prijave proxyja po preusmeritvi na drug izvor; 3.7.3 (vsebovan)
 # CVE-2026-5119 (piskotki proxyju) ter napake WebSocket, HTTP/2 in prijave proxyja. Isti soname (libsoup-3.0.so.0):
 # /app/lib je v iskalni poti pred /usr/lib, zato ga uporabijo nas WebKitGTK (omrezni proces), souphttpsrc iz GStreamerja
 # in core/doh_proxy.py (typelib Soup-3.0 v /app/lib/girepository-1.0). Modul je ZA WebKitom, da predpomnilnik WebKita
 # (2-3 h gradnje) ostane veljaven; libsoup 3 ohranja ABI, WebKit, preveden ob 3.6.6, zato dela s 3.8.0.
-# Moznosti kot v gnome-build-meta (brez NTLM, brez preizkusov in dokumentacije). Odstranimo, ko runtime dobi >= 3.8.0.
+# 3.8.1 (13. 11. 2026): omejitev velikosti teles vmesnih odgovorov (preusmeritev, prijava), popravki HTTP/2 in zstd ter NAS
+# popravek puscanja SoupConnection pri posredniku (sprejet gorvodno, v NEWS naveden kot »[Safeer]«) - zato ga ne nosimo vec.
+# Moznosti kot v gnome-build-meta (brez NTLM, brez preizkusov in dokumentacije). Odstranimo, ko runtime dobi >= 3.8.1.
 name: libsoup3-safeer
 buildsystem: meson
 config-opts:
@@ -27,17 +29,39 @@ cleanup:
   - /share/gir-1.0
 sources:
   - type: archive
-    url: https://download.gnome.org/sources/libsoup/3.8/libsoup-3.8.0.tar.xz
-    sha256: bbf08fa3e03a88c31a3d27a0d87cb422e9490f2d08e149211103df6d638a2238
-  # Nas popravek (12. 10. 2026, Launchpad #2170998): popravek CVE-2026-5119 je ob vsakem CONNECT skozi posrednik HTTP
-  # pustil en SoupConnection (vticnica, TLS, medpomnilniki). Splet z vklopljenim DoH gre vedno skozi nas posrednik
-  # (core/doh_proxy.py), zato je omrezni proces rasel (izmerjeno 25 -> 57 MiB v 9 min). Velja tudi za glavno vejo libsoup;
-  # ko bo popravek v izdaji libsoup, ga odstranimo.
-  - type: patch
-    path: soup-cookie-jar-connect-leak.patch
+    url: https://download.gnome.org/sources/libsoup/3.8/libsoup-3.8.1.tar.xz
+    sha256: 5013dcef9136f6f861e6529fca578af50c1f52a39219027fb5aff652d1371a04
   # Nasa popravka (8. 11. 2026, prijavljena gorvodno: GNOME #562/#563, Launchpad #2173671/#2173673):
   # A - odgovor posrednika na CONNECT ne spremeni stanja izvora (piskotki, HSTS, prijava);
   # C - najvec 5 kodiranj v Content-Encoding (vec = neznano kodiranje), brez prekoracitve sklada.
-  # Na izvoru 3.8.0 + connect-leak preizkuseno na testnem PC: celotna zbirka 40/40 (8. 11. 2026).
+  # Na izvoru 3.8.1 (z obema nasima popravkoma) preizkuseno na testnem PC: celotna zbirka 40/40 (13. 11. 2026).
   - type: patch
     path: libsoup-connect-origin-content-encoding.patch
+  # Nas popravek (13. 11. 2026; 14. 11. razsirjen na polni popravek iz porocila B, prijavljen zaupno: GNOME libsoup #566, Ubuntu
+  # Launchpad #2173671): piskotek za gostitelja IP velja
+  # samo za tocno ta naslov (F2), glava Cookie aplikacije se ob preusmeritvi na drug gostitelj odstrani (F4), HSTS velja
+  # tudi za ime s koncno piko, tudi v javnem has_valid_policy (F6). Vsak z dokazno skripto (brez popravka RANLJIVO, s
+  # popravkom VARNO, 3x); na izvoru 3.8.1 gorvodno se ranljivo (dokazi 9/9), z
+  # popravkom varno (9/9); celotna zbirka 40/40 (testni PC, 13. 11. 2026). Polni popravek B (23621 B) dodaja se piskotke
+  # (soup-cookie-jar.c), vrstice NULL v bazi HSTS (soup-hsts-enforcer-db.c, soup-hsts-policy.c) in preizkuse gorvodne zbirke.
+  # 18. 11. 2026: vsebina datoteke je od zdaj v14 (sha256 2082d2c64467...; zaupna gradnja 15. 11. je imela v12): ob zgornjem se
+  # popravijo se N1 (Domain=internal. z eno oznako), N2 (ne-ASCII velike crke), N3 (prazne oznake), N4 (stara pravila HSTS s piko),
+  # N8/N9 (NULL gostitelj/domena); preizkus 40/40 v 3 ponovitvah (porocilo oddaja-1611). Ime datoteke ostane zaradi preizkusov.
+  # 18. 11. 2026: v16 (sha256 e5810b01...; CodeRabbit: starsa z includeSubDomains v IDN + podrejeno ime z neveljavnim punycode je sla v
+  # odprtem besedilu; kanonizacija v host_includes_subdomains; /hsts/idn-parent brez popravka abort 3/3, s popravkom OK 3/3 in celoten
+  # hsts-test OK, testni PC) nadgradi v15 (sha256 d51cab33...) (slepi pregled, F1/F2): ime xn-- z neveljavnim punycode ne preskoci vec pravila includeSubDomains starsa
+  # (prej je zahteva s piskotki sla v odprtem besedilu), g_hash_table_steal_extended ni vec znotraj g_assert. Prevedeno v
+  # vsebniku (meson, 273 ciljev, brez opozoril). Preizkus /hsts/invalid-punycode: brez popravka abort 3/3, s popravkom OK 3/3,
+  # celoten hsts-test 31 ok (vsebnik na prenosniku, 18. 11. 2026). F2: libsoup z -DG_DISABLE_ASSERT in dvakratna obnovitev
+  # pravila: brez popravka SIGSEGV 3/3, s popravkom OK 3/3 (/hsts/renew-policy sam ne more pasti: GLib zavrne preizkuse z
+  # G_DISABLE_ASSERT). Dokazi: naloge/webkit-2543-pregled/evidenca-v15/preizkus-hsts/.
+  - type: patch
+    path: libsoup-cookie-hsts-hardening.patch
+  # Nas popravek C9 (14. 11. 2026, nikamor poslan): meja razsirjanja stisnjenega telesa. libsoup je razsiril poljubno
+  # kolicino (izmerjeno na paketu 1.0.135: 10 MB gzip -> 10 GiB brez napake, send_and_read in WebKit zbirata v
+  # pomnilnik do OOM). Ko je razsirjeno telo vecje od 1 MiB, je lahko najvec 200-krat vecje od bajtov s povezave (pri
+  # dcb/dcz plus velikost slovarja), sicer G_IO_ERROR_MESSAGE_TOO_LARGE; razmerje velja za celo verigo kodiranj.
+  # Prave strani 3-22:1 (20 odgovorov gzip/brotli z nasim libsoup, 14. 11. 2026), 200:1 je privzeto v Apachejevem DeflateInflateRatioLimit.
+  # Preizkus content-decoding-ratio-test: brez popravka pade, s popravkom uspe (3x izmenicno na testnem PC).
+  - type: patch
+    path: libsoup-decode-ratio-limit.patch

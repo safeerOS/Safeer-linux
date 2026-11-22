@@ -1874,9 +1874,9 @@ sys.exit("neznan ukaz")
         """Nas popravek libsoup (Launchpad #2170998): CONNECT skozi posrednik (DoH v Spletu) ne pusca SoupConnection.
         Isti modul gradita .deb (zgradi.sh) in Flatpak."""
         modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
-        self.assertIn('path: soup-cookie-jar-connect-leak.patch',modul)
-        popravek=(ROOT/'packaging/libsoup/soup-cookie-jar-connect-leak.patch').read_text()
-        self.assertIn('+        g_clear_object (&conn);',popravek)
+        # 22. 11. 2026: popravek je gorvodno v libsoup 3.8.1 (NEWS »[Safeer]«), zato ga ne nosimo vec - zahtevamo 3.8.1+.
+        self.assertIn('libsoup-3.8.1.tar.xz',modul)
+        self.assertNotIn('path: soup-cookie-jar-connect-leak.patch',modul)
         for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
             self.assertIn('packaging/libsoup/libsoup3-safeer.yml',(ROOT/manifest).read_text())
 
@@ -1884,8 +1884,16 @@ sys.exit("neznan ukaz")
         """Nasa popravka libsoup (8. 11. 2026, GNOME #562/#563): odgovor posrednika na CONNECT ne spremeni stanja izvora,
         najvec 5 kodiranj v Content-Encoding. Uporabi se ZA popravkom puscanja (vrstni red v modulu)."""
         modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
-        self.assertLess(modul.index('path: soup-cookie-jar-connect-leak.patch'),
-                        modul.index('path: libsoup-connect-origin-content-encoding.patch'))
+        # Vrstni red (22. 11. 2026, komplet 2543): izvor CONNECT, nato utrditev piskotkov in HSTS (v16), nato meja razsirjanja.
+        self.assertLess(modul.index('path: libsoup-connect-origin-content-encoding.patch'),
+                        modul.index('path: libsoup-cookie-hsts-hardening.patch'))
+        self.assertLess(modul.index('path: libsoup-cookie-hsts-hardening.patch'),
+                        modul.index('path: libsoup-decode-ratio-limit.patch'))
+        utrditev=(ROOT/'packaging/libsoup/libsoup-cookie-hsts-hardening.patch').read_text()
+        for datoteka in ('libsoup/cookies/soup-cookie-jar.c','libsoup/hsts/soup-hsts-enforcer.c','tests/hsts-test.c'):
+            self.assertIn('+++ b/'+datoteka,utrditev)
+        meja=(ROOT/'packaging/libsoup/libsoup-decode-ratio-limit.patch').read_text()
+        self.assertIn('+++ b/tests/content-decoding-ratio-test.c',meja)
         popravek=(ROOT/'packaging/libsoup/libsoup-connect-origin-content-encoding.patch').read_text()
         for datoteka in ('libsoup/cookies/soup-cookie-jar.c','libsoup/hsts/soup-hsts-enforcer.c','libsoup/auth/soup-auth-manager.c',
                          'libsoup/content-decoder/soup-content-decoder.c','tests/proxy-connect-test.c',
@@ -1895,16 +1903,15 @@ sys.exit("neznan ukaz")
     def test_webkit_hsts_podviri_307(self):
         """HSTS za podvire (|| namesto &&): medizvorni fetch/XHR brez preusmeritve, vse drugo s sinteticno 307 (POST ostane POST)."""
         popravek=(ROOT/'packaging/webkit/hsts-subresource-upgrade.patch').read_text()
-        self.assertIn('+        || !m_isBlockingCookies;',popravek)
+        # 22. 11. 2026: v14b (bugs.webkit.org 330680, 16. 11.): samo istomestni podviri (brez supercookieja HSTS za tretje
+        # strani), nadgradnja na mestu prek odjemalca (CORS, preflight, Authorization), sicer sinteticna 307.
+        self.assertIn('+    if (!m_currentRequest.isSameSiteUnspecified() && !m_currentRequest.isSameSite())',popravek)
         self.assertIn('+    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);',popravek)
-        self.assertIn('+        m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
-        # Brez preusmeritve samo medizvorni fetch/XHR v nacinu CORS; navigacije (vsi okvirji) in isti izvor prek 307
-        # (slepi pregled 8. 11. 2026: iframe bi imel izvor http z vsebino https, fetch istega izvora bi obsel CORS).
-        self.assertIn('+    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {',popravek)
-        # Slepi pregled 9. 11. 2026 (izmerjeno na testnem PC): vse zahteve z Origin drugega izvora ali null (preflight,
-        # crossorigin, modul, EventSource, beacon JSON, sandbox) brez preusmeritve; navigacije (Main) in isti izvor prek 307.
-        self.assertIn('+    if (request.requester() == ResourceRequestRequester::Main)',popravek)
-        self.assertIn('+    if (origin == "null"_s)',popravek)
+        self.assertIn('+            m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
+        self.assertIn('+        preflightRequest.setIsSameSite(request.isSameSite());',popravek)
+        for datoteka in ('Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp','Source/WebCore/loader/CrossOriginAccessControl.cpp',
+                         'Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.cpp','Source/WebKit/NetworkProcess/PingLoad.cpp'):
+            self.assertIn('+++ b/'+datoteka,popravek)
 
     def test_plugins_good_je_odvisnost(self):
         """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""

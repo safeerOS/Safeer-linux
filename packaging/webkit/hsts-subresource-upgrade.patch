@@ -1,48 +1,381 @@
 --- a/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
 +++ b/Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp
-@@ -1365,13 +1365,43 @@
+@@ -42,6 +42,7 @@
+ #include <WebCore/NetworkStorageSession.h>
+ #include <WebCore/OriginAccessPatterns.h>
+ #include <WebCore/PublicSuffixStore.h>
++#include <WebCore/RegistrableDomain.h>
+ #include <WebCore/SharedBuffer.h>
+ #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
+ #include <WebCore/SoupNetworkSession.h>
+@@ -799,8 +800,10 @@
+         if (body && !body->isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
+             request.setHTTPBody(WTF::move(body));
+ 
++        // The Content-Type describes the body above, so it is restored under the same condition: a request that an earlier 303
++        // turned into a GET has no body, and the type of the first request must not be sent on to the next host.
+         String originalContentType = m_firstRequest.httpContentType();
+-        if (!originalContentType.isEmpty())
++        if (!originalContentType.isEmpty() && !equalLettersIgnoringASCIICase(m_lastHTTPMethod, "get"_s))
+             request.setHTTPHeaderField(WebCore::HTTPHeaderName::ContentType, originalContentType);
+     }
+ 
+@@ -1365,13 +1368,68 @@
  {
      // Follow Apple's HSTS abuse mitigation 2:
      // "Ignore HSTS State for Subresource Requests to Blocked Domains"
-+    // Only subresource requests to blocked domains may skip the upgrade; any other request to a known
-+    // HSTS host must be upgraded to https (RFC 6797, section 8.3).
-     return isTopLevelNavigation()
+-    return isTopLevelNavigation()
 -        && !m_isBlockingCookies;
-+        || !m_isBlockingCookies;
-+}
++    if (m_isBlockingCookies)
++        return false;
 +
-+// A subresource request that carries an Origin of another origin (or an opaque "null" origin): fetch() and
-+// XMLHttpRequest, EventSource, CORS preflights, crossorigin and module scripts, beacons and so on. A synthetic
-+// redirect would break them: it has no Access-Control-Allow-Origin, preflights must not be redirected, and a
-+// cross-origin redirect makes the origin opaque. Upgrading in place keeps the Origin, method, body and
-+// redirect mode, as Fetch does for HSTS, and the response is still checked against the original origin.
-+// Navigations (of any frame) and same-origin requests go through a synthetic 307 instead, so the new https
-+// origin is handled by the redirect rules.
-+static bool shouldUpgradeInPlace(const ResourceRequest& request)
-+{
-+    if (request.requester() == ResourceRequestRequester::Main)
-+        return false;
-+    auto origin = request.httpOrigin();
-+    if (origin.isEmpty())
-+        return false;
-+    if (origin == "null"_s)
++    if (isTopLevelNavigation())
 +        return true;
-+    URL originURL { origin };
-+    return originURL.isValid() && !protocolHostAndPortAreEqual(originURL, request.url());
++
++    // A subresource is upgraded only when it is same-site with the top-level page. This limits what a page can learn about
++    // the HSTS state of other sites through its subresource loads (a tracking "supercookie", history sniffing with onload,
++    // onerror or timing). It is not a complete barrier: loads that do not go through this decision, such as WebSocket
++    // connections, are not covered. Both conditions below must hold. The same-site flag set by the web process can only
++    // veto: it is wrong for requests of about:blank
++    // and about:srcdoc initiators and it is not updated for redirects that the network process follows by itself
++    // (synchronous XMLHttpRequest, keepalive). So the URL of this very request is also compared with its first party,
++    // and this is done again for every redirect. An empty first party means cross-site.
++    if (!m_currentRequest.isSameSiteUnspecified() && !m_currentRequest.isSameSite())
++        return false;
++
++    RegistrableDomain firstPartyDomain { m_currentRequest.firstPartyForCookies() };
++    return !firstPartyDomain.isEmpty() && firstPartyDomain.matches(m_currentRequest.url());
  }
  
  void NetworkDataTaskSoup::protocolUpgradedViaHSTS(SoupMessage* soupMessage)
  {
 -    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), soupURIToURL(soup_message_get_uri(soupMessage)));
 +    URL upgradedURL = soupURIToURL(soup_message_get_uri(soupMessage));
-+    if (!isTopLevelNavigation() && shouldUpgradeInPlace(m_currentRequest)) {
-+        // libsoup has already rewritten the message URI and the message continues over https.
-+        m_currentRequest.setURL(WTF::move(upgradedURL));
-+        return;
++
++    // A subresource is upgraded in place, as Fetch does for HSTS, and not by a redirect: libsoup has already rewritten
++    // the message URI and the message continues over https. A redirect would be judged by the CORS redirect rules, which
++    // see the https URL as another origin: fetch() and XMLHttpRequest would need an Access-Control-Allow-Origin header
++    // (or fail with mode same-origin), a preflight cannot be redirected and the Authorization header would be dropped.
++    // Navigations of any frame stay a redirect, so that the frame loader gets to know the new URL. So does a subresource whose
++    // client refuses the upgrade in place: it decided, for the http URL, that the page may read the response without CORS.
++    if (!isTopLevelNavigation() && m_currentRequest.requester() != ResourceRequestRequester::Main) {
++        // The client keeps its own copy of the request, and NetworkLoadChecker the URL its CORS decisions work with: without
++        // this call the first redirect after the upgrade would be taken for a redirect from the http URL.
++        Ref protectedThis { *this };
++        RefPtr client = m_client.get();
++        if (client && client->upgradeRequestToHTTPSInPlace(upgradedURL)) {
++            m_currentRequest.setURL(WTF::move(upgradedURL));
++            // The HSTS enforcer of libsoup stays on the message it rewrote and reads the Strict-Transport-Security header of a
++            // response that comes after the message is restarted over https (authentication, a retry on a closed connection);
++            // a message cannot be told to ignore it from now on. That is right for a host that may set an HSTS policy from
++            // this page (shouldAllowHSTSPolicySetting), as for any https request to it. For another host the request goes on in
++            // a message created for the https URL, and createRequest() disables the enforcer for it. The client is told nothing:
++            // the checks and the CORS decisions above are those of an upgrade in place, this is not a redirect.
++            if (shouldAllowHSTSPolicySetting())
++                return;
++
++            auto wasBlockingCookies = m_isBlockingCookies ? WasBlockingCookies::Yes : WasBlockingCookies::No;
++            auto request = m_currentRequest;
++            clearRequest();
++            createRequest(WTF::move(request), wasBlockingCookies);
++            if (m_soupMessage && m_state != State::Suspended) {
++                m_state = State::Suspended;
++                resume();
++            }
++            return;
++        }
 +    }
++
 +    m_response = ResourceResponse::syntheticRedirectResponse(m_currentRequest.url(), upgradedURL);
 +    // Like an internal redirect: keep the method, the body and its Content-Type (they are only restored for 307/308).
 +    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);
      continueHTTPRedirection();
  }
  
+--- a/Source/WebCore/loader/CrossOriginAccessControl.cpp
++++ b/Source/WebCore/loader/CrossOriginAccessControl.cpp
+@@ -97,6 +97,10 @@
+     preflightRequest.setHTTPHeaderField(HTTPHeaderName::AccessControlRequestMethod, request.httpMethod());
+     preflightRequest.setPriority(request.priority());
+     preflightRequest.setFirstPartyForCookies(request.firstPartyForCookies());
++    // A preflight is upgraded by HSTS exactly when the request it precedes is (see NetworkDataTaskSoup), so it takes over the
++    // same-site disposition of that request; as a new request it would otherwise be unspecified.
++    if (!request.isSameSiteUnspecified())
++        preflightRequest.setIsSameSite(request.isSameSite());
+     preflightRequest.setIsAppInitiated(request.isAppInitiated());
+     if (!referrer.isNull())
+         preflightRequest.setHTTPReferrer(referrer);
+--- a/Source/WebKit/NetworkProcess/NetworkDataTask.h
++++ b/Source/WebKit/NetworkProcess/NetworkDataTask.h
+@@ -83,6 +83,12 @@
+ 
+     virtual void didNegotiateModernTLS(const URL&) { }
+ 
++    // The request is going to be upgraded to https in place (HSTS), without a redirect; the URL is the upgraded one. A client
++    // that has made decisions for the URL the request was created with returns false when they would not hold for the
++    // upgraded URL: the task then follows a redirect to it, which the client checks as any other redirect. A client that does
++    // not override this is not asked what an upgrade in place changes for it, so it gets the redirect.
++    virtual bool upgradeRequestToHTTPSInPlace(const URL&) { return false; }
++
+     void didCompleteWithError(const WebCore::ResourceError& error)
+     {
+         WebCore::NetworkLoadMetrics emptyMetrics;
+--- a/Source/WebKit/NetworkProcess/NetworkLoadClient.h
++++ b/Source/WebKit/NetworkProcess/NetworkLoadClient.h
+@@ -63,6 +63,7 @@
+     virtual void didFailLoading(const WebCore::ResourceError&) = 0;
+     virtual void didBlockAuthenticationChallenge() { };
+     virtual void didReceiveChallenge(const WebCore::AuthenticationChallenge&) { };
++    virtual bool upgradeRequestToHTTPSInPlace(const URL&) { return false; }
+     virtual bool shouldCaptureExtraNetworkLoadMetrics() const { return false; }
+ };
+ 
+--- a/Source/WebKit/NetworkProcess/NetworkLoad.h
++++ b/Source/WebKit/NetworkProcess/NetworkLoad.h
+@@ -118,6 +118,7 @@
+     void wasBlockedByRestrictions() final;
+     void wasBlockedByDisabledFTP() final;
+     void didNegotiateModernTLS(const URL&) final;
++    bool upgradeRequestToHTTPSInPlace(const URL&) final;
+ 
+     void notifyDidReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
+ 
+@@ -129,6 +130,7 @@
+ 
+     // FIXME: Deduplicate this with NetworkDataTask's m_previousRequest.
+     WebCore::ResourceRequest m_currentRequest; // Updated on redirects.
++    URL m_urlUpgradedInPlace; // Set when the request was upgraded to https without a redirect; the next redirect starts from it.
+ };
+ 
+ } // namespace WebKit
+--- a/Source/WebKit/NetworkProcess/NetworkLoad.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkLoad.cpp
+@@ -204,6 +204,11 @@
+     redirectResponse.setSource(ResourceResponse::Source::Network);
+ 
+     auto oldRequest = WTF::move(m_currentRequest);
++    // A request upgraded to https in place (NetworkDataTaskSoup) is redirected from the URL it was sent to. m_currentRequest
++    // keeps the URL the request was created with, which is the cache key of its response, so only the redirect uses the
++    // upgraded one.
++    if (!m_urlUpgradedInPlace.isNull())
++        oldRequest.setURL(std::exchange(m_urlUpgradedInPlace, { }));
+     request.setRequester(oldRequest.requester());
+ 
+     m_currentRequest = request;
+@@ -350,6 +355,14 @@
+         m_networkProcess->send(Messages::NetworkProcessProxy::DidNegotiateModernTLS(*m_parameters.webPageProxyID, url));
+ }
+ 
++bool NetworkLoad::upgradeRequestToHTTPSInPlace(const URL& upgradedURL)
++{
++    if (RefPtr client = m_client.get(); client && !client->upgradeRequestToHTTPSInPlace(upgradedURL))
++        return false;
++    m_urlUpgradedInPlace = upgradedURL;
++    return true;
++}
++
+ String NetworkLoad::description() const
+ {
+     if (RefPtr task = m_task.get())
+--- a/Source/WebKit/NetworkProcess/NetworkResourceLoader.h
++++ b/Source/WebKit/NetworkProcess/NetworkResourceLoader.h
+@@ -144,6 +144,7 @@
+     void didFailLoading(const WebCore::ResourceError&) final;
+     void didBlockAuthenticationChallenge() final;
+     void didReceiveChallenge(const WebCore::AuthenticationChallenge&) final;
++    bool upgradeRequestToHTTPSInPlace(const URL&) final;
+     bool shouldCaptureExtraNetworkLoadMetrics() const final;
+ 
+     // CrossOriginAccessControlCheckDisabler
+--- a/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp
+@@ -1337,6 +1337,12 @@
+     willSendRedirectedRequestInternal(WTF::move(request), WTF::move(redirectRequest), WTF::move(redirectResponse), IsFromServiceWorker::Yes, [] (auto) { });
+ }
+ 
++bool NetworkResourceLoader::upgradeRequestToHTTPSInPlace(const URL& upgradedURL)
++{
++    RefPtr networkLoadChecker = m_networkLoadChecker;
++    return !networkLoadChecker || networkLoadChecker->upgradeToHTTPSInPlace(upgradedURL);
++}
++
+ void NetworkResourceLoader::willSendRedirectedRequestInternal(ResourceRequest&& request, ResourceRequest&& redirectRequest, ResourceResponse&& redirectResponse, IsFromServiceWorker isFromServiceWorker, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
+ {
+     LOADER_RELEASE_LOG("willSendRedirectedRequest:");
+--- a/Source/WebKit/NetworkProcess/NetworkLoadChecker.h
++++ b/Source/WebKit/NetworkProcess/NetworkLoadChecker.h
+@@ -114,6 +114,7 @@
+ 
+     WebCore::NetworkLoadInformation takeNetworkLoadInformation() { return WTF::move(m_loadInformation); }
+     void storeRedirectionIfNeeded(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
++    bool upgradeToHTTPSInPlace(const URL&);
+ 
+     void enableContentExtensionsCheck() { m_checkContentExtensions = true; }
+ 
+@@ -194,6 +195,8 @@
+     std::unique_ptr<WebCore::ContentSecurityPolicy> m_contentSecurityPolicy;
+     size_t m_redirectCount { 0 };
+     URL m_previousURL;
++    // The URL the permission for the current request was obtained for (cache hit or preflight).
++    URL m_preflightedURL;
+     WebCore::PreflightPolicy m_preflightPolicy;
+     String m_referrer;
+     bool m_checkContentExtensions { false };
+--- a/Source/WebKit/NetworkProcess/NetworkLoadChecker.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkLoadChecker.cpp
+@@ -470,6 +470,7 @@
+ 
+ void NetworkLoadChecker::continueCheckingRequest(ResourceRequest&& request, ValidationHandler&& handler)
+ {
++    m_preflightedURL = { };
+     if (m_options.credentials == FetchOptions::Credentials::SameOrigin)
+         m_storedCredentialsPolicy = m_isSameOriginRequest && protect(origin())->canRequest(request.url(), originAccessPatterns()) ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
+ 
+@@ -548,6 +549,7 @@
+     m_isSimpleRequest = false;
+     if (CrossOriginPreflightResultCache::singleton().canSkipPreflight(m_sessionID, { m_topOrigin->data(), m_origin->data() }, request.url(), m_storedCredentialsPolicy, request.httpMethod(), m_originalRequestHeaders)) {
+         LOAD_CHECKER_RELEASE_LOG("checkCORSRequestWithPreflight - preflight can be skipped thanks to cached result");
++        m_preflightedURL = request.url();
+         updateRequestForAccessControl(request, *protect(origin()), m_storedCredentialsPolicy);
+         handler(WTF::move(request));
+         return;
+@@ -587,6 +589,7 @@
+         if (protectedThis->m_shouldCaptureExtraNetworkLoadMetrics)
+             protectedThis->m_loadInformation.transactions.append(protect(protectedThis->m_corsPreflightChecker)->takeInformation());
+ 
++        protectedThis->m_preflightedURL = protect(protectedThis->m_corsPreflightChecker)->preflightedURL();
+         auto corsPreflightChecker = std::exchange(protectedThis->m_corsPreflightChecker, nullptr);
+         updateRequestForAccessControl(request, *protect(protectedThis->origin()), protectedThis->m_storedCredentialsPolicy);
+         handler(WTF::move(request));
+@@ -649,6 +652,32 @@
+     m_loadInformation.transactions.append(NetworkTransactionInformation { NetworkTransactionInformation::Type::Redirection, ResourceRequest { request }, ResourceResponse { response }, { } });
+ }
+ 
++bool NetworkLoadChecker::upgradeToHTTPSInPlace(const URL& upgradedURL)
++{
++    // Fetch upgrades the URL of a request before it compares it with the origin of the request: for the origin http://host the
++    // upgraded URL https://host is another origin. m_isSameOriginRequest and the stored credentials policy were decided for
++    // the URL the page asked for, so a load that is same-origin for it and is not for the upgraded URL is not upgraded in
++    // place. The network layer then follows a redirect, which checkRedirection() judges for the new URL: the response needs
++    // CORS to be readable and credentials are sent only when the request asked for them to be included.
++    if (m_isSameOriginRequest && !isSameOrigin(upgradedURL, m_origin.get()))
++        return false;
++
++    // The permission to send a request cross-origin came from a preflight for one URL, and the cache is keyed by it. It does
++    // not hold for another one: an entry for the http URL may have been made by anybody on the network, before the host was
++    // known as HSTS. The redirect checks the https URL, and so asks for its own preflight.
++    if (!m_preflightedURL.isNull() && !(protocolHostAndPortAreEqual(m_preflightedURL, upgradedURL) && m_preflightedURL.path() == upgradedURL.path() && m_preflightedURL.query() == upgradedURL.query()))
++        return false;
++
++    // Tracking prevention judges the URL of every request, so it is asked about the upgraded one too (a redirect would).
++    if (shouldBlockForTrackingPolicy(ResourceRequest { URL { upgradedURL } }))
++        return false;
++
++    // The network layer sends the request to this URL instead of m_url: it is the URL of the response and the previous URL
++    // of the next redirect. The origin is not changed by an upgrade.
++    m_url = upgradedURL;
++    return true;
++}
++
+ } // namespace WebKit
+ 
+ #undef LOAD_CHECKER_RELEASE_LOG
+--- a/Source/WebKit/NetworkProcess/PingLoad.h
++++ b/Source/WebKit/NetworkProcess/PingLoad.h
+@@ -81,6 +81,7 @@
+     void cannotShowURL() final;
+     void wasBlockedByRestrictions() final;
+     void wasBlockedByDisabledFTP() final;
++    bool upgradeRequestToHTTPSInPlace(const URL&) final;
+     void timeoutTimerFired();
+ 
+     void loadRequest(NetworkProcess&, WebCore::ResourceRequest&&);
+--- a/Source/WebKit/NetworkProcess/PingLoad.cpp
++++ b/Source/WebKit/NetworkProcess/PingLoad.cpp
+@@ -218,6 +218,11 @@
+     didFinish(ftpDisabledError(ResourceRequest(URL { currentURL() })));
+ }
+ 
++bool PingLoad::upgradeRequestToHTTPSInPlace(const URL& upgradedURL)
++{
++    return m_networkLoadChecker->upgradeToHTTPSInPlace(upgradedURL);
++}
++
+ void PingLoad::timeoutTimerFired()
+ {
+     PING_RELEASE_LOG("timeoutTimerFired");
+--- a/Source/WebKit/NetworkProcess/BackgroundFetchLoad.h
++++ b/Source/WebKit/NetworkProcess/BackgroundFetchLoad.h
+@@ -70,6 +70,7 @@
+ 
+     // NetworkDataTaskClient
+     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&) final;
++    bool upgradeRequestToHTTPSInPlace(const URL&) final;
+     void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&) final;
+     void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&) final;
+     void didReceiveData(const WebCore::SharedBuffer&) final;
+--- a/Source/WebKit/NetworkProcess/BackgroundFetchLoad.cpp
++++ b/Source/WebKit/NetworkProcess/BackgroundFetchLoad.cpp
+@@ -120,6 +120,11 @@
+     task->resume();
+ }
+ 
++bool BackgroundFetchLoad::upgradeRequestToHTTPSInPlace(const URL& upgradedURL)
++{
++    return m_networkLoadChecker->upgradeToHTTPSInPlace(upgradedURL);
++}
++
+ void BackgroundFetchLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse, ResourceRequest&& request, RedirectCompletionHandler&& completionHandler)
+ {
+     m_networkLoadChecker->checkRedirection(ResourceRequest { }, WTF::move(request), WTF::move(redirectResponse), nullptr, [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (auto&& result) mutable {
+--- a/Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.h
++++ b/Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.h
+@@ -74,6 +74,8 @@
+     }
+     ~NetworkCORSPreflightChecker();
+     const WebCore::ResourceRequest& originalRequest() const LIFETIME_BOUND { return m_parameters.originalRequest; }
++    // The URL the preflight was sent to: the upgraded one when HSTS upgraded it in place.
++    URL preflightedURL() const { return m_upgradedURL.isNull() ? m_parameters.originalRequest.url() : m_upgradedURL; }
+ 
+     void startPreflight();
+ 
+@@ -92,8 +94,10 @@
+     void cannotShowURL() final;
+     void wasBlockedByRestrictions() final;
+     void wasBlockedByDisabledFTP() final;
++    bool upgradeRequestToHTTPSInPlace(const URL&) final;
+ 
+     Parameters m_parameters;
++    URL m_upgradedURL;
+     const Ref<NetworkProcess> m_networkProcess;
+     WebCore::ResourceResponse m_response;
+     CompletionCallback m_completionCallback;
+--- a/Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.cpp
+@@ -155,7 +155,12 @@
+ 
+     CORS_CHECKER_RELEASE_LOG("didComplete http_status_code=%d", m_response.httpStatusCode());
+ 
+-    auto result = validatePreflightResponse(m_parameters.sessionID, m_parameters.originalRequest, m_response, m_parameters.storedCredentialsPolicy, m_parameters.topOrigin, m_parameters.sourceOrigin, m_networkResourceLoader.get());
++    // The result is cached under the URL of the request it is given. A preflight that went over https because of HSTS says
++    // nothing about the http URL: that one could be answered by anybody on the network.
++    auto requestForCache = m_parameters.originalRequest;
++    if (!m_upgradedURL.isNull())
++        requestForCache.setURL(URL { m_upgradedURL });
++    auto result = validatePreflightResponse(m_parameters.sessionID, requestForCache, m_response, m_parameters.storedCredentialsPolicy, m_parameters.topOrigin, m_parameters.sourceOrigin, m_networkResourceLoader.get());
+     if (!result) {
+         CORS_CHECKER_RELEASE_LOG("didComplete, AccessControl error: %s", result.error().utf8().data());
+         m_completionCallback(ResourceError { errorDomainWebKitInternal, 0, m_parameters.originalRequest.url(), result.error(), ResourceError::Type::AccessControl });
+@@ -191,6 +196,12 @@
+     m_completionCallback(ftpDisabledError(m_parameters.originalRequest));
+ }
+ 
++bool NetworkCORSPreflightChecker::upgradeRequestToHTTPSInPlace(const URL& upgradedURL)
++{
++    m_upgradedURL = upgradedURL;
++    return true;
++}
++
+ NetworkTransactionInformation NetworkCORSPreflightChecker::takeInformation()
+ {
+     ASSERT(m_shouldCaptureExtraNetworkLoadMetrics);

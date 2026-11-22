@@ -1,0 +1,800 @@
+From: Safeer team <info@safeer.si>
+Subject: [PATCH] content-decoder: limit the decoding ratio of compressed bodies
+
+A server, or a man-in-the-middle on http://, chooses both the body and its
+Content-Encoding. SoupContentDecoder expanded any amount of data without a
+limit: 10 MB of gzip decode to 10 GiB, a 102-byte brotli or 269-byte
+"gzip, gzip" body to 64 MiB, and soup_session_send_and_read() or WebKit then
+collect it in memory until the process is killed.
+
+Once the decoded body is larger than 1 MiB, it may not be more than 200 times
+larger than the encoded bytes read from the connection (plus the size of the
+shared dictionary for dcb/dcz); otherwise reading the body fails with
+G_IO_ERROR_MESSAGE_TOO_LARGE. The ratio is counted over the whole chain of
+codings. Real responses decode at about 3:1 to 22:1; 200:1 is the default of
+Apache's DeflateInflateRatioLimit. New test: content-decoding-ratio-test.
+
+---
+diff -ruN a/libsoup/content-decoder/soup-content-decoder.c b/libsoup/content-decoder/soup-content-decoder.c
+--- a/libsoup/content-decoder/soup-content-decoder.c
++++ b/libsoup/content-decoder/soup-content-decoder.c
+@@ -255,18 +255,23 @@
+ {
+ 	GSList *decoders, *d;
+ 	GInputStream *istream;
++	SoupDecodeBudget *budget;
+ 
+ 	decoders = soup_content_decoder_get_decoders_for_msg (SOUP_CONTENT_DECODER (processor), msg);
+ 	if (!decoders)
+ 		return NULL;
+ 
++	/* One budget for the whole chain: the first decoder counts the bytes
++	 * from the connection, the last one the decoded body. */
++	budget = soup_decode_budget_new ();
+ 	istream = g_object_ref (base_stream);
+ 	for (d = decoders; d; d = d->next) {
+ 		GConverter *decoder, *wrapper;
+ 		GInputStream *filter;
+ 
+ 		decoder = d->data;
+-		wrapper = soup_converter_wrapper_new (decoder, msg);
++		wrapper = soup_converter_wrapper_new (decoder, msg, budget,
++						      d == decoders, d->next == NULL);
+ 		filter = g_object_new (G_TYPE_CONVERTER_INPUT_STREAM,
+ 				       "base-stream", istream,
+ 				       "converter", wrapper,
+@@ -277,6 +282,7 @@
+ 	}
+ 
+ 	g_slist_free_full (decoders, g_object_unref);
++	soup_decode_budget_unref (budget);
+ 
+ 	return istream;
+ }
+diff -ruN a/libsoup/content-decoder/soup-converter-wrapper.c b/libsoup/content-decoder/soup-converter-wrapper.c
+--- a/libsoup/content-decoder/soup-converter-wrapper.c
++++ b/libsoup/content-decoder/soup-converter-wrapper.c
+@@ -13,6 +13,8 @@
+ 
+ #include "soup-converter-wrapper.h"
+ #include "soup.h"
++#include "soup-message-private.h"
++#include "soup-compression-dictionary-request-private.h"
+ 
+ /* SoupConverterWrapper is a GConverter that wraps another GConverter.
+  * Mostly it is transparent, but it implements four special fallbacks
+@@ -24,8 +26,43 @@
+  * at an arbitrary point rather than containing a complete compressed
+  * representation.
+  *
++ * It also guards against decompression bombs: once the decoded body is
++ * larger than SOUP_DECODE_RATIO_MIN_DECODED, it may not be more than
++ * SOUP_DECODE_MAX_RATIO times larger than the encoded bytes read from the
++ * connection (plus the size of a shared compression dictionary, for dcb/dcz),
++ * otherwise reading the body fails with G_IO_ERROR_MESSAGE_TOO_LARGE. The
++ * ratio is counted over the whole chain of codings ("gzip, gzip" multiplies
++ * the ratios of its layers), so nesting does not get around it.
++ *
++ * Real responses decode at about 3:1 to 22:1 (measured 2026-11-14 with this
++ * libsoup on 20 pages, scripts and JSON files of popular sites and CDNs, gzip
++ * and brotli). gzip and
++ * deflate cannot exceed about 1032:1, while a brotli or zstd stream or nested
++ * codings expand a few kilobytes into gigabytes. 200:1 is the default limit of
++ * Apache's DeflateInflateRatioLimit for request bodies. Small bodies are not
++ * limited, so short highly repetitive responses keep working.
+  */
+ 
++#define SOUP_DECODE_MAX_RATIO 200
++#define SOUP_DECODE_RATIO_MIN_DECODED (1024 * 1024)
++
++struct _SoupDecodeBudget {
++	guint64 encoded;
++	guint64 decoded;
++};
++
++SoupDecodeBudget *
++soup_decode_budget_new (void)
++{
++	return g_rc_box_new0 (SoupDecodeBudget);
++}
++
++void
++soup_decode_budget_unref (SoupDecodeBudget *budget)
++{
++	g_rc_box_release (budget);
++}
++
+ enum {
+ 	PROP_0,
+ 	PROP_BASE_CONVERTER,
+@@ -47,6 +84,9 @@
+ 	gboolean try_deflate_fallback;
+ 	gboolean started;
+ 	gboolean discarding;
++	SoupDecodeBudget *budget;
++	gboolean counts_encoded;
++	gboolean counts_decoded;
+ } SoupConverterWrapperPrivate;
+ 
+ static void soup_converter_wrapper_iface_init (GConverterIface *iface);
+@@ -69,6 +109,7 @@
+ 
+ 	g_clear_object (&priv->base_converter);
+ 	g_clear_object (&priv->msg);
++	g_clear_pointer (&priv->budget, soup_decode_budget_unref);
+ 
+ 	G_OBJECT_CLASS (soup_converter_wrapper_parent_class)->finalize (object);
+ }
+@@ -160,14 +201,56 @@
+         g_object_class_install_properties (gobject_class, LAST_PROPERTY, properties);
+ }
+ 
++/* @counts_encoded: this wrapper reads the body as it came from the
++ * connection (the first decoder); @counts_decoded: its output is the decoded
++ * body (the last decoder). */
+ GConverter *
+-soup_converter_wrapper_new (GConverter  *base_converter,
+-			    SoupMessage *msg)
++soup_converter_wrapper_new (GConverter       *base_converter,
++			    SoupMessage      *msg,
++			    SoupDecodeBudget *budget,
++			    gboolean          counts_encoded,
++			    gboolean          counts_decoded)
++{
++	GConverter *converter;
++	SoupConverterWrapperPrivate *priv;
++
++	converter = g_object_new (SOUP_TYPE_CONVERTER_WRAPPER,
++				  "base-converter", base_converter,
++				  "message", msg,
++				  NULL);
++	priv = soup_converter_wrapper_get_instance_private (SOUP_CONVERTER_WRAPPER (converter));
++	if (budget)
++		priv->budget = g_rc_box_acquire (budget);
++	priv->counts_encoded = counts_encoded;
++	priv->counts_decoded = counts_decoded;
++
++	return converter;
++}
++
++static gboolean
++soup_converter_wrapper_ratio_exceeded (SoupConverterWrapperPrivate *priv)
+ {
+-	return g_object_new (SOUP_TYPE_CONVERTER_WRAPPER,
+-			     "base-converter", base_converter,
+-			     "message", msg,
+-			     NULL);
++	SoupCompressionDictionaryRequest *request;
++	guint64 allowed_extra = 0;
++
++	if (priv->budget->decoded <= SOUP_DECODE_RATIO_MIN_DECODED)
++		return FALSE;
++
++	/* With dcb/dcz the decoder copies from the dictionary, so a small
++	 * delta legitimately expands to the size of the dictionary. */
++	/* allowed: 200 times the encoded bytes, plus the dictionary once */
++	request = priv->msg ? soup_message_get_compression_dictionary_request (priv->msg) : NULL;
++	if (request) {
++		GBytes *dictionary = soup_compression_dictionary_request_get_dictionary (request);
++
++		if (dictionary)
++			allowed_extra = g_bytes_get_size (dictionary);
++	}
++
++	if (priv->budget->encoded > (G_MAXUINT64 - allowed_extra) / SOUP_DECODE_MAX_RATIO)
++		return FALSE;
++
++	return priv->budget->decoded > priv->budget->encoded * SOUP_DECODE_MAX_RATIO + allowed_extra;
+ }
+ 
+ static void
+@@ -326,20 +409,38 @@
+ 				GError    **error)
+ {
+ 	SoupConverterWrapperPrivate *priv = soup_converter_wrapper_get_instance_private (SOUP_CONVERTER_WRAPPER (converter));
++	GConverterResult result;
+ 
+ 	if (priv->base_converter) {
+-		return soup_converter_wrapper_real_convert (converter,
+-							    inbuf, inbuf_size,
+-							    outbuf, outbuf_size,
+-							    flags, bytes_read,
+-							    bytes_written, error);
++		result = soup_converter_wrapper_real_convert (converter,
++							      inbuf, inbuf_size,
++							      outbuf, outbuf_size,
++							      flags, bytes_read,
++							      bytes_written, error);
+ 	} else {
+-		return soup_converter_wrapper_fallback_convert (converter,
+-								inbuf, inbuf_size,
+-								outbuf, outbuf_size,
+-								flags, bytes_read,
+-								bytes_written, error);
++		result = soup_converter_wrapper_fallback_convert (converter,
++								  inbuf, inbuf_size,
++								  outbuf, outbuf_size,
++								  flags, bytes_read,
++								  bytes_written, error);
+ 	}
++
++	if (result == G_CONVERTER_ERROR || !priv->budget)
++		return result;
++
++	if (priv->counts_encoded)
++		priv->budget->encoded += *bytes_read;
++	if (priv->counts_decoded) {
++		priv->budget->decoded += *bytes_written;
++		if (soup_converter_wrapper_ratio_exceeded (priv)) {
++			g_set_error (error, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE,
++				     _("Decoded message body is more than %d times larger than the encoded body"),
++				     SOUP_DECODE_MAX_RATIO);
++			return G_CONVERTER_ERROR;
++		}
++	}
++
++	return result;
+ }
+ 
+ static void
+diff -ruN a/libsoup/content-decoder/soup-converter-wrapper.h b/libsoup/content-decoder/soup-converter-wrapper.h
+--- a/libsoup/content-decoder/soup-converter-wrapper.h
++++ b/libsoup/content-decoder/soup-converter-wrapper.h
+@@ -12,7 +12,16 @@
+ #define SOUP_TYPE_CONVERTER_WRAPPER (soup_converter_wrapper_get_type ())
+ G_DECLARE_FINAL_TYPE (SoupConverterWrapper, soup_converter_wrapper, SOUP, CONVERTER_WRAPPER, GObject)
+ 
+-GConverter *soup_converter_wrapper_new (GConverter  *base_converter,
+-					SoupMessage *msg);
++/* Shared by every SoupConverterWrapper that decodes one message body. */
++typedef struct _SoupDecodeBudget SoupDecodeBudget;
++
++SoupDecodeBudget *soup_decode_budget_new   (void);
++void              soup_decode_budget_unref (SoupDecodeBudget *budget);
++
++GConverter *soup_converter_wrapper_new (GConverter       *base_converter,
++					SoupMessage      *msg,
++					SoupDecodeBudget *budget,
++					gboolean          counts_encoded,
++					gboolean          counts_decoded);
+ 
+ G_END_DECLS
+diff -ruN a/tests/content-decoding-ratio-test.c b/tests/content-decoding-ratio-test.c
+--- a/tests/content-decoding-ratio-test.c
++++ b/tests/content-decoding-ratio-test.c
+@@ -0,0 +1,521 @@
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 8 -*- */
++/*
++ * A server (or a man-in-the-middle on http://) chooses both the body and its
++ * Content-Encoding. A few kilobytes of compressed zeros must not expand into an
++ * unbounded body: once the decoded body is large, it may not be more than
++ * 200 times larger than what came from the connection. Ordinary large
++ * compressed responses must still be delivered whole.
++ */
++
++#include "test-utils.h"
++
++#if WITH_BROTLI_ENC
++#include <brotli/encode.h>
++#include <brotli/shared_dictionary.h>
++#endif
++#if WITH_ZSTD_ENC
++#include <zstd.h>
++#endif
++
++#define MIB (1024 * 1024)
++#define BOMB_SIZE (64 * MIB)
++
++static GUri *base_uri;
++static GBytes *served_body;
++static const char *served_coding;
++
++static GBytes *
++zeros (gsize size)
++{
++        return g_bytes_new_take (g_malloc0 (size), size);
++}
++
++static GBytes *
++zlib_compress (GBytes *data, GZlibCompressorFormat format)
++{
++        GZlibCompressor *compressor = g_zlib_compressor_new (format, 9);
++        GOutputStream *mem = g_memory_output_stream_new_resizable ();
++        GOutputStream *out = g_converter_output_stream_new (mem, G_CONVERTER (compressor));
++        gsize len;
++        const char *p = g_bytes_get_data (data, &len);
++        GBytes *result;
++
++        g_assert_true (g_output_stream_write_all (out, p, len, NULL, NULL, NULL));
++        g_assert_true (g_output_stream_close (out, NULL, NULL));
++        result = g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (mem));
++        g_object_unref (out);
++        g_object_unref (mem);
++        g_object_unref (compressor);
++        return result;
++}
++
++static GBytes *
++gzip (GBytes *data)
++{
++        return zlib_compress (data, G_ZLIB_COMPRESSOR_FORMAT_GZIP);
++}
++
++#if WITH_BROTLI_ENC
++static GBytes *
++brotli_compress (GBytes *data)
++{
++        gsize len, out_len;
++        const guint8 *p = g_bytes_get_data (data, &len);
++        guint8 *out;
++
++        out_len = BrotliEncoderMaxCompressedSize (len);
++        out = g_malloc (out_len);
++        g_assert_true (BrotliEncoderCompress (5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
++                                              len, p, &out_len, out));
++        return g_bytes_new_take (out, out_len);
++}
++#endif
++
++#if WITH_ZSTD_ENC
++static GBytes *
++zstd_compress (GBytes *data)
++{
++        gsize len, out_len;
++        const guint8 *p = g_bytes_get_data (data, &len);
++        guint8 *out;
++
++        out_len = ZSTD_compressBound (len);
++        out = g_malloc (out_len);
++        out_len = ZSTD_compress (out, out_len, p, len, 3);
++        g_assert_false (ZSTD_isError (out_len));
++        return g_bytes_new_take (out, out_len);
++}
++#endif
++
++static void
++server_callback (SoupServer        *server,
++                 SoupServerMessage *msg,
++                 const char        *path,
++                 GHashTable        *query,
++                 gpointer           data)
++{
++        SoupMessageHeaders *headers = soup_server_message_get_response_headers (msg);
++
++        soup_message_headers_replace (headers, "Content-Encoding", served_coding);
++        soup_server_message_set_status (msg, SOUP_STATUS_OK, NULL);
++        soup_server_message_set_response (msg, "text/plain", SOUP_MEMORY_COPY,
++                                          g_bytes_get_data (served_body, NULL),
++                                          g_bytes_get_size (served_body));
++}
++
++static SoupServer *
++serve (const char *coding, GBytes *body)
++{
++        SoupServer *server;
++
++        served_coding = coding;
++        served_body = body;
++        server = soup_test_server_new (SOUP_TEST_SERVER_IN_THREAD);
++        soup_server_add_handler (server, NULL, server_callback, NULL, NULL);
++        base_uri = soup_test_server_get_uri (server, "http", NULL);
++        return server;
++}
++
++static void
++unserve (SoupServer *server)
++{
++        g_uri_unref (base_uri);
++        soup_test_server_quit_unref (server);
++        g_clear_pointer (&served_body, g_bytes_unref);
++}
++
++/* --- bombs: must fail with G_IO_ERROR_MESSAGE_TOO_LARGE ------------------ */
++
++typedef struct {
++        const char *name;
++        const char *coding;
++        GBytes *(*build) (void);
++} Bomb;
++
++static GBytes *
++build_gzip (void)
++{
++        GBytes *z = zeros (BOMB_SIZE), *r = gzip (z);
++        g_bytes_unref (z);
++        return r;
++}
++
++static GBytes *
++build_deflate (void)
++{
++        GBytes *z = zeros (BOMB_SIZE), *r = zlib_compress (z, G_ZLIB_COMPRESSOR_FORMAT_ZLIB);
++        g_bytes_unref (z);
++        return r;
++}
++
++static GBytes *
++build_gzip_gzip (void)
++{
++        GBytes *z = zeros (BOMB_SIZE), *once = gzip (z), *twice = gzip (once);
++        g_bytes_unref (z);
++        g_bytes_unref (once);
++        return twice;
++}
++
++#if WITH_BROTLI_ENC
++static GBytes *
++build_br (void)
++{
++        GBytes *z = zeros (BOMB_SIZE), *r = brotli_compress (z);
++        g_bytes_unref (z);
++        return r;
++}
++#endif
++
++#if WITH_ZSTD_ENC
++static GBytes *
++build_zstd (void)
++{
++        GBytes *z = zeros (BOMB_SIZE), *r = zstd_compress (z);
++        g_bytes_unref (z);
++        return r;
++}
++#endif
++
++static void
++do_bomb_read_all_test (gconstpointer data)
++{
++        const Bomb *bomb = data;
++        SoupServer *server;
++        SoupSession *session;
++        SoupMessage *msg;
++        GBytes *body;
++        GError *error = NULL;
++        GBytes *encoded = bomb->build ();
++
++        g_test_message ("%s: %" G_GSIZE_FORMAT " encoded bytes for %d decoded",
++                        bomb->coding, g_bytes_get_size (encoded), BOMB_SIZE);
++        server = serve (bomb->coding, encoded);
++        session = soup_test_session_new (NULL);
++        msg = soup_message_new_from_uri ("GET", base_uri);
++
++        body = soup_session_send_and_read (session, msg, NULL, &error);
++        if (body)
++                g_test_message ("decoded %" G_GSIZE_FORMAT " bytes without error", g_bytes_get_size (body));
++        g_assert_error (error, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE);
++        g_assert_null (body);
++
++        g_clear_error (&error);
++        g_object_unref (msg);
++        soup_test_session_abort_unref (session);
++        unserve (server);
++}
++
++static void
++do_bomb_stream_test (void)
++{
++        SoupServer *server;
++        SoupSession *session;
++        SoupMessage *msg;
++        GInputStream *stream;
++        GError *error = NULL;
++        guint64 total = 0;
++        char *buf = g_malloc (64 * 1024);
++        gssize n;
++
++        server = serve ("gzip", build_gzip ());
++        session = soup_test_session_new (NULL);
++        msg = soup_message_new_from_uri ("GET", base_uri);
++
++        stream = soup_session_send (session, msg, NULL, &error);
++        g_assert_no_error (error);
++        soup_test_assert_message_status (msg, SOUP_STATUS_OK);
++        while ((n = g_input_stream_read (stream, buf, 64 * 1024, NULL, &error)) > 0)
++                total += n;
++        g_test_message ("streamed %" G_GUINT64_FORMAT " decoded bytes", total);
++        g_assert_error (error, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE);
++        /* Stopped right after the first MiB, not after 64 MiB. */
++        g_assert_cmpuint (total, <, 2 * MIB);
++
++        g_clear_error (&error);
++        g_object_unref (stream);
++        g_free (buf);
++        g_object_unref (msg);
++        soup_test_session_abort_unref (session);
++        unserve (server);
++}
++
++/* --- controls: must be delivered whole ---------------------------------- */
++
++/* Every 1 KiB: random bytes, then zeros; about 5:1 with gzip. */
++static GBytes *
++make_body (gsize size, gsize random_per_kib)
++{
++        GRand *rand = g_rand_new_with_seed (5);
++        guint8 *p = g_malloc0 (size);
++        gsize i, j;
++
++        for (i = 0; i < size; i += 1024)
++                for (j = 0; j < random_per_kib && i + j < size; j++)
++                        p[i + j] = g_rand_int_range (rand, 0, 256);
++        g_rand_free (rand);
++        return g_bytes_new_take (p, size);
++}
++
++static void
++check_delivered_whole (const char *coding, GBytes *plain, GBytes *encoded,
++                       double min_ratio, double max_ratio)
++{
++        SoupServer *server;
++        SoupSession *session;
++        SoupMessage *msg;
++        GBytes *body;
++        GError *error = NULL;
++        double ratio = (double)g_bytes_get_size (plain) / g_bytes_get_size (encoded);
++
++        g_test_message ("%s: %" G_GSIZE_FORMAT " -> %" G_GSIZE_FORMAT " bytes, ratio %.2f:1",
++                        coding, g_bytes_get_size (encoded), g_bytes_get_size (plain), ratio);
++        g_assert_cmpfloat (ratio, >=, min_ratio);
++        g_assert_cmpfloat (ratio, <=, max_ratio);
++
++        server = serve (coding, encoded);
++        session = soup_test_session_new (NULL);
++        msg = soup_message_new_from_uri ("GET", base_uri);
++        body = soup_session_send_and_read (session, msg, NULL, &error);
++        g_assert_no_error (error);
++        soup_test_assert_message_status (msg, SOUP_STATUS_OK);
++        g_assert_true (g_bytes_equal (body, plain));
++
++        g_bytes_unref (body);
++        g_object_unref (msg);
++        soup_test_session_abort_unref (session);
++        unserve (server);
++}
++
++static void
++do_large_ordinary_test (void)
++{
++        /* 20 MB at about 5:1, like a large compressed page or script. */
++        GBytes *plain = make_body (20 * 1000 * 1000, 196);
++
++        check_delivered_whole ("gzip", plain, gzip (plain), 4.0, 6.0);
++        g_bytes_unref (plain);
++}
++
++static void
++do_below_limit_test (void)
++{
++        /* 8 MiB at about 100:1: highly redundant but still below 200:1. */
++        GBytes *plain = make_body (8 * MIB, 8);
++        GBytes *encoded = gzip (plain);
++
++        check_delivered_whole ("gzip", plain, encoded, 50.0, 180.0);
++        g_bytes_unref (plain);
++}
++
++static void
++do_small_bomb_like_test (void)
++{
++        /* Below 1 MiB decoded the ratio is not limited (about 1000:1 here). */
++        GBytes *plain = zeros (MIB);
++
++        check_delivered_whole ("gzip", plain, gzip (plain), 500.0, 1100.0);
++        g_bytes_unref (plain);
++}
++
++#if WITH_BROTLI_ENC
++/* dcb: a small delta against a large shared dictionary decodes to the size
++ * of the dictionary; the dictionary counts as input. */
++static GBytes *dictionary;
++
++static gboolean
++on_request_compression_dictionary (SoupMessage                      *msg,
++                                   SoupCompressionDictionaryRequest *request,
++                                   gpointer                          user_data)
++{
++        soup_compression_dictionary_request_set_dictionary (request, dictionary);
++        return TRUE;
++}
++
++static GBytes *
++dcb_encode (GBytes *dict, GBytes *plain)
++{
++        static const guint8 magic[] = { 0xff, 'D', 'C', 'B' };
++        BrotliEncoderPreparedDictionary *prepared;
++        BrotliEncoderState *state;
++        GChecksum *checksum;
++        guint8 hash[32];
++        gsize hash_len = sizeof (hash), dict_len, plain_len, avail_in, avail_out, out_len;
++        const guint8 *dict_data = g_bytes_get_data (dict, &dict_len);
++        const guint8 *next_in = g_bytes_get_data (plain, &plain_len);
++        guint8 *out, *next_out;
++        GByteArray *frame;
++
++        prepared = BrotliEncoderPrepareDictionary (BROTLI_SHARED_DICTIONARY_RAW, dict_len, dict_data,
++                                                   5, NULL, NULL, NULL);
++        g_assert_nonnull (prepared);
++        state = BrotliEncoderCreateInstance (NULL, NULL, NULL);
++        g_assert_true (BrotliEncoderSetParameter (state, BROTLI_PARAM_QUALITY, 5));
++        g_assert_true (BrotliEncoderSetParameter (state, BROTLI_PARAM_LGWIN, 22));
++        g_assert_true (BrotliEncoderAttachPreparedDictionary (state, prepared));
++
++        out_len = BrotliEncoderMaxCompressedSize (plain_len);
++        out = g_malloc (out_len);
++        avail_in = plain_len;
++        next_out = out;
++        avail_out = out_len;
++        g_assert_true (BrotliEncoderCompressStream (state, BROTLI_OPERATION_FINISH,
++                                                    &avail_in, &next_in, &avail_out, &next_out, NULL));
++        g_assert_true (BrotliEncoderIsFinished (state));
++        out_len -= avail_out;
++        BrotliEncoderDestroyInstance (state);
++        BrotliEncoderDestroyPreparedDictionary (prepared);
++
++        checksum = g_checksum_new (G_CHECKSUM_SHA256);
++        g_checksum_update (checksum, dict_data, dict_len);
++        g_checksum_get_digest (checksum, hash, &hash_len);
++        g_checksum_free (checksum);
++
++        frame = g_byte_array_new ();
++        g_byte_array_append (frame, magic, sizeof (magic));
++        g_byte_array_append (frame, hash, hash_len);
++        g_byte_array_append (frame, out, out_len);
++        g_free (out);
++        return g_byte_array_free_to_bytes (frame);
++}
++
++static void
++do_dictionary_delta_test (void)
++{
++        SoupServer *server;
++        SoupSession *session;
++        SoupMessage *msg;
++        GBytes *body, *plain, *encoded;
++        GError *error = NULL;
++
++        /* 2 MiB of random bytes: incompressible without the dictionary. */
++        dictionary = make_body (2 * MIB, 1024);
++        plain = g_bytes_ref (dictionary);
++        encoded = dcb_encode (dictionary, plain);
++        g_test_message ("dcb: %" G_GSIZE_FORMAT " -> %" G_GSIZE_FORMAT " bytes (dictionary %" G_GSIZE_FORMAT ")",
++                        g_bytes_get_size (encoded), g_bytes_get_size (plain), g_bytes_get_size (dictionary));
++        /* The delta alone is far above 200:1. */
++        g_assert_cmpuint (g_bytes_get_size (encoded) * 200, <, g_bytes_get_size (plain));
++
++        server = serve ("dcb", encoded);
++        session = soup_test_session_new (NULL);
++        msg = soup_message_new_from_uri ("GET", base_uri);
++        {
++                GChecksum *checksum = g_checksum_new (G_CHECKSUM_SHA256);
++                guint8 hash[32];
++                gsize hash_len = sizeof (hash);
++                GBytes *hash_bytes;
++
++                g_checksum_update (checksum, g_bytes_get_data (dictionary, NULL), g_bytes_get_size (dictionary));
++                g_checksum_get_digest (checksum, hash, &hash_len);
++                g_checksum_free (checksum);
++                hash_bytes = g_bytes_new (hash, hash_len);
++                soup_message_set_compression_dictionary_hash (msg, hash_bytes);
++                g_bytes_unref (hash_bytes);
++        }
++        g_signal_connect (msg, "request-compression-dictionary",
++                          G_CALLBACK (on_request_compression_dictionary), NULL);
++        body = soup_session_send_and_read (session, msg, NULL, &error);
++        g_assert_no_error (error);
++        soup_test_assert_message_status (msg, SOUP_STATUS_OK);
++        g_assert_true (g_bytes_equal (body, plain));
++
++        g_bytes_unref (body);
++        g_bytes_unref (plain);
++        g_object_unref (msg);
++        soup_test_session_abort_unref (session);
++        unserve (server);
++        g_clear_pointer (&dictionary, g_bytes_unref);
++}
++
++/* The dictionary is allowed once, not multiplied by the ratio: a delta that repeats a 1 MiB dictionary 64 times
++ * (64 MiB from a few KB) is above 200 * encoded + dictionary and must fail. */
++static void
++do_dictionary_repeat_test (void)
++{
++        SoupServer *server;
++        SoupSession *session;
++        SoupMessage *msg;
++        GBytes *body, *plain, *encoded;
++        GByteArray *rep;
++        GError *error = NULL;
++        GChecksum *checksum;
++        guint8 hash[32];
++        gsize hash_len = sizeof (hash);
++        GBytes *hash_bytes;
++        int i;
++
++        dictionary = make_body (1 * MIB, 2048);
++        rep = g_byte_array_new ();
++        for (i = 0; i < 64; i++)
++                g_byte_array_append (rep, g_bytes_get_data (dictionary, NULL), g_bytes_get_size (dictionary));
++        plain = g_byte_array_free_to_bytes (rep);
++        encoded = dcb_encode (dictionary, plain);
++        g_assert_cmpuint (g_bytes_get_size (encoded) * 200 + g_bytes_get_size (dictionary), <, g_bytes_get_size (plain));
++        g_assert_cmpuint ((g_bytes_get_size (encoded) + g_bytes_get_size (dictionary)) * 200, >, g_bytes_get_size (plain));
++
++        server = serve ("dcb", encoded);
++        session = soup_test_session_new (NULL);
++        msg = soup_message_new_from_uri ("GET", base_uri);
++        checksum = g_checksum_new (G_CHECKSUM_SHA256);
++        g_checksum_update (checksum, g_bytes_get_data (dictionary, NULL), g_bytes_get_size (dictionary));
++        g_checksum_get_digest (checksum, hash, &hash_len);
++        g_checksum_free (checksum);
++        hash_bytes = g_bytes_new (hash, hash_len);
++        soup_message_set_compression_dictionary_hash (msg, hash_bytes);
++        g_bytes_unref (hash_bytes);
++        g_signal_connect (msg, "request-compression-dictionary",
++                          G_CALLBACK (on_request_compression_dictionary), NULL);
++        body = soup_session_send_and_read (session, msg, NULL, &error);
++        g_assert_null (body);
++        g_assert_error (error, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE);
++        g_clear_error (&error);
++
++        g_bytes_unref (plain);
++        g_object_unref (msg);
++        soup_test_session_abort_unref (session);
++        unserve (server);
++        g_clear_pointer (&dictionary, g_bytes_unref);
++}
++#endif
++
++static const Bomb bombs[] = {
++        { "gzip", "gzip", build_gzip },
++        { "deflate", "deflate", build_deflate },
++        { "gzip-gzip", "gzip, gzip", build_gzip_gzip },
++#if WITH_BROTLI_ENC
++        { "br", "br", build_br },
++#endif
++#if WITH_ZSTD_ENC
++        { "zstd", "zstd", build_zstd },
++#endif
++};
++
++int
++main (int argc, char **argv)
++{
++        int ret;
++        guint i;
++
++        test_init (argc, argv, NULL);
++
++        for (i = 0; i < G_N_ELEMENTS (bombs); i++) {
++                char *path = g_strdup_printf ("/content-decoding/ratio/bomb/%s", bombs[i].name);
++
++                g_test_add_data_func (path, &bombs[i], do_bomb_read_all_test);
++                g_free (path);
++        }
++        g_test_add_func ("/content-decoding/ratio/bomb-stream", do_bomb_stream_test);
++        g_test_add_func ("/content-decoding/ratio/large-ordinary", do_large_ordinary_test);
++        g_test_add_func ("/content-decoding/ratio/below-limit", do_below_limit_test);
++        g_test_add_func ("/content-decoding/ratio/small-high-ratio", do_small_bomb_like_test);
++#if WITH_BROTLI_ENC
++        g_test_add_func ("/content-decoding/ratio/dictionary-delta", do_dictionary_delta_test);
++        g_test_add_func ("/content-decoding/ratio/dictionary-repeat", do_dictionary_repeat_test);
++#endif
++
++        ret = g_test_run ();
++
++        test_cleanup ();
++        return ret;
++}
+diff -ruN a/tests/meson.build b/tests/meson.build
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -85,6 +85,10 @@
+    'c_args': ['-DWITH_BROTLI_ENC=@0@'.format(brotlienc_dep.found() ? 1 : 0),
+               '-DWITH_ZSTD_ENC=@0@'.format(libzstd_dep.found() ? 1 : 0)]},
+   {'name': 'content-encoding-limit'},
++  {'name': 'content-decoding-ratio',
++   'dependencies': [brotlienc_dep, libzstd_dep],
++   'c_args': ['-DWITH_BROTLI_ENC=@0@'.format(brotlienc_dep.found() ? 1 : 0),
++              '-DWITH_ZSTD_ENC=@0@'.format(libzstd_dep.found() ? 1 : 0)]},
+   {'name': 'context'},
+   {'name': 'continue'},
+   {'name': 'cookies',

@@ -1,4 +1,4 @@
-# WebKitGTK 2.54.2 (API 4.1, GTK 3).
+# WebKitGTK 2.54.3 (API 4.1, GTK 3).
 # Brez lastnih popravkov izvora (25. 10. 2026): oba nasa popravka sta v 2.54.2 gorvodno, zato ju ne uporabimo vec
 # (datoteki ostaneta v mapi za zgodovino in meritve; patch -p1 --forward na 2.54.2 ju zavrne kot ze uporabljena):
 #  - skia-backdrop-2n.patch (plasti backdrop-filter v kompozitorju Skia: izhodno obmocje filtra pred izrisom podrevesa,
@@ -43,5 +43,6 @@ cleanup:
   - /share/gir-1.0
 sources:
   - type: archive
-    url: https://webkitgtk.org/releases/webkitgtk-2.54.2.tar.xz
-    sha256: a76345b391bef6211fb5ab6cfab2e86b285d18cda17cbb9ade595f1252b86065
+    # 22. 11. 2026: 2.54.3 kot GTK4 (webkitgtk6-safeer.yml, isti arhiv in sha256) - varnostna izdaja, brez lastnih popravkov.
+    url: https://webkitgtk.org/releases/webkitgtk-2.54.3.tar.xz
+    sha256: 2779c1b46f88762e8400650271ba14452dc4e30b37059981552d8b562b7d0862
