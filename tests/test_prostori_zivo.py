@@ -168,9 +168,22 @@ class Prostori(unittest.TestCase):
         self.okno.set_default_size(1260, 860)
         self.okno.set_child(self.pogled)
         self.okno.present()
-        self.addCleanup(self.okno.destroy)
+        self.addCleanup(self._pospravi_pogled)
         self.assertTrue(_cakaj(lambda: self._js("!!window.SafeerOS && !!document.getElementById('gumbProstori')") is True, 20))
         self.assertTrue(_cakaj(lambda: self._js("document.getElementById('gumbProstori').title") not in (None, "", "prostoriNamig"), 10))
+
+    def _pospravi_pogled(self):
+        # Spletni proces vsakega preizkusa ustavimo in pustimo reference: unittest obdrzi primerke preizkusov do konca teka,
+        # zato je prej vsak preizkus pustil svoj WebKitWebProcess (izmerjeno 22. 11. 2026: 49 procesov, 10,7 GB v eni
+        # datoteki; celoten tek je ubil OOM pri 5 in 9 GB). Kot test_scit_stevec_rele_zivo.
+        pogled, self.pogled = self.pogled, None
+        okno, self.okno = self.okno, None
+        self.os = None
+        try:
+            pogled.terminate_web_process()
+        except Exception:  # noqa: BLE001 - proces je ze koncal
+            pass
+        okno.destroy()
 
     def _js(self, koda):
         izid = {}
