@@ -1,0 +1,16 @@
+WebKitGTK 2.54.3, GTK4 starejsi od 4.22: webkitWebViewBaseSetCursorFromNativeImage dodeli platformImage (veja #else,
+SkiaUtilities::scaleImagePixels), a je auto& = const sk_sp<SkImage>& -> clang: no viable overloaded '=' (CI tek 44419981886,
+19. 11. 2026, WebKitWebViewBase.cpp:3849). 2.54.2 te kode nima, gorvodni main je ze popravljen (kopija namesto reference).
+Safeer team.
+
+--- a/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp	2026-11-18 06:00:55.911000000 +0100
++++ b/Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp	2026-11-19 02:25:55.450445095 +0100
+@@ -3820,7 +3820,7 @@
+ 
+     auto cursorScale = cursor.imageScaleFactor();
+     IntPoint effectiveHotSpot = determineHotSpot(cursor.image().get(), cursor.hotSpot()).scaled(1 / cursorScale);
+-    auto& platformImage = nativeImage->platformImage();
++    auto platformImage = nativeImage->platformImage();
+ 
+ #if USE(GTK4)
+     if (cursorScale != 1) {

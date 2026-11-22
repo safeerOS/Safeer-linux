@@ -1909,6 +1909,11 @@ sys.exit("neznan ukaz")
         self.assertIn('+    m_response.setHTTPStatusCode(httpStatus307TemporaryRedirect);',popravek)
         self.assertIn('+            m_currentRequest.setURL(WTF::move(upgradedURL));',popravek)
         self.assertIn('+        preflightRequest.setIsSameSite(request.isSameSite());',popravek)
+        # 2.54.3 se na GTK < 4.22 ne prevede brez popravka kazalca (WebKitWebViewBase.cpp:3849, const referenca; CI 22. 11.).
+        modul=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
+        self.assertIn('path: gtk4-kazalec-kopija-slike.patch',modul)
+        self.assertIn('+    auto platformImage = nativeImage->platformImage();',
+                      (ROOT/'packaging/webkit/gtk4-kazalec-kopija-slike.patch').read_text())
         for datoteka in ('Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp','Source/WebCore/loader/CrossOriginAccessControl.cpp',
                          'Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.cpp','Source/WebKit/NetworkProcess/PingLoad.cpp'):
             self.assertIn('+++ b/'+datoteka,popravek)

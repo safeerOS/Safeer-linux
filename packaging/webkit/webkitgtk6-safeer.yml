@@ -85,3 +85,6 @@ sources:
   # prek odjemalca namesto preusmeritve (CORS, preflight, Authorization), zastavica istega mesta tudi v preflightu in predpomnilniku.
   - type: patch
     path: hsts-subresource-upgrade.patch
+  # 19. 11. 2026: WebKitGTK 2.54.3 se na GTK < 4.22 ne prevede (WebKitWebViewBase.cpp:3849, const referenca); gorvodno popravljeno v main.
+  - type: patch
+    path: gtk4-kazalec-kopija-slike.patch
