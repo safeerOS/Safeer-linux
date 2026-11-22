@@ -74,7 +74,8 @@ class KrogVZivo(unittest.TestCase):
         potrditve = [s for s in sporocila if s.get("type") == "cast.ack"]
         print(f"  potrditev prijave: {[(s.get('status'), s.get('error_code')) for s in potrditve]}")
         self.assertTrue(potrditve and potrditve[0].get("status") == "accepted", "hub mora prijavo sprejeti (vstopnica je vezana na ta device_id)")
-        print(f"  prej vpisan: {prej}; prva prijava s podpisom: {prva[0]}, vpisala v krog: {prva[1]}")
+        print(f"  prej vpisan: {prej}; prva prijava s podpisom: {prva[0]}, vpisala v krog: {prva[1]}, "
+              f"koda podpisa: {p.koda_podpisa}")
         self.assertTrue(link_krog.je_vpisan(device_id), "po prvi prijavi mora biti kljuc v krogu")
         if not prej:
             # Nov id iz kljuca: ce je nas kljuc v krogu ze pod starim id-jem, gre ze prva prijava s podpisom
@@ -86,7 +87,7 @@ class KrogVZivo(unittest.TestCase):
         time.sleep(1.0)
         druga = p2.prijava_s_podpisom
         p2.zapri()
-        print(f"  druga prijava s podpisom: {druga}")
+        print(f"  druga prijava s podpisom: {druga}, koda podpisa: {p2.koda_podpisa}")
         self.assertTrue(druga, "druga prijava mora iti s podpisom kljuca, ne z zetonom")
 
         k = link_krog.krog()

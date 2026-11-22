@@ -1,7 +1,25 @@
+import functools
 import shutil
 import subprocess
 import unittest
 from core.adblock import YOUTUBE_ADBLOCK_SCRIPT
+
+
+@functools.lru_cache(maxsize=None)
+def _node():
+    """Ukaz node za preizkuse strani.
+
+    Response/fetch nalozita undici, ta pa ob nalaganju prevede llhttp v WebAssembly. V8 za to
+    rezervira ~10 GB navideznega prostora; pod ulimit -v (npr. 4000000) to pade z RangeError
+    "Cannot allocate Wasm memory" sele po izpisu PASS in node vrne 1. --disable-wasm-trap-handler
+    (node >= 20.15 / 22.2) te rezervacije ne potrebuje; starejsi node zastavice ne pozna.
+    """
+    ukaz = ("node", "--disable-wasm-trap-handler")
+    try:
+        r = subprocess.run(list(ukaz) + ["-e", ""], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return ("node",)
+    return ukaz if r.returncode == 0 else ("node",)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required to run the page script")
@@ -69,7 +87,7 @@ assert.ok(listeners.some(([type]) => type === 'pause'));
 assert.ok(listeners.some(([type]) => type === 'playing'));
 assert.strictEqual(typeof watchPlayerClass, 'function');
 """
-        subprocess.run(["node", "-e", fixture + code + checks], check=True)
+        subprocess.run([*_node(), "-e", fixture + code + checks], check=True)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required to run the page script")
@@ -151,7 +169,7 @@ assert.strictEqual(revived.x, 2);
   console.log('PASS: ad placements removed; playback, heartbeat, integrity and signed media preserved');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 """
-        subprocess.run(["node", "-e", fixture + YOUTUBE_ADBLOCK_SCRIPT[start:end] + checks], check=True)
+        subprocess.run([*_node(), "-e", fixture + YOUTUBE_ADBLOCK_SCRIPT[start:end] + checks], check=True)
 
 
     def test_idle_prompt_timers_move_beyond_any_session(self):
@@ -201,7 +219,7 @@ assert.strictEqual(cleanPlayerText(noTimers), noTimers, 'renderer without timers
   console.log('PASS: YouTube idle prompt timers moved beyond any session');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 """
-        subprocess.run(["node", "-e", fixture + YOUTUBE_ADBLOCK_SCRIPT[start:end] + checks], check=True)
+        subprocess.run([*_node(), "-e", fixture + YOUTUBE_ADBLOCK_SCRIPT[start:end] + checks], check=True)
 
 
 if __name__ == "__main__":

@@ -158,7 +158,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 return
             try:
                 seja = zaslon.zacni(posiljatelj, str(parametri.get("quality", "") or "srednja"),
-                                    str(parametri.get("screen", "") or "").strip().lower())
+                                    str(parametri.get("screen", "") or "").strip().lower(),
+                                    **_zmoznosti_zaslona(parametri))
             except RuntimeError as e:
                 # ProgramaNi: televizor je hotel program, ki ga ni vec - pove to in gre domov.
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
@@ -245,6 +246,28 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(izid(False, f"Neznano dejanje: {d}" if d else "Manjka dejanje", koda="neznano_dejanje"))
     except Exception as e:  # noqa: BLE001
         koncaj(izid(False, f"Ukaz ni uspel: {e}"))
+
+
+#: Zmoznosti televizorja v screen.start: "codecs" najvec toliko nizov, vsak najvec toliko znakov.
+KODEKI_NAJVEC, KODEK_NAJVEC_ZNAKOV = 8, 16
+
+
+def _zmoznosti_zaslona(parametri: dict) -> dict:
+    """Izrecne zmoznosti televizorja iz screen.start za Zaslon.zacni (kodeki=, najvecja=).
+
+    "codecs" velja samo kot seznam (list) z najvec KODEKI_NAJVEC nizi (str) dolzine do
+    KODEK_NAJVEC_ZNAKOV; "maxsize" samo kot slovar (dict). Kar ni tako, se prezre: klic zacni je
+    takrat enak kot doslej (H.264 do 1080p). Vsebino "maxsize" preveri link_zaslon (_velikost_izjave).
+    """
+    dodatno: dict = {}
+    kodeki = parametri.get("codecs")
+    if (isinstance(kodeki, list) and len(kodeki) <= KODEKI_NAJVEC
+            and all(isinstance(k, str) and len(k) <= KODEK_NAJVEC_ZNAKOV for k in kodeki)):
+        dodatno["kodeki"] = list(kodeki)
+    najvecja = parametri.get("maxsize")
+    if isinstance(najvecja, dict):
+        dodatno["najvecja"] = dict(najvecja)
+    return dodatno
 
 
 def podatki_hosta() -> dict:

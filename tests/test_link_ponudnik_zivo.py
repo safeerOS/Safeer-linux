@@ -17,7 +17,12 @@ from core import link_hub
 from tests.test_link_krog_zivo import _seznanitve, posiljatelj
 from tests.test_link_naprave_zivo import naprave_na_hubu
 
-KATALOG = {"app:preizkus-safeer.desktop": {"name": "Preizkus Safeer", "kind": "linux"}}
+# Hub katalog iz prijave hrani ves (preveriKatalog), v seznamu naprav, ki ga dobi vsaka naprava v Linku, pa
+# pokaze samo pakete "si.safeer." (HubUsmerjevalnik.katalogZaSeznam); imena drugih programov da naprava sama
+# (apps.list). Zato katalog z obema vrstama in v seznamu pricakujemo samo paket Safeer.
+KATALOG = {"app:preizkus-safeer.desktop": {"name": "Preizkus Safeer", "kind": "linux"},
+           "si.safeer.preizkus": {"name": "Preizkus Safeer paket", "kind": "linux"}}
+V_SEZNAMU = {"si.safeer.preizkus": {"name": "Preizkus Safeer paket", "kind": "linux"}}
 
 
 class PonudnikVZivo(unittest.TestCase):
@@ -48,9 +53,12 @@ class PonudnikVZivo(unittest.TestCase):
             koda, naprave = naprave_na_hubu(hub, zeton, odtis)
             self.assertEqual(koda, 200)
             jaz = [n for n in naprave if n.get("id") == device_id]
-            self.assertTrue(jaz, "racunalnik mora biti na seznamu")
+            potrditve = [(s.get("status"), s.get("error_code")) for s in prejeto if s.get("type") == "cast.ack"]
+            self.assertTrue(jaz, f"racunalnik mora biti na seznamu (potrditev prijave: {potrditve}, "
+                                 f"s podpisom: {p.prijava_s_podpisom}, koda podpisa: {p.koda_podpisa})")
             print(f"\n  racunalnik: kind={jaz[0].get('kind')} apps={jaz[0].get('apps')}")
-            self.assertEqual(jaz[0].get("apps"), KATALOG, "hub mora hraniti katalog iz prijave")
+            self.assertEqual(jaz[0].get("apps"), V_SEZNAMU,
+                             "hub mora hraniti katalog iz prijave in v seznamu pokazati samo pakete si.safeer.")
 
             zasloni = [n for n in naprave if n.get("role") == "receiver" and "remote" in (n.get("capabilities") or [])]
             if not zasloni:
