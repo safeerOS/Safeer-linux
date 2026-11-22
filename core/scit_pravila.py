@@ -653,7 +653,10 @@ FUNKCIJE_ZASEBNOSTI = (("ICECandidateFiltering", True), ("EnumeratingAllNetworkI
 #: Stabilne funkcije WebKita, ki so v WebKitGTK privzeto izklopljene, strani pa jih pricakujejo (webmaster pregled
 #: motorja 20. 10. 2026, testni PC, WebKitGTK 2.54.1): brez StorageAPI je navigator.storage undefined in
 #: navigator.storage.estimate()/persist() v PWA in spletnih urejevalnikih vrze napako JS (status »stable«).
-FUNKCIJE_SPLETA = (("StorageAPI", True), ("StorageAPIEstimate", True))
+#: NavigationAPI (window.navigation, NavigateEvent.intercept; lastnik 22. 11. 2026: »ce koristi, privzeto vklopimo«): v
+#: WebKitGTK 2.54.2 stabilna in privzeto vklopljena (izmerjeno: get_default_value True, window.navigation obstaja) -
+#: nastavimo izrecno, da ostane vklopljena tudi, ce bi jo prihodnja razlicica privzeto izklopila.
+FUNKCIJE_SPLETA = (("StorageAPI", True), ("StorageAPIEstimate", True), ("NavigationAPI", True))
 
 
 def zasebnost_pogleda(WebKit, nastavitve) -> List[str]:
