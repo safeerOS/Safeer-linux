@@ -361,25 +361,40 @@ def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
 #: mirno namizje 0,9 Mbit/s (kot CQP 0,9), sum 60 Mbit/s. Izklop: SAFEER_ZASLON_OMEJITEV=0 (ostane CQP kot prej).
 NAJVEC_MBIT = 75
 CILJ_MBIT = 60
-#: Izid preizkusa `omejitev_mozna` po (ffmpeg, naprava, kodirnik).
+#: Izid preizkusa `omejitev_mozna` po (ffmpeg, naprava, kodirnik, profil, oblika slike); kljuc `_OMEJITEV_ODPOVED`: zajem z
+#: mejo je ze odpovedal (`omejitev_odpovedala`).
 _OMEJITEV: dict = {}
+_OMEJITEV_ODPOVED = "odpoved"
+#: Preizkusi vklopijo ali izklopijo mejo s tem atributom (monkeypatch.setattr), ne z okoljem procesa: spreminjanje
+#: os.environ v procesu z nitmi (GTK) je podrlo celoten tek (AGENTS.md; slepi pregled 22. 11. 2026, najdba 5).
+VKLOP_V_PREIZKUSIH: Optional[bool] = None
 
 
 def omejitev_vklopljena() -> bool:
+    if VKLOP_V_PREIZKUSIH is not None:
+        return VKLOP_V_PREIZKUSIH
     return os.environ.get("SAFEER_ZASLON_OMEJITEV", "1").strip() != "0"
 
 
-def omejitev_mozna(ffmpeg: str, vaapi: Optional[str], kodirnik: str) -> bool:
+def omejitev_odpovedala() -> None:
+    """Zajem z mejo hitrosti (QVBR) je koncal sam in brez slike: do ponovnega zagona ostanemo pri CQP (kot pred mejo).
+    Krivda gre najprej meji, ne HEVC ali pomanjsavi na graficni (slepi pregled 22. 11. 2026, najdba 4)."""
+    _OMEJITEV[_OMEJITEV_ODPOVED] = True
+
+
+def omejitev_mozna(ffmpeg: str, vaapi: Optional[str], kodirnik: str, profil: str = "", oblika: str = "nv12") -> bool:
     """Ali gonilnik zna kakovost z zgornjo mejo hitrosti (QVBR): enkraten kratek preizkus, izid si zapomnimo.
     Starejsi gonilniki (iHD brez HuC) znajo samo CQP - tam ostane CQP brez meje, kot doslej."""
-    if not ffmpeg or not vaapi or not omejitev_vklopljena():
+    if not ffmpeg or not vaapi or not omejitev_vklopljena() or _OMEJITEV.get(_OMEJITEV_ODPOVED):
         return False
-    kljuc = "%s|%s|%s" % (ffmpeg, vaapi, kodirnik)
+    # Preizkus z ISTIM profilom in obliko slike kot seja (HEVC RExt 4:4:4 ima lahko drugacne zmoznosti kot Main).
+    kljuc = "%s|%s|%s|%s|%s" % (ffmpeg, vaapi, kodirnik, profil, oblika)
     if kljuc not in _OMEJITEV:
         try:
             r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
                                 "-f", "lavfi", "-i", "color=black:size=320x240:rate=30", "-frames:v", "3",
-                                "-vf", "format=nv12,hwupload", "-c:v", kodirnik] + nacin_hitrosti(24, True) +
+                                "-vf", "format=%s,hwupload" % oblika, "-c:v", kodirnik] +
+                               (["-profile:v", profil] if profil else []) + nacin_hitrosti(24, True) +
                                ["-bf", "0", "-f", "null", "-"],
                                # Izhoda NE zbiramo (kot gpu_lestvica_mozna): lazni ffmpeg v preizkusih pise tok brez konca -
                                # s capture_output je preizkus 21. 11. 2026 porabil 18 GB in sprozil OOM celega racunalnika.
@@ -640,7 +655,9 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
               "-vf", filter_slike,
               "-c:v", "hevc_vaapi" if hevc else "h264_vaapi",
               "-profile:v", ("rext" if barve444 else "main") if hevc else "high",
-              ] + nacin_hitrosti(qp, omejitev_mozna(ffmpeg, vaapi, "hevc_vaapi" if hevc else "h264_vaapi")) + [
+              ] + nacin_hitrosti(qp, omejitev_mozna(ffmpeg, vaapi, "hevc_vaapi" if hevc else "h264_vaapi",
+                                                    ("rext" if barve444 else "main") if hevc else "high",
+                                                    "vuyx" if barve444 else "nv12")) + [
               # Zivi zaslon: kodirnik ne drzi vec slik hkrati v teku (privzeto 2). Izmerjeno 17. 11. 2026 (H.264, zajem+kodiranje+
               # dekodiranje na istem racunalniku, 60 fps, 3 ponovitve izmenicno): mediana 74-77 ms brez, 58-64 ms z -async_depth 1.
               "-async_depth", "1"]
@@ -1580,8 +1597,9 @@ class Zaslon:
             niti[0].join()          # dokler tece slika, tece seja
             trajanje = time.monotonic() - zacetek_zajema
             self._po_zajemu(odjemalec, slika, prebrano, trajanje, rep_izpisa, nit_izpisa, kljuc)
-            self._preveri_hevc(slika, kodek_seje, prebrano)
-            self._preveri_gpu(slika, ukaz, prebrano)
+            if not self._preveri_omejitev(slika, ukaz, prebrano):
+                self._preveri_hevc(slika, kodek_seje, prebrano)
+                self._preveri_gpu(slika, ukaz, prebrano)
         except (OSError, ssl.SSLError, ValueError):
             pass
         finally:
@@ -1845,6 +1863,20 @@ class Zaslon:
         except Exception:  # noqa: BLE001 - zajem se tece: to ni odpoved kodirnika
             return None
         return koda if isinstance(koda, int) and koda >= 0 else None
+
+    @staticmethod
+    def _preveri_omejitev(slika: subprocess.Popen, ukaz, prebrano) -> bool:
+        """Zajem z mejo hitrosti (QVBR), ki konca SAM in brez slike: meja odpade do ponovnega zagona (CQP), HEVC in
+        pomanjsava na graficni ostaneta - naprava sejo zahteva znova sama in dobi CQP. Vrne True, ce je bila kriva meja."""
+        if "QVBR" not in list(ukaz or ()):
+            return False
+        koda = Zaslon._koda_odpovedi(slika, prebrano)
+        if koda is None:
+            return False
+        omejitev_odpovedala()
+        print("[zaslon] zajem z mejo hitrosti ni dal slike (koda %d): do ponovnega zagona brez meje (CQP)" % koda,
+              flush=True)
+        return True
 
     @staticmethod
     def _preveri_hevc(slika: subprocess.Popen, kodek: str, prebrano) -> None:

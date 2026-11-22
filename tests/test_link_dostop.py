@@ -972,3 +972,15 @@ class Poroceno(_Osnova):
         link_dostop.nastavi(A, [link_dostop.DATOTEKE])
         with self._krog_z({B: (A, True)}):
             self.assertEqual(link_dostop.zmoznosti(B), set())
+
+    def test_izrecna_odlocitev_ima_prednost_pred_porostvom(self):
+        """Slepi pregled 22. 11. 2026, najdba 2: uporabnik napravi B na tem racunalniku izklopi dostop (prazen zapis) ali
+        ji da samo del - porostvo naprave A tega ne sme povoziti; enako po umiku iz kroga (prazen zapis)."""
+        link_dostop.nastavi(A, link_dostop.VSE_ZMOZNOSTI)
+        link_dostop.nastavi(B, [])
+        with self._krog_z({B: (A, True)}):
+            self.assertEqual(link_dostop.zmoznosti(B), set())
+            self.assertEqual(link_dostop.zmoznosti_jedra(B), set())
+        link_dostop.nastavi(B, [link_dostop.DATOTEKE])
+        with self._krog_z({B: (A, True)}):
+            self.assertEqual(link_dostop.zmoznosti(B), {link_dostop.DATOTEKE})

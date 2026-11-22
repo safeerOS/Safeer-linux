@@ -144,8 +144,8 @@ sys.meta_path.insert(0, _OkoUvozaSafeerOs())
 def _zaslon_brez_preizkusa_gonilnika(monkeypatch):
     """Zgornja meja hitrosti zivega zaslona (core/link_zaslon.omejitev_mozna) zazene ffmpeg tega racunalnika: izid bi bil
     odvisen od gonilnika, z laznim ffmpeg pa bi vsak preizkus cakal 20 s. Privzeto izklopljeno; test_zaslon_omejitev.py jo
-    vklopi sam (okoljska spremenljivka je tudi uporabnikov izklop)."""
-    monkeypatch.setenv("SAFEER_ZASLON_OMEJITEV", "0")
+    vklopi sam. Z atributom modula, ne z okoljem procesa (AGENTS.md: os.environ v procesu z nitmi; slepi pregled 22. 11.)."""
+    monkeypatch.setattr("core.link_zaslon.VKLOP_V_PREIZKUSIH", False)
     yield
 
 
