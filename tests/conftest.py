@@ -5,6 +5,7 @@ uporabnika. Obstojeci preizkusi preverjajo druge stvari (usmerjanje, prenos dato
 zato so te v njih v ozjem krogu racunalnika. Preizkus, ki preverja sama dovoljenja, se oznaci s
 `@pytest.mark.pravi_dostop` in dobi prava pravila nad praznim zacasnim zapisom.
 """
+import contextlib
 import gc
 import os
 import signal
@@ -155,11 +156,10 @@ def _ustavi_osirotele_spletne_procese():
     except Exception:  # noqa: BLE001 - WebKit ni nalozen
         return
     for o in gc.get_objects():
-        try:
+        # unicen ali nepopoln objekt preskocimo
+        with contextlib.suppress(Exception):
             if isinstance(o, razred) and o.get_root() is None:
                 o.terminate_web_process()
-        except Exception:  # noqa: BLE001 - unicen ali nepopoln objekt
-            pass
 
 
 @pytest.fixture(autouse=True)

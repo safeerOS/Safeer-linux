@@ -6,6 +6,7 @@ naprave, Esc zapre in vrne fokus. Safeer Control je nadomescen (safeer_os._contr
 Potrebuje WebKitGTK 6.0 in zaslon, sicer se preskoci (kot drugi *_zivo preizkusi). Z nasim WebKitom:
 GI_TYPELIB_PATH=/usr/lib/safeer-webkit/lib/girepository-1.0 LD_LIBRARY_PATH=/usr/lib/safeer-webkit/lib \
 xvfb-run -a python3 -m pytest -q tests/test_prostori_zivo.py"""
+import contextlib
 import json
 import os
 import threading
@@ -179,10 +180,8 @@ class Prostori(unittest.TestCase):
         pogled, self.pogled = self.pogled, None
         okno, self.okno = self.okno, None
         self.os = None
-        try:
+        with contextlib.suppress(Exception):  # proces je ze koncal
             pogled.terminate_web_process()
-        except Exception:  # noqa: BLE001 - proces je ze koncal
-            pass
         okno.destroy()
 
     def _js(self, koda):
