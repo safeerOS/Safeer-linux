@@ -8,7 +8,8 @@ toka, preverjanje, kaj se da predvajati, seznami predvajanja). Tu je samo most d
   predvajalniki in spletne strani v lahki medijski pogled; skladbe s seznama predvajanja (YouTube) v vgradnem
   predvajalniku YouTuba v istem lahkem pogledu (locen spletni proces brez mostu Safeer OS - v stran Safeer OS tuje
   vsebine nikoli ne vgradimo, ker so njeni klici mostu dosegljivi vsem okvirjem strani),
-- gesla osebnih streznikov hrani sistemska zbirka skrivnosti (libsecret); v media.json je samo oznaka.
+- gesla osebnih streznikov hrani sistemska zbirka skrivnosti (libsecret; na Windows Upravitelj poverilnic prek
+  core/sporocila/skrivnosti.py); v media.json je samo oznaka.
 
 Modul ne uvaza Gtk: vse, kar potrebuje okno, dobi kot funkcije (glej Katalog.__init__), zato ga preizkusi poganjajo
 brez zaslona.
@@ -54,10 +55,24 @@ def _zbirka():
         return None
 
 
+#: Windows: Upravitelj poverilnic prek core/sporocila/skrivnosti.py (ista shramba kot Sporocila), kljuc s to predpono.
+_PREDPONA_WIN = "media-zbirka-"
+
+
+def _win_skrivnosti():
+    from core.sporocila import skrivnosti   # uvoz tu: na Linuxu modul ni potreben, na Windows nima libsecret
+    return skrivnosti
+
+
 def skrij(skrivnost: str) -> str:
     """Geslo ali zeton shrani v zbirko skrivnosti in vrne oznako zanj. Prazno ostane prazno (dodatki nimajo gesla)."""
     if not skrivnost:
         return ""
+    if sys.platform == "win32":
+        oznaka = secrets.token_hex(12)
+        if not _win_skrivnosti().shrani(_PREDPONA_WIN + oznaka, skrivnost):
+            raise RuntimeError("Gesla ni bilo mogoče shraniti.")
+        return "zbirka:" + oznaka
     z = _zbirka()
     if z is None:
         raise RuntimeError("Zbirka skrivnosti ni na voljo.")
@@ -74,6 +89,11 @@ def razkrij(vrednost: str) -> str:
         return ""
     if not vrednost.startswith("zbirka:"):
         raise RuntimeError("Zaščitene poverilnice niso dostopne v tej napravi.")
+    if sys.platform == "win32":
+        geslo = _win_skrivnosti().preberi(_PREDPONA_WIN + vrednost[len("zbirka:"):])
+        if geslo is None:
+            raise RuntimeError("Gesla ni v zbirki skrivnosti.")
+        return geslo
     z = _zbirka()
     if z is None:
         raise RuntimeError("Zbirka skrivnosti ni na voljo.")
@@ -86,6 +106,9 @@ def razkrij(vrednost: str) -> str:
 
 def pozabi(vrednost: str) -> None:
     if not str(vrednost or "").startswith("zbirka:"):
+        return
+    if sys.platform == "win32":
+        _win_skrivnosti().pozabi(_PREDPONA_WIN + vrednost[len("zbirka:"):])
         return
     z = _zbirka()
     if z is not None:
