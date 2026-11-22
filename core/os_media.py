@@ -285,7 +285,7 @@ def _kind(value: Any, url: str = "", title: str = "", season: int = 0, episode: 
         return "slika"
     # Serija samo po besedi za serijo, sezono ali epizodo ali po poti /tv/, /series/ (lastnik, 25. 10. 2026: podniz »tv«
     # v imenu kanala - »Exodus TV« - ali v naslovu toka je kanale v zivo poslal v Serije).
-    if (re.search(r"\b(?:series|episodes?|seasons?|serija|serije|epizod[ae]?|sezon[ae]?|tv[ -]?show)\b", hint)
+    if (re.search(r"\b(?:series|episodes?|seasons?|serija|serije|epizod[ae]?|sezon[ae]?|tv[ -]?shows?)\b", hint)
             or any(x in hint for x in ("/tv/", "/series/"))):
         return "serija"
     return "film"
@@ -777,13 +777,63 @@ def _je_predvajalni_vir(url: str) -> bool:
     return _je_predloga_predvajalnika(url) or _je_korenski_predvajalni_vir(url)
 
 
+#: Imena parametrov poizvedbe in poti Xtream, ki nosijo uporabnika, geslo ali kljuc (pregled Grok 98, K3).
+_PARAMETRI_POVERILNIC = frozenset({"username", "user", "usr", "login", "password", "pass", "passwd", "pwd",
+                                   "token", "key", "apikey", "api_key", "auth", "mac"})
+_POTI_S_POVERILNICAMI = frozenset({"live", "movie", "series", "timeshift"})
+
+
+def _ima_poverilnice(url: object) -> bool:
+    """Naslov nosi uporabnika, geslo ali kljuc (userinfo, parameter poizvedbe ali pot Xtream /live/<u>/<g>/...). Ob
+    dvomu (naslova ni mogoce razcleniti) True - fail-closed."""
+    besedilo = str(url or "")
+    try:
+        deli = urllib.parse.urlsplit(besedilo)
+        if deli.username or deli.password:
+            return True
+        imena = {ime.casefold() for ime, _ in urllib.parse.parse_qsl(deli.query, keep_blank_values=True)}
+    except ValueError:
+        return True
+    if imena & _PARAMETRI_POVERILNIC:
+        return True
+    pot = [d for d in deli.path.split("/") if d]
+    return len(pot) >= 3 and pot[0].casefold() in _POTI_S_POVERILNICAMI
+
+
+def _kljuc_racuna(url: object) -> tuple:
+    """(gostitelj brez vrat, odtis uporabnika ali None) za zaklep socasnih osvezitev istega racuna (pregled Grok 98,
+    K2). Uporabnik iz userinfo, parametra poizvedbe ali poti Xtream; v pomnilniku samo odtis, nikoli uporabnik ali
+    geslo. None = uporabnika ni mogoce prebrati - tak klic caka na VSE osvezitve istega gostitelja (nikoli dve prijavi)."""
+    besedilo = str(url or "")
+    try:
+        deli = urllib.parse.urlsplit(besedilo)
+        gostitelj = (deli.hostname or "").casefold().rstrip(".") or "?"
+        uporabnik = deli.username or ""
+        if not uporabnik:
+            poizvedba = {k.casefold(): v for k, v in urllib.parse.parse_qsl(deli.query, keep_blank_values=True)}
+            uporabnik = next((poizvedba[k] for k in ("username", "user", "usr", "login") if poizvedba.get(k)), "")
+        if not uporabnik:
+            pot = [d for d in deli.path.split("/") if d]
+            if len(pot) >= 3 and pot[0].casefold() in _POTI_S_POVERILNICAMI:
+                uporabnik = pot[1]
+    except ValueError:
+        return ("?", None)
+    odtis = hashlib.sha256(uporabnik.encode("utf-8", "surrogateescape")).hexdigest()[:16] if uporabnik else None
+    return (gostitelj, odtis)
+
+
 #: Platforme, ki jih Medijski center bere samo prek uradnih vdelav (_official_music_embed, _resolve_embed_or_direct_source):
 #: nobena nima racuna pri ponudniku IPTV, zato zanje ne velja pravilo »neznano je racun« (MediaCenter._racun_vira).
 _PLATFORME_BREZ_RACUNA = ("youtube.com", "youtu.be", "soundcloud.com", "bandcamp.com")
 
 
 def _platforma_brez_racuna(url: object) -> bool:
+    """Znana platforma brez racuna ali predvajalni vir - NIKOLI, ce naslov nosi poverilnice (pregled Grok 98, K3, iz
+    Windows 26. 10. 2026: panel IPTV, ki ga ujame vzorec predvajalnega vira, bi sicer izklopil premor in prepoved
+    rezervne zahteve z geslom)."""
     besedilo = str(url or "")
+    if _ima_poverilnice(besedilo):
+        return False
     try:
         gostitelj = (urllib.parse.urlsplit(besedilo).hostname or "").casefold()
     except ValueError:
@@ -4517,9 +4567,7 @@ class MediaCenter:
             data.setdefault("viri", []).append(source)
             self._save(data)
         if neprenesen:
-            self._vir_potrjen(viri_sink.URL, canonical)
-            if prevzet.get("naslov"):
-                self._vir_potrjen(str(prevzet.get("tip") or viri_sink.URL), str(prevzet["naslov"]))
+            self._potrdi_prejeti_vir(canonical, prevzet)
             return {"ok": True, "napaka": "", "caka": caka, "prvo_uporaba": prvo,
                     "vir": {k: v for k, v in source.items() if k != "vnosi"}}
         # Odziv vira začnemo meriti takoj ob dodajanju, da je meritev navadno
@@ -4531,9 +4579,7 @@ class MediaCenter:
         # Vir predvajalnika (TMDB katalog + vdelani predvajalnik) nima lastnih vnosov, a je predvajljiv.
         if rezultat.get("ok") and (int(vir.get("stevilo") or 0) > 0 or source.get("tip") == "predvajalni_vir"
                                    or vir.get("tip") in ("predvajalni_vir", "uradni_vdelani_predvajalnik")):
-            self._vir_potrjen(viri_sink.URL, canonical)
-            if prevzet and prevzet.get("naslov"):
-                self._vir_potrjen(str(prevzet.get("tip") or viri_sink.URL), str(prevzet["naslov"]))
+            self._potrdi_prejeti_vir(canonical, prevzet)
             return rezultat
         # Vira, iz katerega ne moremo nicesar predvajati, ne pustimo v medijskem centru - in povemo zakaj.
         with self._lock:
@@ -5156,6 +5202,25 @@ class MediaCenter:
             final_url = canonical_url(response.geturl())
             return payload, response.headers.get_content_type(), final_url
 
+    def _potrdi_prejeti_vir(self, canonical: str, prevzet: object) -> None:
+        """Prejet vir v Linku potrdi samo kot URL in samo za naslov, ki je bil na tej napravi dejansko dodan (pregled
+        Grok 98, K4, iz Windows). _vir_potrjen pozabi izbris in zavrnitev - tip in naslov iz dohodnega sporocila bi
+        sicer izbrala, katero izbrisano ali zavrnjeno stvar ta naprava pozabi (o vsebinah te naprave odloca samo ta)."""
+        self._vir_potrjen(viri_sink.URL, canonical)
+        if not isinstance(prevzet, dict):
+            return
+        naslov = prevzet.get("naslov")
+        if not isinstance(naslov, str) or not naslov or naslov == canonical:
+            return
+        if str(prevzet.get("tip") or viri_sink.URL) != viri_sink.URL:
+            return
+        try:
+            enak = canonical_url(naslov) == canonical
+        except Exception:  # noqa: BLE001 - neveljaven naslov ni ta vir
+            enak = False
+        if enak:
+            self._vir_potrjen(viri_sink.URL, naslov)
+
     @staticmethod
     def _racun_vira(source: dict) -> bool:
         """Ali vir velja za vir z racunom pri ponudniku: premor ob vsakem odgovoru brez seznama, ena zahteva, nikoli
@@ -5189,14 +5254,25 @@ class MediaCenter:
             return self._refresh_source_ena(source_id, dovoli_vdelavo)
         with self._lock:
             tece = self.__dict__.setdefault("_osvezuje_vire", set())
-            if source_id in tece:
+            source = next((s for s in self._load().get("viri", []) if isinstance(s, dict) and s.get("id") == source_id),
+                          None)
+            # Pregled Grok 98, K2 (iz Windows): zaklep tudi po RACUNU, ne le po id vira - isti racun je lahko v vec virih
+            # (type=m3u in m3u_plus, player_api.php, druga vrata); nikoli dve hkratni prijavi istega racuna.
+            racun = _kljuc_racuna(source.get("url")) if source is not None and self._racun_vira(source) else None
+            racuni = self.__dict__.setdefault("_osvezuje_racune", [])
+            if source_id in tece or (racun is not None and any(
+                    g == racun[0] and (u is None or racun[1] is None or u == racun[1]) for g, u in racuni)):
                 return {"ok": False, "napaka": "", "ze_tece": True}
             tece.add(source_id)
+            if racun is not None:
+                racuni.append(racun)
         try:
             return self._refresh_source_ena(source_id, dovoli_vdelavo)
         finally:
             with self._lock:
                 tece.discard(source_id)
+                if racun is not None:
+                    racuni.remove(racun)
 
     def _refresh_source_ena(self, source_id: str, dovoli_vdelavo: bool = False) -> dict:
         if source_id.startswith("streznik-"):
@@ -5348,6 +5424,9 @@ class MediaCenter:
         ids = [source.get("id", "") for source in self.sources()
                if not source.get("caka_uporabnika")             # prejet vir z racunom: sele ob uporabnikovi osvezitvi (Ñ2)
                and not source.get("ozji_krog")                  # vir iz ozjega kroga: nikoli v ozadju (pregled 68, Ą1)
+               # Pregled Grok 98, K1 (iz Windows; lastnik: nevarnost zaklepa racuna je prioriteta): vira z racunom (IPTV)
+               # samodejna pot nikoli ne odpre - prijava z geslom med predvajanjem bi bila druga hkratna povezava.
+               and not self._racun_vira(source)
                and zdaj >= self._zavrnjen_do(source)            # premor po napaki velja tudi za samodejno pot
                and (int(source.get("posodobljeno") or 0) < cutoff
                     or (_je_predvajalni_vir(str(source.get("url") or ""))
