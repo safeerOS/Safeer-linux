@@ -141,6 +141,28 @@ sys.meta_path.insert(0, _OkoUvozaSafeerOs())
 
 
 @pytest.fixture(autouse=True)
+def _ustavi_osirotele_spletne_procese():
+    """Po vsakem preizkusu ustavi spletni proces vsakega WebKit.WebView, ki ni vec v nobenem oknu (okno je unicil preizkus).
+    unittest obdrzi primerke preizkusov do konca teka, z njimi pa poglede - vsak je pustil svoj WebKitWebProcess
+    (izmerjeno 22. 11. 2026: test_prostori_zivo.py 49 procesov in 10,7 GB, celoten tek ubit pri 5 in 9 GB). Pogledi v
+    oknih, ki se zivijo (skupni za razred), ostanejo."""
+    yield
+    webkit = sys.modules.get("gi.repository.WebKit")
+    if webkit is None:
+        return
+    try:
+        razred = webkit.WebView
+    except Exception:  # noqa: BLE001 - WebKit ni nalozen
+        return
+    for o in gc.get_objects():
+        try:
+            if isinstance(o, razred) and o.get_root() is None:
+                o.terminate_web_process()
+        except Exception:  # noqa: BLE001 - unicen ali nepopoln objekt
+            pass
+
+
+@pytest.fixture(autouse=True)
 def _zaslon_brez_preizkusa_gonilnika(monkeypatch):
     """Zgornja meja hitrosti zivega zaslona (core/link_zaslon.omejitev_mozna) zazene ffmpeg tega racunalnika: izid bi bil
     odvisen od gonilnika, z laznim ffmpeg pa bi vsak preizkus cakal 20 s. Privzeto izklopljeno; test_zaslon_omejitev.py jo
