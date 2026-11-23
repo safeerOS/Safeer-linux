@@ -1830,7 +1830,9 @@ class Zaslon:
             kodek_seje, raven_ime = self._kodek, self._kakovost
             # Velika slika (nad osnovno velikostjo) je mogoca samo s HEVC: tak kodek velja po vseh poteh.
             kodek_poti = kodek_seje if self._hevc_veliki else kodek_za_pot(kodek_seje, prek)
-            raven_poti = kakovost_za_pot(raven_ime, prek, self._omrezje)
+            # Velika slika je izbrana samo pri polni kakovosti: stopnje po poti ne znizujemo (isti 4K z vecjim kvantizatorjem
+            # bi bil slabsi, ne manjsi).
+            raven_poti = raven_ime if self._hevc_veliki else kakovost_za_pot(raven_ime, prek, self._omrezje)
             if sestavi is not None and (kodek_poti, raven_poti) != (kodek_seje, raven_ime) \
                     and int(KAKOVOSTI[raven_poti]["fps"]) == int(self._slika["fps"]):
                 ukaz = sestavi(kodek_poti, KAKOVOSTI[raven_poti])
