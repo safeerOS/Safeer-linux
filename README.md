@@ -18,8 +18,8 @@ Slovenian: [README.sl.md](README.sl.md) · Website: [safeer.si](https://safeer.s
 
 | | |
 |---|---|
-| **Safeer Browser for Linux** | **1.0.135** — tag [`v1.0.135`](../../releases/tag/v1.0.135) |
-| **Safeer OS for Linux** (with Safeer Control 2.1.90) | **0.4.93** — same release |
+| **Safeer Browser for Linux** | **1.0.136** — tag [`v1.0.136`](../../releases/tag/v1.0.136) |
+| **Safeer OS for Linux** (with Safeer Control 2.1.91) | **0.4.94** — same release |
 | Versions in the code | `packaging/VERSION`, `packaging/VERSION_OS`, `packaging/VERSION_CONTROL` (checked by `packaging/check_version.py`) |
 | What changed | [CHANGELOG.md](CHANGELOG.md) · every version: [docs/releases/](docs/releases/) |
 | Download | [safeer.si](https://safeer.si/#prenosi) · [GitHub Releases](../../releases/latest) |
@@ -113,13 +113,13 @@ that service.
 
 ## Install
 
-[![Release](https://img.shields.io/badge/Release-v1.0.135-2dd4bf?style=flat-square)](../../releases/tag/v1.0.135)
+[![Release](https://img.shields.io/badge/Release-v1.0.136-2dd4bf?style=flat-square)](../../releases/tag/v1.0.136)
 
-Latest release: **v1.0.135** — [release notes and downloads](../../releases/tag/v1.0.135)
+Latest release: **v1.0.136** — [release notes and downloads](../../releases/tag/v1.0.136)
 
 ```bash
 # Debian, Ubuntu, Linux Mint (one file: our web engine is built in)
-sudo apt install ./safeer-browser_1.0.135_amd64.deb
+sudo apt install ./safeer-browser_1.0.136_amd64.deb
 ```
 
 
