@@ -1370,7 +1370,7 @@ def kms_monitorji() -> int:
     stevilo = 0
     for pot in glob.glob("/sys/class/drm/card[0-9]*-*/enabled"):
         try:
-            with open(pot) as f:
+            with open(pot, encoding="utf-8") as f:
                 if f.read().strip() == "enabled":
                     stevilo += 1
         except OSError:
