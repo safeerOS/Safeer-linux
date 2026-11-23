@@ -533,8 +533,9 @@ def test_zacni_kms_samo_h264(monkeypatch):
     assert args[5] is None and z._kodek == "hevc"
 
 
-def _streci_z_bralnikom(monkeypatch, kodek, velika):
+def _streci_z_bralnikom(monkeypatch, kodek, velika, prek=False, sestavi=None):
     z = Zaslon()
+    z._kakovost, z._omrezje = "najvisja", "4g"
     z._zeton = "zeton"
     z._slika = {"width": 3840 if velika else 1920, "height": 2160 if velika else 1080, "fps": 60}
 
@@ -569,8 +570,8 @@ def _streci_z_bralnikom(monkeypatch, kodek, velika):
     monkeypatch.setattr(lz, "odpri_sliko", lambda zazeni, kms, seja=0: (_Slika(), False))
     posluh = _Posluh()
     z._seja_st, z._posluh, z._kodek, z._hevc_veliki = 1, posluh, kodek, velika
-    z._sprejmi = lambda p, c: (v, None)
-    z._streci(posluh, object(), ["nic"], 1)
+    z._sprejmi = lambda p, c: (v, __import__("threading").Event() if prek else None)
+    z._streci(posluh, object(), ["nic"], 1, sestavi=sestavi)
     return [(a, k) for a, k in klici if a[1] == OKVIR_SLIKA]
 
 
@@ -579,6 +580,14 @@ def test_streci_poda_kodek_bralniku_slike(monkeypatch):
     # Velika slika (4K) je mogoca samo s HEVC: kodek_za_pot je v domacem omrezju ne znizi na H.264.
     slika = _streci_z_bralnikom(monkeypatch, "hevc", True)
     assert len(slika) == 1 and slika[0][1]["kodek"] == "hevc"
+
+
+def test_streci_4k_prek_huba_ne_zniza_stopnje(monkeypatch):
+    # Velika slika je izbrana samo pri polni kakovosti: pot prek Huba (4G) je ne sme znizati na "mobilna" (isti 4K
+    # z vecjim kvantizatorjem). Brez popravka sestavi() dobi stopnjo poti.
+    klici = []
+    _streci_z_bralnikom(monkeypatch, "hevc", True, prek=True, sestavi=lambda kodek, raven: klici.append((kodek, raven)) or ["nic"])
+    assert klici == []
 
 
 def test_streci_h264_bralnik_dobi_kodek_h264(monkeypatch):
