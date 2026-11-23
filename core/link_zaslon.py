@@ -1697,6 +1697,8 @@ class Zaslon:
         self._kljucni = OmejevalnikKljucnih()
         #: Seja je bila izbrana z izrecno veliko sliko (nad osnovno velikostjo): mogoca je samo s HEVC, kodeka po poti ne znizamo.
         self._hevc_veliki = False
+        #: Kazalec kot podatek (display, odmik) samo na namizju X11; zacni() ga nastavi po seji.
+        self._kazalec_x11 = None
         self._zvocni: Optional[subprocess.Popen] = None
         self._nit: Optional[threading.Thread] = None
         #: Povezava televizorja v tekoci seji (ovita, core/link_vticnik.py); ustavi() jo zapre in s tem zbudi niti seje.
@@ -2290,6 +2292,8 @@ class Zaslon:
                 # profil z drugo sliko ali kodekom gre prek x11grab (vedenje najnovejse veje).
                 kms = (dict(kms, qp=int(KAKOVOSTI[raven_ime]["qp"]))
                        if kodek_seje == "h264" and not profil_spremenil else None)
+            if profil_spremenil:
+                self._zakasnitev_slike = None     # ukaz po profilu (velikost, kodek) ni izmerjen: brez ziga slike
             kodirnik = kodirnik_ukaza(ukaz, self._strojno)
             meritve = link_zaslon_meritve.Meritve(pot="hub" if prek else "neposredno", kodek=kodek_seje,
                                                   kakovost=raven_ime, kodirnik=vrsta_kodirnika(kodirnik))

@@ -350,7 +350,7 @@ H264_VAAPI_4K_V_1080 = [
     'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-f', 'x11grab', '-draw_mouse', '1', '-framerate',
     '60', '-video_size', '3840x2160', '-i', ':0', '-vaapi_device', '/dev/dri/renderD128', '-vf',
     'scale=1920:1080:flags=lanczos,format=nv12,hwupload', '-c:v', 'h264_vaapi', '-profile:v', 'high', '-rc_mode',
-    'CQP', '-qp', '16', '-g', '60', '-bf', '0', '-flags', '+low_delay', '-f', 'h264', '-']
+    'CQP', '-qp', '16', '-async_depth', '1', '-g', '60', '-bf', '0', '-flags', '+low_delay', '-f', 'h264', '-']
 H264_X264_1080 = [
     'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-f', 'x11grab', '-draw_mouse', '1', '-framerate',
     '60', '-video_size', '1920x1080', '-i', ':0', '-vf', 'format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast',
@@ -438,7 +438,8 @@ def _streci(kodek):
     z._seja_st = 1
     z._posluh = posluh
     z._kodek = kodek or "h264"
-    z._sprejmi = lambda p, c: (v, None)
+    z._naprava, z.dostop = "tv", lambda naprava: True      # straza dostopa najnovejse veje: seja potrebuje napravo z dostopom
+    z._sprejmi = lambda p, c, seja=None: (v, None)
     try:
         z._streci(posluh, _Ctx(), ["nic"], 1)
     finally:
@@ -570,7 +571,8 @@ def _streci_z_bralnikom(monkeypatch, kodek, velika, prek=False, sestavi=None):
     monkeypatch.setattr(lz, "odpri_sliko", lambda zazeni, kms, seja=0: (_Slika(), False))
     posluh = _Posluh()
     z._seja_st, z._posluh, z._kodek, z._hevc_veliki = 1, posluh, kodek, velika
-    z._sprejmi = lambda p, c: (v, __import__("threading").Event() if prek else None)
+    z._naprava, z.dostop = "tv", lambda naprava: True      # straza dostopa najnovejse veje: seja potrebuje napravo z dostopom
+    z._sprejmi = lambda p, c, seja=None: (v, __import__("threading").Event() if prek else None)
     z._streci(posluh, object(), ["nic"], 1, sestavi=sestavi)
     return [(a, k) for a, k in klici if a[1] == OKVIR_SLIKA]
 
@@ -612,7 +614,8 @@ def test_zacni_hevc_odgovor_brez_au(monkeypatch):
 # Ce ni ne enega ne drugega, se preizkusa preskocita (skip) - takrat H.264 varujeta le zlata seznama zgoraj.
 
 KOREN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-HEAD_REF = os.environ.get("SAFEER_HEAD_REF", "3a65bfd1")
+# Osnova: najnovejsa veja pred nasimi spremembami (linux-popravki-2111, a55727f3: -async_depth 1, profil, kazalec).
+HEAD_REF = os.environ.get("SAFEER_HEAD_REF", "a55727f3")
 
 
 @pytest.fixture(scope="module")
@@ -635,6 +638,8 @@ def head():
     m.__file__ = "<head %s>" % HEAD_REF
     sys.modules[m.__name__] = m
     exec(compile(vir, m.__file__, "exec"), m.__dict__)
+    if hasattr(m, "VKLOP_V_PREIZKUSIH"):
+        m.VKLOP_V_PREIZKUSIH = False        # kot tests/conftest.py za core.link_zaslon: brez meje hitrosti (QVBR)
     assert not hasattr(m, "izberi_tok")         # res stara razlicica, ne ta
     return m
 

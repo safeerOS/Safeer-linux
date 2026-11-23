@@ -366,7 +366,8 @@ def test_kms8_na_kms_brez_ziga_slike_izrecno(monkeypatch):
                         lambda self, proces, vrsta, odjemalec, kos, *a, **k: videno.append(self._zakasnitev_slike))
     posluh = _Posluh(v)
     z._seja_st, z._posluh = 1, posluh
-    z._sprejmi = lambda p, c: (v, None)         # mainov _streci sprejme povezavo prek _sprejmi
+    z._naprava, z.dostop = "tv", lambda naprava: True      # straza dostopa najnovejse veje: seja potrebuje napravo z dostopom
+    z._sprejmi = lambda p, c, seja=None: (v, None)         # mainov _streci sprejme povezavo prek _sprejmi
     z._streci(posluh, _Ctx(), ["nic"], 1, None, dict(ZAHTEVA), ":0")
     assert videno == [None]
     assert json.loads(v.klici[0].decode("utf-8"))["zig"] == lz.ZIG_GLAVA     # glava nespremenjena

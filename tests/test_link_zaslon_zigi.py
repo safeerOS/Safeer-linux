@@ -562,7 +562,8 @@ def test_glava_ima_kljuc_zig(monkeypatch):
     monkeypatch.setattr(lz, "_ProcesSlike", _brez_procesa)
     posluh = _Posluh()
     z._seja_st, z._posluh = 1, posluh
-    z._sprejmi = lambda p, c: (v, None)         # mainov _streci sprejme povezavo prek _sprejmi
+    z._naprava, z.dostop = "tv", lambda naprava: True      # straza dostopa (najnovejsa veja): seja mora imeti napravo z dostopom
+    z._sprejmi = lambda p, c, seja=None: (v, None)         # mainov _streci sprejme povezavo prek _sprejmi
     z._streci(posluh, _Ctx(), ["nic"], 1)
     glava = json.loads(v.klici[0].decode("utf-8"))
     assert glava["zig"] == ZIG_GLAVA == {"okvir": 4, "ura": "monotonic_ms"}
