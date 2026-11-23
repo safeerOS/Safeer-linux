@@ -67,12 +67,15 @@ jobs:
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
           sudo apt-get remove -y safeer-os safeer-control
+      # AppImage je zaenkrat izklopljen po odlocitvi lastnika: izdaja je brez AppImage, dokler v WebKitGTK in libsoup3 ne bodo nasi popravki.
       - name: AppImage
+        if: ${{ false }}
         run: |
           bash packaging/fetch_linuxdeploy.sh
           LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
       - name: Safeer OS AppImage (Safeer OS + Safeer Control)
+        if: ${{ false }}
         run: |
           LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
           chmod +x dist/Safeer-OS-*.AppImage
