@@ -369,7 +369,9 @@ jobs:
           [ ! -e /usr/lib/safeer-webkit ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-webkit"; find /usr/lib/safeer-webkit | head; exit 1; }
           # Sistemski WebKitGTK ostane nedotaknjen.
           dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
+      # AppImage je zaenkrat izklopljen po odlocitvi lastnika (23. 11. 2026): izdaja je brez AppImage, dokler v WebKitGTK in libsoup3 ne bodo nasi popravki.
       - name: AppImage
+        if: ${{ false }}
         run: |
           bash packaging/fetch_linuxdeploy.sh
           SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
@@ -505,6 +507,7 @@ jobs:
       - name: Fetch linuxdeploy
         run: bash packaging/fetch_linuxdeploy.sh
       - name: Safeer OS AppImage (Safeer OS + Safeer Control)
+        if: ${{ false }}
         run: |
           SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
           chmod +x dist/Safeer-OS-*.AppImage
