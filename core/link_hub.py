@@ -80,6 +80,9 @@ ZAMIKI_PONOVNEGA_POSKUSA = (2.0, 5.0, 10.0, 20.0, 40.0, 60.0)
 # Po prebujenju je vticnica praviloma mrtva, a tega ne pove nihce: pisanje se zatakne, branje
 # caka do BRALNI_TIMEOUT. Zato jo takrat zapremo sami in se povezemo znova.
 SKOK_UTRIPA = 20.0
+#: Ponovni vpis kljuca ob 401 s podpisom najvec enkrat v tem casu (s) na povezavo: hub, ki podpis
+#: vedno zavrne, vpis pa sprejme, bi sicer dobil vpis ob vsaki ponovni povezavi (vsaki 2 s).
+POPRAVEK_PREMOR_S = 600.0
 
 NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-browser")
 NASTAVITVE_POT = os.path.join(NASTAVITVE_MAPA, "link.json")
@@ -179,6 +182,13 @@ def _osnova(naslov: str) -> str:
     shema = "https" if u.scheme in ("wss", "https") else "http"
     gostitelj = u.netloc or u.path
     return f"{shema}://{gostitelj}"
+
+
+def _isti_odtis(a: str, b: Optional[str]) -> bool:
+    """Ali sta odtisa enaka (brez razlike v velikosti crk in dvopicjih)."""
+    def _n(x) -> str:
+        return str(x or "").replace(":", "").strip().lower()
+    return bool(_n(a)) and _n(a) == _n(b)
 
 
 def _zahteva(url: str, telo: Optional[dict] = None, zeton: Optional[str] = None,
@@ -683,6 +693,10 @@ def vzemi_vstopnico_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: 
     nonce = str(izziv.get("nonce", "") or "")
     if not nonce or (izziv.get("fp") and not link_tls.isti(izziv.get("fp"), odtis_huba)):
         return None, koda
+    if not _isti_odtis(odtis_huba, odtis):
+        # Podpis velja samo za hub, s katerim res govorimo (pripet odtis TLS). Tuj odtis iz izziva bi
+        # hubu omogocil, da nas podpis porabi pri drugem hubu, ki ima nas kljuc v krogu.
+        return None, 0
     try:
         podpis = link_krog.podpisi(link_krog.podatki_za_podpis(odtis_huba, nonce, device_id))
     except Exception:
@@ -709,6 +723,10 @@ def seja_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: str = "") -
     koda, izziv = _zahteva(osnova + "/cast/auth/challenge", {"device_id": device_id}, odtis=odtis)
     nonce = str(izziv.get("nonce", "") or "") if koda == 200 else ""
     if not nonce or (izziv.get("fp") and not link_tls.isti(izziv.get("fp"), odtis_huba)):
+        return None
+    odtis_huba = str(izziv.get("fp", "") or "") or odtis
+    if not _isti_odtis(odtis_huba, odtis):
+        # Glej vzemi_vstopnico_s_podpisom: podpisemo samo za pripet odtis.
         return None
     try:
         podpis = link_krog.podpisi(link_krog.podatki_za_podpis(odtis_huba, nonce, device_id))
@@ -1198,6 +1216,10 @@ class Povezava:
         self.prijava_s_podpisom = False
         # True, ko je ta povezava kljuc naprave ravnokar vpisala v krog huba.
         self.vpisana_v_krog = False
+        # Koda HTTP zadnjega poskusa prijave s podpisom (None = ni bilo poskusa); za dnevnik in preizkuse.
+        self.koda_podpisa: Optional[int] = None
+        # Cas (monotonic) zadnjega ponovnega vpisa ob 401 s podpisom; None = se ga ni bilo.
+        self._popravek_ob: Optional[float] = None
         self.sinhronizira = sinhronizira
         self.odjemalec: Optional[WsOdjemalec] = None
         self.nit: Optional[threading.Thread] = None
@@ -1239,8 +1261,16 @@ class Povezava:
             s_podpisom = self.v_krog and link_krog.lahko_s_podpisom(self.device_id)
         except Exception:
             s_podpisom = False
+        self.koda_podpisa = None
+        # Lokalna kopija: odlocitev spodaj ne sme brati polja, ki ga lahko medtem prepise druga nit.
+        koda_podpisa: Optional[int] = None
         if s_podpisom:
-            vstopnica, koda = vzemi_vstopnico_s_podpisom(self.ws_naslov, self.device_id, self.odtis, self.ime)
+            try:
+                vstopnica, koda = vzemi_vstopnico_s_podpisom(self.ws_naslov, self.device_id, self.odtis, self.ime)
+            except Exception:
+                # Izjema (npr. odgovor huba, ki ni slovar) ne sme koncati niti _zanka: gremo naprej z zetonom.
+                vstopnica, koda = None, 0
+            koda_podpisa = self.koda_podpisa = koda
             if vstopnica:
                 self.prijava_s_podpisom = True
         if not vstopnica and not self.zeton and s_podpisom:
@@ -1255,12 +1285,28 @@ class Povezava:
             vstopnica, koda = vzemi_vstopnico_s_kodo(self.ws_naslov, self.zeton, self.odtis)
             # Hub nas ne pozna vec: brez nove seznanitve ne bo slo, zato tega ne poskusamo v krogu.
             self.zavrnjena = koda in (401, 403)
-            if vstopnica and not s_podpisom and self.v_krog:
+            # Krajevni krog nas lahko vodi, hub pa nasega kljuca nima (401: ponastavljen hub, krog z
+            # drugega huba). Brez ponovnega vpisa bi ostali za vedno pri zetonu. 403 (umik) ne
+            # popravljamo: umik je namerno dejanje.
+            popravi = (s_podpisom and koda_podpisa == 401
+                       and (self._popravek_ob is None
+                            or time.monotonic() - self._popravek_ob >= POPRAVEK_PREMOR_S))
+            if vstopnica and self.v_krog and (not s_podpisom or popravi):
+                if popravi:
+                    self._popravek_ob = time.monotonic()
                 # Zeton je veljaven: vpisemo kljuc naprave v krog, da gre naslednjic s podpisom.
                 # Starejsi hub brez kroga vrne 404 - nic hudega, ostanemo pri zetonu.
                 try:
                     if vpisi_v_krog(self.ws_naslov, self.zeton, self.odtis, self.ime):
                         self.vpisana_v_krog = True
+                        if popravi:
+                            # Vstopnica z zetonom je vezana na napravo zetona; s podpisom na nas id
+                            # (tudi alias), zato jo po popravljenem vpisu vzamemo znova s podpisom.
+                            nova, self.koda_podpisa = vzemi_vstopnico_s_podpisom(
+                                self.ws_naslov, self.device_id, self.odtis, self.ime)
+                            if nova:
+                                vstopnica = nova
+                                self.prijava_s_podpisom = True
                 except Exception:
                     pass
         else:

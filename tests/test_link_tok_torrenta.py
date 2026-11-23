@@ -96,6 +96,8 @@ class TokTorrenta(unittest.TestCase):
         cls.lokalni = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Lokalni)
         threading.Thread(target=cls.lokalni.serve_forever, daemon=True).start()
         cls.d = link_datoteke.Datoteke([], tls_mapa=os.path.join(cls.mapa, "tls"))
+        # /live/ in /m/ zahtevata zmoznost predvajalnika, odprto na tem racunalniku (5345d353): v preizkusu jo naprava ima.
+        cls.d.streznik.sme = lambda naprava, zmoznost: True
 
     @classmethod
     def tearDownClass(cls):
@@ -323,6 +325,7 @@ class Nadzornik(unittest.TestCase):
             # json.dump, ne oblikovanje niza: pot mape na Windows vsebuje posevnice nazaj.
             json.dump({"torrents": {"0": {"info_hash": self.hash, "output_folder": self.izhod}}}, d)
         self.d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self.mapa, "tls"))
+        self.d.streznik.sme = lambda naprava, zmoznost: True      # zmoznost predvajalnika (5345d353)
 
     def tearDown(self):
         self.d.ustavi()
