@@ -530,9 +530,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if isinstance(parametri.get("view"), dict):
                 # Povrsina naprave, ki gleda: loceni zaslon dobi njeno obliko (pravi zaslon ostane, kot je).
                 dodatno["pogled"] = parametri["view"]
-            if isinstance(parametri.get("codecs"), list):
-                # Kodeki slike, ki jih naprava strojno dekodira, po njeni prednosti (npr. ["hevc", "h264"]).
-                dodatno["kodeki"] = [str(k)[:16] for k in parametri["codecs"][:8] if isinstance(k, str)]
+            # Kodeki ("codecs") in najvecja velikost ("maxsize") iz screen.start, strogo preverjena (HEVC 4K).
+            dodatno.update(_zmoznosti_zaslona(parametri))
             if isinstance(parametri.get("net"), str):
                 # Omrezje naprave (wifi, ethernet, 5g, 4g ...): zdoma je po njem umerjena kakovost.
                 dodatno["omrezje"] = parametri["net"][:16]
@@ -741,6 +740,28 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(izid(False, f"Neznano dejanje: {d}" if d else "Manjka dejanje", koda="neznano_dejanje"))
     except Exception as e:  # noqa: BLE001
         koncaj(_izid_napake("Ukaz ni uspel", e))
+
+
+#: Zmoznosti televizorja v screen.start: "codecs" najvec toliko nizov, vsak najvec toliko znakov.
+KODEKI_NAJVEC, KODEK_NAJVEC_ZNAKOV = 8, 16
+
+
+def _zmoznosti_zaslona(parametri: dict) -> dict:
+    """Izrecne zmoznosti televizorja iz screen.start za Zaslon.zacni (kodeki=, najvecja=).
+
+    "codecs" velja samo kot seznam (list) z najvec KODEKI_NAJVEC nizi (str) dolzine do
+    KODEK_NAJVEC_ZNAKOV; "maxsize" samo kot slovar (dict). Kar ni tako, se prezre: klic zacni je
+    takrat enak kot doslej (H.264 do 1080p). Vsebino "maxsize" preveri link_zaslon (_velikost_izjave).
+    """
+    dodatno: dict = {}
+    kodeki = parametri.get("codecs")
+    if (isinstance(kodeki, list) and len(kodeki) <= KODEKI_NAJVEC
+            and all(isinstance(k, str) and len(k) <= KODEK_NAJVEC_ZNAKOV for k in kodeki)):
+        dodatno["kodeki"] = list(kodeki)
+    najvecja = parametri.get("maxsize")
+    if isinstance(najvecja, dict):
+        dodatno["najvecja"] = dict(najvecja)
+    return dodatno
 
 
 def podatki_hosta() -> dict:

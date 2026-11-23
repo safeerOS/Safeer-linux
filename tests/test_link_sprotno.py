@@ -82,6 +82,8 @@ class Sprotno(unittest.TestCase):
         cls.vir_tls.socket = tls.wrap_socket(cls.vir_tls.socket, server_side=True)
         threading.Thread(target=cls.vir_tls.serve_forever, daemon=True).start()
         cls.d = link_datoteke.Datoteke([], tls_mapa=os.path.join(cls.mapa, "tls"))
+        # /live/ in /m/ zahtevata zmoznost predvajalnika, odprto na tem racunalniku (5345d353): v preizkusu jo naprava ima.
+        cls.d.streznik.sme = lambda naprava, zmoznost: True
         cls.ffmpeg = os.path.join(cls.mapa, "ffmpeg")
         with open(cls.ffmpeg, "w", encoding="utf-8") as f:
             f.write(LAZNI_FFMPEG)

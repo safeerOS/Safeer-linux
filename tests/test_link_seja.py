@@ -83,7 +83,7 @@ class Seja(unittest.TestCase):
         # Nezaupan racunalnik ne gre v krog zaupanja in se ne prijavlja s podpisom.
         hub = _beri("core", "link_hub.py")
         self.assertIn("s_podpisom = self.v_krog and", hub)
-        self.assertIn("not s_podpisom and self.v_krog", hub)
+        self.assertIn("self.v_krog and (not s_podpisom or popravi)", hub)  # od 881d60f6: 401 popravek, v_krog ostane pogoj
         self.assertIn("v_krog=self._zaupana()", most)
 
 

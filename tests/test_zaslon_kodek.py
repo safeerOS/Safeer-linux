@@ -554,7 +554,11 @@ class UkazZaslona(unittest.TestCase):
         link_daljinec.izvedi_control("screen.start", {"screen": "apps", "codecs": "hevc"},
                                      lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
         self.assertTrue(all(i.get("ok") for i in izidi), izidi)
-        self.assertEqual(klici[0], {"kodeki": ["hevc", "h264"], "zmoznosti": ["gop"]})
+        # Seznam z neniznim vnosom se ne preda (stroga preverba _zmoznosti_zaslona, ker lahko skupaj z "maxsize" odpre HEVC 4K).
+        self.assertEqual(klici[0], {"zmoznosti": ["gop"]})
+        link_daljinec.izvedi_control("screen.start", {"screen": "apps", "codecs": ["hevc", "h264"], "caps": ["gop"]},
+                                     lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
+        self.assertEqual(klici.pop(), {"kodeki": ["hevc", "h264"], "zmoznosti": ["gop"]})
         self.assertEqual(klici[1], {})                                 # neveljaven seznam se ne preda
         link_daljinec.izvedi_control("screen.start", {"screen": "apps", "net": "4g"},
                                      lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
