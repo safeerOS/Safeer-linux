@@ -6163,7 +6163,20 @@ class SafeerOS(Gtk.Application):
             slika.add_controller(klik)
             self._medijski_sklad.add_named(slika, "slika")
         else:
-            print("[SafeerOS] gtk4paintablesink ni namescen: video v svojem oknu (autovideosink)", flush=True)
+            # Brez vticnika gtk4paintablesink: slike iz appsink kot Gdk.MemoryTexture V ISTEM oknu (vzorec iz
+            # safeer_control.py). Tako video, naslov in upravljanje ostanejo v enem oknu, zapiranje ga ustavi.
+            if self._medijski_appsink_pripravi(Gst):
+                slika = Gtk.Picture()
+                slika.set_hexpand(True)
+                slika.set_vexpand(True)
+                klik = Gtk.GestureClick()
+                klik.connect("pressed", lambda _k, n, _x, _y: n == 2 and self._medijski_cel_zaslon(okno))
+                slika.add_controller(klik)
+                self._medijski_appsink_slika = slika
+                self._medijski_sklad.add_named(slika, "slika")
+                print("[SafeerOS] gtk4paintablesink ni namescen: video v istem oknu prek appsink", flush=True)
+            else:
+                print("[SafeerOS] gtk4paintablesink in appsink ni: video v svojem oknu (autovideosink)", flush=True)
         # OSD (zamik, zvocni posnetek, podnapisi): kratko besedilo v kotu slike, kot v Kodiju in VLC.
         prekrivanje = Gtk.Overlay()
         prekrivanje.set_vexpand(True)
@@ -6973,6 +6986,53 @@ class SafeerOS(Gtk.Application):
     def _mb(kljuc: str) -> str:
         """Napis GTK predvajalnika v jeziku vmesnika."""
         return os_media_besedila.besedilo(kljuc, _jezik())
+
+    def _medijski_appsink_pripravi(self, Gst) -> bool:
+        """Nadomestni video ponor playbina: BGRA v appsink (sync, max 1 slika), risanje v glavni niti."""
+        try:
+            ponor = Gst.parse_bin_from_description(
+                "videoconvert ! video/x-raw,format=BGRA ! appsink name=safeer-media-appsink "
+                "emit-signals=true max-buffers=1 drop=true sync=true", True)
+            sink = ponor.get_by_name("safeer-media-appsink")
+            sink.connect("new-sample", self._medijski_nova_slika)
+            self._medijski_predvajalnik.element.set_property("video-sink", ponor)
+        except Exception as e:  # noqa: BLE001 - manjka videoconvert ali appsink: nadomestna pot odpade
+            print(f"[SafeerOS] appsink ponor ni mogoc: {e}", flush=True)
+            return False
+        self._medijski_zadnja_slika = None
+        self._medijski_slika_caka = False
+        return True
+
+    def _medijski_nova_slika(self, sink):
+        """Nit GStreamerja: shrani zadnjo sliko, risanje opravi glavna nit (najvec ena caka)."""
+        vzorec = sink.emit("pull-sample")
+        if vzorec is None:
+            return 0
+        struktura = vzorec.get_caps().get_structure(0)
+        medpomnilnik = vzorec.get_buffer()
+        ok, podatki = medpomnilnik.map(1)  # Gst.MapFlags.READ
+        if not ok:
+            return 0
+        try:
+            self._medijski_zadnja_slika = (struktura.get_value("width"), struktura.get_value("height"),
+                                           bytes(podatki.data))
+        finally:
+            medpomnilnik.unmap(podatki)
+        if not self._medijski_slika_caka:
+            self._medijski_slika_caka = True
+            GLib.idle_add(self._medijski_narisi_sliko)
+        return 0  # Gst.FlowReturn.OK
+
+    def _medijski_narisi_sliko(self) -> bool:
+        self._medijski_slika_caka = False
+        slika, self._medijski_zadnja_slika = self._medijski_zadnja_slika, None
+        gradnik = getattr(self, "_medijski_appsink_slika", None)
+        if slika is None or gradnik is None:
+            return False
+        sirina, visina, bajti = slika
+        gradnik.set_paintable(Gdk.MemoryTexture.new(sirina, visina, Gdk.MemoryFormat.B8G8R8A8,
+                                                    GLib.Bytes.new(bajti), sirina * 4))
+        return False
 
     def _medijski_cel_zaslon(self, okno) -> bool:
         self._nastavi_cel_zaslon_okna(okno, not okno.is_fullscreen())
