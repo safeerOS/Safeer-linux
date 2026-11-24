@@ -2608,10 +2608,10 @@ class Zaslon:
             pass
         finally:
             konec_seje.set()                # niti utripa in meritev nehajo
+            budnost.POKROV.sprosti("zaslon-%d" % seja)     # pokrov spet deluje; zaprt pokrov takrat uspava
             if omejevalnik.sprejetih or omejevalnik.zavrnjenih:
                 print("[zaslon] kljucni ob koncu seje: sprejetih %d, zavrnjenih %d"
                       % (omejevalnik.sprejetih, omejevalnik.zavrnjenih), flush=True)
-            budnost.POKROV.sprosti("zaslon-%d" % seja)     # pokrov spet deluje; zaprt pokrov takrat uspava
             povzetek = self._povzetek(meritve) if steklo else None
             # Najprej shutdown: druge niti (zvok, vnos) drzijo vticnico in sam close televizorju
             # ne bi poslal konca - ta bi gledal zamrznjeno sliko.
@@ -2955,7 +2955,7 @@ class Zaslon:
         return bool(zamenjano)
 
     def _crpaj(self, proces, vrsta: int, odjemalec, kos: int, prebrano=None,
-               merilo=None, kodek: str = "h264", fps=None) -> None:
+               merilo=None, kodek: str = "h264", fps=60) -> None:
         """Bere en vir (slika ali zvok) in ga v okvirjih poslje televizorju. Vsak okvir je en `sendall`
         na oviti vticnici, ta pa jamci, da se okvirja dveh virov nikoli ne prepleteta.
 
@@ -2970,7 +2970,7 @@ class Zaslon:
         svez kos H.264 iz izmerjenega kodirnika (ZigiSlike, `proces.svez`); `kodek` je kodek te seje."""
         vrsta_slik = None
         if vrsta == OKVIR_SLIKA and kodek is not None and fps:
-            vrsta_slik = _VrstaSlik(fps, merilo.opis if merilo is not None else {},
+            vrsta_slik = _VrstaSlik(fps, getattr(merilo, "opis", None) or {},
                                      lambda: _neposlani_bajti(odjemalec))
 
             def beri():

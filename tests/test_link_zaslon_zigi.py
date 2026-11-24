@@ -108,7 +108,7 @@ def _crpaj(kosi, vrsta, casi, zakasnitev=None):
     lz.ura_ms = lambda: next(ura)
     try:
         v = _Vticnica()
-        z._crpaj(_Proces(kosi), vrsta, v, 32 * 1024)
+        z._crpaj(_Proces(kosi), vrsta, v, 32 * 1024, fps=None)
     finally:
         lz.ura_ms = stara
     return v.klici
@@ -457,7 +457,7 @@ def test_po_zamenjavi_brez_ziga_slike_za_stari_tok_in_prvi_kos_novega():
     stara = lz.ura_ms
     lz.ura_ms = lambda: next(casi)
     try:
-        z._crpaj(ps, OKVIR_SLIKA, v, 32 * 1024)
+        z._crpaj(ps, OKVIR_SLIKA, v, 32 * 1024, fps=None)
     finally:
         lz.ura_ms = stara
     tok = b"".join(v.klici)

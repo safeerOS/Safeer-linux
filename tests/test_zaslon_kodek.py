@@ -154,13 +154,13 @@ class OdpovedZajema(unittest.TestCase):
         poslano = []
         prebrano = [0, False]
         link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_SLIKA,
-                                                   types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano)
+                                                   types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano, fps=None)
         self.assertEqual(prebrano, [28, True])
         self.assertEqual(len(poslano), 2)
         kosi = [b"napaka kodirnika\n", b""]
         prebrano = [0, False]
         link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_SLIKA,
-                                                   types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano)
+                                                   types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano, fps=None)
         self.assertEqual(prebrano, [17, False])
 
     def test_crpalka_meri_cas_pisanja(self):
@@ -184,7 +184,7 @@ class OdpovedZajema(unittest.TestCase):
         merilo = Merilo()
         link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_SLIKA,
                                                    types.SimpleNamespace(sendall=pocasi), 32 * 1024, None,
-                                                   merilo=merilo)
+                                                   merilo=merilo, fps=None)
         self.assertEqual(len(poslano), 2)
         self.assertEqual([(v, b) for v, b, _ in merilo.klici], [(link_zaslon.OKVIR_SLIKA, 105), (link_zaslon.OKVIR_SLIKA, 25)])
         self.assertTrue(all(0.025 <= c < 1.0 for _, _, c in merilo.klici), merilo.klici)
@@ -221,7 +221,7 @@ class OdpovedZajema(unittest.TestCase):
         proces = types.SimpleNamespace(stdout=types.SimpleNamespace(read=lambda n: kosi.pop(0)))
         slika = link_zaslon.OKVIR_SLIKA
         link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, slika, types.SimpleNamespace(sendall=sendall), 32 * 1024,
-                                                   None, merilo=Merilo())
+                                                   None, merilo=Merilo(), fps=None)
         self.assertEqual(dogodki, [("zacni", slika), ("sendall", 15), ("poslano", slika, 15),
                                    ("zacni", slika), ("sendall", 15), ("poslano", slika, 0)])
 

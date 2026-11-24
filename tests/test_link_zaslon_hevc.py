@@ -360,8 +360,8 @@ H264_X264_1080 = [
 
 def test_ukaz_h264_enak_kot_prej():
     # Seznama sta izpisana iz osnove (priloga 689dac5c): za H.264 se ukaz ne spremeni niti za en argument.
-    assert ukaz_ffmpeg(":0", 1920, 1080, 3840, 2160, 60, "24M", VAAPI, "ffmpeg", 16) == H264_VAAPI_4K_V_1080
-    assert ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None, "ffmpeg", 16) == H264_X264_1080
+    assert _bez_aud(ukaz_ffmpeg(":0", 1920, 1080, 3840, 2160, 60, "24M", VAAPI, "ffmpeg", 16)) == H264_VAAPI_4K_V_1080
+    assert _bez_aud(ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None, "ffmpeg", 16)) == H264_X264_1080
 
 
 def test_ukaz_hevc_vaapi_4k():
@@ -373,7 +373,8 @@ def test_ukaz_hevc_vaapi_4k():
     assert u[u.index("-qp") + 1] == "16" and u[u.index("-bf") + 1] == "0" and u[u.index("-g") + 1] == "60"
     # Razen kodirnika, profila in oblike enako kot H.264 (zajem, CQP, GOP, brez B-slik).
     h = ukaz_ffmpeg(":0", 3840, 2160, 3840, 2160, 60, "24M", VAAPI, "ffmpeg", 16)
-    zamenjave = {"h264_vaapi": "hevc_vaapi", "high": "main", "h264": "hevc"}
+    zamenjave = {"h264_vaapi": "hevc_vaapi", "high": "main", "h264": "hevc",
+                 "h264_metadata=aud=insert": "hevc_metadata=aud=insert"}
     assert [zamenjave.get(x, x) for x in h] == u
 
 
@@ -501,7 +502,7 @@ def test_zacni_privzeto_h264_1080p(monkeypatch):
     assert kms is None
     assert (odgovor["codec"], odgovor["width"], odgovor["height"]) == ("h264", 1920, 1080)
     assert kodek == "h264" and z._kodek == "h264"
-    assert ukaz == H264_VAAPI_4K_V_1080
+    assert _bez_aud(ukaz) == H264_VAAPI_4K_V_1080
 
 
 def test_zacni_hevc_4k_ob_izrecni_zmoznosti(monkeypatch):
@@ -659,13 +660,13 @@ def test_head_ukaz_h264_argument_za_argumentom(head):
                             for qp in (16, 20, 24, 28):
                                 a = (display, s, v, iz_s, iz_v, fps, bitrate, vaapi, ffmpeg, qp)
                                 pricakovano = head.ukaz_ffmpeg(*a)
-                                assert ukaz_ffmpeg(*a) == pricakovano, a
-                                assert ukaz_ffmpeg(*a, "h264") == pricakovano, a
-                                assert ukaz_ffmpeg(*a, kodek="h264") == pricakovano, a
+                                assert _bez_aud(ukaz_ffmpeg(*a)) == pricakovano, a
+                                assert _bez_aud(ukaz_ffmpeg(*a, "h264")) == pricakovano, a
+                                assert _bez_aud(ukaz_ffmpeg(*a, kodek="h264")) == pricakovano, a
                                 n += 1
     assert n == 2 * len(VELIKOSTI) * 2 * 2 * 3 * 2 * 4
     # Privzeti argumenti (brez ffmpeg in qp) enaki kot na HEAD.
-    assert ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None) == \
+    assert _bez_aud(ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None)) == \
         head.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None)
 
 
@@ -715,6 +716,23 @@ def _zacni_v(mod, monkeypatch, vaapi, kms, kakovost, izvor, **kw):
     return odgovor, zagoni[0][2], kms_arg
 
 
+def _bez_aud(ukaz):
+    """Ukaz brez meje AUD, ki jo doda vrsta slik (core/link_zaslon._VrstaSlik)."""
+    if not isinstance(ukaz, list):
+        return ukaz
+    izhod, i = [], 0
+    while i < len(ukaz):
+        if ukaz[i] == "-bsf:v" and i + 1 < len(ukaz) and str(ukaz[i + 1]).endswith("_metadata=aud=insert"):
+            i += 2
+            continue
+        if ukaz[i] == "-p" and i + 1 < len(ukaz) and ukaz[i + 1] == "aud=1":
+            i += 2
+            continue
+        izhod.append(ukaz[i])
+        i += 1
+    return izhod
+
+
 @pytest.mark.parametrize("vaapi", [None, VAAPI])
 @pytest.mark.parametrize("kms", [False, True])
 @pytest.mark.parametrize("izvor", [(3840, 2160), (1920, 1080), (2560, 1440), (1920, 1200), (1280, 1024)])
@@ -725,5 +743,6 @@ def test_head_zacni_h264_enako(head, monkeypatch, vaapi, kms, izvor, zmoznosti):
         star = _zacni_v(head, monkeypatch, vaapi, kms, kakovost, izvor)
         nov = _zacni_v(lz, monkeypatch, vaapi, kms, kakovost, izvor, **zmoznosti)
         # Odgovor in ukaz (args[2]) enaka kot na HEAD (main brez KMS in 4K); zahteva KMS samo, kjer jo main ne pozna.
-        assert nov[:2] == star[:2], (kakovost, zmoznosti)
+        # Vrsta slik (12313d14) x11/wf-recorder ukazu doda mejo AUD (-bsf:v ...aud=insert / -p aud=1): drugo je enako kot na HEAD.
+        assert (nov[0], _bez_aud(nov[1])) == (star[0], star[1]), (kakovost, zmoznosti)
         assert star[2] is None and (nov[2] is None or kms), (kakovost, zmoznosti)

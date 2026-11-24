@@ -255,7 +255,7 @@ class TisinaSeNePosilja(unittest.TestCase):
     def _poslji(self, vrsta, kosi):
         z = link_zaslon.Zaslon(vklopljeno=True)
         o = self._Odjemalec()
-        z._crpaj(self._Vir(kosi), vrsta, o, 1920)
+        z._crpaj(self._Vir(kosi), vrsta, o, 1920, fps=None)
         return o.okvirji
 
     def test_dolga_tisina_utihne_po_repu(self):

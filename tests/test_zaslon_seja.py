@@ -87,7 +87,7 @@ class _Televizor:
         #: Bajti toka po glavi (z glavami okvirjev) - kot `b` v odmevu gledalca.
         self.bajtov = 0
         self.glava = None
-        self.okvirjev = {1: 0, 2: 0, 3: 0}
+        self.okvirjev = {1: 0, 2: 0, 3: 0, 4: 0}
         self.poslanih = 0
         self.napaka = ""
         self.konec_toka = False
@@ -101,7 +101,7 @@ class _Televizor:
     def _razcleni(self, zbrano: bytearray) -> None:
         while len(zbrano) >= 5:
             vrsta, dolzina = zbrano[0], int.from_bytes(zbrano[1:5], "big")
-            if vrsta not in (1, 2, 3) or not 0 < dolzina <= 8 * 1024 * 1024:
+            if vrsta not in (1, 2, 3, 4) or not 0 < dolzina <= 8 * 1024 * 1024:
                 self.napaka = "pokvarjen okvir: vrsta %d, dolzina %d" % (vrsta, dolzina)
                 return
             if len(zbrano) < 5 + dolzina:
