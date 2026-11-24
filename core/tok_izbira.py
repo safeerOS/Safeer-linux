@@ -157,6 +157,9 @@ _Z_JEZIKI = (
     ("sl", re.compile(r"sloven|sinhroniz")),
 )
 _Z_SINHRONIZACIJA = re.compile(r"\bdub(bed)?\b|dublaj|doblad")
+# Cirilica v imenu izdaje brez druge oznake jezika: ruska/ukrajinska izdaja (Rutor, Rutracker) ima skoraj vedno
+# ruski zvok; brez tega je stela kot neoznacena = angleska (24. 11. 2026, »Синтел / Sintel 4K«).
+_Z_CIRILICA = re.compile("[\u0400-\u04FF]{3,}")
 
 
 def jezik_zvoka(besedilo: str) -> str:
@@ -177,7 +180,9 @@ def jezik_zvoka(besedilo: str) -> str:
         return "vec"
     if najdeni:
         return najdeni[0]
-    return "sinhronizacija" if _Z_SINHRONIZACIJA.search(t) else ""
+    if _Z_SINHRONIZACIJA.search(t):
+        return "sinhronizacija"
+    return "ru" if _Z_CIRILICA.search(t) else ""
 
 
 def zeleni_jezik(izvirni: str) -> str:

@@ -76,6 +76,15 @@ class TestJezikZvoka(unittest.TestCase):
         for seznam in ([ru.replace("👤 21", "👤 100"), yts], [rip, yts], [sub, yts]):
             self.assertEqual(ti.uredi(seznam, lambda t: t, ti.Zmoznosti(visina=1080), zelen_jezik="en", izvirni="en")[0], yts)
 
+    def test_cirilski_naslov_brez_oznake_ni_angleski(self):
+        # 24. 11. 2026 Torrentio (Sintel): »Синтел / Sintel 4K от EbP« (Rutor) brez zastavic je stel kot neoznacen = angleski.
+        ru = "Синтел / Sintel (2010) 4K от EbP | 👤 30"
+        self.assertEqual(ti.jezik_zvoka(ru), "ru")
+        self.assertEqual(ti.jezik_zvoka("Синтел / Sintel 1080p ENG"), "en")
+        self.assertEqual(ti.jezik_zvoka("Синтел / Sintel 1080p 🇬🇧 / 🇷🇺"), "vec")
+        yts = "Sintel 2010 1080p BluRay | 👤 30"
+        self.assertEqual(ti.uredi([ru, yts], lambda t: t, ti.Zmoznosti(visina=2160), zelen_jezik="en", izvirni="en")[0], yts)
+
     def test_media_center_poda_jezik_samo_za_video(self):
         from core.os_media import MediaCenter
         self.assertEqual(MediaCenter._jezik_zvoka({"vrsta": "film", "jezik": "sl"}), {"zelen_jezik": "sl", "izvirni": "sl"})
