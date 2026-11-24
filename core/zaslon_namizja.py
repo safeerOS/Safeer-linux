@@ -190,18 +190,21 @@ class Straza:
         nast = nastavitev(self.shramba.get(KLJUC))
         trenutni = glavni_izhod(izhodi)
         prej = self._prej()
-        if prej and (trenutni != prej["vgrajen"] or _izhod(izhodi, prej["glavni"]) is None):
-            # Uporabnik je sam zamenjal primarni izhod ali TV ni vec prikljucen: ne bijemo se z njim.
+        if prej and (_izhod(izhodi, prej["glavni"]) is None or _izhod(izhodi, prej["vgrajen"]) is None
+                     or trenutni not in (prej["glavni"], prej["vgrajen"])):
+            # TV odklopljen, pokrov zaprt ali povsem drug primarni izhod: zacnemo znova.
             self._pozabi()
             prej = None
+        # Primarni spet na TV (uporabnik ali muffin ob ponovni postavitvi), TV pa se spi ali ne odgovarja: zadrzanje
+        # ostane in namizje gre znova na prenosnik. Uporabnik, ki hoce TV kljub temu, izbere nastavitev »glavni«.
         glavni = prej["glavni"] if prej else trenutni
         tv = self.beri_tv() if nast == "samodejno" and potrebno_preverjanje(izhodi, glavni) else []
         ime = izberi(izhodi, tv, nast, glavni, zadrzi=bool(prej))
         if prej and (nast != "samodejno" or ime == glavni):
-            if self.nastavi_primarni(glavni):
+            if trenutni == glavni or self.nastavi_primarni(glavni):
                 self._pozabi()
                 prej = None
-        elif nast == "samodejno" and not prej and ime != trenutni and ime == vgrajen_izhod(izhodi):
+        elif nast == "samodejno" and ime != trenutni and ime == vgrajen_izhod(izhodi):
             if self.nastavi_primarni(ime):
                 self.shramba.set(KLJUC_PREJ, {"glavni": glavni, "vgrajen": ime})
                 prej = self._prej()

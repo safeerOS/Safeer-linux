@@ -7,6 +7,10 @@ import unittest
 class TvVLinku(unittest.TestCase):
     """Vir stanja: Safeer Control (Seznam + host.info samo za TV); Controla ne zaganjamo, pocasen TV je neznan."""
 
+    def setUp(self):
+        import safeer_os
+        safeer_os._TV_ODGOVORI.clear()
+
     def _pozeni(self, odgovori, na_vodilu=True):
         from unittest import mock
         import safeer_os
@@ -32,6 +36,32 @@ class TvVLinku(unittest.TestCase):
     def test_starejsi_tv_brez_polja_zaslon(self):
         tv, _ = self._pozeni(lambda _id: {"ok": True, "data": {"znamka": "Philips"}})
         self.assertEqual(tv, [{"id": "tv1", "znamka": "Philips", "prizgan": None}])
+
+    def test_pozen_odgovor_velja_v_naslednjem_ciklu(self):
+        # TV v mirovanju odgovori pocasi: odgovor po roku ne sme biti izgubljen (sicer stanje za vedno »neznano«).
+        import threading
+        import time
+        from unittest import mock
+        import safeer_os
+        sprosti = threading.Event()
+        klici = []
+
+        def pocasen(_id):
+            klici.append(_id)
+            sprosti.wait(5)
+            return {"ok": True, "data": {"znamka": "Philips", "zaslon": {"prizgan": False}}}
+        with mock.patch.object(safeer_os, "ROK_TV_S", 0.05):
+            prvi, _ = self._pozeni(pocasen)
+            drugi, _ = self._pozeni(pocasen)             # se v teku: ne sprasujemo znova
+            sprosti.set()
+            konec = time.monotonic() + 5
+            while safeer_os._TV_V_TEKU and time.monotonic() < konec:
+                time.sleep(0.01)
+            sprosti.clear()                                # tretji cikel: TV spet pocasen, velja shranjen odgovor
+            tretji, _ = self._pozeni(pocasen)
+            sprosti.set()
+        self.assertEqual((prvi, drugi, klici), ([], [], ["tv1", "tv1"]))
+        self.assertEqual(tretji, [{"id": "tv1", "znamka": "Philips", "prizgan": False}])
 
     def test_control_ne_tece(self):
         tv, klici = self._pozeni(lambda _id: {}, na_vodilu=False)

@@ -1615,43 +1615,44 @@ def _monitor_po_imenu(zasloni, ime: str):
 
 
 _TV_V_TEKU: set = set()
+_TV_ODGOVORI: dict = {}         # id -> (cas, podatki): pozen odgovor TV (spi, pocasen) velja se SVEZE_TV_S
 ROK_TV_S = 2.0
+SVEZE_TV_S = 10.0
 
 
 def _tv_v_linku() -> list:
     """TV v Safeer Linku z znamko in stanjem zaslona (host.info -> znamka, zaslon.prizgan) za core/zaslon_namizja.
-    Controla ne zaganjamo; TV, ki ne odgovori v ROK_TV_S, je neznan (ostane primarni). Klic iz delovne niti."""
+    Controla ne zaganjamo. Cakamo najvec ROK_TV_S; odgovor, ki pride pozneje, velja v naslednjem ciklu (SVEZE_TV_S).
+    TV, ki se ni odgovoril, ne sprasujemo znova (niti se ne kopicijo). Klic iz delovne niti."""
     try:
         if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
             return []
     except Exception:  # noqa: BLE001
         return []
-    tv = [n for n in (_control_naprave("Seznam").get("naprave") or [])[:32]
-          if isinstance(n, dict) and n.get("id") and not n.get("ta") and "tv" in (n.get("platforma"), n.get("vrsta"))
-          and str(n["id"]) not in _TV_V_TEKU]      # TV, ki se ni odgovoril prejsnjic, ne sprasujemo znova
+    tv = [str(n["id"]) for n in (_control_naprave("Seznam").get("naprave") or [])[:32]
+          if isinstance(n, dict) and n.get("id") and not n.get("ta") and "tv" in (n.get("platforma"), n.get("vrsta"))]
 
-    def info(n: dict) -> Optional[dict]:
-        id_ = str(n["id"])
-        _TV_V_TEKU.add(id_)
+    def info(id_: str) -> None:
         try:
             r = _control_naprave("Ukaz", id_, "host.info", "{}")
+            d = r.get("data") if r.get("ok") else None
+            if isinstance(d, dict):
+                z = d.get("zaslon")
+                prizgan = z.get("prizgan") if isinstance(z, dict) else None
+                _TV_ODGOVORI[id_] = (time.monotonic(), {"id": id_, "znamka": str(d.get("znamka") or "")[:40],
+                                                        "prizgan": prizgan if isinstance(prizgan, bool) else None})
         finally:
             _TV_V_TEKU.discard(id_)
-        d = r.get("data") if r.get("ok") else None
-        if not isinstance(d, dict):
-            return None
-        z = d.get("zaslon")
-        prizgan = z.get("prizgan") if isinstance(z, dict) else None
-        return {"id": id_, "znamka": str(d.get("znamka") or "")[:40],
-                "prizgan": prizgan if isinstance(prizgan, bool) else None}
-    if not tv:
-        return []
-    from concurrent.futures import ThreadPoolExecutor, wait
-    bazen = ThreadPoolExecutor(max_workers=min(4, len(tv)), thread_name_prefix="safeer-tv-zaslon")
-    prihodnosti = [bazen.submit(info, n) for n in tv]
-    bazen.shutdown(wait=False)
-    koncane, _ = wait(prihodnosti, timeout=ROK_TV_S)
-    return [f.result() for f in koncane if f.exception() is None and f.result()]
+    nova = [i for i in tv if i not in _TV_V_TEKU]
+    if nova:
+        from concurrent.futures import ThreadPoolExecutor, wait
+        _TV_V_TEKU.update(nova)
+        bazen = ThreadPoolExecutor(max_workers=min(4, len(nova)), thread_name_prefix="safeer-tv-zaslon")
+        prihodnosti = [bazen.submit(info, i) for i in nova]
+        bazen.shutdown(wait=False)
+        wait(prihodnosti, timeout=ROK_TV_S)
+    zdaj = time.monotonic()
+    return [o[1] for o in (_TV_ODGOVORI.get(i) for i in tv) if o and zdaj - o[0] <= SVEZE_TV_S]
 
 
 def _monitor_v_tocki(zasloni, povezava):

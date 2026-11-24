@@ -187,6 +187,27 @@ class Straza(unittest.TestCase):
         self.assertEqual(self.preklopi, ["eDP-1"])        # ne vracamo in ne bijemo se z uporabnikom
         self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
 
+    def test_primarni_nazaj_na_tv_ki_spi(self):
+        # Primarni se vrne na TV (uporabnik ali muffin), TV pa se vedno spi ali ne odgovarja: zadrzanje ostane.
+        for tv in (list(PHILIPS_UGASNJEN), []):
+            self.setUp()
+            self.tv = list(PHILIPS_UGASNJEN)
+            self.s.korak()
+            self.primarni = "HDMI-1"
+            self.tv = tv
+            self.s.korak()
+            self.assertEqual(self.preklopi, ["eDP-1", "eDP-1"])
+            self.assertEqual(self.shramba.get("namizje_zaslon_prej"), {"glavni": "HDMI-1", "vgrajen": "eDP-1"})
+            self.assertEqual(self.izbire[-1], ("eDP-1", ("HDMI-1",)))
+
+    def test_tv_odklopljen_pozabi(self):
+        self.tv = list(PHILIPS_UGASNJEN)
+        self.s.korak()
+        self.s.beri_izhode = lambda: [i for i in _izhodi(self.primarni) if i["ime"] != "HDMI-1"]
+        self.s.korak()
+        self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
+        self.assertEqual(self.izbire[-1], ("eDP-1", ()))
+
     def test_brez_tv_izhoda_ne_sprasuje_naprav(self):
         self.primarni = "eDP-1"
         self.s.korak()
