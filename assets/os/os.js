@@ -11181,7 +11181,10 @@ function narisiKatViri() {
       $("namizjeZaslon").value = r.nastavitev;
     }
     $("namizjeZaslon").addEventListener("change", function () {
-      klic("namizjeZaslon", [this.value]).then(namizjeZaslonPokazi, function () { obvesti(t("niUspelo")); });
+      klic("namizjeZaslon", [this.value]).then(namizjeZaslonPokazi, function () {
+        obvesti(t("niUspelo"));
+        klic("namizjeZaslon", [null]).then(namizjeZaslonPokazi, function () {});   // izbira nazaj na shranjeno
+      });
     });
     klic("namizjeZaslon", [null]).then(namizjeZaslonPokazi, function () {});
     $("stikaloSamozagon").addEventListener("click", function () {

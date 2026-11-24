@@ -74,6 +74,7 @@ class Razclenitev(unittest.TestCase):
         self.assertTrue(hdmi["primarni"])
         self.assertEqual((hdmi["pnp"], hdmi["model"]), ("PHL", "Philips FTV"))
         self.assertTrue(edp["aktiven"] and hdmi["aktiven"])
+        self.assertEqual((edp["sirina_mm"], hdmi["sirina_mm"], dp["sirina_mm"]), (344, 1440, 0))
         self.assertFalse(dp["aktiven"])
 
     def test_vgrajen_izhod(self):
@@ -123,6 +124,20 @@ class Izbira(unittest.TestCase):
         self.assertEqual(zn.nastavitev("x"), "samodejno")
         self.assertEqual(zn.nastavitev(None), "samodejno")
         self.assertEqual(zn.nastavitev("prenosnik"), "prenosnik")
+
+    def test_monitor_iste_znamke_ni_tv(self):
+        # Philips monitor na HDMI, Philips TV v drugi sobi spi: namizje ostane na monitorju.
+        izhodi = _izhodi(tv=("PHL", "PHL 243V7"))
+        izhodi[1]["sirina_mm"] = 527
+        self.assertFalse(zn.potrebno_preverjanje(izhodi, "HDMI-1"))
+        self.assertEqual(zn.izberi(izhodi, PHILIPS_UGASNJEN, "samodejno"), "HDMI-1")
+        izhodi[1].update(model="LG 55UN", pnp="GSM", sirina_mm=1210)        # velik zaslon brez »TV« v imenu
+        self.assertTrue(zn.potrebno_preverjanje(izhodi, "HDMI-1"))
+
+    def test_ime_izhoda_za_xrandr(self):
+        self.assertTrue(zn.varno_ime("HDMI-A-0"))
+        for ime in ("-primary", "", "a b", "x" * 40, None):
+            self.assertFalse(zn.varno_ime(ime), ime)
 
     def test_preverjanje_samo_ko_je_primarni_zunanji_tv(self):
         self.assertTrue(zn.potrebno_preverjanje(_izhodi(), "HDMI-1"))
@@ -207,6 +222,32 @@ class Straza(unittest.TestCase):
         self.s.korak()
         self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
         self.assertEqual(self.izbire[-1], ("eDP-1", ()))
+
+    def test_pokrov_zaprt_vrne_primarni_na_tv(self):
+        self.tv = list(PHILIPS_UGASNJEN)
+        self.s.korak()
+        # Pokrov zaprt: eDP ugasne, X primarnega ne prestavi sam (eDP ostane primarni, a brez slike).
+        self.s.beri_izhode = lambda: [dict(i, aktiven=i["ime"] != "eDP-1") for i in _izhodi(self.primarni)]
+        self.s.korak()
+        self.assertEqual(self.preklopi, ["eDP-1", "HDMI-1"])
+        self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
+
+    def test_neuspel_xrandr_ne_vsake_3_s(self):
+        self.tv = list(PHILIPS_UGASNJEN)
+        poskusi = []
+        self.s.nastavi_primarni = lambda ime: poskusi.append(ime) and False
+        for _ in range(11):
+            self.s.korak()
+        self.assertEqual(len(poskusi), 1)
+        self.s.korak()
+        self.assertEqual(len(poskusi), 2)
+
+    def test_nazaj_v_mint_vrne_primarni(self):
+        self.tv = list(PHILIPS_UGASNJEN)
+        self.s.korak()
+        self.s.vrni()
+        self.assertEqual(self.preklopi, ["eDP-1", "HDMI-1"])
+        self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
 
     def test_brez_tv_izhoda_ne_sprasuje_naprav(self):
         self.primarni = "eDP-1"

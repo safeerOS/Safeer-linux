@@ -32,9 +32,11 @@ ZNAMKE = sorted(set(PNP_ZNAMKE.values()))
 _VGRAJENI = ("eDP", "LVDS", "DSI")
 _GLAVA_IZHODA = re.compile(r"^(\S+) (connected|disconnected|unknown connection)(?: primary)?(?: (\d+)x(\d+)\+(-?\d+)\+(-?\d+))?")
 _HEX = re.compile(r"^[0-9a-fA-F]{32}$")
+_MM = re.compile(r"(\d+)mm x (\d+)mm\s*$")
+TV_SIRINA_MM = 900      # ~41" in vec: TV, ne namizni monitor (HDMI-1 lastnika: 1440 mm; monitorji 24-32": 530-710 mm)
 
 
-_IME_IZHODA = re.compile(r"[A-Za-z0-9._-]{1,32}")
+_IME_IZHODA = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}")   # ne z »-«: bi bil argument xrandr
 
 
 def varno_ime(ime) -> bool:
@@ -73,8 +75,10 @@ def razcleni_xrandr(besedilo: str) -> List[dict]:
     for vrstica in besedilo.splitlines():
         m = _GLAVA_IZHODA.match(vrstica)
         if m:
+            mm = _MM.search(vrstica)
             izhodi.append({"ime": m.group(1), "primarni": " primary" in vrstica.split("(")[0],
-                           "aktiven": m.group(2) == "connected" and m.group(3) is not None, "pnp": "", "model": ""})
+                           "aktiven": m.group(2) == "connected" and m.group(3) is not None, "pnp": "", "model": "",
+                           "sirina_mm": int(mm.group(1)) if mm else 0})
             edid = None
             continue
         s = vrstica.strip()
@@ -102,6 +106,12 @@ def znamka_izhoda(izhod: dict) -> str:
     return next((b for b in besede if b in ZNAMKE), "")
 
 
+def je_tv_izhod(izhod: dict) -> bool:
+    """Zunanji izhod je TV (ne monitor iste znamke - Philips, LG, Samsung delajo oboje): »TV« v imenu EDID
+    (»Philips FTV«, »LG TV«) ali sirina slike vsaj TV_SIRINA_MM."""
+    return "tv" in str(izhod.get("model") or "").lower() or int(izhod.get("sirina_mm") or 0) >= TV_SIRINA_MM
+
+
 def _aktivni(izhodi: Iterable[dict]) -> List[dict]:
     return [i for i in izhodi if i.get("aktiven")]
 
@@ -122,7 +132,8 @@ def _izhod(izhodi: Iterable[dict], ime: str) -> Optional[dict]:
 def potrebno_preverjanje(izhodi: List[dict], glavni: str) -> bool:
     """TV sprasujemo samo, ko je glavni izhod zunanji z znano znamko TV in je vgrajeni zaslon prizgan."""
     izhod = _izhod(izhodi, glavni)
-    return bool(izhod and not je_vgrajen(glavni) and vgrajen_izhod(izhodi) and znamka_izhoda(izhod))
+    return bool(izhod and not je_vgrajen(glavni) and vgrajen_izhod(izhodi) and znamka_izhoda(izhod)
+                and je_tv_izhod(izhod))
 
 
 def stanje_tv(izhod: Optional[dict], tv_naprave: Iterable[dict]) -> Optional[bool]:
@@ -171,6 +182,7 @@ class Straza:
         self.ob_izbiri = ob_izbiri
         self.shramba = shramba
         self._zadnja: Optional[tuple] = None
+        self._premor = 0                 # ciklov brez novega poskusa po neuspelem xrandr --primary
 
     def _prej(self) -> Optional[dict]:
         p = self.shramba.get(KLJUC_PREJ)
@@ -183,6 +195,22 @@ class Straza:
         """Naslednji korak znova sporoci izbiro (klicatelj je namizje medtem vrnil na privzeti zaslon)."""
         self._zadnja = None
 
+    def _poskusi(self, ime: str) -> bool:
+        """xrandr --primary; po neuspehu 10 ciklov (30 s) premora, ne vsake 3 s znova."""
+        if self._premor > 0:
+            self._premor -= 1
+            return False
+        if self.nastavi_primarni(ime):
+            return True
+        self._premor = 10
+        return False
+
+    def vrni(self) -> None:
+        """Uporabnik zapusca Safeer OS (Nazaj v Mint): primarni izhod nazaj, kot je bil pred nami."""
+        prej = self._prej()
+        if prej and self.nastavi_primarni(prej["glavni"]):
+            self._pozabi()
+
     def korak(self) -> str:
         izhodi = self.beri_izhode()
         if not _aktivni(izhodi):
@@ -190,9 +218,8 @@ class Straza:
         nast = nastavitev(self.shramba.get(KLJUC))
         trenutni = glavni_izhod(izhodi)
         prej = self._prej()
-        if prej and (_izhod(izhodi, prej["glavni"]) is None or _izhod(izhodi, prej["vgrajen"]) is None
-                     or trenutni not in (prej["glavni"], prej["vgrajen"])):
-            # TV odklopljen, pokrov zaprt ali povsem drug primarni izhod: zacnemo znova.
+        if prej and (_izhod(izhodi, prej["glavni"]) is None or trenutni not in (prej["glavni"], prej["vgrajen"])):
+            # TV odklopljen ali povsem drug primarni izhod: zacnemo znova. Zaprt pokrov ne (spodaj vrnemo primarni).
             self._pozabi()
             prej = None
         # Primarni spet na TV (uporabnik ali muffin ob ponovni postavitvi), TV pa se spi ali ne odgovarja: zadrzanje
@@ -200,12 +227,13 @@ class Straza:
         glavni = prej["glavni"] if prej else trenutni
         tv = self.beri_tv() if nast == "samodejno" and potrebno_preverjanje(izhodi, glavni) else []
         ime = izberi(izhodi, tv, nast, glavni, zadrzi=bool(prej))
+        x_primarni = next((i["ime"] for i in izhodi if i.get("primarni")), "")   # tudi ugasnjen (zaprt pokrov)
         if prej and (nast != "samodejno" or ime == glavni):
-            if trenutni == glavni or self.nastavi_primarni(glavni):
+            if x_primarni == glavni or self._poskusi(glavni):
                 self._pozabi()
                 prej = None
         elif nast == "samodejno" and ime != trenutni and ime == vgrajen_izhod(izhodi):
-            if self.nastavi_primarni(ime):
+            if self._poskusi(ime):
                 self.shramba.set(KLJUC_PREJ, {"glavni": glavni, "vgrajen": ime})
                 prej = self._prej()
         if nast == "samodejno" and ime != glavni:

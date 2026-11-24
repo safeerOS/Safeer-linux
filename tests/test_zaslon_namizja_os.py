@@ -10,6 +10,7 @@ class TvVLinku(unittest.TestCase):
     def setUp(self):
         import safeer_os
         safeer_os._TV_ODGOVORI.clear()
+        safeer_os._TV_STANJE.update(nit=None, tv=[])
 
     def _pozeni(self, odgovori, na_vodilu=True):
         from unittest import mock
@@ -40,7 +41,6 @@ class TvVLinku(unittest.TestCase):
     def test_pozen_odgovor_velja_v_naslednjem_ciklu(self):
         # TV v mirovanju odgovori pocasi: odgovor po roku ne sme biti izgubljen (sicer stanje za vedno »neznano«).
         import threading
-        import time
         from unittest import mock
         import safeer_os
         sprosti = threading.Event()
@@ -50,13 +50,11 @@ class TvVLinku(unittest.TestCase):
             klici.append(_id)
             sprosti.wait(5)
             return {"ok": True, "data": {"znamka": "Philips", "zaslon": {"prizgan": False}}}
-        with mock.patch.object(safeer_os, "ROK_TV_S", 0.05):
+        with mock.patch.object(safeer_os, "ROK_TV_S", 0.3):
             prvi, _ = self._pozeni(pocasen)
             drugi, _ = self._pozeni(pocasen)             # se v teku: ne sprasujemo znova
             sprosti.set()
-            konec = time.monotonic() + 5
-            while safeer_os._TV_V_TEKU and time.monotonic() < konec:
-                time.sleep(0.01)
+            safeer_os._TV_STANJE["nit"].join(5)
             sprosti.clear()                                # tretji cikel: TV spet pocasen, velja shranjen odgovor
             tretji, _ = self._pozeni(pocasen)
             sprosti.set()

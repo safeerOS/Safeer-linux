@@ -1614,45 +1614,52 @@ def _monitor_po_imenu(zasloni, ime: str):
     return None
 
 
-_TV_V_TEKU: set = set()
 _TV_ODGOVORI: dict = {}         # id -> (cas, podatki): pozen odgovor TV (spi, pocasen) velja se SVEZE_TV_S
+_TV_STANJE: dict = {"nit": None, "tv": []}
 ROK_TV_S = 2.0
 SVEZE_TV_S = 10.0
 
 
-def _tv_v_linku() -> list:
-    """TV v Safeer Linku z znamko in stanjem zaslona (host.info -> znamka, zaslon.prizgan) za core/zaslon_namizja.
-    Controla ne zaganjamo. Cakamo najvec ROK_TV_S; odgovor, ki pride pozneje, velja v naslednjem ciklu (SVEZE_TV_S).
-    TV, ki se ni odgovoril, ne sprasujemo znova (niti se ne kopicijo). Klic iz delovne niti."""
+def _tv_osvezi() -> None:
+    """Demonska nit (ne zadrzi konca procesa): Seznam in host.info vseh TV; vsak odgovor v _TV_ODGOVORI."""
     try:
         if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
-            return []
+            _TV_STANJE["tv"] = []
+            return
     except Exception:  # noqa: BLE001
-        return []
+        _TV_STANJE["tv"] = []
+        return
     tv = [str(n["id"]) for n in (_control_naprave("Seznam").get("naprave") or [])[:32]
           if isinstance(n, dict) and n.get("id") and not n.get("ta") and "tv" in (n.get("platforma"), n.get("vrsta"))]
+    _TV_STANJE["tv"] = tv
 
     def info(id_: str) -> None:
-        try:
-            r = _control_naprave("Ukaz", id_, "host.info", "{}")
-            d = r.get("data") if r.get("ok") else None
-            if isinstance(d, dict):
-                z = d.get("zaslon")
-                prizgan = z.get("prizgan") if isinstance(z, dict) else None
-                _TV_ODGOVORI[id_] = (time.monotonic(), {"id": id_, "znamka": str(d.get("znamka") or "")[:40],
-                                                        "prizgan": prizgan if isinstance(prizgan, bool) else None})
-        finally:
-            _TV_V_TEKU.discard(id_)
-    nova = [i for i in tv if i not in _TV_V_TEKU]
-    if nova:
-        from concurrent.futures import ThreadPoolExecutor, wait
-        _TV_V_TEKU.update(nova)
-        bazen = ThreadPoolExecutor(max_workers=min(4, len(nova)), thread_name_prefix="safeer-tv-zaslon")
-        prihodnosti = [bazen.submit(info, i) for i in nova]
-        bazen.shutdown(wait=False)
-        wait(prihodnosti, timeout=ROK_TV_S)
+        r = _control_naprave("Ukaz", id_, "host.info", "{}")
+        d = r.get("data") if r.get("ok") else None
+        if isinstance(d, dict):
+            z = d.get("zaslon")
+            prizgan = z.get("prizgan") if isinstance(z, dict) else None
+            _TV_ODGOVORI[id_] = (time.monotonic(), {"id": id_, "znamka": str(d.get("znamka") or "")[:40],
+                                                    "prizgan": prizgan if isinstance(prizgan, bool) else None})
+    niti = [threading.Thread(target=info, args=(i,), daemon=True, name="safeer-tv-zaslon") for i in tv[:8]]
+    for n in niti:
+        n.start()
+    for n in niti:
+        n.join()
+
+
+def _tv_v_linku() -> list:
+    """TV v Safeer Linku z znamko in stanjem zaslona (host.info -> znamka, zaslon.prizgan) za core/zaslon_namizja.
+    Controla ne zaganjamo. Vse (tudi Seznam, rok D-Bus 60 s) tece v eni demonski niti; cakamo najvec ROK_TV_S, odgovor,
+    ki pride pozneje, velja v naslednjih ciklih (SVEZE_TV_S). Nova nit sele, ko je prejsnja koncala. Iz delovne niti."""
+    nit = _TV_STANJE["nit"]
+    if nit is None or not nit.is_alive():
+        nit = threading.Thread(target=_tv_osvezi, daemon=True, name="safeer-tv-zaslon")
+        _TV_STANJE["nit"] = nit
+        nit.start()
+    nit.join(ROK_TV_S)
     zdaj = time.monotonic()
-    return [o[1] for o in (_TV_ODGOVORI.get(i) for i in tv) if o and zdaj - o[0] <= SVEZE_TV_S]
+    return [o[1] for o in (_TV_ODGOVORI.get(i) for i in _TV_STANJE["tv"]) if o and zdaj - o[0] <= SVEZE_TV_S]
 
 
 def _monitor_v_tocki(zasloni, povezava):
@@ -5746,6 +5753,8 @@ class SafeerOS(Gtk.Application):
         safeer-cinnamon --seja ne glede na stikalo. Zato: »Samo tokrat« vrne ikone namizja za to sejo (ob naslednji
         prijavi spet Safeer OS); »Nazaj na Cinnamon« (za_stalno) vrne prejsnji videz Minta - nazaj_na_cinnamon, isto kot
         `safeer-os --nazaj-na-cinnamon`; Safeer OS iz menija ponudi vrnitev."""
+        if getattr(self, "_straza_zaslona", None) is not None:
+            self._straza_zaslona.vrni()     # primarni izhod RandR, kot je bil pred Safeer OS (core/zaslon_namizja)
         if za_stalno:
             # Loceno od Safeer OS: --izklopi konca tudi delovno povrsino (SIGTERM -> _koncaj pospravi).
             nazaj_na_cinnamon(self.shramba, pocakaj=False)
