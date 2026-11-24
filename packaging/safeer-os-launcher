@@ -90,7 +90,7 @@ for arg in "$@"; do
         case "$(cat /proc/self/cgroup 2>/dev/null)" in
             *safeer-namizje-*) ;;
             *)
-                if [ -z "${SAFEER_OS_BREZ_OBSEGA:-}" ] && command -v systemd-run >/dev/null 2>&1 \
+                if [ -z "${SAFEER_OS_BREZ_OBSEGA:-}" ] && [ -z "${FLATPAK_ID:-}" ] && command -v systemd-run >/dev/null 2>&1 \
                         && systemd-run --user --scope --quiet --collect -- true >/dev/null 2>&1; then
                     exec systemd-run --user --scope --quiet --collect --unit="safeer-namizje-$$" -- "$PRG" "$@"
                 fi ;;

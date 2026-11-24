@@ -251,7 +251,7 @@ class VarhovaPot(unittest.TestCase):
         from core import varuh_procesov as vp
         ura = [1000.0]
         p = vp.Proces("safeer-scit", ["/bin/true"], {}, zamrznitev_s=8, zagon_s=45, storitev=True, obup_premor_s=300)
-        v = vp.Varuh([p], tempfile.mkdtemp(), ura=lambda: ura[0], dnevnik=lambda _b: None)
+        v = vp.Varuh([p], tempfile.mkdtemp(), ura=lambda: ura[0], dnevnik=lambda _b: None, tlak=())
         try:
             for _ in range(vp.NAJVEC_NAPAK):
                 v._napaka(p, "preizkus")
@@ -454,3 +454,64 @@ def test_proces_scita_nastavi_nas_webkit_pred_vsem():
             pass
     nastavi.assert_called_once_with(scit_proces.KOREN_PROGRAMA)
     assert os.path.isfile(os.path.join(scit_proces.KOREN_PROGRAMA, "core", "scit_proces.py"))
+
+
+class PoZastoju(unittest.TestCase):
+    """Varuh v stiski sistema (PSI) Scita ne zamenja vec (24. 11. 2026). Ce je resolved med zastojem presel na
+    usmerjevalnik, ga je prej vrnil nov Scit ob zagonu (_uporabi); zdaj ga mora vrniti straza takoj po zastoju,
+    ne sele ob rednem pregledu (PREGLED_S = 20 s)."""
+
+    def test_utrip_po_zastoju_zahteva_pregled(self):
+        konec = threading.Event()
+        klici = []
+
+        class Scit:
+            prvic = [True]
+
+            @property
+            def razresevalnik(self):
+                if self.prvic[0]:
+                    self.prvic[0] = False
+                    time.sleep(0.6)          # zastoj niti utripa (stiska pomnilnika, CPU)
+                return None
+
+            def po_zastoju(self):
+                klici.append("pregled")
+
+        with mock.patch.object(scit_proces, "UTRIP_SCIT_S", 0.05), mock.patch.object(scit_proces, "ZASTOJ_S", 0.4), \
+                mock.patch("core.varuh_procesov.obvesti", lambda *_a: None):
+            nit = threading.Thread(target=scit_proces.utripaj, args=(Scit(), konec), daemon=True)
+            nit.start()
+            time.sleep(1.0)
+            konec.set()
+            nit.join(2)
+        self.assertEqual(klici, ["pregled"], "en pregled po enem zastoju, ne ob vsakem utripu")
+
+    def test_straza_po_zastoju_pregleda_takoj(self):
+        pregledi = []
+        with tempfile.TemporaryDirectory() as m, mock.patch.object(os_scit, "UTRIP_S", 0.05), \
+                mock.patch.object(os_scit, "PREGLED_S", 3600.0), mock.patch.object(os_scit, "znak_dns", lambda: "isti"):
+            sh = os_scit_shramba()
+            sh["scit"] = True
+            sc = os_scit.Scit(sh, mapa=m)
+            sc.razresevalnik = type("R", (), {"vrata": 5354})()
+            sc._uporabi = lambda: pregledi.append(1)
+            sc._preveri_dovoljenje = lambda: None
+            sc._straza = threading.Thread(target=sc._strazi, daemon=True)
+            sc._straza.start()
+            time.sleep(0.3)
+            self.assertEqual(pregledi, [], "brez zastoja in spremembe ni pregleda pred PREGLED_S")
+            sc.po_zastoju()
+            time.sleep(0.3)
+            sc._straza = None
+        self.assertEqual(pregledi, [1])
+
+
+def os_scit_shramba():
+    class Shramba(dict):
+        def get(self, k, privzeto=None):
+            return dict.get(self, k, privzeto)
+
+        def set(self, k, v):
+            self[k] = v
+    return Shramba()

@@ -55,6 +55,9 @@ NAJVEC_POVEZAV = 8
 UTRIP_SCIT_S = 1.0
 #: Rok kanarcka (s): zaseden razresevalnik (pocasen DoH) ne sme sproziti lazne zamrznitve - kanarcek ne gre naprej.
 ROK_KANARCKA_S = 1.5
+#: Toliko sekund med utripoma = zastoj (stiska sistema): resolved je morda presel na usmerjevalnik. Varuh Scita v
+#: stiski ne zamenja vec (24. 11. 2026), zato straza po zastoju pregleda DNS takoj, ne sele cez PREGLED_S.
+ZASTOJ_S = 3.0
 
 
 def pot_vticnice() -> str:
@@ -182,11 +185,17 @@ class Streznik:
 
 def utripaj(scit, konec: threading.Event) -> None:
     """WATCHDOG=1 vsakih UTRIP_SCIT_S, ce razresevalnik odgovori kanarcku (ali Scit ni vklopljen)."""
+    import time
     from core import os_scit, varuh_procesov
+    zadnji = time.monotonic()
     while not konec.wait(UTRIP_SCIT_S):
         r = scit.razresevalnik
         if r is not None and r.vrata and not os_scit._odgovori_kanarcku(r.vrata, ROK_KANARCKA_S):
             continue
+        zdaj = time.monotonic()
+        if zdaj - zadnji > ZASTOJ_S:
+            scit.po_zastoju()
+        zadnji = zdaj
         varuh_procesov.obvesti("WATCHDOG=1")
 
 

@@ -201,6 +201,15 @@ class Pravila(_Osnova):
         self.assertTrue(any("se ne odziva" in v and "SIGABRT" in v for v in self.dnevnik), self.dnevnik)
         self.assertGreater(time.monotonic() - zacetek, 1.5 * vp.STISKA_FAKTOR)
 
+    def test_stiska_ne_podaljsa_zagona(self):
+        """Meja zagona (do READY=1) je ze dolga (Scit 45 s, Safeer OS 120 s): stiska je ne podaljsa."""
+        self.nastavi_tlak(60.0)
+        os_ = self.proces("os", glavni=True, zagon_s=1.0)
+        self.zazeni(os_)
+        self.varuh.korak()
+        os_.pripravljen, os_.zadnji_utrip = False, self.varuh.ura() - 2.0
+        self.assertEqual(self.varuh._meja(os_, self.varuh.ura()), 1.0)
+
     def test_brez_stiske_zastoj_je_zamrznitev(self):
         os_ = self.proces("os", "premor:0.3:3", glavni=True)
         self.zazeni(os_)
@@ -518,7 +527,7 @@ class Pomozne(unittest.TestCase):
         scit = vp.Proces("safeer-scit", ["/bin/true"], zamrznitev_s=8, zagon_s=45, storitev=True)
         lupina = vp.Proces("safeer-lupina", ["/bin/true"], zamrznitev_s=20, zagon_s=60)
         os_ = vp.Proces("safeer-os", ["/bin/true"], zamrznitev_s=30, zagon_s=120, glavni=True)
-        v = vp.Varuh([scit, lupina, os_], mapa, dnevnik=lambda _b: None)
+        v = vp.Varuh([scit, lupina, os_], mapa, dnevnik=lambda _b: None, tlak=())
         try:
             os_.popen = mock.Mock(pid=4242, poll=lambda: None)
             podatki = b"SAFEER_BREZ_LUPINE=1"

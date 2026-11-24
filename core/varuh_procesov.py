@@ -216,12 +216,15 @@ POMNILNIK_VSAKIH_S = 10
 #: Najdaljse spanje zanke varuha (s). Zanka se sicer zbudi ob obvestilu otroka, signalu (tudi SIGCHLD) ali roku
 #: (zamrznitev, SIGKILL, ponovni zagon, meritev pomnilnika) - ne vec vsakih 0,5 s (2 bujenji/s v mirovanju).
 NAJVEC_SPANJE_S = 10.0
-#: Stiska sistema (PSI, /proc/pressure): delez casa (avg10, %), ko je vsaj en proces cakal na pomnilnik, disk ali CPU.
+#: Stiska pomnilnika (PSI, /proc/pressure/memory - vkljucuje cakanje na izmenjalni prostor): delez casa (avg10, %), ko
+#: je vsaj en proces cakal na pomnilnik. CPU in disk namenoma ne: dokazi 24. 11. kazejo na pomnilnik, CPU »some« pa
+#: preseze 20 % ob vsaki gradnji (zamrznitev Scita bi se vecino dneva ujela sele po 20 s).
 #: 24. 11. 2026 15:23 je varuh Scit zamenjal kot »zamrznjen« (5 s brez utripa) 2 min po tem, ko je jedru zmanjkalo
 #: prostih strani (kswapd0: page allocation failure, 9 GB v izmenjalnem prostoru); v sledi so vse niti Scita cakale,
 #: nobena ni visela. Zamenjava procesa v stiski stisko le poveca (nov zagon 4,0 s namesto 0,6 s, jedro 2,7 s).
-#: V stiski je meja zamrznitve STISKA_FAKTOR-krat daljsa; prava zamrznitev se ujame pozneje, ne nikoli.
-TLAK_POTI = ("/proc/pressure/memory", "/proc/pressure/io", "/proc/pressure/cpu")
+#: V stiski je meja zamrznitve STISKA_FAKTOR-krat daljsa (samo po READY=1; meja zagona ostane); prava zamrznitev se
+#: ujame pozneje, ne nikoli.
+TLAK_POTI = ("/proc/pressure/memory",)
 STISKA_PRAG = 20.0
 STISKA_FAKTOR = 4
 #: oom_score_adj (0 = privzeto): v stiski OOM izbere Safeer OS (stanje se obnovi), ne lupine ali drugih programov.
@@ -820,7 +823,7 @@ class Varuh:
     def _meja(self, p: Proces, zdaj: float) -> float:
         """Meja zamrznitve; PSI beremo sele, ko je osnovna meja mimo (v mirovanju nic dodatnega dela)."""
         meja = p.zamrznitev_s if p.pripravljen else p.zagon_s
-        if zdaj - p.zadnji_utrip > meja and self._stiska(zdaj) >= STISKA_PRAG:
+        if p.pripravljen and zdaj - p.zadnji_utrip > meja and self._stiska(zdaj) >= STISKA_PRAG:
             if p.stiska_zapisana != p.zadnji_utrip:
                 p.stiska_zapisana = p.zadnji_utrip
                 self.dnevnik("%s brez utripa %.0f s med stisko sistema (PSI %.0f %%): cakam do %.0f s" % (

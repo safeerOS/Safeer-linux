@@ -2040,6 +2040,7 @@ class Scit:
         self.strezniki: List[str] = []
         self.napaka = ""
         self._straza: Optional[threading.Thread] = None
+        self._pregled_takoj = False      # po zastoju procesa (scit_proces.utripaj): straza pregleda DNS ob naslednjem utripu
         self._kljuc = threading.Lock()
         #: Imena, ki jih je uporabnik spustil sam (ime -> velja do, time.time), in konec premora (time.monotonic).
         self._izjeme: Dict[str, float] = self._preberi_izjeme()
@@ -2596,6 +2597,10 @@ class Scit:
         if novo:
             izprazni_predpomnilnik()     # ze razresena (zdaj blokirana) imena naj ne ostanejo v predpomnilniku
 
+    def po_zastoju(self) -> None:
+        """Proces je stal (stiska sistema): resolved je morda presel na usmerjevalnik - straza naj preveri takoj."""
+        self._pregled_takoj = True
+
     def _strazi(self) -> None:
         jaz = threading.current_thread()
         zadnjic, znak = time.monotonic(), znak_dns()
@@ -2608,8 +2613,9 @@ class Scit:
             # Znak preberemo PRED pregledom: kar se spremeni med njim ali po njem (NetworkManager po ponovnem
             # zagonu resolved poslje svoje streznike z zamikom), sprozi se en pregled ob naslednjem utripu.
             nov_znak = znak_dns()
-            if nov_znak == znak and time.monotonic() - zadnjic < PREGLED_S:
+            if nov_znak == znak and time.monotonic() - zadnjic < PREGLED_S and not self._pregled_takoj:
                 continue
+            self._pregled_takoj = False
             try:
                 with self._kljuc:
                     self._uporabi()
