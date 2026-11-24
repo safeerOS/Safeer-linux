@@ -41,6 +41,9 @@ OTROK = textwrap.dedent("""
             sys.exit(int(vedenje[1]))
         if vedenje[0] == "zamrzni" and cas >= float(vedenje[1]):
             time.sleep(3600)
+        if vedenje[0] == "premor" and cas >= float(vedenje[1]) and not globals().get("premor_mimo"):
+            globals()["premor_mimo"] = True
+            time.sleep(float(vedenje[2]))   # kot zastoj v stiski pomnilnika: brez utripa, nato spet zdrav
         if vedenje[0] == "spomin":
             globals().setdefault("balast", bytearray(64 * 1024 * 1024))
         if vedenje[0] == "znova" and os.path.exists(os.environ.get("ZASTAVICA", "/nic")) and not globals().get("poslano"):
@@ -68,6 +71,8 @@ class _Osnova(unittest.TestCase):
         self.varuh = None
         self.meminfo = os.path.join(self.mapa, "meminfo")
         self.nastavi_prosto(8000)
+        self.tlak = os.path.join(self.mapa, "pressure")
+        self.nastavi_tlak(0.0)
 
     def tearDown(self):
         if self.varuh is not None:
@@ -80,6 +85,12 @@ class _Osnova(unittest.TestCase):
         with open(self.meminfo, "w") as f:
             f.write("MemTotal:       16000000 kB\nMemAvailable:   %d kB\n" % (mib * 1024))
 
+    def nastavi_tlak(self, some):
+        """Lazen /proc/pressure/*: brez tega bi stiska prenosnika med polnim tekom podaljsala meje zamrznitve."""
+        with open(self.tlak, "w") as f:
+            f.write("some avg10=%.2f avg60=0.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1\n"
+                    % some)
+
     def proces(self, ime, vedenje="zdrav", glavni=False, **kw):
         nastavitve = dict(zamrznitev_s=1.5, zagon_s=3, ustavi_s=2, zacetni_zamik_s=0.1)
         nastavitve.update(kw)
@@ -89,7 +100,7 @@ class _Osnova(unittest.TestCase):
 
     def zazeni(self, *procesi):
         self.varuh = vp.Varuh(list(procesi), self.mapa, ob_obupu=self.obupi.append, dnevnik=self.dnevnik.append,
-                              meminfo=self.meminfo, okolje_zaslona={})
+                              meminfo=self.meminfo, okolje_zaslona={}, tlak=(self.tlak,))
         return self.varuh
 
     def teci(self, pogoj, rok=10.0):
@@ -164,6 +175,43 @@ class Pravila(_Osnova):
         self.assertTrue(any("se ne odziva" in v and "SIGABRT" in v for v in self.dnevnik), self.dnevnik)
         self.assertTrue(any("signal 6" in v for v in self.dnevnik), self.dnevnik)
         self.assertLess(time.monotonic() - zacetek, 6)
+
+    def test_stiska_sistema_podaljsa_mejo_zamrznitve(self):
+        """24. 11. 2026 15:23: varuh je Scit zamenjal kot zamrznjen (5 s brez utripa) 2 min po tem, ko je jedru zmanjkalo
+        prostih strani (kswapd0: page allocation failure) - vse niti Scita so v sledi cakale, nobena ni visela. V stiski
+        (PSI) zastoj ni zamrznitev: varuh pocaka STISKA_FAKTOR-krat dlje, proces ostane isti."""
+        self.nastavi_tlak(60.0)
+        os_ = self.proces("os", "premor:0.3:3", glavni=True)
+        self.zazeni(os_)
+        ok, _ = self.teci(lambda: os_.pripravljen, 5)
+        self.assertTrue(ok, self.dnevnik)
+        time.sleep(0.3)
+        self.teci(lambda: False, 4.5)
+        self.assertEqual(os_.zagonov, 1, self.dnevnik)
+        self.assertFalse(any("SIGABRT" in v for v in self.dnevnik), self.dnevnik)
+        self.assertTrue(any("stisko sistema" in v for v in self.dnevnik), self.dnevnik)
+
+    def test_prava_zamrznitev_v_stiski_po_podaljsani_meji(self):
+        self.nastavi_tlak(60.0)
+        os_ = self.proces("os", "zamrzni:0.3", glavni=True)
+        self.zazeni(os_)
+        zacetek = time.monotonic()
+        ok, _ = self.teci(lambda: os_.zagonov >= 2, 20)
+        self.assertTrue(ok, self.dnevnik)
+        self.assertTrue(any("se ne odziva" in v and "SIGABRT" in v for v in self.dnevnik), self.dnevnik)
+        self.assertGreater(time.monotonic() - zacetek, 1.5 * vp.STISKA_FAKTOR)
+
+    def test_brez_stiske_zastoj_je_zamrznitev(self):
+        os_ = self.proces("os", "premor:0.3:3", glavni=True)
+        self.zazeni(os_)
+        ok, _ = self.teci(lambda: os_.zagonov >= 2, 10)
+        self.assertTrue(ok, self.dnevnik)
+        self.assertTrue(any("SIGABRT" in v for v in self.dnevnik), self.dnevnik)
+
+    def test_stiska_branje_psi(self):
+        self.nastavi_tlak(12.5)
+        self.assertEqual(vp.stiska((self.tlak, "/nic/ni")), 12.5)
+        self.assertEqual(vp.stiska(("/nic/ni",)), 0.0)
 
     def test_ustavljen_proces_takoj_sigkill(self):
         os_ = self.proces("os", glavni=True)
@@ -502,6 +550,19 @@ class Zaganjalnik(unittest.TestCase):
         # SAFEER_OS_BREZ_NADZORA (razvoj) ostane pred varuhom, Flatpak preusmeritev tudi.
         self.assertLess(s.index("SAFEER_OS_BREZ_NADZORA:-"), s.index("core/varuh_procesov.py"))
         self.assertLess(s.index('exec flatpak run "$FP_ID"'), s.index("core/varuh_procesov.py"))
+
+
+    def test_delovna_v_svojem_obsegu_systemd(self):
+        """24. 11. 2026: varuh (in z njim Scit, lupina, Safeer OS) je tekel v obsegu aplikacije, ki ga je zagnala
+        (app-com.anthropic.Claude-*.scope). Ko systemd po OOM ustavi tak obseg, ugasne tudi namizje in DNS. Zato
+        --delovna tece v svojem obsegu (brez meje pomnilnika - varuh sam pazi nanj), enkrat (cgroup ze safeer-namizje)."""
+        with open(os.path.join(KOREN, "packaging", "safeer-os-launcher"), encoding="utf-8") as f:
+            s = f.read()
+        self.assertIn('systemd-run --user --scope --quiet --collect --unit="safeer-namizje-$$"', s)
+        self.assertIn("SAFEER_OS_BREZ_OBSEGA", s)                       # preizkusi in vsebniki brez systemd --user
+        self.assertIn("safeer-namizje-*", s)                            # ze v svojem obsegu: brez zanke
+        self.assertNotIn("export SAFEER_NO_SCOPE", s[s.index("--delovna"):])   # brskalnik mora dobiti svoj obseg
+        self.assertLess(s.index('--unit="safeer-namizje-$$"'), s.index('exec "$PY" -s "$APP_DIR/core/varuh_procesov.py"'))
 
 
 class ObvestiloUporabniku(unittest.TestCase):

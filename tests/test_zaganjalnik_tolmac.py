@@ -78,7 +78,7 @@ class TolmacZaganjalnika(unittest.TestCase):
                 izid = subprocess.run(["/bin/bash", str(d / "tuj" / "bin" / ime), "--version"], capture_output=True,
                                       text=True, timeout=60,
                                       env={"PATH": "/usr/bin:/bin", "HOME": str(d), "PYTHON": sys.executable,
-                                           "SAFEER_NO_SCOPE": "1", "SAFEER_OS_BREZ_FLATPAKA": "1"})
+                                           "SAFEER_NO_SCOPE": "1", "SAFEER_OS_BREZ_FLATPAKA": "1", "SAFEER_OS_BREZ_OBSEGA": "1"})
                 self.assertIn("PRAVI", izid.stdout, izid.stderr)
                 self.assertNotIn("TUJ", izid.stdout)
 

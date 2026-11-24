@@ -343,7 +343,7 @@ class ZagonNoveRazlicice(unittest.TestCase):
         zag.chmod(0o755)
         (Path(d) / "run").mkdir(mode=0o700)
         okolje = dict(os.environ, XDG_CACHE_HOME=str(Path(d) / "cache"), PYTHON=sys.executable,
-                      SAFEER_OS_BREZ_FLATPAKA="1", XDG_RUNTIME_DIR=str(Path(d) / "run"))
+                      SAFEER_OS_BREZ_FLATPAKA="1", SAFEER_OS_BREZ_OBSEGA="1", XDG_RUNTIME_DIR=str(Path(d) / "run"))
         r = subprocess.run(["bash", str(zag), *argumenti], capture_output=True, text=True, timeout=120, env=okolje)
         return r, app
 

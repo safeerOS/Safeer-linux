@@ -69,7 +69,7 @@ class PriklopMonitorja(unittest.TestCase):
             import wayland_okolje
             okolje = wayland_okolje.cisto_okolje()
             okolje.update({"XDG_CONFIG_HOME": os.path.join(d, "c"), "XDG_CACHE_HOME": os.path.join(d, "k"),
-                           "XDG_DATA_HOME": os.path.join(d, "p"), "SAFEER_OS_BREZ_FLATPAKA": "1"})
+                           "XDG_DATA_HOME": os.path.join(d, "p"), "SAFEER_OS_BREZ_FLATPAKA": "1", "SAFEER_OS_BREZ_OBSEGA": "1"})
             # Safeer OS v podprocesu vgradnje Controla nima (en_proces): zazene locen safeer-control s PATH. Lazen na
             # zacetku PATH, sicer zazene namescenega (/usr/bin/safeer-control; varovalo programov, testni PC 5. 11.).
             lazni = os.path.join(d, "bin")

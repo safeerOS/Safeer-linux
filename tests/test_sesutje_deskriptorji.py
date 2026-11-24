@@ -118,7 +118,7 @@ class ZaganjalnikSled(unittest.TestCase):
         izvajanje = os.path.join(mapa, "run")
         os.makedirs(izvajanje, mode=0o700)
         okolje = dict(os.environ, XDG_CACHE_HOME=predpomnilnik, XDG_RUNTIME_DIR=izvajanje, HOME=mapa,
-                      PYTHON=sys.executable, SAFEER_OS_BREZ_FLATPAKA="1")
+                      PYTHON=sys.executable, SAFEER_OS_BREZ_FLATPAKA="1", SAFEER_OS_BREZ_OBSEGA="1")
         for ime in ("SAFEER_OS_BREZ_NADZORA", "SAFEER_LUPINA_VTIC", "NOTIFY_SOCKET"):
             okolje.pop(ime, None)
         izid = subprocess.run([os.path.join(mapa, "bin", "safeer-os"), nacin], env=okolje, stdin=subprocess.DEVNULL,

@@ -84,6 +84,17 @@ fi
 # SAFEER_LOCENA_LUPINA=0: namizje v procesu Safeer OS (kot do 1.0.126), varuh ostane.
 for arg in "$@"; do
     if [ "$arg" = "--delovna" ]; then
+        # Svoj obseg systemd (24. 11. 2026): varuh je tekel v obsegu programa, ki ga je zagnal (app-...Claude.scope);
+        # ko systemd tak obseg po OOM ustavi, ugasnejo namizje, lupina in Scit. Brez meje pomnilnika (varuh pazi sam),
+        # samo enkrat (cgroup ze safeer-namizje-*); SAFEER_NO_SCOPE ne izvozimo - brskalnik mora dobiti svoj obseg.
+        case "$(cat /proc/self/cgroup 2>/dev/null)" in
+            *safeer-namizje-*) ;;
+            *)
+                if [ -z "${SAFEER_OS_BREZ_OBSEGA:-}" ] && command -v systemd-run >/dev/null 2>&1 \
+                        && systemd-run --user --scope --quiet --collect -- true >/dev/null 2>&1; then
+                    exec systemd-run --user --scope --quiet --collect --unit="safeer-namizje-$$" -- "$PRG" "$@"
+                fi ;;
+        esac
         export SAFEER_ZAGANJALNIK="$PRG"
         exec "$PY" -s "$APP_DIR/core/varuh_procesov.py" "$@"
     fi

@@ -149,6 +149,24 @@ def zazeni_program(ukaz, okolje=None) -> int | None:
             pass
 
 
+def stiska(poti=None) -> float:
+    """Najvecji »some avg10« (%) iz datotek PSI; 0, ce jih ni (jedro brez PSI, vsebnik)."""
+    najvec = 0.0
+    for pot in TLAK_POTI if poti is None else poti:
+        try:
+            with open(pot, encoding="ascii") as f:
+                vrstica = f.readline()
+        except OSError:
+            continue
+        for del_ in vrstica.split():
+            if del_.startswith("avg10="):
+                try:
+                    najvec = max(najvec, float(del_[6:]))
+                except ValueError:
+                    pass
+    return najvec
+
+
 def utrip_glib(GLib, vsakih_s: int = UTRIP_S) -> int:
     """Utrip iz glavne zanke GLib (Safeer OS), enkrat na proces: ce se zanka zatakne, utripa ni in varuh to vidi."""
     if not pripravi_obvestila() or _obvestila["utrip"]:
@@ -198,6 +216,14 @@ POMNILNIK_VSAKIH_S = 10
 #: Najdaljse spanje zanke varuha (s). Zanka se sicer zbudi ob obvestilu otroka, signalu (tudi SIGCHLD) ali roku
 #: (zamrznitev, SIGKILL, ponovni zagon, meritev pomnilnika) - ne vec vsakih 0,5 s (2 bujenji/s v mirovanju).
 NAJVEC_SPANJE_S = 10.0
+#: Stiska sistema (PSI, /proc/pressure): delez casa (avg10, %), ko je vsaj en proces cakal na pomnilnik, disk ali CPU.
+#: 24. 11. 2026 15:23 je varuh Scit zamenjal kot »zamrznjen« (5 s brez utripa) 2 min po tem, ko je jedru zmanjkalo
+#: prostih strani (kswapd0: page allocation failure, 9 GB v izmenjalnem prostoru); v sledi so vse niti Scita cakale,
+#: nobena ni visela. Zamenjava procesa v stiski stisko le poveca (nov zagon 4,0 s namesto 0,6 s, jedro 2,7 s).
+#: V stiski je meja zamrznitve STISKA_FAKTOR-krat daljsa; prava zamrznitev se ujame pozneje, ne nikoli.
+TLAK_POTI = ("/proc/pressure/memory", "/proc/pressure/io", "/proc/pressure/cpu")
+STISKA_PRAG = 20.0
+STISKA_FAKTOR = 4
 #: oom_score_adj (0 = privzeto): v stiski OOM izbere Safeer OS (stanje se obnovi), ne lupine ali drugih programov.
 OOM_OS = 200
 #: Stanje (zavihki, okna, predvajanje) se ob ponovnem zagonu obnovi - razen ce je pravkar obnovljeni proces padel prej
@@ -408,6 +434,7 @@ class Proces:
         self.pid_prej = 0
         self.obnova_prej = False
         self.zagonov = 0
+        self.stiska_zapisana = -1.0      # zadnji_utrip, ob katerem je varuh ze zapisal podaljsanje (en zapis na zastoj)
 
     @property
     def pid(self) -> int:
@@ -432,13 +459,15 @@ class Varuh:
     """Zanka varuha. `ura` in `meminfo` sta zamenljiva za preizkuse."""
 
     def __init__(self, procesi: list, mapa: str, *, izhod_fd: int | None = None, ob_obupu=None,
-                 ura=time.monotonic, meminfo: str = "/proc/meminfo", dnevnik=_dnevnik, okolje_zaslona=None) -> None:
+                 ura=time.monotonic, meminfo: str = "/proc/meminfo", dnevnik=_dnevnik, okolje_zaslona=None,
+                 tlak=None) -> None:
         self.procesi = list(procesi)
         self.mapa = mapa
         self.izhod_fd = izhod_fd           # sled.log za stdout/stderr otrok ali None (podedujejo varuhov)
         self.ob_obupu = ob_obupu
         self.ura = ura
         self.meminfo = meminfo
+        self.tlak = TLAK_POTI if tlak is None else tuple(tlak)
         self.dnevnik = dnevnik
         self.okolje_zaslona = okolje_zaslona
         self._koncaj = False
@@ -746,11 +775,11 @@ class Varuh:
                 continue
             if p.zahteva:
                 continue
-            meja = p.zamrznitev_s if p.pripravljen else p.zagon_s
-            if zdaj - p.zadnji_utrip > meja:
+            if zdaj - p.zadnji_utrip > self._meja(p, zdaj):
                 stoji = ustavljen(p.pid)
-                self.dnevnik("%s se ne odziva %.0f s (%s): %s" % (
-                    p.ime, zdaj - p.zadnji_utrip, "zamrznitev" if p.pripravljen else "zagon", "SIGKILL" if stoji else "SIGABRT"))
+                self.dnevnik("%s se ne odziva %.0f s (%s, stiska %.0f %%): %s" % (
+                    p.ime, zdaj - p.zadnji_utrip, "zamrznitev" if p.pripravljen else "zagon", self._stiska(zdaj),
+                    "SIGKILL" if stoji else "SIGABRT"))
                 p.zahteva = "zamrznitev"
                 if stoji:
                     self._poslji(p, signal.SIGKILL)
@@ -782,6 +811,23 @@ class Varuh:
         self._zapisi_stanje()
         return None
 
+    def _stiska(self, zdaj: float) -> float:
+        """stiska() najvec enkrat na sekundo (do_roka in korak jo klicata zaporedoma)."""
+        if zdaj - getattr(self, "_stiska_ob", -9.0) >= 1.0:
+            self._stiska_ob, self._stiska_zadnja = zdaj, stiska(self.tlak)
+        return self._stiska_zadnja
+
+    def _meja(self, p: Proces, zdaj: float) -> float:
+        """Meja zamrznitve; PSI beremo sele, ko je osnovna meja mimo (v mirovanju nic dodatnega dela)."""
+        meja = p.zamrznitev_s if p.pripravljen else p.zagon_s
+        if zdaj - p.zadnji_utrip > meja and self._stiska(zdaj) >= STISKA_PRAG:
+            if p.stiska_zapisana != p.zadnji_utrip:
+                p.stiska_zapisana = p.zadnji_utrip
+                self.dnevnik("%s brez utripa %.0f s med stisko sistema (PSI %.0f %%): cakam do %.0f s" % (
+                    p.ime, zdaj - p.zadnji_utrip, self._stiska(zdaj), meja * STISKA_FAKTOR))
+            meja *= STISKA_FAKTOR
+        return meja
+
     def do_roka(self) -> float:
         """Koliko sekund zanka lahko spi: do najblizjega roka - zamrznitev (zadnji utrip + meja), SIGKILL po SIGTERM ali
         SIGABRT, (ponovni) zagon, meritev pomnilnika. Obvestila, konec otroka (SIGCHLD) in signali zbudijo zanko prej."""
@@ -793,7 +839,7 @@ class Varuh:
                     roki.append(p.kill_ob)
                 if not p.zahteva:
                     # korak() zamrznitev zazna sele, ko je cas od utripa VECJI od meje
-                    roki.append(p.zadnji_utrip + (p.zamrznitev_s if p.pripravljen else p.zagon_s) + 0.05)
+                    roki.append(p.zadnji_utrip + self._meja(p, zdaj) + 0.05)
             elif p.popen is not None:
                 roki.append(zdaj)                 # koncan, se ne pobran: takoj
             elif not (p.obupal or p.izkljucen) or (p.obupal and p.obup_premor_s and not p.izkljucen):

@@ -142,7 +142,7 @@ class Sway:
                                 "XDG_CONFIG_HOME": os.path.join(self.mapa, "cfg"),
                                 "XDG_CACHE_HOME": os.path.join(self.mapa, "cache"),
                                 "XDG_DATA_HOME": os.path.join(self.mapa, "data"),
-                                "LIBGL_ALWAYS_SOFTWARE": "1", "SAFEER_OS_BREZ_FLATPAKA": "1"})
+                                "LIBGL_ALWAYS_SOFTWARE": "1", "SAFEER_OS_BREZ_FLATPAKA": "1", "SAFEER_OS_BREZ_OBSEGA": "1"})
             self._pocakaj_izhod()
             if self.pipewire:
                 self._zazeni_pipewire()
@@ -305,7 +305,7 @@ class Mutter:
                        "XDG_CONFIG_HOME": os.path.join(self.mapa, "cfg"),
                        "XDG_CACHE_HOME": os.path.join(self.mapa, "cache"),
                        "XDG_DATA_HOME": os.path.join(self.mapa, "data"), "LIBGL_ALWAYS_SOFTWARE": "1",
-                       "SAFEER_OS_BREZ_FLATPAKA": "1"})
+                       "SAFEER_OS_BREZ_FLATPAKA": "1", "SAFEER_OS_BREZ_OBSEGA": "1"})
         try:
             self._dbus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"],
                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=osnova, text=True)
