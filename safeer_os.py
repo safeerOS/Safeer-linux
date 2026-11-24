@@ -90,6 +90,7 @@ from core import (os_datoteke, sistem_podatki, os_govor, os_katalog, os_knjiznic
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import link_prostori  # noqa: E402
+from core import zaslon_namizja  # noqa: E402
 from core import zaslon_monitorji  # noqa: E402
 from core import os_delovni_prostori  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
@@ -1602,6 +1603,57 @@ ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
 
 
+def _monitor_po_imenu(zasloni, ime: str):
+    """Gdk.Monitor z imenom izhoda (X11: get_connector() = ime RandR, npr. eDP-1); None, ce ga ni."""
+    if not ime or zasloni is None:
+        return None
+    for i in range(zasloni.get_n_items()):
+        m = zasloni.get_item(i)
+        if m is not None and m.get_connector() == ime:
+            return m
+    return None
+
+
+_TV_V_TEKU: set = set()
+ROK_TV_S = 2.0
+
+
+def _tv_v_linku() -> list:
+    """TV v Safeer Linku z znamko in stanjem zaslona (host.info -> znamka, zaslon.prizgan) za core/zaslon_namizja.
+    Controla ne zaganjamo; TV, ki ne odgovori v ROK_TV_S, je neznan (ostane primarni). Klic iz delovne niti."""
+    try:
+        if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
+            return []
+    except Exception:  # noqa: BLE001
+        return []
+    tv = [n for n in (_control_naprave("Seznam").get("naprave") or [])[:32]
+          if isinstance(n, dict) and n.get("id") and not n.get("ta") and "tv" in (n.get("platforma"), n.get("vrsta"))
+          and str(n["id"]) not in _TV_V_TEKU]      # TV, ki se ni odgovoril prejsnjic, ne sprasujemo znova
+
+    def info(n: dict) -> Optional[dict]:
+        id_ = str(n["id"])
+        _TV_V_TEKU.add(id_)
+        try:
+            r = _control_naprave("Ukaz", id_, "host.info", "{}")
+        finally:
+            _TV_V_TEKU.discard(id_)
+        d = r.get("data") if r.get("ok") else None
+        if not isinstance(d, dict):
+            return None
+        z = d.get("zaslon")
+        prizgan = z.get("prizgan") if isinstance(z, dict) else None
+        return {"id": id_, "znamka": str(d.get("znamka") or "")[:40],
+                "prizgan": prizgan if isinstance(prizgan, bool) else None}
+    if not tv:
+        return []
+    from concurrent.futures import ThreadPoolExecutor, wait
+    bazen = ThreadPoolExecutor(max_workers=min(4, len(tv)), thread_name_prefix="safeer-tv-zaslon")
+    prihodnosti = [bazen.submit(info, n) for n in tv]
+    bazen.shutdown(wait=False)
+    koncane, _ = wait(prihodnosti, timeout=ROK_TV_S)
+    return [f.result() for f in koncane if f.exception() is None and f.result()]
+
+
 def _monitor_v_tocki(zasloni, povezava):
     """Gdk.Monitor pod kazalcem miske (X11; povezava = core/x11.povezava()). Geometrija GDK je v logicnih tockah,
     kazalec X v pikah - delimo z merilom monitorja (HiDPI). None brez X11 ali kazalca."""
@@ -2600,6 +2652,7 @@ class SafeerOS(Gtk.Application):
             return False
         self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
         self._ob_spremembi_zaslonov(lupina._zaslon_spremenjen)   # tudi dock na novo, ne samo okno namizja
+        self._zacni_strazo_zaslona()
         return True
 
     def _ustvari_delovno(self) -> None:
@@ -2656,6 +2709,7 @@ class SafeerOS(Gtk.Application):
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
         GLib.timeout_add_seconds(3, self._preveri_robove)
         self._ob_spremembi_zaslonov(self._prestavi_delovno)
+        self._zacni_strazo_zaslona()
 
     def _preveri_robove(self) -> bool:
         if self.okno_delovna is None:
@@ -3426,6 +3480,9 @@ class SafeerOS(Gtk.Application):
         »glavnega« zaslona - na X11 GDK primarni izhod RandR da na prvo mesto)."""
         try:
             d = Gdk.Display.get_default()
+            izbran = _monitor_po_imenu(d.get_monitors(), getattr(self, "_zaslon_namizja_ime", ""))
+            if izbran is not None:
+                return izbran           # namizje na zaslonu, ki ga uporabnik vidi (core/zaslon_namizja.Straza)
             for okno in (self.okno_delovna, self.okno):
                 povrsina = okno.get_surface() if okno is not None and okno.get_realized() else None
                 if povrsina is not None:
@@ -3445,7 +3502,98 @@ class SafeerOS(Gtk.Application):
             m = _monitor_v_tocki(Gdk.Display.get_default().get_monitors(), x11.povezava())
         except Exception:  # noqa: BLE001
             m = None
+        if m is not None and m.get_connector() in getattr(self, "_speci_izhodi", ()):
+            m = None                    # kazalec na TV, ki spi (24. 11. 2026): okno na zaslon namizja
         return m if m is not None else self._zaslon()
+
+    # ------------------------------------------------------------------ zaslon namizja (TV v mirovanju)
+    def _zacni_strazo_zaslona(self) -> None:
+        """Namizje na zaslonu, ki ga uporabnik vidi (core/zaslon_namizja, lastnik 24. 11. 2026): TV v mirovanju X11 ne
+        vidi, zato stanje pove TV v Safeer Linku. Samo X11 (primarni izhod RandR doloca pult Cinnamona in dock Plank)."""
+        if getattr(self, "_straza_zaslona", None) is not None or self.posnetek:
+            return
+        from core import seja_prikaza
+        if seja_prikaza.je_wayland() or not which("xrandr"):
+            return
+        self._straza_tece = False
+        self._straza_zaslona = zaslon_namizja.Straza(
+            self._izhodi_randr, _tv_v_linku, self._nastavi_primarni,
+            lambda ime, speci: GLib.idle_add(self._zaslon_namizja_izbran, ime, list(speci)), self.shramba)
+        GLib.timeout_add_seconds(zaslon_namizja.INTERVAL_S, self._straza_zaslona_korak)
+        self._straza_zaslona_korak()
+
+    def _straza_zaslona_korak(self) -> bool:
+        if self._straza_tece:
+            return True                 # prejsnji cikel se caka na TV (najvec ROK_TV_S)
+        try:
+            zasloni = Gdk.Display.get_default().get_monitors().get_n_items()
+        except Exception:  # noqa: BLE001
+            zasloni = 0
+        if zasloni < 2 and not self.shramba.get(zaslon_namizja.KLJUC_PREJ):
+            # En zaslon: ni kaj izbirati in xrandr ne zaganjamo vsake 3 s.
+            if getattr(self, "_zaslon_namizja_ime", ""):
+                self._straza_zaslona.ponastavi()
+                self._zaslon_namizja_izbran("", [])
+            return True
+        self._straza_tece = True
+
+        def nit() -> None:
+            try:
+                self._straza_zaslona.korak()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] zaslon namizja:", e, flush=True)
+            finally:
+                self._straza_tece = False
+        threading.Thread(target=nit, daemon=True, name="safeer-zaslon-namizja").start()
+        return True
+
+    @staticmethod
+    def _izhodi_randr() -> list:
+        try:
+            r = subprocess.run([which("xrandr") or "xrandr", "--current", "--prop"], stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=3, env=zasebni_webkit.okolje_za_zunanje())
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return zaslon_namizja.razcleni_xrandr(r.stdout[:1 << 20]) if r.returncode == 0 else []
+
+    @staticmethod
+    def _nastavi_primarni(ime: str) -> bool:
+        """Primarni izhod RandR: pult Cinnamona (panels-enabled = indeks Xinerama) in dock Plank mu sledita."""
+        if not zaslon_namizja.varno_ime(ime):
+            return False
+        try:
+            r = subprocess.run([which("xrandr") or "xrandr", "--output", ime, "--primary"], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+                               env=zasebni_webkit.okolje_za_zunanje())
+        except (OSError, subprocess.SubprocessError):
+            return False
+        print("[SafeerOS] zaslon namizja: primarni izhod", ime, "ok" if r.returncode == 0 else r.returncode, flush=True)
+        return r.returncode == 0
+
+    def _zaslon_namizja_izbran(self, ime: str, speci: list) -> bool:
+        """Glavna nit: namizje (QML v lupini ali delovna povrsina WebKit) na izbrani izhod; izhodi, ki spijo."""
+        drug = ime != getattr(self, "_zaslon_namizja_ime", "")
+        self._zaslon_namizja_ime, self._speci_izhodi = ime, frozenset(speci)
+        if self.lupina is not None:
+            self.lupina.nastavi_zaslon(ime, speci)
+        if drug and self.okno_delovna is not None:
+            self._prestavi_delovno()        # tudi dock na novo - samo ob drugem izhodu
+        return False
+
+    def _namizje_zaslon(self, vrednost) -> dict:
+        """Nastavitve > Safeer OS: »Namizje na zaslonu« (samodejno, prenosnik, glavni). None = samo preberi."""
+        if vrednost in zaslon_namizja.NASTAVITVE and vrednost != self.shramba.get(zaslon_namizja.KLJUC):
+            self.shramba.set(zaslon_namizja.KLJUC, vrednost)
+            if getattr(self, "_straza_zaslona", None) is not None:
+                self._straza_zaslona_korak()
+        try:
+            zasloni = Gdk.Display.get_default().get_monitors()
+            vgrajen = any(zaslon_namizja.je_vgrajen(zasloni.get_item(i).get_connector() or "")
+                          for i in range(zasloni.get_n_items()))
+        except Exception:  # noqa: BLE001
+            vgrajen = False
+        return {"ok": True, "nastavitev": zaslon_namizja.nastavitev(self.shramba.get(zaslon_namizja.KLJUC)),
+                "na_voljo": vgrajen and getattr(self, "_straza_zaslona", None) is not None}
 
     @staticmethod
     def _delovno_obmocje(zaslon):
@@ -5007,6 +5155,7 @@ class SafeerOS(Gtk.Application):
             "prostorNamizje": lambda: _lokalna_namizja().preklopi(a[0] if a else None),
             "prostorNovoNamizje": lambda: _lokalna_namizja().dodaj(),
             "prostoriRob": lambda: self._prostori_rob(a[0] if a else None),
+            "namizjeZaslon": lambda: self._namizje_zaslon(a[0] if a else None),
             "odjava": lambda: control_dejanje("odjava"),
             "omrezje": lambda: os_omrezje.stanje(bool(a[0]) if a else False),
             # Internet prek telefona v Safeer Linku (Safeer Control). Stanje Controla ne zaganja; nastavitev in preizkus ga.

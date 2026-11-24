@@ -299,6 +299,9 @@ class Odjemalec:
         elif ime == "U" and isinstance(vsebina, dict):
             if vsebina.get("u") == "aktiviraj":
                 self.lupina.okno.requestActivate()
+            elif vsebina.get("u") == "zaslon" and isinstance(vsebina.get("speci"), list):
+                # Safeer OS (core/zaslon_namizja.Straza): namizje na zaslon, ki ga uporabnik vidi (TV spi).
+                self.lupina.nastavi_zaslon(str(vsebina.get("ime") or ""), [str(x) for x in vsebina["speci"][:8]])
 
     def _poslji(self, okvir: bytes) -> None:
         if self.sock is None:

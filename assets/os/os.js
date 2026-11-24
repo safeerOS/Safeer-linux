@@ -11174,6 +11174,16 @@ function narisiKatViri() {
       klic("celozaslonsko", [nov]);
     });
     $("gumbNamizje").addEventListener("click", function () { klic("namizje"); });
+    // Namizje na zaslonu (safeer_os._namizje_zaslon): izbira se pokaze samo, ce ima racunalnik vgrajen zaslon.
+    function namizjeZaslonPokazi(r) {
+      if (!r || !r.ok) return;
+      $("blokNamizjeZaslon").hidden = !r.na_voljo;
+      $("namizjeZaslon").value = r.nastavitev;
+    }
+    $("namizjeZaslon").addEventListener("change", function () {
+      klic("namizjeZaslon", [this.value]).then(namizjeZaslonPokazi, function () { obvesti(t("niUspelo")); });
+    });
+    klic("namizjeZaslon", [null]).then(namizjeZaslonPokazi, function () {});
     $("stikaloSamozagon").addEventListener("click", function () {
       var b = $("stikaloSamozagon"), nov = b.getAttribute("aria-checked") !== "true";
       b.setAttribute("aria-checked", nov ? "true" : "false");

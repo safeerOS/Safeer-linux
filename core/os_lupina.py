@@ -155,15 +155,36 @@ def nativno_x11() -> bool:
         return False
 
 
+# Izhod RandR z namizjem in izhodi, ki spijo (TV v mirovanju) - pove jih Safeer OS (core/zaslon_namizja.Straza,
+# lastnik 24. 11. 2026). Prazno: primarni zaslon kot doslej.
+_IZHOD_NAMIZJA = ""
+_SPECI: frozenset = frozenset()
+
+
+def zaslon_po_imenu(zasloni, ime: str, rezerva):
+    """QScreen z imenom izhoda (X11: QScreen.name() je ime izhoda RandR, npr. HDMI-1); sicer rezerva."""
+    if ime:
+        for z in zasloni:
+            if z.name() == ime:
+                return z
+    return rezerva
+
+
+def zaslon_namizja():
+    from PySide6.QtGui import QGuiApplication
+    return zaslon_po_imenu(QGuiApplication.screens(), _IZHOD_NAMIZJA, QGuiApplication.primaryScreen())
+
+
 def zaslon_za_okno():
     """QScreen, na katerem naj se odpre novo okno: X11 - kjer je kazalec miske (tam uporabnik dela, vec monitorjev),
-    sicer primarni. Wayland: primarni samo za velikost, mesto izbere sestavljalnik (GNOME: monitor s kazalcem)."""
+    sicer zaslon namizja. Wayland: samo za velikost, mesto izbere sestavljalnik (GNOME: monitor s kazalcem).
+    Kazalec na TV, ki spi (24. 11. 2026): okno na zaslon namizja, ne na temen TV."""
     from PySide6.QtGui import QCursor, QGuiApplication
     if nativno_x11():
         zaslon = QGuiApplication.screenAt(QCursor.pos())
-        if zaslon is not None:
+        if zaslon is not None and zaslon.name() not in _SPECI:
             return zaslon
-    return QGuiApplication.primaryScreen()
+    return zaslon_namizja()
 
 
 def dostopnost_sistema(Gio=None, Gtk=None) -> dict:
@@ -614,7 +635,7 @@ class Namizje:
         aplikacija.primaryScreenChanged.connect(lambda *_: self._zaslon_spremenjen())
         aplikacija.screenAdded.connect(lambda *_: self._zaslon_spremenjen())
         aplikacija.screenRemoved.connect(lambda *_: self._zaslon_spremenjen())
-        self._spremljaj_zaslon(QGuiApplication.primaryScreen())
+        self._spremljaj_zaslon(zaslon_namizja())
 
     # ------------------------------------------------------------------ klici
     def klic(self, klic_id: int, metoda: str, a: list) -> None:
@@ -829,18 +850,29 @@ class Namizje:
 
     # ------------------------------------------------------------------ polozaj: pod vsemi okni
     def postavi(self) -> None:
-        from PySide6.QtGui import QGuiApplication
         if self.v_oknu:
             return
-        zaslon = QGuiApplication.primaryScreen()
+        zaslon = zaslon_namizja()
         if zaslon is None:
             return
         self._spremljaj_zaslon(zaslon)
         self.okno.setGeometry(zaslon.geometry())
         self._robovi()
 
+    def nastavi_zaslon(self, ime: str, speci) -> None:
+        """Safeer OS (Straza) pove izhod za namizje in izhode, ki spijo: namizje, robovi in dock na nov zaslon."""
+        global _IZHOD_NAMIZJA, _SPECI
+        ime, speci = str(ime or ""), frozenset(str(x) for x in speci or ())
+        if (ime, speci) == (_IZHOD_NAMIZJA, _SPECI):
+            return
+        prej = zaslon_namizja() if not self.v_oknu else None
+        _IZHOD_NAMIZJA, _SPECI = ime, speci
+        # Samo ob res drugem zaslonu: _zaslon_spremenjen na novo zazene dock (safeer-cinnamon --dock ustavi Plank).
+        if not self.v_oknu and zaslon_namizja() is not prej:
+            self._zaslon_spremenjen()
+
     def _spremljaj_zaslon(self, zaslon) -> None:
-        """Signale geometrije poveze na trenutni primarni zaslon (enkrat na zaslon); ob zamenjavi zaslona na novega."""
+        """Signale geometrije poveze na trenutni zaslon namizja (enkrat na zaslon); ob zamenjavi zaslona na novega."""
         if zaslon is None or getattr(self, "_spremljan_zaslon", None) is zaslon:
             return
         self._spremljan_zaslon = zaslon
@@ -850,11 +882,12 @@ class Namizje:
     def _robovi(self) -> None:
         """Pult Linux Minta (in drugi pulti z rezervacijo prostora) prekriva namizje, ki je cez ves zaslon: vsebina se
         umakne za njihov prostor (delovno obmocje). Lastnik 14. 10. 2026: pasica Minta je prekrivala iskanje."""
-        from PySide6.QtGui import QGuiApplication
         koren = self.okno.rootObject() if hasattr(self.okno, "rootObject") else None
         if koren is None:
             return
-        z = QGuiApplication.primaryScreen()
+        z = zaslon_namizja()
+        if z is None:
+            return
         robovi = robovi_delovnega_obmocja(z.geometry(), z.availableGeometry())
         if not hasattr(self, "_dock_rob"):
             try:

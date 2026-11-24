@@ -494,6 +494,9 @@
           <button class="stikalo" id="gumbNamizje"><svg data-ikona="namizje"></svg><div><span data-t="pokaziNamizje"></span><small data-t="pokaziNamizjePod"></small></div></button>
           <button class="stikalo" id="stikaloSamozagon" role="switch" aria-checked="false"><svg data-ikona="ponovno"></svg><div><span data-t="samozagon"></span><small data-t="samozagonPod"></small></div><i></i></button>
           <button class="stikalo" id="stikaloOdVklopa" role="switch" aria-checked="false" hidden><svg data-ikona="namizje"></svg><div><span data-t="odVklopa"></span><small data-t="odVklopaPod"></small></div><i></i></button>
+          <!-- Namizje na zaslonu (lastnik, 24. 11. 2026): TV v mirovanju -> pult, dock in okna na zaslon prenosnika
+               (core/zaslon_namizja.py, safeer_os._namizje_zaslon). Samo z vgrajenim zaslonom in v nacinu namizja. -->
+          <div class="stikalo agent-trajanje" id="blokNamizjeZaslon" hidden><svg data-ikona="zaslon"></svg><div><label for="namizjeZaslon" data-t="namizjeZaslon"></label><small data-t="namizjeZaslonPod"></small></div><select id="namizjeZaslon"><option value="samodejno" data-t="namizjeZaslonSamodejno"></option><option value="prenosnik" data-t="namizjeZaslonPrenosnik"></option><option value="glavni" data-t="namizjeZaslonGlavni"></option></select></div>
           <button class="stikalo" id="gumbVodnik"><svg data-ikona="ponovno"></svg><div><span data-t="vdGumb"></span><small data-t="vdGumbPod"></small></div></button>
           <button class="stikalo" id="gumbNazajVMint"><svg data-ikona="odjava"></svg><div><span data-t="nazajVMint"></span><small data-t="nazajVMintPod"></small></div></button>
         </div>
