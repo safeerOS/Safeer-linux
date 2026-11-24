@@ -7010,7 +7010,8 @@ class SafeerOS(Gtk.Application):
             return 0
         struktura = vzorec.get_caps().get_structure(0)
         medpomnilnik = vzorec.get_buffer()
-        ok, podatki = medpomnilnik.map(1)  # Gst.MapFlags.READ
+        from gi.repository import Gst
+        ok, podatki = medpomnilnik.map(Gst.MapFlags.READ)  # PyGObject zavrne celo stevilo (TypeError)
         if not ok:
             return 0
         try:

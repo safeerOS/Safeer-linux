@@ -48,3 +48,41 @@ def test_nadomestni_ponor_prejme_slike_bgra():
     cev.set_state(Gst.State.NULL)
     assert prejete and prejete[0] == (64, 48, "BGRA")
     del GLib
+
+
+def test_nova_slika_prebere_pravi_medpomnilnik():
+    """Napaka 24. 11. 2026 (virtualni zaslon): map(1) je v PyGObject vrgel TypeError in prikaz videa je obstal.
+    Preizkus pokliče pravo metodo s pravim Gst vzorcem, ne samo bere izvorne kode."""
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+    except (ValueError, ImportError):
+        pytest.skip("GStreamer ni na voljo")
+    Gst.init(None)
+    import importlib.util
+    import sys
+    sys.path.insert(0, str(KOREN))
+    try:
+        import safeer_os
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"safeer_os se ne uvozi brez GTK4: {e}")
+    sirina, visina = 4, 2
+    caps = Gst.Caps.from_string(f"video/x-raw,format=BGRA,width={sirina},height={visina}")
+    medpomnilnik = Gst.Buffer.new_wrapped(bytes([7]) * (sirina * visina * 4))
+    vzorec = Gst.Sample.new(medpomnilnik, caps, None, None)
+
+    class LazniPonor:
+        def emit(self, ime):
+            assert ime == "pull-sample"
+            return vzorec
+
+    class Okvir:
+        _medijski_zadnja_slika = None
+        _medijski_slika_caka = True  # risanje nima glavne zanke; preizkusimo samo branje
+    okvir = Okvir()
+    metoda = [v for k, v in vars(safeer_os).items() if isinstance(v, type) and hasattr(v, "_medijski_nova_slika")]
+    assert metoda, "razred z _medijski_nova_slika ni najden"
+    izid = metoda[0]._medijski_nova_slika(okvir, LazniPonor())
+    assert izid == 0
+    assert okvir._medijski_zadnja_slika == (sirina, visina, bytes([7]) * (sirina * visina * 4))
