@@ -178,7 +178,11 @@ def tocke_jezika(besedilo: str, zelen: str, izvirni: str = "", neoznacen_je_sinh
     j = jezik_zvoka(besedilo)
     if j == "":
         # Dodatek, ki posebej oznaci izvirnik s podnapisi (»Legendado«), ima brez oznake sinhronizacijo.
-        return -800 if neoznacen_je_sinhronizacija else 0
+        if neoznacen_je_sinhronizacija:
+            return -800
+        # Lastnik 24. 11. 2026 (»da«): pri filmu v anglescini je izdaja brez oznake jezika skoraj vedno izvirna (angleska);
+        # brez tega je 720p z napisom »English« premagal 1080p BluRay brez oznake. Tuji filmi: neoznaceno ostane 0.
+        return 800 if (zelen == "en" and izvirni == "en") else 0
     if j == zelen:
         return 800
     if j == "izvirnik":

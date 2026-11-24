@@ -47,6 +47,15 @@ class TestJezikZvoka(unittest.TestCase):
         self.assertEqual(ti.tocke_jezika("Film Hindi 1080p", "en", "fr"), -800)
         self.assertEqual(ti.tocke_jezika("Film Sloven 1080p", "sl", "sl"), 800)
 
+    def test_neoznacena_izdaja_angleskega_filma_ne_izgubi_pred_720p_english(self):
+        # 24. 11. 2026: Usenet za Fight Club je dal 720p »English« pred 1080p BluRay brez oznake jezika.
+        izdaje = ["Fight.Club.1999.English.720p.WEB-DL.H.264 1.6 GB", "Fight.Club.1999.1080p.BluRay.x264 8 GB"]
+        urejeno = ti.uredi(izdaje, lambda t: t, ti.Zmoznosti(visina=1080), zelen_jezik="en", izvirni="en")
+        self.assertEqual(urejeno[0], izdaje[1])
+        # tuji film: neoznacena izdaja ostane brez tock (ni nujno angleska)
+        self.assertEqual(ti.tocke_jezika("Film 1080p", "en", "fr"), 0)
+        self.assertEqual(ti.tocke_jezika("Film 1080p", "en", "en"), 800)
+
     def test_media_center_poda_jezik_samo_za_video(self):
         from core.os_media import MediaCenter
         self.assertEqual(MediaCenter._jezik_zvoka({"vrsta": "film", "jezik": "sl"}), {"zelen_jezik": "sl", "izvirni": "sl"})
