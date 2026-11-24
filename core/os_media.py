@@ -39,6 +39,7 @@ from . import izvirni_jezik
 from . import debrid
 from . import debrid_pravila
 from . import usenet_pravila
+from . import imdb_po_naslovu
 from . import usenet_filter
 from . import filter_vira_pravila
 from . import media_servers
@@ -2226,8 +2227,30 @@ class MediaCenter:
         if m is None:
             m = self.__dict__["_usenet_filter_mreze"] = usenet_filter.FilterMreze(
                 self.usenet_filter, self._kljuc_razpolozljivosti, self._stremio_naslov_vnosa,
-                lambda: tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)))
+                lambda: tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
+                imdb_filma=self.imdb_iskalnik.za_vnos)
         return m
+
+    @property
+    def imdb_iskalnik(self) -> "imdb_po_naslovu.Iskalnik":
+        """IMDb filma po naslovu in letu (Cinemeta) za dodatke brez IMDb - Usenet isce samo po IMDb (24. 11. 2026)."""
+        i = self.__dict__.get("_imdb_iskalnik")
+        if i is None:
+            with self._usenet_zaklep:
+                i = self.__dict__.get("_imdb_iskalnik")
+                if i is None:
+                    i = self.__dict__["_imdb_iskalnik"] = imdb_po_naslovu.Iskalnik(
+                        lambda url, rok: media_servers._request_z_rokom(url, rok))
+        return i
+
+    def _usenet_ident(self, item: dict, tip: str, ident: str) -> str:
+        """Id za iskanje Usenet: film brez IMDb (dodatek z lastnimi id-ji) dobi IMDb po naslovu, ce je zadetek zanesljiv."""
+        if tip != "movie" or usenet_pravila.iscemo(ident):
+            return ident
+        try:
+            return self.imdb_iskalnik.za_vnos(item) or ident
+        except Exception:  # noqa: BLE001 - iskanje ne sme podreti predvajanja
+            return ident
 
     def samo_usenet(self) -> bool:
         try:
@@ -6625,7 +6648,7 @@ class MediaCenter:
             koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
             if pripravi_torrent and tip in ("movie", "series") and self.samo_usenet():
                 # Lastnik 10. 11. 2026 (kot TV): z izbranim »⚡ Usenet« klik predvaja samo prek Useneta.
-                return self._razresi_samo_usenet(item_id, item, tip, ident)
+                return self._razresi_samo_usenet(item_id, item, tip, self._usenet_ident(item, tip, ident))
             tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
             # Webtor rezerva (core/webtor.py): tokovi dodatka Webtor niso neposredne povezave - gredo v svoj korak.
             webtor_tokovi = [t for t in tokovi if t.get("webtor")]
@@ -6658,7 +6681,9 @@ class MediaCenter:
             # Vrstni red virov (lastnik 25. 10. 2026 07:25, skupno pravilo usenet_pravila.vrstni_red_virov): z vpisanim
             # indeksatorjem gre Usenet, ki ga ima TorBox pripravljenega, prvi (placan, najboljsa kakovost in hitrost);
             # preverba ⚡ tece hkrati z njim. Nato ⚡ torrent, povezave, Usenet s cakanjem, debrid s cakanjem.
-            usenet = bool(pripravi_torrent) and self._usenet_mogoc(tip, ident)
+            # Film dodatka brez IMDb: Usenet isce po IMDb, najdenem po naslovu in letu (24. 11. 2026).
+            ident_usenet = self._usenet_ident(item, tip, ident) if pripravi_torrent and self.debrid.usenet_na_voljo() else ident
+            usenet = bool(pripravi_torrent) and self._usenet_mogoc(tip, ident_usenet)
             pred_f = debrid.v_ozadju(self.debrid.predpomnjeni, hashi) if usenet and aktivna and hashi else None
             # Webtor (lastnik 25. 10. 2026): kar nas debrid nima pripravljenega, zacne teci prek Webtorja (pred cakanjem
             # na debrid). Ista izdaja kot nasi torrenti najprej; `[⚡TB]` skrijemo, ce je nas debrid TorBox (podvaja ga).
@@ -6677,7 +6702,7 @@ class MediaCenter:
             sk_stanje: dict = {"zacetek": None, "poskusov": 0}
             for korak in usenet_pravila.vrstni_red_virov(usenet, webtor=bool(webtor_tokovi)):
                 if korak == usenet_pravila.KORAK_USENET_TAKOJ:
-                    resolved = self._razresi_usenet_takoj(item_id, item, ident, neposredni)
+                    resolved = self._razresi_usenet_takoj(item_id, item, ident_usenet, neposredni)
                     if resolved:
                         return resolved
                 elif korak == usenet_pravila.KORAK_PREDPOMNJEN and aktivna and pripravi_torrent:
@@ -6719,7 +6744,7 @@ class MediaCenter:
                 elif korak == usenet_pravila.KORAK_USENET_CAKAJ:
                     # Pripravljen je bil preverjen v prvem koraku: tu TorBox izdajo prenese (prenos Usenet je hiter -
                     # izmerjeno na TV 2,2 GB v 36 s), najvec dva poskusa do 15 GB.
-                    resolved = self._razresi_usenet(item_id, item, tip, ident, [], samo_takoj=False)
+                    resolved = self._razresi_usenet(item_id, item, tip, ident_usenet, [], samo_takoj=False)
                     if resolved:
                         return resolved
                 elif korak == usenet_pravila.KORAK_WEBTOR and webtor_tokovi:

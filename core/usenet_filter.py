@@ -210,9 +210,15 @@ class UsenetFilter:
                 if r.izdaje is not None:
                     izdaje = [F.Izdaja(x.naslov, x.velikost / 1073741824.0, getattr(x, "geslo", None)) for x in r.izdaje]
                 odgovor = r.razlog or None
-            pv = F.preverba(F.Izidi(racun, F.Odgovor(izdaje)), pogoji(), z)
+            if racun == F.Izid.NA_VOLJO and not iscemo:
+                # Brez IMDb (tudi po iskanju po naslovu) Usenet naslova ne najde: NI, ne NE_VEMO - sicer bi mreza
+                # napacno rekla »indeksator ne odgovarja« (lastnik 24. 11. 2026, kljuc je veljal).
+                pv = F.Preverba(F.Izid.NI, False, None)
+            else:
+                pv = F.preverba(F.Izidi(racun, F.Odgovor(izdaje)), pogoji(), z)
             self._shrani(k, F.zapisi(self._zapisi.get(k), pv.izid, pv.oznaka, self.ura(), pv.pomoc))
-            razlog = (F.razlog_ne_vemo(racun, iden, iscemo, poslji, odgovor) or "?") if pv.izid == F.Izid.NE_VEMO else "-"
+            razlog = (F.razlog_ne_vemo(racun, iden, iscemo, poslji, odgovor) or "?") if pv.izid == F.Izid.NE_VEMO else (
+                "ni_imdb" if racun == F.Izid.NA_VOLJO and not iscemo else "-")
             _log.info("preverba: id=%s, izdaj=%d, izid=%s, razlog=%s, zahtev od zagona=%d", id_dnevnik,
                       -1 if izdaje is None else len(izdaje), pv.izid.value, razlog, self.porabljeno)
         except Exception as e:  # noqa: BLE001 - preverba v ozadju ne sme podreti mreze
@@ -259,8 +265,11 @@ class FilterMreze:
     """Uporabi filter na rezultat kataloga (os_katalog._katalog) in vodi preverbe kot TV (en filter, ena odprta mreza)."""
 
     def __init__(self, filt: UsenetFilter, kljuc_naslova: Callable[[dict], str], naslov: Callable[[dict], Optional[tuple]],
-                 zmoznosti: Callable[[], tok_izbira.Zmoznosti]) -> None:
+                 zmoznosti: Callable[[], tok_izbira.Zmoznosti],
+                 imdb_filma: Optional[Callable[[dict], Optional[str]]] = None) -> None:
         self.filt = filt
+        #: Film brez IMDb (npr. dodatek »Best Torrents«): IMDb po naslovu in letu (core/imdb_po_naslovu), v delovni niti.
+        self._imdb_filma = imdb_filma
         self._kljuc_naslova = kljuc_naslova
         self._naslov = naslov
         self._zmoznosti = zmoznosti
@@ -302,7 +311,14 @@ class FilterMreze:
                 if k is None or k in m._znani:
                     continue
                 m._znani.add(k)
-                m.kandidati.append((k, ident_vnosa(self._naslov(item))))
+                naslov = self._naslov(item)
+                iden: Any = ident_vnosa(naslov)
+                if iden is not None and not U.iscemo(iden) and naslov is not None and naslov[1] == "movie":
+                    iden = None
+                if iden is None and naslov is not None and naslov[1] == "movie" and self._imdb_filma is not None:
+                    # Iskanje po naslovu je klic omrezja: zgodi se sele v delovni niti preverbe (ident()).
+                    iden = (lambda it=dict(item): self._imdb_filma(it))
+                m.kandidati.append((k, iden))
         self.preveri(m)
         return self.preciscen(m, rezultat)
 
@@ -356,7 +372,8 @@ class FilterMreze:
                     continue
                 # Proracun zmanjsamo PRED oddajo: izid lahko pride takoj (in sprozi naslednji krog) se pred vrnitvijo.
                 m.proracun = F.Proracun(p.zahteva, p.ostalo - 1, p.vnaprej)
-                if self.filt.preveri(k, (lambda i=iden: i), z, lambda: self.mreza is m, lambda: self._po_preverbi(m)):
+                if self.filt.preveri(k, (lambda i=iden: i() if callable(i) else i), z, lambda: self.mreza is m,
+                                   lambda: self._po_preverbi(m)):
                     zacetih += 1
                 else:
                     q = m.proracun
