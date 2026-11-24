@@ -48,6 +48,11 @@ class SejaLinka(unittest.TestCase):
     def test_racunalnik_posilja_zaslon(self):
         self.assertTrue(self._seja(_Control(_Zaslon(False), _Link(_Deljenje(True)))))
 
+    def test_pravi_zaslon_v_mirovanju_ni_seja(self):
+        # Control ustvari Zaslon »pripravljen« (vklopljeno): to se ni prenos slike - sicer Straza nikoli ne bi delovala.
+        from core import link_zaslon
+        self.assertFalse(self._seja(_Control(link_zaslon.Zaslon(vklopljeno=True), _Link(None))))
+
     def test_control_ni_v_tem_procesu(self):
         self.assertFalse(self._seja(None))
 
