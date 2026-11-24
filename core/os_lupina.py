@@ -155,10 +155,9 @@ def nativno_x11() -> bool:
         return False
 
 
-# Izhod RandR z namizjem in izhodi, ki spijo (TV v mirovanju) - pove jih Safeer OS (core/zaslon_namizja.Straza,
-# lastnik 24. 11. 2026). Prazno: primarni zaslon kot doslej.
+# Izhod RandR z namizjem - pove ga Safeer OS (core/zaslon_namizja.Straza, lastnik 24. 11. 2026: glavni zaslon pripada
+# racunalniku). Prazno: primarni zaslon kot doslej.
 _IZHOD_NAMIZJA = ""
-_SPECI: frozenset = frozenset()
 
 
 def zaslon_po_imenu(zasloni, ime: str, rezerva):
@@ -177,12 +176,11 @@ def zaslon_namizja():
 
 def zaslon_za_okno():
     """QScreen, na katerem naj se odpre novo okno: X11 - kjer je kazalec miske (tam uporabnik dela, vec monitorjev),
-    sicer zaslon namizja. Wayland: samo za velikost, mesto izbere sestavljalnik (GNOME: monitor s kazalcem).
-    Kazalec na TV, ki spi (24. 11. 2026): okno na zaslon namizja, ne na temen TV."""
+    sicer zaslon namizja. Wayland: samo za velikost, mesto izbere sestavljalnik (GNOME: monitor s kazalcem)."""
     from PySide6.QtGui import QCursor, QGuiApplication
     if nativno_x11():
         zaslon = QGuiApplication.screenAt(QCursor.pos())
-        if zaslon is not None and zaslon.name() not in _SPECI:
+        if zaslon is not None:
             return zaslon
     return zaslon_namizja()
 
@@ -859,14 +857,14 @@ class Namizje:
         self.okno.setGeometry(zaslon.geometry())
         self._robovi()
 
-    def nastavi_zaslon(self, ime: str, speci) -> None:
-        """Safeer OS (Straza) pove izhod za namizje in izhode, ki spijo: namizje, robovi in dock na nov zaslon."""
-        global _IZHOD_NAMIZJA, _SPECI
-        ime, speci = str(ime or ""), frozenset(str(x) for x in speci or ())
-        if (ime, speci) == (_IZHOD_NAMIZJA, _SPECI):
+    def nastavi_zaslon(self, ime: str) -> None:
+        """Safeer OS (Straza) pove izhod za namizje: namizje, robovi in dock na nov zaslon."""
+        global _IZHOD_NAMIZJA
+        ime = str(ime or "")
+        if ime == _IZHOD_NAMIZJA:
             return
         prej = zaslon_namizja() if not self.v_oknu else None
-        _IZHOD_NAMIZJA, _SPECI = ime, speci
+        _IZHOD_NAMIZJA = ime
         # Samo ob res drugem zaslonu: _zaslon_spremenjen na novo zazene dock (safeer-cinnamon --dock ustavi Plank).
         if not self.v_oknu and zaslon_namizja() is not prej:
             self._zaslon_spremenjen()

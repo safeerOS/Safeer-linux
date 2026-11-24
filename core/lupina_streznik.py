@@ -71,8 +71,8 @@ class _Okno:
         pass
 
 
-def _ukaz_zaslon(ime: str, speci: list) -> bytes:
-    return lupina_most.ukaz({"u": "zaslon", "ime": ime, "speci": speci})
+def _ukaz_zaslon(ime: str) -> bytes:
+    return lupina_most.ukaz({"u": "zaslon", "ime": ime})
 
 
 class OddaljenaLupina(os_lupina.Namizje):
@@ -140,7 +140,7 @@ class OddaljenaLupina(os_lupina.Namizje):
                                              GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self._beri)
         if getattr(self, "_izbran_zaslon", None):
             # Nova lupina (ponovni zagon) ne ve, kje je namizje: brez povezave se ukaz ne shrani v vrsto.
-            self._poslji(_ukaz_zaslon(*self._izbran_zaslon))
+            self._poslji(_ukaz_zaslon(self._izbran_zaslon))
         return True
 
     def _zapri_povezavo(self) -> None:
@@ -264,10 +264,10 @@ class OddaljenaLupina(os_lupina.Namizje):
     def _zaslon_spremenjen(self) -> None:
         pass                           # zaslone spremlja lupina sama (Qt), skupaj z dockom
 
-    def nastavi_zaslon(self, ime: str, speci) -> None:
-        """Okno namizja je v lupini: izhod za namizje in izhode, ki spijo, poslje ukaz (tudi ob vsaki novi povezavi)."""
-        self._izbran_zaslon = (str(ime or ""), [str(x) for x in speci or ()])
-        self.poslji(_ukaz_zaslon(*self._izbran_zaslon))
+    def nastavi_zaslon(self, ime: str) -> None:
+        """Okno namizja je v lupini: izhod za namizje poslje ukaz (tudi ob vsaki novi povezavi)."""
+        self._izbran_zaslon = str(ime or "")
+        self.poslji(_ukaz_zaslon(self._izbran_zaslon))
 
     def dvigni(self) -> None:
         self.okno.requestActivate()

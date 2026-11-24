@@ -12,7 +12,7 @@ preverita uid sogovornika (SO_PEERCRED). Okvir: 4 bajti dolzine (big-endian) + 1
   P  ping       lupina -> OS   4 bajti id (meritev zakasnitve, odgovor Q iz glavne zanke Safeer OS)
   O  odgovor    OS -> lupina   4 bajti id, 1 bajt ok, besedilo JSON (gre v QML nespremenjeno - brez ponovnega razclenjevanja)
   D  dogodek    OS -> lupina   2 bajta dolzine vrste, vrsta, besedilo JSON
-  U  ukaz       OS -> lupina   JSON {"u": "aktiviraj" | "zaslon" (+ ime, speci) | ...}
+  U  ukaz       OS -> lupina   JSON {"u": "aktiviraj" | "zaslon" (+ ime) | ...}
   Q  pong       OS -> lupina   4 bajti id
 
 Modul je brez Gtk in Qt: uvozita ga oba procesa.

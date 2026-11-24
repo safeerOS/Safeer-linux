@@ -186,8 +186,8 @@ class Streznik(unittest.TestCase):
     def test_zaslon_namizja_ob_vsaki_povezavi(self):
         """Straza zaslona (core/zaslon_namizja) obicajno izbere zaslon, preden se lupina poveze, in kasneje ne ponovi:
         izbira mora priti ob vsaki novi povezavi (24. 11. 2026)."""
-        self.lupina.nastavi_zaslon("eDP-1", ["HDMI-1"])          # se brez lupine: ukaz se ne shrani v vrsto
-        pricakovano = ("U", {"u": "zaslon", "ime": "eDP-1", "speci": ["HDMI-1"]})
+        self.lupina.nastavi_zaslon("eDP-1")                      # se brez lupine: ukaz se ne shrani v vrsto
+        pricakovano = ("U", {"u": "zaslon", "ime": "eDP-1"})
         prva = self.povezi()
         self.assertEqual(self.prejmi(prva, 1), [pricakovano])
         self.dek = lm.Dekoder()
