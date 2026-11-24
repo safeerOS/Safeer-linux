@@ -13,6 +13,7 @@ Pult Cinnamona in dock Plank sledita primarnemu izhodu RandR (izmerjeno 24. 11. 
 Straza prestavi primarni izhod na vgrajen zaslon in si zapomni prejsnjega (vrne ga nastavitev »glavni« ali Nazaj v Mint)."""
 
 import re
+import threading
 from typing import Callable, Iterable, List, Optional
 
 NASTAVITVE = ("samodejno", "glavni")
@@ -85,6 +86,8 @@ class Straza:
         self.shramba = shramba
         self._zadnja: Optional[str] = None
         self._premor = 0                 # ciklov brez novega poskusa po neuspelem xrandr --primary
+        self._zaklep = threading.Lock()  # korak (delovna nit) in vrni (glavna nit) se ne prepletata
+        self._ustavljena = False
 
     def _prej(self) -> Optional[dict]:
         p = self.shramba.get(KLJUC_PREJ)
@@ -108,12 +111,19 @@ class Straza:
         return False
 
     def vrni(self) -> None:
-        """Uporabnik zapusca Safeer OS (Nazaj v Mint): primarni izhod nazaj, kot je bil pred nami."""
-        prej = self._prej()
-        if prej and self.nastavi_primarni(prej["glavni"]):
-            self._pozabi()
+        """Uporabnik zapusca Safeer OS (Nazaj v Mint): primarni izhod nazaj, kot je bil pred nami; straza se ustavi
+        (sicer bi korak, ki tece hkrati ali takoj za tem, primarni spet prestavil na vgrajen zaslon)."""
+        with self._zaklep:
+            self._ustavljena = True
+            prej = self._prej()
+            if prej and self.nastavi_primarni(prej["glavni"]):
+                self._pozabi()
 
     def korak(self) -> str:
+        with self._zaklep:
+            return "" if self._ustavljena else self._korak()
+
+    def _korak(self) -> str:
         izhodi = self.beri_izhode()
         if not _aktivni(izhodi) or self.seja_linka():
             return ""                    # med prenosom slike prek Linka primarnega izhoda ne spreminjamo
@@ -129,8 +139,11 @@ class Straza:
                 ime = prej["glavni"]
             if prej and (x_primarni != prej["vgrajen"] or ime == prej["glavni"]):
                 self._pozabi()
-        elif ime != x_primarni and je_vgrajen(ime) and self._poskusi(ime) and not prej:
-            self.shramba.set(KLJUC_PREJ, {"glavni": x_primarni or glavni_izhod(izhodi), "vgrajen": ime})
+        elif ime != x_primarni and je_vgrajen(ime):
+            if not self._poskusi(ime):
+                ime = glavni_izhod(izhodi)      # pult in dock sta se na primarnem: namizje ostane z njima
+            elif not prej:
+                self.shramba.set(KLJUC_PREJ, {"glavni": x_primarni or glavni_izhod(izhodi), "vgrajen": ime})
         if ime != self._zadnja:
             self._zadnja = ime
             self.ob_izbiri(ime)

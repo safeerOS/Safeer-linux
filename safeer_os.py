@@ -1617,9 +1617,12 @@ def _monitor_po_imenu(zasloni, ime: str):
 def _seja_zaslona_linka() -> bool:
     """Ali ta racunalnik zdaj prenasa sliko prek Safeer Linka (core/link_zaslon: druga naprava gleda ta zaslon;
     core/link_deljenje: racunalnik posilja zaslon). Takrat sme glavni zaslon predvajati tista naprava (lastnik,
-    24. 11. 2026). Control v svojem procesu (ne en_proces): seje ne vidimo - False, NI preverjeno na napravi."""
+    24. 11. 2026). Control v svojem procesu (ne en_proces): seje ne vidimo, zato »tece« - Straza takrat ne spreminja
+    nicesar; Control ne tece: seje ni."""
     c = en_proces.control_app()
     try:
+        if c is None:
+            return bool(_control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)))
         zaslon = getattr(c, "zaslon", None)
         deljenje = getattr(getattr(c, "link", None), "deljenje_zaslona", None)
         return bool((zaslon is not None and zaslon.stanje().get("tece")) or (deljenje is not None and deljenje.tece))

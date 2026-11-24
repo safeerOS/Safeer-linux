@@ -54,7 +54,11 @@ class SejaLinka(unittest.TestCase):
         self.assertFalse(self._seja(_Control(link_zaslon.Zaslon(vklopljeno=True), _Link(None))))
 
     def test_control_ni_v_tem_procesu(self):
-        self.assertFalse(self._seja(None))
+        import safeer_os
+        for tece, pricakovano in ((False, False), (True, True)):    # locen Control: seje ne vidimo -> brez sprememb
+            with mock.patch.object(safeer_os, "_control_na_vodilu", return_value=tece), \
+                    mock.patch.object(safeer_os.Gio, "bus_get_sync", return_value=None):
+                self.assertEqual(self._seja(None), pricakovano)
 
     def test_napaka_pomeni_brez_spremembe(self):
         class _Pokvarjen:

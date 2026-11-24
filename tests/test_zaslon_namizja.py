@@ -146,6 +146,12 @@ class Straza(unittest.TestCase):
         self.assertEqual((self.preklopi, self.izbire), ([], ["eDP-1"]))
         self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
 
+    def test_neuspel_xrandr_namizje_ostane_s_pultom(self):
+        self.s.nastavi_primarni = lambda ime: False
+        self.s.korak()
+        self.assertEqual(self.izbire, ["HDMI-1"])
+        self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
+
     def test_neuspel_xrandr_ne_vsake_3_s(self):
         poskusi = []
         self.s.nastavi_primarni = lambda ime: poskusi.append(ime) and False
@@ -158,6 +164,9 @@ class Straza(unittest.TestCase):
     def test_nazaj_v_mint_vrne_primarni(self):
         self.s.korak()
         self.s.vrni()
+        self.assertEqual(self.preklopi, ["eDP-1", "HDMI-1"])
+        self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
+        self.s.korak()                    # casovnik straze se enkrat sprozi: nic vec ne prestavi
         self.assertEqual(self.preklopi, ["eDP-1", "HDMI-1"])
         self.assertIsNone(self.shramba.get("namizje_zaslon_prej"))
 
