@@ -1183,11 +1183,11 @@ class _ProcesSlike:
     @staticmethod
     def _pospravi(star: subprocess.Popen) -> None:
         try:
-            star.terminate()
+            _poslji_signal(star)
             star.wait(timeout=ZAMENJAVA_S)
         except Exception:
             try:
-                star.kill()
+                _poslji_signal(star, True)
                 star.wait(timeout=1)    # pobere proces, da ne ostane zombi
             except Exception:
                 pass
@@ -1214,14 +1214,14 @@ class _ProcesSlike:
             self._ustavljen = True
             procesi = {id(self._p): self._p, id(self._bran): self._bran}.values()
         for p in procesi:           # tudi stari, ki ga bralec se prazni
-            p.terminate()
+            _poslji_signal(p)
 
     def kill(self) -> None:
         with self._kljuc:
             self._ustavljen = True
             procesi = {id(self._p): self._p, id(self._bran): self._bran}.values()
         for p in procesi:
-            p.kill()
+            _poslji_signal(p, True)
 
     def wait(self, timeout: Optional[float] = None):
         return self._p.wait(timeout=timeout)
@@ -1367,7 +1367,7 @@ def slika_kms(zahteva: dict, seja: int = 0) -> Optional[_ProcesSlike]:
     else:
         # Pomocnik je rekel ok, ffmpeg pa je takoj koncal (npr. hwmap, gonilnik): x11grab.
         _cas("kms_zavrnjen", seja, razlog="ffmpeg_koncal")
-        prvi.terminate()
+        _poslji_signal(prvi)
         try:
             prvi.stdout.close()
         except OSError:
