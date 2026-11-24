@@ -13,7 +13,8 @@ for veja in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin |
   [ -n "$(git log -1 --since="$DNI days ago" --format=%h "$veja")" ] || continue
   for c in $(git cherry HEAD "$veja" | grep '^+' | cut -c3-); do
     GIT_INDEX_FILE="$IDX" git read-tree HEAD
-    if git diff-tree -p --root "$c" | GIT_INDEX_FILE="$IDX" git apply --cached --check -R 2>/dev/null; then st=PRENESEN
+    if [ -n "$(git log HEAD -1 --format=%h --grep="cherry picked from commit $c")" ]; then st=PRENESEN
+    elif git diff-tree -p --root "$c" | GIT_INDEX_FILE="$IDX" git apply --cached --check -R 2>/dev/null; then st=PRENESEN
     elif git diff-tree -p --root "$c" | GIT_INDEX_FILE="$IDX" git apply --cached --check 2>/dev/null; then st=MANJKA
     else st=SPOR; fi
     if [ "$st" != PRENESEN ] && grep -q "^${c:0:8}" "$OPUSCENI" 2>/dev/null; then st=OPUSCEN; fi

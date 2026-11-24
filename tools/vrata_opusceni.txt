@@ -1,0 +1,8 @@
+# <sha8> <razlog z dokazom>. Vrata veje (tools/vrata_veje.sh) te commite stejejo kot resene.
+7d42ebdf nadomescen: izdaja ima WebKitGTK 2.54.3 + HSTS v14b + libsoup v16 (commit 5d03931d), starejsi v7
+e8279195 nadomescen: preizkus preusmeritve za HSTS v7, izdaja ima v14b (5d03931d)
+154b3792 nadomescen: HSTS v8 (CORS preflight), izdaja ima v14b (5d03931d)
+d1be7513 nadomescen: HSTS v9 (preflight), izdaja ima v14b (5d03931d)
+87b0aa49 nadomescen: libsoup C9 meja razsirjanja je v izdaji v libsoup-decode-ratio-limit.patch (v16, 5d03931d)
+82cf5e9d dependabot: dvig actions/cache 4->6, ne spada v izdajo brez ločenega pregleda
+6457f0a1 zaupen sifriran paket neobjavljenega dela (README), ne spada v izdajo
