@@ -133,7 +133,15 @@ def opisi(besedilo: str) -> Opis:
 # Jezik zvoka iz imena toka (lastnik, 10. 10. 2026: privzeto anglescina, pri slovenskih filmih slovenscina). Ista
 # pravila kot TokIzbira.kt na Androidu (tests/test_tok_izbira_jezik.py ima iste primere).
 _Z_VEC = re.compile(r"dual[ .-]?(audio|áudio)|\bdual\b|multi[ .-]?(audio|lang)|\bmulti\b")
-_Z_IZVIRNIK = re.compile(r"legendad|\(l\)|\bleg\b|subbed|\bvose\b|vostfr|\bvo\b|original audio|audio original|izvirn")
+# »VO« sam ni izvirnik: v ruskih izdajah (DVO, MVO, AVO, VO) pomeni glas cez izvirnik (24. 11. 2026, Torrentio).
+_Z_IZVIRNIK = re.compile(r"legendad|\(l\)|\bleg\b|subbed|\bvose\b|vostfr|original audio|audio original|izvirn")
+# Dogovor dodatkov, pri katerih je tok BREZ oznake sinhronizacija (brazilski »(L) Legendado«). Samo ta oznaka
+# premakne neoznacene tokove na -800; »Subbed« ali »VOSTFR« ene tuje izdaje ne sme pokvariti angleskih izdaj.
+_Z_LEGENDADO = re.compile(r"legendad|\(l\)|\bleg\b")
+# Zastavice jezika (Torrentio, Comet ...): par regionalnih znakov; drzava -> jezik zvoka.
+_Z_ZASTAVA = re.compile("[\U0001F1E6-\U0001F1FF]{2}")
+_ZASTAVE = {"GB": "en", "US": "en", "RU": "ru", "UA": "uk", "BR": "pt", "PT": "pt", "ES": "es", "MX": "es",
+            "IT": "it", "FR": "fr", "DE": "de", "IN": "hi", "SI": "sl"}
 _Z_JEZIKI = (
     ("en", re.compile(r"\beng(lish)?\b|ingl[eê]s")),
     ("pt", re.compile(r"dublad|portugu[eê]s|\bpt[ .-]?br\b|\bnacional\b")),
@@ -159,6 +167,10 @@ def jezik_zvoka(besedilo: str) -> str:
     if _Z_IZVIRNIK.search(t):
         return "izvirnik"
     najdeni = [k for k, r in _Z_JEZIKI if r.search(t)]
+    for z in _Z_ZASTAVA.findall(t):
+        k = _ZASTAVE.get("".join(chr(ord(c) - 0x1F1E6 + 65) for c in z), "zastava:" + z)
+        if k not in najdeni:
+            najdeni.append(k)
     if len(najdeni) >= 2:
         return "vec"
     if najdeni:
@@ -264,7 +276,7 @@ def uredi(tokovi: Sequence[T], besedilo: Callable[[T], str], z: Zmoznosti,
     uposteva tudi rok veljavnosti povezave (velja_se) ob casu `zdaj_s` (sekunde od 1970; privzeto zdaj).
     Najprej odloca razred sejalcev (razred_sejalcev), sele nato ocena."""
     zdaj = time.time() if zdaj_s is None else zdaj_s
-    oznacen = bool(zelen_jezik) and any(jezik_zvoka(besedilo(t)) == "izvirnik" for t in tokovi)
+    oznacen = bool(zelen_jezik) and any(_Z_LEGENDADO.search(str(besedilo(t) or "").lower()) for t in tokovi)
     ocene = []
     for i, t in enumerate(tokovi):
         b = besedilo(t)

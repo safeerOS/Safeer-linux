@@ -56,6 +56,23 @@ class TestJezikZvoka(unittest.TestCase):
         self.assertEqual(ti.tocke_jezika("Film 1080p", "en", "fr"), 0)
         self.assertEqual(ti.tocke_jezika("Film 1080p", "en", "en"), 800)
 
+    def test_ruski_vo_in_zastavice_niso_izvirnik(self):
+        # 24. 11. 2026, Torrentio za Night of the Living Dead (1968): ruska izdaja »DVO + VO (Tycoon) ... 🇬🇧 / 🇷🇺« je
+        # stela kot izvirnik s podnapisi, zato so vse neoznacene angleske izdaje (YTS 1080p, 100 sejalcev) dobile -800.
+        # »VO« je v ruskih izdajah glas cez izvirnik (voice-over), ne »version originale«.
+        ru = "Ночь живых мертвецов / Night of the Living Dead [1968 BDRemux 1080p] DVO (Film Prestige) + VO (Tycoon) 👤 21 🇬🇧 / 🇷🇺"
+        self.assertEqual(ti.jezik_zvoka("Film 1080p VO (Tycoon)"), "")
+        self.assertEqual(ti.jezik_zvoka(ru), "vec")
+        self.assertEqual(ti.jezik_zvoka("Film 1080p 🇷🇺"), "ru")
+        self.assertEqual(ti.jezik_zvoka("Film 1080p 🇬🇧"), "en")
+        self.assertEqual(ti.jezik_zvoka("Film 1080p ENG 🇬🇧"), "en")
+        self.assertEqual(ti.jezik_zvoka("Film.VOSTFR.1080p"), "izvirnik")
+        yts = "Night of the Living Dead 1968 1080p BluRay 👤 100 YTS"
+        rip = "Ночь живых мертвецов / Night of the Living Dead [1968 1080p BDRip] 👤 100 🇬🇧 / 🇷🇺"
+        sub = "Film Subbed 720p 👤 100"
+        for seznam in ([ru.replace("👤 21", "👤 100"), yts], [rip, yts], [sub, yts]):
+            self.assertEqual(ti.uredi(seznam, lambda t: t, ti.Zmoznosti(visina=1080), zelen_jezik="en", izvirni="en")[0], yts)
+
     def test_media_center_poda_jezik_samo_za_video(self):
         from core.os_media import MediaCenter
         self.assertEqual(MediaCenter._jezik_zvoka({"vrsta": "film", "jezik": "sl"}), {"zelen_jezik": "sl", "izvirni": "sl"})
