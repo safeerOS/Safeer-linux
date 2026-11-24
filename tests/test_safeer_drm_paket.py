@@ -259,10 +259,10 @@ class Skladnost(unittest.TestCase):
 
 class Licenca(unittest.TestCase):
     def test_metainfo_brez_lastniske_komponente(self):
-        """V paketu ni lastniskega CDM (ECS je Electron/Chromium in castLabs, MIT): licenca projekta ostane Apache-2.0."""
+        """V paketu ni lastniskega CDM (ECS je Electron/Chromium in castLabs, MIT): licenca projekta je AGPL-3.0 (odlocitev lastnika 22. 11. 2026)."""
         for ime in ("io.github.memelandfaner.SafeerBrowser.metainfo.xml", "io.github.memelandfaner.SafeerOS.metainfo.xml"):
             m = re.search(r"<project_license>([^<]+)</project_license>", (KOREN / ime).read_text(encoding="utf-8"))
-            self.assertEqual(m.group(1), "Apache-2.0", ime)
+            self.assertEqual(m.group(1), "AGPL-3.0-only", ime)
 
 
 if __name__ == "__main__":

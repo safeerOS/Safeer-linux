@@ -3,7 +3,7 @@
 A fast, light, privacy-first browser for Linux Mint, Ubuntu and Debian — native GTK4 and
 WebKitGTK 6.0 with our own engine fixes, so it starts instantly and leaves the fans alone.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL_3.0_%2B_commercial-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux_Mint_%7C_Ubuntu_%7C_Debian-87cf3e?style=flat-square)](#requirements)
 [![Packages](https://img.shields.io/badge/Packages-deb_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
 
@@ -192,8 +192,9 @@ PYTHONPATH=tests xvfb-run -a python3 -m pytest -q tests/
 
 ## Fork it
 
-Whoever controls the browser sets the rules of the web. This project is Apache-2.0 so that you
-can take it, change the block lists, change the look, add what you need, and ship your own.
+Whoever controls the browser sets the rules of the web. This project is AGPL-3.0 so that you
+can take it, change the block lists, change the look, add what you need, and ship your own
+(with Safeer credited as the author; closed or paid use needs the commercial licence).
 
 ## Contributing
 
@@ -202,4 +203,4 @@ privately, not in a public issue.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+GNU AGPL-3.0 — see [LICENSE](LICENSE). Closed or paid use: [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). The built-in TMDB catalogue is non-commercial only.

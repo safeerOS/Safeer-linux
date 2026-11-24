@@ -2,7 +2,7 @@
 
 *English: [CONTRIBUTING.md](CONTRIBUTING.md)*
 
-Hvala, da si si vzel čas. Safeer je odprtokoden (Apache-2.0), dela ga majhna ekipa in vsak
+Hvala, da si si vzel čas. Safeer je odprtokoden (AGPL-3.0 in komercialna licenca), dela ga majhna ekipa in vsak
 popravek, prijavo napake ali popravek prevoda prebere človek. Raje ti pomagamo do prvega
 sprejetega popravka, kot da čakamo na popolnega.
 

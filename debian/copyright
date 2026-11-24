@@ -5,14 +5,14 @@ Source: https://github.com/safeerOS/Safeer-linux
 
 Files: *
 Copyright: 2026 Safeer Open Source Project
-License: Apache-2.0
+License: AGPL-3.0
+Comment: Closed or paid use needs a separate commercial licence (COMMERCIAL-LICENSE.md).
+ Third-party components keep their own licences.
 
-License: Apache-2.0
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+License: AGPL-3.0
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as published
+ by the Free Software Foundation, version 3.
  .
- http://www.apache.org/licenses/LICENSE-2.0
- .
- On Debian systems, the complete text of the Apache version 2.0 license
- can be found in `/usr/share/common-licenses/Apache-2.0'.
+ On Debian systems, the complete text of the GNU Affero General Public
+ License version 3 can be found in `/usr/share/common-licenses/AGPL-3'.

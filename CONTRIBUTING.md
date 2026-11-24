@@ -2,7 +2,7 @@
 
 *Slovenščina: [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md)*
 
-Thank you for taking the time. Safeer is Apache-2.0, built by a small team, and every patch,
+Thank you for taking the time. Safeer is AGPL-3.0 (plus a commercial licence), built by a small team, and every patch,
 bug report and translation fix is read by a person. We would rather help you land your first
 change than receive a perfect one.
 

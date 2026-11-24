@@ -3,7 +3,7 @@
 Hiter, lahek brskalnik z zasebnostjo na prvem mestu za Linux Mint, Ubuntu in Debian — nativni GTK4
 in WebKitGTK 6.0 z našimi popravki pogona, zato se odpre v trenutku in pusti ventilatorje pri miru.
 
-[![Licenca](https://img.shields.io/badge/Licenca-Apache_2.0-blue?style=flat-square)](LICENSE)
+[![Licenca](https://img.shields.io/badge/Licenca-AGPL_3.0_%2B_komercialna-blue?style=flat-square)](LICENSE)
 [![Platforma](https://img.shields.io/badge/Platforma-Linux_Mint_%7C_Ubuntu_%7C_Debian-87cf3e?style=flat-square)](#zahteve)
 [![Paketi](https://img.shields.io/badge/Paketi-deb_%7C_Flatpak-cyan?style=flat-square)](../../releases/latest)
 
@@ -186,7 +186,7 @@ PYTHONPATH=tests xvfb-run -a python3 -m pytest -q tests/
 
 ## Vzemi in predelaj
 
-Kdor obvladuje brskalnik, določa pravila spleta. Projekt je pod Apache-2.0 prav zato, da ga
+Kdor obvladuje brskalnik, določa pravila spleta. Projekt je pod AGPL-3.0 prav zato, da ga
 lahko vzameš, zamenjaš sezname, spremeniš videz, dodaš, kar potrebuješ, in izdaš svojega.
 
 ## Sodelovanje
@@ -196,4 +196,4 @@ Glej [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md). Varnostne težave gredo po poti i
 
 ## Licenca
 
-Apache License 2.0 — glej [LICENSE](LICENSE).
+GNU AGPL-3.0 — glej [LICENSE](LICENSE). Zaprta ali plačljiva raba: [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). Vgrajeni katalog TMDB je samo za nekomercialno rabo.
