@@ -141,7 +141,8 @@ _Z_LEGENDADO = re.compile(r"legendad|\(l\)|\bleg\b")
 # Zastavice jezika (Torrentio, Comet ...): par regionalnih znakov; drzava -> jezik zvoka.
 _Z_ZASTAVA = re.compile("[\U0001F1E6-\U0001F1FF]{2}")
 _ZASTAVE = {"GB": "en", "US": "en", "RU": "ru", "UA": "uk", "BR": "pt", "PT": "pt", "ES": "es", "MX": "es",
-            "IT": "it", "FR": "fr", "DE": "de", "IN": "hi", "SI": "sl"}
+            "IT": "it", "FR": "fr", "DE": "de", "IN": "hi", "SI": "sl",
+            "JP": "ja", "KR": "ko", "CN": "zh", "TW": "zh", "NL": "nl", "PL": "pl", "TR": "tr", "SE": "sv", "DK": "da", "NO": "no", "FI": "fi", "CZ": "cs", "HU": "hu", "HR": "hr", "RS": "sr", "GR": "el", "IL": "he", "SA": "ar", "TH": "th", "VN": "vi", "ID": "id"}
 _Z_JEZIKI = (
     ("en", re.compile(r"\beng(lish)?\b|ingl[eê]s")),
     ("pt", re.compile(r"dublad|portugu[eê]s|\bpt[ .-]?br\b|\bnacional\b")),
@@ -168,7 +169,8 @@ def jezik_zvoka(besedilo: str) -> str:
         return "izvirnik"
     najdeni = [k for k, r in _Z_JEZIKI if r.search(t)]
     for z in _Z_ZASTAVA.findall(t):
-        k = _ZASTAVE.get("".join(chr(ord(c) - 0x1F1E6 + 65) for c in z), "zastava:" + z)
+        koda = "".join(chr(ord(c) - 0x1F1E6 + 65) for c in z)
+        k = _ZASTAVE.get(koda, "zastava:" + koda)
         if k not in najdeni:
             najdeni.append(k)
     if len(najdeni) >= 2:
