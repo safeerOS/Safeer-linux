@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.95" date="2026-11-24"><description><p>The desktop, panel and dock stay on the computer's own screen; another screen shows them only while the picture is sent over Link. Media Center finds films without an IMDb id by title and year, picks the audio language more reliably and no longer reports a working indexer as unreachable. Shield recovers DNS right after a stall and the watchdog waits longer under memory pressure.</p></description></release>
     <release version="0.4.94" date="2026-11-23"><description><p>Screen sharing to a TV: audio and video are matched with sync marks, 4K HEVC streams keep full quality, stricter sign-in on the hub.</p></description></release>
     <release version="0.4.93" date="2026-11-02"><description><p>Shield turns itself on once nothing blocks it, with a one-click Fix for Pi-hole leftovers; API keys and add-ons sync across your own devices; Media center and Messages open in their own windows; Usenet visible in the Media center.</p></description></release>
     <release version="0.4.92" date="2026-10-28"><description><p>Inner circle of trust for keys and sources, safer remote screen and files, Safeer Player as its own package, Usenet with your own provider, web chats in Messages, About this computer, our WebKit 2.54.2.</p></description></release>
