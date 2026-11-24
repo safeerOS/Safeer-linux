@@ -6,3 +6,13 @@ d1be7513 nadomescen: HSTS v9 (preflight), izdaja ima v14b (5d03931d)
 87b0aa49 nadomescen: libsoup C9 meja razsirjanja je v izdaji v libsoup-decode-ratio-limit.patch (v16, 5d03931d)
 82cf5e9d dependabot: dvig actions/cache 4->6, ne spada v izdajo brez ločenega pregleda
 6457f0a1 zaupen sifriran paket neobjavljenega dela (README), ne spada v izdajo
+d6d28689 nadomescen: lastnikov popis #5 (10. 11. 2026, 705fd7da) - klik predvaja najboljsi vir samodejno, »Izberi vir« ostane v meniju kartice in ob neuspehu; novejsi ukaz od 26. 10. (NALOGA 33)
+3d5073a6 nadomescen: AppImage koraki so iz CI odstranjeni (linux-packages.yml vrstice 41-43, 654)
+c10b2917 nadomescen: CI pozene pytest nad celim tests/ (linux-packages.yml vrstici 132, 141), torej tudi preizkuse zaslona
+af1582ce nadomescen: prenesen kot 0c1d3913 (isti naslov, porostvo v ozjem krogu)
+2e8acfbf nadomescen: prenesen kot a5409a7c (async_depth 1, barve na graficni)
+2fc41d0b nadomescen: prenesen kot e1937f84 (zaprt pokrov ne uspava med prenosom slike)
+460d9789 nadomescen: prenesen kot f70daeef (vrsta slik z izpuscanjem) + 4a5151c9 preizkusi
+84adb2d3 nadomescen: prenesen kot 29549197 in usklajen v 69286f3d (zigi, KMS, HEVC 4K)
+e902a816 nadomescen: isto kot 84adb2d3 (veja zaslon-hevc-zigi), v izdaji 29549197 + 69286f3d
+f4aed408 nadomescen: AppImage koraki so iz CI odstranjeni (kot 3d5073a6)
