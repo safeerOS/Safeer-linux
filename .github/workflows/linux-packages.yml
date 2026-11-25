@@ -92,13 +92,10 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: UTC
-      # Zgoscene vrednosti osebnih podatkov lastnika za tests/test_brez_skrivnosti.py (niso v repozitoriju). Brez
-      # skrivnosti se ta del preizkusa preskoci; korak spodaj takrat doda opozorilo (tedenski pregled 4. 11. 2026).
-      SAFEER_ZASEBNO_SHA256: ${{ secrets.SAFEER_ZASEBNO_SHA256 }}
+      # Osebni podatki lastnika (tudi zgosceni) NE gredo na GitHub - lastnik 25. 11. 2026: »Na githube ne sme biti mojih
+      # skrivnosti«. Ta del tests/test_brez_skrivnosti.py tece lokalno (varnostni-potisk.sh / pred-potiskom.py pred
+      # vsakim potiskom, seznam v lokalni datoteki); v CI se preskoci po zasnovi, zato brez opozorila.
     steps:
-      - name: Privacy check list present
-        if: ${{ matrix.del == 1 && env.SAFEER_ZASEBNO_SHA256 == '' }}
-        run: echo "::warning::Skrivnost SAFEER_ZASEBNO_SHA256 ni nastavljena - preverba osebnih podatkov lastnika v tests/test_brez_skrivnosti.py se preskoci."
       - name: Test dependencies (no WebKitGTK, no libsoup GI)
         run: |
           apt-get update -q
