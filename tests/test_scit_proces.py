@@ -113,6 +113,22 @@ class PodedovanaVrata(unittest.TestCase):
         self.assertIsNone(scit_proces.podedovane_vticnice("ni,stevilka"))
 
 
+
+def _par_vrat():
+    """Vticnici UDP in TCP na istih nakljucnih vratih 127.0.0.1. CI 45529235947 (25. 11. 2026): vrata UDP, ki jih je dal
+    sistem, so imela zasedena ista vrata TCP (EADDRINUSE) - zato nekaj poskusov, kot jih naredi VrataScita."""
+    for _ in range(50):
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.bind(("127.0.0.1", 0))
+        t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            t.bind(u.getsockname())
+            return u, t
+        except OSError:
+            u.close()
+            t.close()
+    raise OSError("ni prostega para vrat UDP in TCP")
+
 class Omejitev(unittest.TestCase):
     def test_cez_mejo_zavrze_in_tece_naprej(self):
         sprosti = threading.Event()
@@ -125,10 +141,7 @@ class Omejitev(unittest.TestCase):
         r.NAJVEC_HKRATI = 2
         r._proste = threading.BoundedSemaphore(2)
         with mock.patch.object(os_scit, "VRATA", (0,)), mock.patch.object(os_scit, "NASLOV", "127.0.0.1"):
-            u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            u.bind(("127.0.0.1", 0))
-            t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            t.bind(u.getsockname())
+            u, t = _par_vrat()
             t.listen(4)
             vrata = u.getsockname()[1]
             r._zacni(u, t, vrata)
@@ -202,10 +215,7 @@ class VarhovaPot(unittest.TestCase):
 
     def test_otrok_dobi_vticnici_kot_3_in_4(self):
         from core import varuh_procesov as vp
-        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        u.bind(("127.0.0.1", 0))
-        t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        t.bind(u.getsockname())
+        u, t = _par_vrat()
         izhod = tempfile.TemporaryFile()
         try:
             koda = "import socket; print([socket.socket(fileno=f).getsockname()[1] for f in (3, 4)])"
