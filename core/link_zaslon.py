@@ -926,11 +926,38 @@ def izberi_tok(kodeki, najvecja, izvor: tuple, osnova: tuple, hevc_mozen: Callab
     return "hevc", sirina, visina
 
 
+#: Rob slike (overscan) v promilih kot ZaslonRob.NAJVEC_PROMILOV na TV (80 = 8 % na vsaki strani).
+ROB_NAJVEC = 80
+
+
+def rob_iz(vrednost) -> int:
+    """Rob iz screen.start: samo celo stevilo 0..ROB_NAJVEC (bool, niz, decimalno in izven obsega = 0)."""
+    return vrednost if type(vrednost) is int and 0 <= vrednost <= ROB_NAJVEC else 0
+
+
+def okvir_roba(sirina: int, visina: int, rob: int) -> Tuple[int, int]:
+    """(levo/desno, zgoraj/spodaj) v pikah kot ZaslonRob.okvir na TV: sodo navzdol(mera * promili / 1000)."""
+    rob = rob_iz(rob)
+    if sirina <= 0 or visina <= 0 or not rob:
+        return 0, 0
+    return int(sirina) * rob // 1000 // 2 * 2, int(visina) * rob // 1000 // 2 * 2
+
+
+def filter_roba(sirina: int, visina: int, rob: int) -> str:
+    """Vsebina pomanjsana na notranjo velikost in obdana s crnim okvirjem; slika ostane sirina x visina.
+    Lastnik 25. 11. 2026: TV (Philips/MediaTek) obreze video ravnino - pomanjsan pogled na TV obreze enako, zato
+    mora biti okvir v sliki sami. "" pri robu 0."""
+    rl, rz = okvir_roba(sirina, visina, rob)
+    if not rl and not rz:
+        return ""
+    return "scale=%d:%d:flags=lanczos,pad=%d:%d:%d:%d:black," % (sirina - 2 * rl, visina - 2 * rz, sirina, visina, rl, rz)
+
+
 def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor_visina: int,
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
                 qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False,
                 odmik: tuple = (0, 0), vhod: Optional[List[str]] = None, kazalec_v_sliki: bool = True,
-                barve444: bool = False) -> List[str]:
+                barve444: bool = False, rob: int = 0) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
     `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
@@ -956,6 +983,11 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
     # nekaj stane. To je najpogostejsi primer (zaslon 1920x1080 -> 1920x1080).
     lestvica = (sirina, visina) != (izvor_sirina, izvor_visina)
     filter_lestvica = f"scale={sirina}:{visina}:flags=lanczos," if lestvica else ""
+    # `rob` (promili): okvir za TV, ki obreze video ravnino. Pomanjsava naravnost na notranjo velikost (ena lestvica).
+    # shortcut: ffmpeg 6.1 (Ubuntu 24.04) nima pad_vaapi, zato z robom pomanjsa procesor tudi ob `gpu` - ce bo
+    # pad_vaapi na voljo, lahko graficna doda okvir sama.
+    if filter_roba(sirina, visina, rob):
+        filter_lestvica, lestvica, gpu = filter_roba(sirina, visina, rob), True, False
     if vaapi:
         # Intelov gonilnik ima na tem prenosniku samo nizkoenergijski vhod (EncSliceLP), ta pa
         # podpira le CQP - z -b:v kodirnik sploh ne odpre ("no RC mode compatible"). Zato kakovost
@@ -1852,6 +1884,8 @@ class Zaslon:
         self._hevc_veliki = False
         #: Kazalec kot podatek (display, odmik) samo na namizju X11; zacni() ga nastavi po seji.
         self._kazalec_x11 = None
+        #: Rob slike seje v promilih (screen.start "rob", filter_roba); 0 = brez okvirja.
+        self._rob = 0
         self._zvocni: Optional[subprocess.Popen] = None
         self._nit: Optional[threading.Thread] = None
         #: Povezava televizorja v tekoci seji (ovita, core/link_vticnik.py); ustavi() jo zapre in s tem zbudi niti seje.
@@ -2026,7 +2060,7 @@ class Zaslon:
 
     def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
               prek_huba: bool = False, pogled: Optional[dict] = None, zmoznosti=None, kodeki=None,
-              omrezje: str = "", jedro: str = "", najvecja=None) -> dict:
+              omrezje: str = "", jedro: str = "", najvecja=None, rob: int = 0) -> dict:
         """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
 
         `pogled`: povrsina naprave, ki gleda (`view` iz `screen.start`). Loceni zaslon dobi njeno obliko in
@@ -2036,7 +2070,10 @@ class Zaslon:
         `omrezje`: omrezje naprave, ki gleda (`net`: wifi, ethernet, 5g, 4g ...); po njem je umerjena kakovost zdoma.
         `jedro`: jedro preverjenega kljuca naprave (zasciten screen.start); po njem straza preverja dostop.
         `kodeki` ("codecs") in `najvecja` ("maxsize", npr. {"hevc": [3840, 2160]}) sta izrecni zmoznosti naprave: slika
-        nad osnovno velikostjo (do NAJVEC_HEVC) samo s HEVC, samo ob izrecni izjavi in pri polni kakovosti (izberi_tok)."""
+        nad osnovno velikostjo (do NAJVEC_HEVC) samo s HEVC, samo ob izrecni izjavi in pri polni kakovosti (izberi_tok).
+        `rob` ("rob", promili 0..ROB_NAJVEC): crn okvir v sliki za TV, ki obreze video ravnino (filter_roba). Velja za
+        namizje (X11 in Wayland); loceni zaslon (wf-recorder) ga ne zna - tam 0 in TV ostane pri svojem robu."""
+        rob = rob_iz(rob)
         if not self.vklopljeno:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
         if not str(id_naprave or "").strip() and not jedro:
@@ -2073,6 +2110,7 @@ class Zaslon:
         odmik = (0, 0)
         kms = None
         if na_drugem:
+            rob = 0
             # Drugi zaslon je natanko tako velik, kot ga naprava prikaze: brez prevzorcenja in brez crnih robov.
             # Naprava, ki pove svojo povrsino, dobi zaslon v svoji obliki; starejsa velikost iz kakovosti.
             izvor = velikost_za_gledalca(pogled, (k["sirina"], k["visina"]))
@@ -2106,7 +2144,8 @@ class Zaslon:
         # KMS samo za namizje X11 z VAAPI (kmsgrab -> hwmap), z enim monitorjem (kmsgrab vzame prvi CRTC) in z znano
         # aktivno sejo (straza med zajemom). Samo H.264: ali pomocnik zna HEVC, ni preverjeno. Pred zaklepom,
         # ker loginctl lahko traja do 3 s.
-        if (self.kms and not na_drugem and not wayland and kodek_x11 == "h264" and vaapi_x11
+        # Pomocnik KMS okvirja (rob) ne zna: z robom x11grab.
+        if (self.kms and not rob and not na_drugem and not wayland and kodek_x11 == "h264" and vaapi_x11
                 and tuple(odmik) == (0, 0) and kms_na_voljo() and kms_monitorji() == 1 and seja_aktivna() is True):
             kms = {"sirina": sirina, "visina": visina, "fps": int(k["fps"]), "kodek": "h264",
                    "qp": int(k["qp"])}
@@ -2121,6 +2160,8 @@ class Zaslon:
             self._kljucni = OmejevalnikKljucnih()
             self._slika = {"width": sirina, "height": visina, "fps": int(k["fps"])}
             self._izvor = (int(izvor[0]), int(izvor[1]))
+            # Promili, ne piki: velikost slike se ob profilu zamenja (_po_profilu), okvir se izracuna iz trenutne.
+            self._rob = rob
             kljuc, potrdilo, self.odtis = zagotovi_potrdilo(self.tls_mapa)
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -2144,6 +2185,8 @@ class Zaslon:
             # Dolga skupina slik samo gledalcu, ki enot ne izpusca; HEVC samo, ce ga naprava hoce in racunalnik zmore.
             gop = int(k["fps"]) * GOP_DOLG_S if "gop" in self._zmoznosti else 0
             dodatki = {}
+            # Rob samo, ce je: brez njega so ukazi natanko kot prej (preizkusi, ki jih primerjajo).
+            z_robom = {"rob": rob} if rob else {}
             # Zig slike in velika slika veljata samo za namizje X11 (spodaj); drugi zaslon in portal: brez ziga slike (ni izmerjen).
             self._zakasnitev_slike = None
             self._hevc_veliki = False
@@ -2192,7 +2235,7 @@ class Zaslon:
                 ukaz, self._zajem_dodatno = portal_zaslon.ukaz_zajema(
                     portal, sirina, visina, fps,
                     ukaz_ffmpeg("", sirina, visina, sirina, visina, fps, str(k["bitrate"]), vaapi, self.ffmpeg,
-                                int(k["qp"]), kodek=self._kodek, gop=gop, vhod=vhod))
+                                int(k["qp"]), kodek=self._kodek, gop=gop, vhod=vhod, **z_robom))
                 self._strojno = bool(vaapi)
 
                 def sestavi(kodek, raven, _portal=portal):
@@ -2200,7 +2243,7 @@ class Zaslon:
                         _portal, sirina, visina, int(raven["fps"]),
                         ukaz_ffmpeg("", sirina, visina, sirina, visina, int(raven["fps"]), str(raven["bitrate"]),
                                     vaapi, self.ffmpeg, int(raven["qp"]), kodek=kodek, gop=gop,
-                                    vhod=portal_zaslon.vhod_ffmpeg(sirina, visina, int(raven["fps"]))))[0]
+                                    vhod=portal_zaslon.vhod_ffmpeg(sirina, visina, int(raven["fps"])), **z_robom))[0]
             else:
                 self._cilj = "desktop"
                 self._okolje_zajema = None
@@ -2210,7 +2253,8 @@ class Zaslon:
                 na_monitor = {"odmik": odmik} if tuple(odmik) != (0, 0) else {}
                 vaapi = vaapi_x11
                 self._kodek = kodek_x11
-                self._zakasnitev_slike = zakasnitev_slike(vaapi, sirina, visina, izvor, kodek_x11)
+                # Z robom se slika vedno prevzorci - zakasnitev za to ni izmerjena (brez ziga slike).
+                self._zakasnitev_slike = None if rob else zakasnitev_slike(vaapi, sirina, visina, izvor, kodek_x11)
                 # Slika nad osnovno velikostjo je mogoca samo s HEVC: te seje ne znizamo na H.264 po poti.
                 self._hevc_veliki = kodek_x11 == "hevc" and (sirina, visina) != tuple(
                     self._prilagodi(izvor, k["sirina"], k["visina"]))
@@ -2225,13 +2269,13 @@ class Zaslon:
                 gpu = gpu_lestvica_mozna(self.ffmpeg, vaapi)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
-                                   kodek=self._kodek, gop=gop, gpu=gpu, **kaz, **na_monitor)
+                                   kodek=self._kodek, gop=gop, gpu=gpu, **kaz, **na_monitor, **z_robom)
                 self._strojno = bool(vaapi)
 
                 def sestavi(kodek, raven):
                     return ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(raven["fps"]),
                                        str(raven["bitrate"]), vaapi, self.ffmpeg, int(raven["qp"]),
-                                       kodek=kodek, gop=gop, gpu=gpu, **kaz, **na_monitor)
+                                       kodek=kodek, gop=gop, gpu=gpu, **kaz, **na_monitor, **z_robom)
 
                 def po_profilu(profil, raven, kodek):
                     """Ukaz po izmerjenem profilu (link_zaslon_profil): (ukaz, sirina, visina, kodek, barve)."""
@@ -2240,13 +2284,14 @@ class Zaslon:
                     fps_p = int(raven["fps"])
                     if profil.get("kodek") == "h264rgb" and izvorna:
                         return (link_zaslon_profil.ukaz_brezizgubno(self.ffmpeg, display, s, v, fps_p, odmik,
-                                                                    kazalec_v_sliki, gop), s, v, "h264", "rgb")
-                    barve = profil.get("kodek") == "hevc444" and izvorna and bool(vaapi)
+                                                                    kazalec_v_sliki, gop, **z_robom), s, v, "h264", "rgb")
+                    # 4:4:4 samo brez prevzorcenja - rob sliko vedno pomanjsa (ukaz_ffmpeg ga tedaj izklopi).
+                    barve = profil.get("kodek") == "hevc444" and izvorna and bool(vaapi) and not rob
                     kod = "hevc" if barve else kodek
                     gpu_p = gpu_lestvica_mozna(self.ffmpeg, vaapi)
                     return (ukaz_ffmpeg(display, s, v, izvor[0], izvor[1], fps_p, str(raven["bitrate"]), vaapi,
                                         self.ffmpeg, int(raven["qp"]), kodek=kod, gop=gop, gpu=gpu_p,
-                                        barve444=barve, **kaz, **na_monitor),
+                                        barve444=barve, **kaz, **na_monitor, **z_robom),
                             s, v, kod, "444" if barve else "420")
                 self._po_profilu = po_profilu
             self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st, sestavi, kms, display),
@@ -2267,7 +2312,9 @@ class Zaslon:
                 "relay": bool(prek_huba),
                 # Merilo locenega zaslona (1 = brez): slika je enako velika, programi so narisani vecje.
                 # `scale_max`: do kod sme uporabnik vsebino povecati, da programi se ostanejo celi.
-                "scale": merilo, "scale_max": najvecje_merilo(izvor) if na_drugem else 1.0}
+                "scale": merilo, "scale_max": najvecje_merilo(izvor) if na_drugem else 1.0,
+                # Uporabljeni rob: TV, ki ga dobi, svojega pogleda ne pomanjsa vec. Brez roba kljuca ni (starejsi TV).
+                **({"rob": rob} if rob else {})}
 
     def _odpri_portal(self):
         """Seja portala za deljenje namizja na Waylandu. Napaka -> RuntimeError z besedilom za gledalca."""
@@ -3084,15 +3131,19 @@ class Zaslon:
                 vrsta_slik.zapri()
 
     def _v_zaslon(self, dogodek: dict) -> dict:
-        """Tocka iz slike (kot jo vidi tablica) v tocko zaslona: slika je lahko pomanjsana."""
+        """Tocka iz slike (kot jo vidi tablica) v tocko zaslona: slika je lahko pomanjsana in obdana z okvirjem roba
+        (filter_roba). Tocka v okvirju se omeji na rob zaslona."""
         try:
             x, y = float(dogodek.get("x")), float(dogodek.get("y"))
         except (TypeError, ValueError):
             return dogodek
         sw, sv = max(1, self._slika.get("width", 1)), max(1, self._slika.get("height", 1))
+        rl, rz = okvir_roba(sw, sv, getattr(self, "_rob", 0))
+        x, y, sw, sv = x - rl, y - rz, max(1, sw - 2 * rl), max(1, sv - 2 * rz)
         iw, iv = self._izvor
-        return {"vrsta": "tocka", "x": int(min(max(x, 0), sw - 1) * iw / sw),
-                "y": int(min(max(y, 0), sv - 1) * iv / sv)}
+        # Do sw (ne sw - 1): tocka v desnem/spodnjem okvirju je zadnja pika zaslona, ne predzadnja.
+        return {"vrsta": "tocka", "x": min(iw - 1, int(min(max(x, 0), sw) * iw / sw)),
+                "y": min(iv - 1, int(min(max(y, 0), sv) * iv / sv))}
 
     def _profil_seje(self, odjemalec, prek: bool) -> dict:
         """Izmerjene razmere ob povezavi -> profil (link_zaslon_profil.izberi). Napaka meritve = previdnejsi profil."""
@@ -3131,8 +3182,9 @@ class Zaslon:
                 stanje = kazalec.stanje()
                 if stanje is None:
                     continue
-                sporocilo = sprememba.naslednje(stanje, odmik, self._izvor,
-                                                (self._slika.get("width", 1), self._slika.get("height", 1)))
+                slika = (self._slika.get("width", 1), self._slika.get("height", 1))
+                sporocilo = sprememba.naslednje(stanje, odmik, self._izvor, slika,
+                                                okvir_roba(slika[0], slika[1], getattr(self, "_rob", 0)))
                 if sporocilo is not None:
                     self._obvesti(odjemalec, sporocilo)
         finally:

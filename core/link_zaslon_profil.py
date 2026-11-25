@@ -108,16 +108,19 @@ def velikost(izvor: tuple, profil: dict, privzeto: tuple) -> tuple:
 
 
 def ukaz_brezizgubno(ffmpeg: str, display: str, sirina: int, visina: int, fps: int, odmik: tuple = (0, 0),
-                     kazalec_v_sliki: bool = True, gop: int = 0) -> list:
+                     kazalec_v_sliki: bool = True, gop: int = 0, rob: int = 0) -> list:
     """Brezizgubni zajem: x11grab -> libx264rgb qp 0 (RGB, brez pretvorbe v YUV, zato pikselsko enako izvoru).
 
     ultrafast + zerolatency (rezinske niti, brez cakanja na naslednje slike); CAVLC (ultrafast) gledalec dekodira
     hitreje kot CABAC. Kljucna slika redko (mirna slika ne stane nic), brez B-slik. Brez pomanjsave (izvorna)."""
+    from core.link_zaslon import filter_roba   # link_zaslon uvozi ta modul: uvoz sele ob klicu
     izvor = display + ("+%d,%d" % (int(odmik[0]), int(odmik[1])) if tuple(odmik) != (0, 0) else "")
     return [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "x11grab", "-draw_mouse", "1" if kazalec_v_sliki else "0", "-framerate", str(fps),
             "-video_size", "%dx%d" % (sirina, visina), "-i", izvor,
-            "-vf", "format=bgr0", "-c:v", "libx264rgb", "-preset", "ultrafast", "-tune", "zerolatency", "-qp", "0",
+            # `rob`: okvir za TV, ki obreze video ravnino (link_zaslon.filter_roba; lastnik 25. 11. 2026) - z njim
+            # slika ni vec pikselsko enaka izvoru, ostane pa RGB brez izgub.
+            "-vf", filter_roba(sirina, visina, rob) + "format=bgr0", "-c:v", "libx264rgb", "-preset", "ultrafast", "-tune", "zerolatency", "-qp", "0",
             "-g", str(gop if gop > 0 else fps * 10), "-bf", "0", "-flags", "+low_delay", "-f", "h264", "-"]
 
 

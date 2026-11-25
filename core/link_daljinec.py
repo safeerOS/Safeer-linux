@@ -749,7 +749,7 @@ KODEKI_NAJVEC, KODEK_NAJVEC_ZNAKOV = 8, 16
 def _zmoznosti_zaslona(parametri: dict) -> dict:
     """Izrecne zmoznosti televizorja iz screen.start za Zaslon.zacni (kodeki=, najvecja=).
 
-    "codecs" velja samo kot seznam (list) z najvec KODEKI_NAJVEC nizi (str) dolzine do
+    "rob" (promili okvira) samo kot celo stevilo 1..80. "codecs" velja samo kot seznam (list) z najvec KODEKI_NAJVEC nizi (str) dolzine do
     KODEK_NAJVEC_ZNAKOV; "maxsize" samo kot slovar (dict). Kar ni tako, se prezre: klic zacni je
     takrat enak kot doslej (H.264 do 1080p). Vsebino "maxsize" preveri link_zaslon (_velikost_izjave).
     """
@@ -761,6 +761,11 @@ def _zmoznosti_zaslona(parametri: dict) -> dict:
     najvecja = parametri.get("maxsize")
     if isinstance(najvecja, dict):
         dodatno["najvecja"] = dict(najvecja)
+    # "rob": okvir slike v promilih (ZaslonRob na TV; lastnik 25. 11. 2026: TV obreze video ravnino). Samo celo
+    # stevilo 1..80 (bool ne); sicer kljuca ni in klic zacni je enak kot doslej.
+    rob = parametri.get("rob")
+    if type(rob) is int and 0 < rob <= 80:
+        dodatno["rob"] = rob
     return dodatno
 
 

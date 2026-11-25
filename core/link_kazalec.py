@@ -77,13 +77,15 @@ def png(sirina: int, visina: int, argb) -> bytes:
             + kos(b"IDAT", zlib.compress(bytes(vrstice), 6)) + kos(b"IEND", b""))
 
 
-def v_sliki(x: int, y: int, odmik: tuple, izvor: tuple, slika: tuple) -> tuple:
-    """Polozaj na zaslonu -> (x, y, viden) v tockah slike, ki jo posiljamo (deljeni monitor in pomanjsava)."""
+def v_sliki(x: int, y: int, odmik: tuple, izvor: tuple, slika: tuple, rob: tuple = (0, 0)) -> tuple:
+    """Polozaj na zaslonu -> (x, y, viden) v tockah slike, ki jo posiljamo (deljeni monitor in pomanjsava).
+    `rob`: okvir v sliki v pikah (levo/desno, zgoraj/spodaj; link_zaslon.okvir_roba) - zaslon je v notranjosti."""
     ix, iy = x - int(odmik[0]), y - int(odmik[1])
     iw, ih = max(1, int(izvor[0])), max(1, int(izvor[1]))
     viden = 0 <= ix < iw and 0 <= iy < ih
-    sx, sy = int(slika[0]) / float(iw), int(slika[1]) / float(ih)
-    return int(round(ix * sx)), int(round(iy * sy)), viden
+    rl, rz = int(rob[0]), int(rob[1])
+    sx, sy = (int(slika[0]) - 2 * rl) / float(iw), (int(slika[1]) - 2 * rz) / float(ih)
+    return rl + int(round(ix * sx)), rz + int(round(iy * sy)), viden
 
 
 class Sprememba:
@@ -93,8 +95,9 @@ class Sprememba:
         self._polozaj = None
         self._serija = None
 
-    def naslednje(self, stanje: dict, odmik: tuple, izvor: tuple, slika: tuple) -> Optional[dict]:
-        x, y, viden = v_sliki(stanje["x"], stanje["y"], odmik, izvor, slika)
+    def naslednje(self, stanje: dict, odmik: tuple, izvor: tuple, slika: tuple,
+                  rob: tuple = (0, 0)) -> Optional[dict]:
+        x, y, viden = v_sliki(stanje["x"], stanje["y"], odmik, izvor, slika, rob)
         viden = viden and stanje.get("viden", True)
         nova_oblika = stanje.get("serija") != self._serija
         if not nova_oblika and (x, y, viden) == self._polozaj:
