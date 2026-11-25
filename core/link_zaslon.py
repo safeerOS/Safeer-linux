@@ -109,6 +109,9 @@ ROKOVANJE_S = 10
 #: seja visela, dokler ni obupalo jedro (cetrt ure ali nikoli), z njo pa zajem in programi na locenem zaslonu.
 ROK_PISANJA_S = 20.0
 VRSTA_SLIKE_S = 0.1
+#: Pisalec slike, ki toliko casa ne vzame nobene slike, ceprav prihajajo, je obstal (25. 11. 2026 17:43: 2 min brez
+#: pisanja, jedro brez neposlanih bajtov, TV zamrznjen). Takrat zapisemo sklad vseh niti in koncamo sejo, da se TV poveze znova.
+OBSTANEK_PISALCA_S = 5.0
 #: Najvecja slika, ki jo posiljamo (televizor je 4K, a 1080p je za namizje dovolj in hitreje).
 NAJVEC_SIRINA, NAJVEC_VISINA = 1920, 1080
 #: Najvecja slika s HEVC, kadar televizor v screen.start izrecno pove, da jo dekodira ("maxsize": {"hevc": [w, h]}).
@@ -1541,8 +1544,11 @@ def _neposlani_bajti(vticnica):
 
 
 class _VrstaSlik:
-    def __init__(self, fps, opis, izmeri=lambda: 0):
+    def __init__(self, fps, opis, izmeri=lambda: 0, ob_obstanku=None):
         self.pogoj = threading.Condition()
+        self.ob_obstanku = ob_obstanku
+        self.zadnji_vzem = time.monotonic()
+        self._obstanek_javljen = False
         self.slike = deque()
         self.meja = max(1, math.ceil(fps * VRSTA_SLIKE_S))
         self.opis = opis
@@ -1587,6 +1593,16 @@ class _VrstaSlik:
         self.caka_kljuc = True
 
     def dodaj(self, podatki, kljuc):
+        obstal = False
+        with self.pogoj:
+            if (self.ob_obstanku is not None and not self._obstanek_javljen and self.slike
+                    and time.monotonic() - self.zadnji_vzem >= OBSTANEK_PISALCA_S):
+                self._obstanek_javljen = obstal = True
+        if obstal:
+            try:
+                self.ob_obstanku()
+            except Exception:  # noqa: BLE001 - diagnoza ne sme ustaviti branja zajema
+                pass
         with self.pogoj:
             if self.konec:
                 return
@@ -1618,6 +1634,7 @@ class _VrstaSlik:
                 if self._zastoj():
                     self._izpusti()
                     continue
+                self.zadnji_vzem = time.monotonic()
                 return self.slike.popleft()[0]
 
     def zapri(self):
@@ -3064,8 +3081,21 @@ class Zaslon:
         svez kos H.264 iz izmerjenega kodirnika (ZigiSlike, `proces.svez`); `kodek` je kodek te seje."""
         vrsta_slik = None
         if vrsta == OKVIR_SLIKA and kodek is not None and fps:
+            def obstal():
+                # Sklad vseh niti v sled.log (vzrok obstanka), nato zapremo povezavo: TV vidi konec in se poveze znova.
+                import faulthandler
+                print("[zaslon] pisalec slike obstal %.0f s - sklad niti, seja se konca" % OBSTANEK_PISALCA_S,
+                      file=sys.stderr, flush=True)
+                try:
+                    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+                except (OSError, ValueError, AttributeError):
+                    pass
+                try:
+                    odjemalec.shutdown(socket.SHUT_RDWR)
+                except (OSError, AttributeError, ValueError):
+                    pass
             vrsta_slik = _VrstaSlik(fps, getattr(merilo, "opis", None) or {},
-                                     lambda: _neposlani_bajti(odjemalec))
+                                     lambda: _neposlani_bajti(odjemalec), ob_obstanku=obstal)
 
             def beri():
                 try:

@@ -204,3 +204,32 @@ def test_trajen_zastoj_ohrani_obstojeci_rok_pisanja():
         ura.return_value = z.ROK_PISANJA_S + 0.01
         with pytest.raises(TimeoutError):
             vrsta.dodaj(b'kljuc', True)
+
+
+def test_obstal_pisalec_javi_enkrat_po_roku():
+    # 25. 11. 2026 17:43: pisalec slike je obstal (jedro brez neposlanih bajtov, poslano stoji), vrsta je 2 min
+    # zavrgla vse slike, seja pa se ni koncala - slika in miska na TV sta zamrznili. Vrsta mora obstanek javiti.
+    javljeno = []
+    with mock.patch.object(z.time, 'monotonic', return_value=100.0) as ura:
+        vrsta = z._VrstaSlik(60, {}, ob_obstanku=lambda: javljeno.append(1))
+        vrsta.dodaj(b'kljuc', True)
+        assert vrsta.vzemi() == b'kljuc'
+        for i in range(20):
+            ura.return_value = 100.0 + 0.1 * i
+            vrsta.dodaj(b'x', i % 10 == 0)
+        assert javljeno == [], 'pred rokom ni obstanka'
+        ura.return_value = 100.0 + z.OBSTANEK_PISALCA_S + 0.5
+        vrsta.dodaj(b'y', True)
+        vrsta.dodaj(b'z', True)
+        assert javljeno == [1], 'en klic po roku'
+
+
+def test_pisalec_ki_jemlje_ni_obstal():
+    javljeno = []
+    with mock.patch.object(z.time, 'monotonic', return_value=0.0) as ura:
+        vrsta = z._VrstaSlik(60, {}, ob_obstanku=lambda: javljeno.append(1))
+        for i in range(200):
+            ura.return_value = 0.1 * i
+            vrsta.dodaj(b'k', True)
+            assert vrsta.vzemi() == b'k'
+        assert javljeno == []
