@@ -322,3 +322,21 @@ def _pozabi_manifeste_stremio():
     if ms is not None and hasattr(ms, "_MANIFESTI"):
         ms._MANIFESTI.clear()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _ustavi_neposredno_sredisce():
+    """Enojec core/link_neposredno.zazeni_na_sredisci (nit vzdrzevanja, vsakih 30 s) zazene vsak preizkus, ki zazene
+    sredisce (link_mesh). Brez ustavitve je tekel v naslednje preizkuse in ob zaprtju vhoda izpisal »[SafeerLink]
+    neposredna povezava od zunaj: vhod zaprt« sredi tujega preizkusa (CI 45663650141, test_zaklep_flock1_izkljucuje,
+    25. 11. 2026). Ustavimo ga in pozabimo po vsakem preizkusu."""
+    yield
+    ln = sys.modules.get("core.link_neposredno")
+    if ln is None:
+        return
+    with ln._sredisce_zaklep:
+        s, ln._sredisce = ln._sredisce, None
+    if s is not None:
+        s.ustavi()
+        if s._nit is not None:
+            s._nit.join(5)
