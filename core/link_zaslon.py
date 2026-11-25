@@ -1553,7 +1553,9 @@ class _VrstaSlik:
         self.slike = deque()
         self.meja = max(1, math.ceil(fps * VRSTA_SLIKE_S))
         self.opis = opis
-        opis.update(izpuscene_slike=0, najvec_vrsta_slik=0, najvec_neposlanih_bajtov=0)
+        opis.update(izpuscene_slike=0, najvec_vrsta_slik=0, najvec_neposlanih_bajtov=0, izpust_zastoj=0,
+                    izpust_kljuc=0, izpust_meja=0)
+        self._izpusceno_od_vzema = 0  # zavrnjene slike, odkar je pisalec zadnjic vzel sliko
         self.izmeri = izmeri
         self.zacetek = time.monotonic()
         self.vzorci = deque()
@@ -1596,7 +1598,9 @@ class _VrstaSlik:
     def dodaj(self, podatki, kljuc):
         obstal = False
         with self.pogoj:
-            if (self.ob_obstanku is not None and not self._obstanek_javljen and self.slike
+            # Slike prihajajo, a nobena ne gre ven (polna vrsta ALI vsaka zavrnjena) - 25. 11. 19:07 je bila vrsta prazna.
+            if (self.ob_obstanku is not None and not self._obstanek_javljen
+                    and (self.slike or self._izpusceno_od_vzema)
                     and time.monotonic() - self.zadnji_vzem >= OBSTANEK_PISALCA_S):
                 self._obstanek_javljen = obstal = True
         if obstal:
@@ -1610,13 +1614,19 @@ class _VrstaSlik:
             if self._zastoj():
                 self._izpusti()
                 self.opis["izpuscene_slike"] += 1
+                self.opis["izpust_zastoj"] = self.opis.get("izpust_zastoj", 0) + 1
+                self._izpusceno_od_vzema += 1
                 return
             if self.caka_kljuc and not kljuc:
                 self.opis["izpuscene_slike"] += 1
+                self.opis["izpust_kljuc"] = self.opis.get("izpust_kljuc", 0) + 1
+                self._izpusceno_od_vzema += 1
                 return
             self.slike.append((podatki, kljuc))
             self.opis["najvec_vrsta_slik"] = max(self.opis["najvec_vrsta_slik"], len(self.slike))
             if len(self.slike) > self.meja:
+                self.opis["izpust_meja"] = self.opis.get("izpust_meja", 0) + 1
+                self._izpusceno_od_vzema += 1
                 self._izpusti()
                 if kljuc:
                     self.opis["izpuscene_slike"] -= 1
@@ -1636,6 +1646,7 @@ class _VrstaSlik:
                     self._izpusti()
                     continue
                 self.zadnji_vzem = time.monotonic()
+                self._izpusceno_od_vzema = 0
                 return self.slike.popleft()[0]
 
     def zapri(self):
@@ -3330,8 +3341,11 @@ class Zaslon:
                     dnevnik = time.monotonic()
                     print("[zaslon] meritve: %s" % (link_zaslon_meritve.opis_posnetka(meritve.posnetek())
                           + " izpuscene_slike=%d najvec_vrsta_slik=%d najvec_neposlanih_bajtov=%d"
+                          " (zastoj %d, kljuc %d, meja %d; neposlano zdaj %d)"
                           % (meritve.opis.get("izpuscene_slike", 0), meritve.opis.get("najvec_vrsta_slik", 0),
-                             meritve.opis.get("najvec_neposlanih_bajtov", 0))), flush=True)
+                             meritve.opis.get("najvec_neposlanih_bajtov", 0), meritve.opis.get("izpust_zastoj", 0),
+                             meritve.opis.get("izpust_kljuc", 0), meritve.opis.get("izpust_meja", 0),
+                             _neposlani_bajti(odjemalec))), flush=True)
             except Exception:  # noqa: BLE001 - meritve ne smejo podreti seje
                 pass
 

@@ -233,3 +233,23 @@ def test_pisalec_ki_jemlje_ni_obstal():
             vrsta.dodaj(b'k', True)
             assert vrsta.vzemi() == b'k'
         assert javljeno == []
+
+
+def test_obstanek_tudi_ko_vrsta_caka_kljuc():
+    # 25. 11. 2026 19:07: zastoj ob nalaganju plakatov - vrsta je bila prazna (cakala na kljuc ali zastoj jedra) in je
+    # zavrgla vsako sliko; prvi nadzor (samo polna vrsta) se ni sprozil. Javi ga tudi zavracanje brez jemanja.
+    javljeno = []
+    neposlano = [0]
+    opis = {}
+    with mock.patch.object(z.time, 'monotonic', return_value=50.0) as ura:
+        vrsta = z._VrstaSlik(60, opis, lambda: neposlano[0], ob_obstanku=lambda: javljeno.append(1))
+        vrsta.dodaj(b'k', True)
+        assert vrsta.vzemi() == b'k'
+        neposlano[0] = 300_000
+        vrsta.dodaj(b'kljuc med zastojem', True)
+        neposlano[0] = 0
+        for i in range(10):
+            ura.return_value = 50.0 + i
+            vrsta.dodaj(b'odvisna', False)
+        assert javljeno == [1]
+        assert opis['izpust_zastoj'] == 1 and opis['izpust_kljuc'] == 10
