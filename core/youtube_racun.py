@@ -269,7 +269,10 @@ class Racun:
                     return {"prijavljen": False, "ime": "", "seznami": [], "racuni": [], "potekla": True}
                 break
             except Exception as e:  # noqa: BLE001 - omrezje: Medijski center pokaze, da ni uspelo, nic se ne sesuje
-                print("[YouTube racun] stanje:", type(e).__name__, flush=True)
+                # Racun n in koda (HTTP ali errno): 25. 11. 2026 je testni PC 8x izpisal samo »OSError«, brez tega
+                # ni bilo mogoce lociti napake prvega racuna (Medijski center brez seznamov) od konca seznama racunov.
+                koda = getattr(e, "code", None) or getattr(e, "errno", None) or getattr(e, "reason", "")
+                print("[YouTube racun] stanje: racun %d: %s %s" % (n, type(e).__name__, koda), flush=True)
                 if n == 0:
                     return {"prijavljen": True, "ime": "", "seznami": posebni(0), "racuni": [], "potekla": False,
                             "napaka": True}
