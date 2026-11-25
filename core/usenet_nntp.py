@@ -51,6 +51,17 @@ NAJVEC_POVEZAV = 50
 #: Telo clanka (surovo). Izmerjeno 25. 10. 2026 na 5 pravih NZB (prototip): clanek povprecno 384-719 KiB;
 #: 4 MiB je vec kot 5x najvecji, a 8 povezav x 4 MiB se vedno ustreze pomnilniku TV (skupni primeri: telo_bajtov).
 NAJVEC_TELO_BAJTOV = 4 * 1024 * 1024
+#: Zgornja meja telesa za izdaje z vecjimi clanki (25. 11. 2026: 3 od 12 izmerjenih izdaj imajo clanke po 4226 KiB,
+#: tj. 4 MiB podatkov + yEnc; meja 4 MiB jih je zavrnila z napaka_protokola). Kot Android UsenetLastniPravila.mejaTelesa.
+NAJVEC_MEJA_TELESA = 8 * 1024 * 1024
+
+
+def meja_telesa(bajtov: int) -> int:
+    """Meja surovega telesa iz najvecjega segmenta v NZB ([bajtov], atribut bytes): brez podatka NAJVEC_TELO_BAJTOV,
+    sicer dvakratni segment + 64 KiB, najmanj NAJVEC_TELO_BAJTOV in najvec NAJVEC_MEJA_TELESA (skupno z Androidom)."""
+    if bajtov <= 0:
+        return NAJVEC_TELO_BAJTOV
+    return min(max(NAJVEC_TELO_BAJTOV, int(bajtov) * 2 + 65536), NAJVEC_MEJA_TELESA)
 NAJVEC_VRSTICA_BAJTOV = 4096  # RFC 3977: odgovor najvec 512 oktetov - vec je napaka ali napad
 NAJVEC_POVERILNICA_BAJTOV = 400  # RFC 3977: ukaz najvec 512 oktetov z »AUTHINFO PASS « in CRLF
 #: Prosta povezava, nedejavna dlje od tega, se zapre (RFC 3977 priporoca vsaj 3 min; ponudniki zapirajo prej).
@@ -333,6 +344,7 @@ class Proracun:
 
     def __init__(self, bajtov: int):
         self.osnova = OSNOVA_TELESA
+        self.meja: Optional[int] = None  # meja enega telesa; None = NAJVEC_TELO_BAJTOV (nastavi_clanek: po izdaji)
         self.rast = max(0, NAJVEC_TELO_BAJTOV + _BERI - self.osnova)
         self.bajtov = max(int(bajtov), self.osnova + self.rast)
         self._osnov = 0
@@ -343,6 +355,19 @@ class Proracun:
     @property
     def zasedeno(self) -> int:
         return self._osnov * self.osnova + (self.rast if self._rast else 0)
+
+    def nastavi_clanek(self, bajtov: int) -> bool:
+        """Pred prvim branjem: meja in osnova po najvecjem segmentu izdaje (NZB). Pri clankih po 4 MiB bi sicer vsako
+        telo potrebovalo edini zeton rasti in bi bazen bral po en clanek naenkrat. False = telesa ze tecejo (brez spremembe,
+        da stevec osnov ostane pravilen)."""
+        with self._pogoj:
+            if self._osnov or self._rast:
+                return False
+            self.meja = meja_telesa(int(bajtov))
+            self.osnova = min(max(OSNOVA_TELESA, int(bajtov) + _BERI), self.meja + _BERI) if bajtov > 0 else OSNOVA_TELESA
+            self.rast = max(0, self.meja + _BERI - self.osnova)
+            self.bajtov = max(self.bajtov, self.osnova + self.rast)
+            return True
 
     def _cakaj(self, pogoj: Callable[[], bool], konec: float) -> bool:
         while not pogoj():
@@ -486,18 +511,19 @@ class Povezava:
         if self._proracun is not None and not self._proracun.zasezi(konec):
             raise self._napaka(ROK)
         rast = False
+        meja = (self._proracun.meja if self._proracun is not None else None) or NAJVEC_TELO_BAJTOV
         try:
             iskano = 0
             while True:
                 k = konec_telesa(self._medpomnilnik, iskano)
-                if k > NAJVEC_TELO_BAJTOV:
+                if k > meja:
                     raise self._napaka(NAPAKA_PROTOKOLA)  # tudi celo telo, ki je prislo v enem kosu
                 if k >= 0:
                     with memoryview(self._medpomnilnik)[:k] as m:
                         telo = brez_pik(bytes(m))  # ena kopija (bytes(bytearray[:k]) bi naredil dve)
                     del self._medpomnilnik[:k + 3]
                     return telo
-                if len(self._medpomnilnik) > NAJVEC_TELO_BAJTOV:
+                if len(self._medpomnilnik) > meja:
                     raise self._napaka(NAPAKA_PROTOKOLA)
                 if (self._proracun is not None and not rast
                         and len(self._medpomnilnik) + _BERI > self._proracun.osnova):

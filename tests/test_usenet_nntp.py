@@ -865,6 +865,35 @@ class Nntp(unittest.TestCase):
         with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1000):
             self.assertEqual(self.napaka(lambda: b.telo(ID_OK)).izid, N.NAPAKA_PROTOKOLA)
 
+    def test_meja_telesa_po_segmentu(self):
+        # 25. 11. 2026: izdaje s clanki po 4226 KiB (4 MiB podatkov + yEnc) je meja 4 MiB zavrnila (napaka_protokola).
+        # Isti primeri kot Android UsenetLastniPravilaTest (mejaTelesa).
+        MiB = 1024 * 1024
+        self.assertEqual(N.meja_telesa(0), 4 * MiB)
+        self.assertEqual(N.meja_telesa(1024), 4 * MiB)
+        self.assertEqual(N.meja_telesa(3 * MiB), 6 * MiB + 65536)
+        self.assertEqual(N.meja_telesa(7 * MiB), 8 * MiB)
+        self.assertGreater(N.meja_telesa(4226 * 1024), 4226 * 1024)
+
+    def test_clanek_nad_osnovno_mejo_z_nastavljenim_clankom(self):
+        s = self.streznik()
+        with mock.patch.object(N, "NAJVEC_TELO_BAJTOV", 1000):
+            b = self.bazen(s)
+            self.assertTrue(b.proracun.nastavi_clanek(len(CLANKI[ID_OK]) + 10))
+            self.assertEqual(b.telo(ID_OK), CLANKI[ID_OK], "clanek, vecji od osnovne meje, z mejo po NZB uspe")
+
+    def test_proracun_clanki_4mib_berejo_hkrati(self):
+        # Pri clankih po 4226 KiB mora proracun dovoliti vec teles hkrati (prej: osnova 1,5 MiB + en zeton rasti =
+        # en clanek naenkrat), in nastavitev ni dovoljena, ko telesa ze tecejo.
+        p = N.Proracun(N.PRORACUN_BAJTOV)
+        self.assertTrue(p.nastavi_clanek(4226 * 1024))
+        self.assertGreaterEqual(p.osnova, 4226 * 1024)
+        self.assertGreaterEqual((p.bajtov - p.rast) // p.osnova, 8)
+        self.assertTrue(p.zasezi(time.monotonic() + 1))
+        self.assertFalse(p.nastavi_clanek(1024), "med branjem brez spremembe")
+        p.sprosti(False)
+        self.assertEqual(p.zasedeno, 0)
+
     def test_zapiranje_prekine_zahtevo_v_teku(self):
         s = self.streznik()
         b = self.bazen(s, rok=20.0)

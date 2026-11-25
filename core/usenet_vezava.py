@@ -228,6 +228,8 @@ class Vezava:
             try:
                 razclenjen = usenet_nzb.razcleni(nzb)
                 bazen = up.ustvari_bazen(p, kontekst=self._kontekst)
+                # Izdaje s clanki po 4 MiB (25. 11. 2026): meja telesa in osnova proracuna po najvecjem segmentu NZB.
+                bazen.proracun.nastavi_clanek(max((s.bajtov for d in razclenjen.datoteke for s in d.segmenti), default=0))
                 vir, _bajtov = usenet_bralnik.pripravi(razclenjen, bazen.telo)
                 bralnik = usenet_bralnik.Bralnik(bazen.telo, vir)
             except up.NapakaPonudnika as e:
