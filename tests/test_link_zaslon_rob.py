@@ -92,6 +92,17 @@ class Ukaz(unittest.TestCase):
         self.assertEqual(link_zaslon_profil.ukaz_brezizgubno("ffmpeg", ":0", 1920, 1080, 60, rob=0),
                          link_zaslon_profil.ukaz_brezizgubno("ffmpeg", ":0", 1920, 1080, 60))
 
+    def test_rob_nic_filtri_kot_pred_spremembo(self):
+        """Zlati filtri ukaza pred dodajanjem roba (commit 0a954275) - brez roba se nic ne spremeni."""
+        u = lambda iz, vaapi, **p: vf(link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, iz[0], iz[1], 30, "8M", vaapi, **p))
+        self.assertEqual(u((1920, 1080), None), "format=yuv420p")
+        self.assertEqual(u((2560, 1440), None), "scale=1920:1080:flags=lanczos,format=yuv420p")
+        self.assertEqual(u((1920, 1080), VAAPI), "format=nv12,hwupload")
+        self.assertEqual(u((2560, 1440), VAAPI, gpu=True),
+                         "hwupload,scale_vaapi=1920:1080:format=nv12:mode=default")
+        self.assertEqual(u((1920, 1080), VAAPI, kodek="hevc", barve444=True), "format=vuyx,hwupload")
+        self.assertEqual(vf(link_zaslon_profil.ukaz_brezizgubno("ffmpeg", ":0", 1920, 1080, 60)), "format=bgr0")
+
 
 class Koordinate(unittest.TestCase):
     def zaslon(self, rob, slika=(1920, 1080), izvor=(1920, 1080)):
@@ -129,6 +140,9 @@ class Koordinate(unittest.TestCase):
         z = self.zaslon(0, slika=(1920, 1080), izvor=(2560, 1440))
         self.assertEqual(self.tocka(z, 960, 540), (1280, 720))
         self.assertEqual(self.tocka(z, 0, 0), (0, 0))
+        # Skrajni rob pri pomanjsani sliki: kot pred spremembo (int(1919 * 2560 / 1920) = 2558).
+        self.assertEqual(self.tocka(z, 1919.5, 1079.5), (2558, 1438))
+        self.assertEqual(self.tocka(z, 5000, 5000), (2558, 1438))
         z = link_zaslon.Zaslon.__new__(link_zaslon.Zaslon)   # star objekt brez _rob
         z._slika, z._izvor = {"width": 1920, "height": 1080}, (1920, 1080)
         self.assertEqual(self.tocka(z, 960, 540), (960, 540))

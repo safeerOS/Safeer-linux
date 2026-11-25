@@ -3141,9 +3141,10 @@ class Zaslon:
         rl, rz = okvir_roba(sw, sv, getattr(self, "_rob", 0))
         x, y, sw, sv = x - rl, y - rz, max(1, sw - 2 * rl), max(1, sv - 2 * rz)
         iw, iv = self._izvor
-        # Do sw (ne sw - 1): tocka v desnem/spodnjem okvirju je zadnja pika zaslona, ne predzadnja.
-        return {"vrsta": "tocka", "x": min(iw - 1, int(min(max(x, 0), sw) * iw / sw)),
-                "y": min(iv - 1, int(min(max(y, 0), sv) * iv / sv))}
+        # Z robom do sw (ne sw - 1): tocka v desnem/spodnjem okvirju je zadnja pika zaslona; brez roba kot prej.
+        kx, ky = (sw, sv) if rl or rz else (sw - 1, sv - 1)
+        return {"vrsta": "tocka", "x": min(iw - 1, int(min(max(x, 0), kx) * iw / sw)),
+                "y": min(iv - 1, int(min(max(y, 0), ky) * iv / sv))}
 
     def _profil_seje(self, odjemalec, prek: bool) -> dict:
         """Izmerjene razmere ob povezavi -> profil (link_zaslon_profil.izberi). Napaka meritve = previdnejsi profil."""
