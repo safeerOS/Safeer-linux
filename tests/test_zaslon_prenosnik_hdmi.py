@@ -9,7 +9,7 @@ from core import zaslon_namizja as zn
 
 
 def _xrandr(primarni: str, hdmi_vklopljen: bool = True, edp_x: int = 1920) -> str:
-    """Izpis xrandr kot na prenosniku (Extensa 215-54, Cinnamon 6.6.9); HDMI brez slike je vseeno »connected«."""
+    """Izpis xrandr kot na prenosniku (Cinnamon 6.6.9); HDMI brez slike je vseeno »connected«."""
     p = lambda ime: " primary" if primarni == ime else ""   # noqa: E731
     hdmi = (f"HDMI-1 connected{p('HDMI-1')} 1920x1080+0+0 (normal left inverted right x axis y axis) 1600mm x 900mm\n"
             "   1920x1080     60.00*+  50.00    59.94\n") if hdmi_vklopljen else \
