@@ -25,6 +25,7 @@ import os
 import re
 from collections import deque
 import shutil
+import contextlib
 import socket
 import secrets
 import select
@@ -1601,8 +1602,8 @@ class _VrstaSlik:
         if obstal:
             try:
                 self.ob_obstanku()
-            except Exception:  # noqa: BLE001 - diagnoza ne sme ustaviti branja zajema
-                pass
+            except Exception as e:  # noqa: BLE001 - diagnoza ne sme ustaviti branja zajema
+                print("[zaslon] diagnoza obstanka ni uspela: %s" % type(e).__name__, file=sys.stderr)
         with self.pogoj:
             if self.konec:
                 return
@@ -3086,14 +3087,10 @@ class Zaslon:
                 import faulthandler
                 print("[zaslon] pisalec slike obstal %.0f s - sklad niti, seja se konca" % OBSTANEK_PISALCA_S,
                       file=sys.stderr, flush=True)
-                try:
+                with contextlib.suppress(OSError, ValueError, AttributeError):
                     faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
-                except (OSError, ValueError, AttributeError):
-                    pass
-                try:
+                with contextlib.suppress(OSError, AttributeError, ValueError):
                     odjemalec.shutdown(socket.SHUT_RDWR)
-                except (OSError, AttributeError, ValueError):
-                    pass
             vrsta_slik = _VrstaSlik(fps, getattr(merilo, "opis", None) or {},
                                      lambda: _neposlani_bajti(odjemalec), ob_obstanku=obstal)
 
