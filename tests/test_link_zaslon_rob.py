@@ -173,6 +173,8 @@ class Seja(unittest.TestCase):
             mock.patch.object(link_zaslon, "vaapi_naprava", return_value=VAAPI),
             mock.patch.object(link_zaslon, "hevc_vaapi_mozen", return_value=False),
             mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=True),
+            # Privzeto graficna roba ne zna (stara pot); test_rob_na_graficni ga vklopi.
+            mock.patch.object(link_zaslon, "rob_gpu_mozen", return_value=False),
             mock.patch.object(link_zaslon, "privzeti_monitor", return_value=None),
             mock.patch.object(link_zaslon, "kms_na_voljo", return_value=True),
             mock.patch.object(link_zaslon, "kms_monitorji", return_value=1),
@@ -203,6 +205,21 @@ class Seja(unittest.TestCase):
         self.assertIn("pad=", vf(po[0]))
         self.assertEqual(po[4], "420")
 
+    def test_rob_na_graficni(self):
+        """Graficna zna procamp+overlay: rob v ukazu, ponovni sestavi in profilu 4:4:4 brez procesorja; brezizgubni
+        (libx264rgb, procesor) ostane s pad."""
+        with mock.patch.object(link_zaslon, "rob_gpu_mozen", return_value=True):
+            seja = self.z.zacni("tv", rob=10)
+            self.assertEqual(seja["rob"], 10)
+            ukaz, sestavi = self.zajeto[-1][2], self.zajeto[-1][4]
+            gpu_filter = link_zaslon.filter_roba_gpu(1920, 1080, 10)
+            self.assertEqual(vf(ukaz), gpu_filter)
+            self.assertEqual(vf(sestavi("h264", link_zaslon.KAKOVOSTI["visoka"])), gpu_filter)
+            po = self.z._po_profilu({"kodek": "hevc444"}, link_zaslon.KAKOVOSTI["najvisja"], "h264")
+            self.assertEqual(vf(po[0]), gpu_filter)
+            po = self.z._po_profilu({"kodek": "h264rgb"}, link_zaslon.KAKOVOSTI["najvisja"], "h264")
+            self.assertIn("pad=", vf(po[0]))
+
     def test_brez_roba_odgovor_in_ukaz_kot_prej(self):
         seja = self.z.zacni("tv")
         self.assertNotIn("rob", seja)
@@ -228,6 +245,54 @@ class ScreenStart(unittest.TestCase):
             link_daljinec.izvedi_control("screen.start", parametri, lambda u: None, izidi.append, zaslon=Lazni())
             self.assertTrue(izidi[-1]["ok"], izidi[-1])
             self.assertEqual(klici[-1].get("rob"), pricakovano)
+
+
+class RobNaGraficni(unittest.TestCase):
+    """Rob na graficni (25. 11. 2026): procamp_vaapi + overlay_vaapi namesto lanczos+pad na procesorju."""
+
+    def test_filter_gpu(self):
+        self.assertEqual(
+            link_zaslon.filter_roba_gpu(1920, 1080, 10),
+            "hwupload,scale_vaapi=1920:1080:format=nv12:mode=default,split[safeer_a][safeer_b];"
+            "[safeer_a]procamp_vaapi=b=-100:c=0[safeer_crno];[safeer_b]scale_vaapi=1884:1060:mode=default[safeer_v];"
+            "[safeer_crno][safeer_v]overlay_vaapi=x=18:y=10")
+        self.assertEqual(link_zaslon.filter_roba_gpu(1920, 1080, 0), "")
+
+    def test_ukaz_z_rob_gpu(self):
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 30, "8M", VAAPI, gpu=True, rob=10, rob_gpu=True)
+        self.assertEqual(vf(u), link_zaslon.filter_roba_gpu(1920, 1080, 10))
+        self.assertTrue(link_zaslon.ukaz_pomanjsa_gpu(u))
+        self.assertIn("h264_vaapi", u)
+
+    def test_rob_gpu_brez_gpu_ali_vaapi_na_procesor(self):
+        for kw in (dict(vaapi=VAAPI, gpu=False), dict(vaapi=None, gpu=True)):
+            u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 30, "8M", kw["vaapi"], gpu=kw["gpu"],
+                                        rob=10, rob_gpu=True)
+            self.assertNotIn("overlay_vaapi", vf(u))
+
+    def test_rob_0_z_rob_gpu_kot_prej(self):
+        a = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 30, "8M", VAAPI, gpu=True)
+        b = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 30, "8M", VAAPI, gpu=True, rob=0, rob_gpu=True)
+        self.assertEqual(a, b)
+
+    def test_rob_gpu_mozen_samo_z_gpu(self):
+        with mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=False), \
+                mock.patch.object(link_zaslon.subprocess, "run") as run:
+            self.assertFalse(link_zaslon.rob_gpu_mozen("/x/ffmpeg", VAAPI))
+            run.assert_not_called()
+
+    def test_rob_gpu_mozen_po_izhodni_kodi_in_zapomni(self):
+        link_zaslon._ROB_GPU.clear()
+        try:
+            with mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=True), \
+                    mock.patch.object(link_zaslon.subprocess, "run",
+                                      return_value=mock.Mock(returncode=1)) as run:
+                self.assertFalse(link_zaslon.rob_gpu_mozen("/x/ffmpeg", VAAPI))
+                self.assertFalse(link_zaslon.rob_gpu_mozen("/x/ffmpeg", VAAPI))
+                self.assertEqual(run.call_count, 1)
+                self.assertIn("overlay_vaapi", " ".join(run.call_args[0][0]))
+        finally:
+            link_zaslon._ROB_GPU.clear()
 
 
 if __name__ == "__main__":

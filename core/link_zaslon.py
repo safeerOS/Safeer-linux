@@ -734,6 +734,45 @@ def gpu_lestvica_mozna(ffmpeg: str, vaapi: Optional[str]) -> bool:
     return _GPU[kljuc]
 
 
+#: Izid preizkusa roba na graficni (procamp_vaapi + overlay_vaapi) po (ffmpeg, naprava).
+_ROB_GPU: Dict[str, bool] = {}
+
+
+def filter_roba_gpu(sirina: int, visina: int, rob: int) -> str:
+    """Rob slike v celoti na graficni (25. 11. 2026): graficna pretvori barve na polni velikosti, iz kopije naredi crno
+    podlago (procamp_vaapi svetlost -100, kontrast 0), vsebino pomanjsa na notranjo velikost in jo polozi na sredo
+    (overlay_vaapi). Ena slika vhoda = ena slika izhoda (brez locenega vira barve, zato brez cakanja na naslednjo sliko).
+    ffmpeg 6.1 nima pad_vaapi. Izmerjeno na Intel iHD (600 slik 1080p60, 3 krogi): CPU ffmpeg 6,8 s proti 21 s
+    s pomanjsavo na procesorju (lanczos+pad) in 5,8 s brez roba; okvir je cisto crn (0,0,0). "" pri robu 0."""
+    rl, rz = okvir_roba(sirina, visina, rob)
+    if not rl and not rz:
+        return ""
+    return ("hwupload,scale_vaapi=%d:%d:format=nv12:mode=default,split[safeer_a][safeer_b];"
+            "[safeer_a]procamp_vaapi=b=-100:c=0[safeer_crno];"
+            "[safeer_b]scale_vaapi=%d:%d:mode=default[safeer_v];"
+            "[safeer_crno][safeer_v]overlay_vaapi=x=%d:y=%d" % (sirina, visina, sirina - 2 * rl, visina - 2 * rz, rl, rz))
+
+
+def rob_gpu_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
+    """Ali zna graficna narediti rob sama (filter_roba_gpu): enkraten kratek preizkus na bgr0 kot x11grab; izid si
+    zapomnimo. Gonilnik brez procamp/overlay (ali ffmpeg brez filtrov) -> rob na procesorju kot doslej."""
+    if not gpu_lestvica_mozna(ffmpeg, vaapi):
+        return False
+    kljuc = "%s|%s" % (ffmpeg, vaapi)
+    if kljuc not in _ROB_GPU:
+        try:
+            r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
+                                "-f", "lavfi", "-i", "color=white:size=640x360:rate=30,format=bgr0", "-frames:v", "3",
+                                "-vf", filter_roba_gpu(640, 360, ROB_NAJVEC), "-c:v", "h264_vaapi",
+                                "-rc_mode", "CQP", "-qp", "24", "-bf", "0", "-f", "null", "-"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
+                               stdin=subprocess.DEVNULL)
+            _ROB_GPU[kljuc] = r.returncode == 0
+        except Exception:  # noqa: BLE001 - brez preizkusa ostane rob na procesorju
+            _ROB_GPU[kljuc] = False
+    return _ROB_GPU[kljuc]
+
+
 def ukaz_pomanjsa_gpu(ukaz) -> bool:
     """Ali ukaz zajema sliko pomanjsa na graficni kartici (scale_vaapi)."""
     return any("scale_vaapi" in str(d) for d in ukaz or ())
@@ -957,7 +996,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
                 qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False,
                 odmik: tuple = (0, 0), vhod: Optional[List[str]] = None, kazalec_v_sliki: bool = True,
-                barve444: bool = False, rob: int = 0) -> List[str]:
+                barve444: bool = False, rob: int = 0, rob_gpu: bool = False) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
     `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
@@ -968,6 +1007,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
     `kazalec_v_sliki`: False = zajem kazalca ne narise (gledalec ga dobi kot podatek, core/link_kazalec.py).
     `barve444`: HEVC Main 4:4:4 (RExt) na graficni, brez pomanjsave - brez barvnih robov okoli besedila (izmerjeno
     25. 10. 2026 na Intel iHD: SSIM besedila 0,997 proti 0,971 pri H.264 4:2:0 enakega qp).
+    `rob_gpu`: rob naredi graficna (filter_roba_gpu; rob_gpu_mozen), sicer procesor (filter_roba).
     Locen od zagona, da ga je mogoce preveriti v testu brez kamere in zaslona.
     libx265 namenoma ne (njegova hitrost ni izmerjena): brez VAAPI je tok vedno H.264.
     """
@@ -986,6 +1026,8 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
     # `rob` (promili): okvir za TV, ki obreze video ravnino. Pomanjsava naravnost na notranjo velikost (ena lestvica).
     # shortcut: ffmpeg 6.1 (Ubuntu 24.04) nima pad_vaapi, zato z robom pomanjsa procesor tudi ob `gpu` - ce bo
     # pad_vaapi na voljo, lahko graficna doda okvir sama.
+    # Ce graficna zna procamp_vaapi in overlay_vaapi (rob_gpu), naredi okvir sama (filter_roba_gpu).
+    rob_na_gpu = bool(filter_roba(sirina, visina, rob)) and bool(vaapi) and gpu and rob_gpu
     if filter_roba(sirina, visina, rob):
         filter_lestvica, lestvica, gpu = filter_roba(sirina, visina, rob), True, False
     if vaapi:
@@ -1010,7 +1052,9 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # (scale_vaapi) + async_depth 1: 74 / 84 ms in 24 % jedra. Cena: PSNR proti izvirniku 35,1 namesto 36,4 dB
         # (matrika barv enaka, BT.601). SAFEER_ZASLON_GPU=0 vrne pretvorbo na procesor.
         barve444 = barve444 and hevc and not lestvica
-        if barve444:
+        if rob_na_gpu:
+            filter_slike = filter_roba_gpu(sirina, visina, rob)
+        elif barve444:
             filter_slike = "format=vuyx,hwupload"
         elif gpu:
             filter_slike = f"hwupload,{SCALE_VAAPI.format(sirina=sirina, visina=visina)}"
@@ -2267,6 +2311,9 @@ class Zaslon:
                 kaz = {} if kazalec_v_sliki else {"kazalec_v_sliki": False}
                 # Graficna pretvori barve (in po potrebi pomanjsa) - zamik in poraba glej ukaz_ffmpeg.
                 gpu = gpu_lestvica_mozna(self.ffmpeg, vaapi)
+                # Rob na graficni (procamp+overlay), ce jo gonilnik zna - sicer procesor (21 s proti 6,8 s CPU / 600 slik).
+                if rob and gpu and rob_gpu_mozen(self.ffmpeg, vaapi):
+                    kaz = dict(kaz, rob_gpu=True)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
                                    kodek=self._kodek, gop=gop, gpu=gpu, **kaz, **na_monitor, **z_robom)
