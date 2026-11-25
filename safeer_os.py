@@ -7469,7 +7469,7 @@ class SafeerOS(Gtk.Application):
         if ukaz in ("naslednja", "prejsnja"):
             self._dogodek("mediaVrstaUkaz", 1 if ukaz == "naslednja" else -1)
             return True
-        if ukaz == "ustavi":
+        if ukaz in ("ustavi", "zapri"):
             return self._katalog_youtube_ukaz("zapri")        # zapre pogled: yt_zaprt ustavi tudi vrsto strani
         if ukaz == "odpri" and self._medijska_plast is not None:
             return self._pokazi_medijsko_plast()        # klik na mini predvajalnik: video spet v oknu
@@ -7490,6 +7490,11 @@ class SafeerOS(Gtk.Application):
         servis = self._medijski_predvajalnik
         if not servis:
             return False
+        if ukaz == "zapri":
+            # X v spodnji vrstici (testni PC 25. 11. 2026): ustavi IN skrije okno Safeer Player - prej je ostalo odprto,
+            # prazno in crno z naslovom filma.
+            self._ustavi_neposredni_medij()
+            return True
         if ukaz in ("naslednja", "prejsnja") and self._katalog is not None and len(servis.vrsta) <= 1 and servis.trenutna \
                 and (self._katalog.vnos_predvajanega(servis.trenutna.uri) or {}).get("zvok"):
             # Skladba iz kataloga: vrsto (naslednja, premesaj, ponovi) vodi stran - tipka ali daljinec gre njej.

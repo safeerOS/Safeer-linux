@@ -203,6 +203,20 @@ class TipkeZaSkladbo(_Lupina):
         self.l._pokazi_medijsko_plast.assert_called_once()
         self.assertFalse(self.l._medijski_ukaz("skok", 30.0))
 
+    def test_zapri_ustavi_film_in_skrije_okno_predvajalnika(self):
+        # Testni PC 25. 11. 2026 (0.4.95): X v spodnji vrstici je film ustavil, okno Safeer Player pa je ostalo odprto,
+        # prazno in crno z naslovom filma. »zapri« ustavi predvajanje IN skrije okno (_ustavi_neposredni_medij).
+        import safeer_os
+        servis = mock.MagicMock(stanje="predvaja", vrsta=[], trenutna=None)
+        okno = mock.MagicMock()
+        self.l._medijski_predvajalnik = servis
+        self.l._medijski_predvajalnik_okno = okno
+        self.l._shrani_medijski_napredek = mock.MagicMock()
+        self.l._ustavi_neposredni_medij = lambda: safeer_os.SafeerOS._ustavi_neposredni_medij(self.l)
+        self.assertTrue(self.l._medijski_ukaz("zapri"))
+        servis.ustavi.assert_called_once()
+        okno.set_visible.assert_called_with(False)
+
     def test_brez_skladbe_ostane_domaci_predvajalnik(self):
         self.assertFalse(self.l._medijski_ukaz("premor"))          # nic ne igra
         self.l._katalog_youtube_ukaz.assert_not_called()

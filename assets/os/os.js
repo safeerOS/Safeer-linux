@@ -7715,7 +7715,7 @@
     skrijKatTrak();
     if (!item) return;
     if (item.okno_youtube) klic("mediaYtUkaz", ["zapri"]).catch(function () {});
-    else klic("predvajalnikUkaz", ["ustavi"]).catch(function () {});
+    else klic("predvajalnikUkaz", ["zapri"]).catch(function () {});     // ustavi in skrije okno predvajalnika
   }
   function premorKatPredvajanja() {
     var item = kat.aktivni; if (!item) return;
