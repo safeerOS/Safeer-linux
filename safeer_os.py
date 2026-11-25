@@ -40,6 +40,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+from shutil import which  # Straza zaslona (_zacni_strazo_zaslona, _izhodi_randr, _nastavi_primarni)
 import weakref
 import threading
 import time
@@ -3486,6 +3487,7 @@ class SafeerOS(Gtk.Application):
         vgrajenem zaslonu. Samo X11 (primarni izhod RandR doloca pult Cinnamona in dock Plank)."""
         if getattr(self, "_straza_zaslona", None) is not None or self.posnetek:
             return
+        from shutil import which
         from core import seja_prikaza
         if seja_prikaza.je_wayland() or not which("xrandr"):
             return
