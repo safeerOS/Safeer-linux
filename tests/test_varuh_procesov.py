@@ -369,7 +369,13 @@ class Pravila(_Osnova):
     def test_zagon_prek_varuha_oom_in_seja(self):
         """Otrok varuha z oom_score_adj=200 prek varuha zazene program, ki dobi oom=0, loceno sejo in ne umre ob restartu."""
         zastavica = os.path.join(self.mapa, "znova")
-        os_ = self.proces("os", "zazeni", glavni=True, oom=200)
+        # Varuh (ta proces) ima lahko ze 200: uporabniske enote systemd (npr. tek z mejo pomnilnika prek systemd-run)
+        # dobijo oom_score_adj 200 (25. 11. 2026: preizkus je lokalno pal z '200' != '0'). Otrok mora imeti VEC od
+        # varuha, zagnani program pa ISTO kot varuh - to je vsebina pravila, ne stevilka 0.
+        with open("/proc/self/oom_score_adj") as f:
+            varuh_oom = int(f.read().strip())
+        otrok_oom = 200 if varuh_oom < 200 else min(1000, varuh_oom + 100)
+        os_ = self.proces("os", "zazeni", glavni=True, oom=otrok_oom)
         self.zazeni(os_)
         ok, _ = self.teci(lambda: os.path.exists(zastavica), 15)
         self.assertTrue(ok, self.dnevnik)
@@ -377,12 +383,12 @@ class Pravila(_Osnova):
             grandchild_pid = int(f.read().strip())
         self.assertGreater(grandchild_pid, 0)
         try:
-            # Stars (safeer-os otrok) ima oom_score_adj 200
+            # Stars (safeer-os otrok) ima visji oom_score_adj (200 pri varuhu z 0)
             with open("/proc/%d/oom_score_adj" % os_.pid) as f:
-                self.assertEqual(f.read().strip(), "200")
-            # Zagnani program pa ima oom_score_adj 0 (podedovano od varuha)
+                self.assertEqual(f.read().strip(), str(otrok_oom))
+            # Zagnani program pa ima oom_score_adj varuha (0 pri navadnem zagonu) - podedovano od varuha, ne od otroka
             with open("/proc/%d/oom_score_adj" % grandchild_pid) as f:
-                self.assertEqual(f.read().strip(), "0")
+                self.assertEqual(f.read().strip(), str(varuh_oom))
             # Program je v svoji seji (setsid)
             self.assertEqual(os.getsid(grandchild_pid), grandchild_pid)
             # PPID je varuh (zagnan zunaj drevesa safeer-os)

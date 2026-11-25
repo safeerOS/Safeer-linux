@@ -702,6 +702,10 @@ class LastniDns(unittest.TestCase):
             self.assertEqual(sc2.nastavi(True)["napaka"], "lastni_dns")
             self.assertFalse(sc2.vklopljen)
             sc2._zagon()                                  # izklopljen: tudi ostankov ne pospravlja
+            # Nit »safeer-scit-caka« caka, dokler je Scit vklopljen; po koncu zamenjav bi s pravim razlog_nemoznosti
+            # zagnala pravi Scit (pkexec pomocnika na racunalniku z namescenim Safeerjem). Lokalni tek 25. 11. 2026:
+            # varovalo programov je zato v vseh naslednjih preizkusih javljalo pkexec (65 napak). Izklop ustavi nit.
+            shramba["scit"] = False
         self.assertEqual(klici, [], "nobenega klica, ki bi spremenil ali sploh pregledoval DNS")
 
     def test_napaka_izgine_ko_je_spet_mozno(self):
