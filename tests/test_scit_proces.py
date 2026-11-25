@@ -170,10 +170,8 @@ class NasicenjeTcp(unittest.TestCase):
 
     def setUp(self):
         self.r = os_scit.Razresevalnik(lambda ime: "oglasi" if ime.endswith("oglas.test") else None, lambda: [])
-        self.u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.u.bind(("127.0.0.1", 0))
-        self.t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.t.bind(self.u.getsockname())
+        # _par_vrat: ista vrata UDP+TCP z nekaj poskusi (lokalni tek 25. 11. 2026: EADDRINUSE kot CI 45529235947).
+        self.u, self.t = _par_vrat()
         self.t.listen(512)
         self.vrata = self.u.getsockname()[1]
         self.r._zacni(self.u, self.t, self.vrata)
