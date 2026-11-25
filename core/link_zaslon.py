@@ -2608,7 +2608,7 @@ class Zaslon:
             pass
         finally:
             konec_seje.set()                # niti utripa in meritev nehajo
-            budnost.POKROV.sprosti("zaslon-%d" % seja)     # pokrov spet deluje; zaprt pokrov takrat uspava
+            budnost.POKROV.sprosti("zaslon-%d" % seja)     # kljucavnica se sprosti; Safeer ne uspava sam
             if omejevalnik.sprejetih or omejevalnik.zavrnjenih:
                 print("[zaslon] kljucni ob koncu seje: sprejetih %d, zavrnjenih %d"
                       % (omejevalnik.sprejetih, omejevalnik.zavrnjenih), flush=True)

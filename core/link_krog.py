@@ -456,6 +456,11 @@ class Krog:
                 # Samo vnos z NASIM kljucem (izmerjeni primer: glavni id tega racunalnika). Polje »dodal« pride lahko od
                 # huba ali soseda in ga ne preverimo: tujo napravo z »dodal« = nas id bi sicer podpisali z nasim kljucem
                 # in sosedje bi jo sprejeli kot nas vnos (slepi pregled 22. 11. 2026, najdba 1).
+                # Tudi id vnosa mora biti nas (jedro = id iz nasega kljuca): hub bi sicer poslal star id druge naprave
+                # (npr. »tv-dnevna«) z nasim kljucem in nas »dodal«, mi bi ga podpisali, sosedje pa bi pravi napravi
+                # prepisali kljuc z nasim (tedenski pregled 25. 11. 2026, S1).
+                if not (je_id_iz_kljuca(device_id) and device_id[:DOLZINA_ID_IZ_KLJUCA] == id_iz_kljuca(nas)):
+                    continue
                 if c.get("podpis") or c.get("kljuc") != nas or not self._smo_mi(str(c.get("dodal") or "")):
                     continue
                 try:

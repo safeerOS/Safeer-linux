@@ -3,7 +3,7 @@
 Zadržimo samo SAMODEJNO spanje ob nedejavnosti, med videom tudi ohranjevalnik zaslona, zaklep in ugašanje zaslona -
 tako kot vsak predvajalnik. Zaprt pokrov in ročno spanje delujeta kot vedno: prenosnik v torbi mora zaspati. Edina izjema je PokrovLogind: dokler
 teče slika zaslona na drugi napravi (televizorju), zaprt pokrov prenosnika ne uspava (lastnik, 16. 11. 2026: ob
-zaprtju pokrova sta ugasnila slika na TV in Bluetooth); ob koncu prenosa pokrov spet deluje, zaprt pokrov pa takrat uspava.
+zaprtju pokrova sta ugasnila slika na TV in Bluetooth); ob koncu prenosa se ključavnica sprosti; Safeer računalnika nikoli ne uspava sam (lastnik, 25. 11. 2026).
 Zadržanje velja, dokler živi naša povezava z vodilom seje; če se program sesuje, ga upravitelj seje sprosti sam.
 
 Linux - vmesniki po vrsti: org.gnome.SessionManager (Cinnamon, GNOME, MATE - en klic za spanje in zaslon), sicer
@@ -172,6 +172,39 @@ def _logind_drugi_drzijo_pokrov() -> bool:
                for kaj, _kdo, _zakaj, nacin, _uid, _pid in izid.unpack()[0])
 
 
+def _logind_lastnost(ime: str):
+    from gi.repository import Gio, GLib  # noqa: WPS433
+    vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    izid = vodilo.call_sync("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.DBus.Properties",
+                            "Get", GLib.Variant("(ss)", ("org.freedesktop.login1.Manager", ime)),
+                            GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 1500, None)
+    return izid.unpack()[0]
+
+
+def politika_pokrova_uspava(docked: bool, na_omrezju: bool, ravnanje: str, ravnanje_omrezje: str,
+                            ravnanje_dok: str) -> bool:
+    """Ali bi logind ob zaprtem pokrovu sam uspaval (logind.conf HandleLidSwitch*). Vrstni red kot v logind:
+    dok ali zunanji zaslon, nato zunanje napajanje, nato privzeto. Prazen »ExternalPower« pomeni »kot privzeto«."""
+    if docked:
+        izbrano = ravnanje_dok
+    elif na_omrezju and ravnanje_omrezje:
+        izbrano = ravnanje_omrezje
+    else:
+        izbrano = ravnanje
+    return izbrano in ("suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate", "sleep")
+
+
+def _logind_politika_uspava() -> bool:
+    try:
+        na_omrezju = bool(_logind_lastnost("OnExternalPower"))
+    except Exception:  # noqa: BLE001 - starejsi logind brez te lastnosti
+        na_omrezju = False
+    return politika_pokrova_uspava(bool(_logind_lastnost("Docked")), na_omrezju,
+                                   str(_logind_lastnost("HandleLidSwitch")),
+                                   str(_logind_lastnost("HandleLidSwitchExternalPower")),
+                                   str(_logind_lastnost("HandleLidSwitchDocked")))
+
+
 def _logind_uspavaj() -> None:
     from gi.repository import Gio, GLib  # noqa: WPS433
     vodilo = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
@@ -185,13 +218,14 @@ class PokrovLogind:
     Brez tega je logind ob zaprtju pokrova uspaval računalnik, ugasnila sta slika na TV in Bluetooth (izmerjeno
     16. 11. 2026, dnevnik: »Lid closed. Suspending...«). Ključavnica je na ravni logind in brez roota; velja, dokler je
     odprt njen opisnik, zato ob sesutju programa izgine sama. Več razlogov (sej) hkrati ena ključavnica. Ko zadnji
-    razlog odpade in je pokrov zaprt, računalnik zaspi takoj: prenosnik v torbi mora zaspati (zato se prenos ob izpadu
-    Wi-Fi, ki seje ne pusti živeti, konča z uspavanjem)."""
+    razlog odpade, se ključavnica sprosti; Safeer računalnika ne uspava sam (lastnik 25. 11. 2026: brez spanja,
+    sicer Link ne deluje), odloči sistem po svojih nastavitvah."""
 
     def __init__(self, program: str = "Safeer", odpri: Optional[Callable] = None,
                  pokrov_zaprt: Optional[Callable] = None, uspavaj: Optional[Callable] = None,
-                 drugi_drzijo: Optional[Callable] = None) -> None:
+                 drugi_drzijo: Optional[Callable] = None, politika: Optional[Callable] = None) -> None:
         self.program = program
+        self._politika = politika or _logind_politika_uspava
         self._drugi = drugi_drzijo or _logind_drugi_drzijo_pokrov
         self._odpri = odpri or _logind_inhibit_pokrov
         self._zaprt = pokrov_zaprt or _logind_pokrov_zaprt
@@ -229,9 +263,13 @@ class PokrovLogind:
         except OSError:
             pass
         try:
-            # Uspavamo samo, ce pokrova ne drzi nihce drug (npr. lastnikova rocna kljucavnica): njegova je odlocitev.
+            # Safeer racunalnika NIKOLI ne uspava sam (lastnik 25. 11. 2026: »Prenosnik se ne sme uspavati, ker
+            # drugace Link ne deluje«). Prej je ob zaprtem pokrovu po prenosu klical logind Suspend in s tem obsel
+            # sistemsko nastavitev (dok, zunanji zaslon, HandleLidSwitch=ignore; tedenski pregled 25. 11. 2026, S2).
+            # Zdaj samo zapisemo stanje; ali bo racunalnik zaspal, odloci sistem po svojih nastavitvah.
             if self._zaprt() and not self._drugi():
-                self._uspavaj()
+                _log.info("Prenos koncan, pokrov zaprt: Safeer ne uspava (sistem: %s)",
+                          "bi uspaval" if self._politika() else "ne uspava")
         except Exception as e:  # noqa: BLE001
             _log.warning("Preverba pokrova po prenosu ni uspela: %s", e)
 

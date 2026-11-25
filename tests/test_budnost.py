@@ -274,7 +274,7 @@ class TestPokrovMedPrenosom(unittest.TestCase):
     """Zaprt pokrov ne uspava racunalnika, dokler tece slika na TV (16. 11. 2026: ob zaprtju sta ugasnila slika in
     Bluetooth, dnevnik »Lid closed. Suspending...«). Ko prenos mine, prenosnik v torbi spet zaspi."""
 
-    def naredi(self, zaprt=False, napaka=False, drugi=False):
+    def naredi(self, zaprt=False, napaka=False, drugi=False, politika=True):
         self.odprti, self.zaprti, self.uspavan = [], [], []
         pokrov = {"zaprt": zaprt}
 
@@ -286,7 +286,25 @@ class TestPokrovMedPrenosom(unittest.TestCase):
             self.odprti.append(r)
             return r
         return budnost.PokrovLogind("Safeer", odpri=odpri, pokrov_zaprt=lambda: pokrov["zaprt"],
-                                    uspavaj=lambda: self.uspavan.append(1), drugi_drzijo=lambda: drugi), pokrov
+                                    uspavaj=lambda: self.uspavan.append(1), drugi_drzijo=lambda: drugi,
+                                    politika=lambda: politika), pokrov
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
+    def test_po_prenosu_ne_uspava_ce_logind_ne_bi(self):
+        # Tedenski pregled 25. 11. 2026, S2: dok, zunanji zaslon ali HandleLidSwitch=ignore.
+        p, _ = self.naredi(zaprt=True, politika=False)
+        p.drzi("zaslon-1")
+        p.sprosti("zaslon-1")
+        self.assertEqual(self.uspavan, [])
+
+    def test_politika_pokrova(self):
+        f = budnost.politika_pokrova_uspava
+        self.assertTrue(f(False, False, "suspend", "", "ignore"))
+        self.assertFalse(f(True, False, "suspend", "", "ignore"), "dok ali zunanji zaslon")
+        self.assertFalse(f(False, True, "suspend", "ignore", "ignore"), "na omrezju z »ignore«")
+        self.assertTrue(f(False, True, "suspend", "", "ignore"), "prazno = kot privzeto")
+        self.assertFalse(f(False, False, "ignore", "ignore", "ignore"), "nastavitev »ignore«")
+        self.assertFalse(f(False, False, "lock", "", "ignore"))
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
     def test_dve_seji_ena_kljucavnica_do_konca_zadnje(self):
@@ -300,12 +318,14 @@ class TestPokrovMedPrenosom(unittest.TestCase):
         self.assertFalse(p.drzi_se())
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
-    def test_po_prenosu_zaprt_pokrov_uspava(self):
+    def test_po_prenosu_zaprt_pokrov_ne_uspava(self):
+        # Lastnik 25. 11. 2026: »Prenosnik se ne sme uspavati, ker drugace Link ne deluje.«
         p, _ = self.naredi(zaprt=True)
         p.drzi("zaslon-1")
         self.assertEqual(self.uspavan, [], "med prenosom ne spi")
         p.sprosti("zaslon-1")
-        self.assertEqual(self.uspavan, [1], "prenosnik v torbi mora zaspati")
+        self.assertEqual(self.uspavan, [], "Safeer racunalnika nikoli ne uspava sam")
+        self.assertFalse(p.drzi_se())
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "ključavnica pokrova je samo za Linux")
     def test_po_prenosu_ne_uspava_ce_pokrov_drzi_se_kdo(self):

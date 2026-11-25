@@ -64,6 +64,25 @@ class PodpisiLastne(unittest.TestCase):
         self.assertNotIn("podpis", k.clani["n-napadalec"])
         self.assertNotIn("podpis", k.clani["n-napadalec2"])
 
+    def test_tuj_id_z_nasim_kljucem_in_nasim_dodal_ne_podpise(self):
+        """Tedenski pregled 25. 11. 2026, S1: hub poslje star id DRUGE naprave z nasim kljucem in »dodal« = nas id.
+        Prej ga je racunalnik podpisal, sosed pa je pravi napravi prepisal kljuc z nasim."""
+        k = link_krog.Krog(os.path.join(self.mapa, "krog.json"))
+        for tuj_id in ("tv-dnevna", "n-0000000000000000", "n-0000000000000000-control"):
+            k.clani[tuj_id] = {"kljuc": self.nas, "ime": "TV", "platforma": "tv", "dodano": 104.0, "dodal": self.id}
+        self.assertEqual(k.podpisi_lastne(), [])
+        for tuj_id in ("tv-dnevna", "n-0000000000000000", "n-0000000000000000-control"):
+            self.assertNotIn("podpis", k.clani[tuj_id])
+        sosed = link_krog.Krog()
+        sosed.zdruzi({"clani": {"tv-dnevna": dict(k.clani["tv-dnevna"])}}, preveri_podpise=True)
+        self.assertFalse(sosed.je_clan("tv-dnevna"))
+
+    def test_nas_id_s_pripono_se_podpise(self):
+        k = link_krog.Krog(os.path.join(self.mapa, "krog.json"))
+        k.clani[self.id + "-vnos"] = {"kljuc": self.nas, "ime": "PC", "platforma": "linux", "dodano": 105.0,
+                                      "dodal": self.id}
+        self.assertEqual(k.podpisi_lastne(), [self.id + "-vnos"])
+
 
 if __name__ == "__main__":
     unittest.main()

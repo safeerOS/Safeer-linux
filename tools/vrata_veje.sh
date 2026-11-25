@@ -6,8 +6,10 @@
 set -u
 DNI="${1:-30}"
 OPUSCENI="$(dirname "$0")/vrata_opusceni.txt"
-IDX=/tmp/vrata-veje.indeks
-IZPIS=/tmp/vrata-veje.izpis
+ZAC="$(mktemp -d)" || exit 2
+trap 'rm -rf "$ZAC"' EXIT
+IDX="$ZAC/indeks"
+IZPIS="$ZAC/izpis"
 git fetch -q origin || echo "OPOZORILO: fetch ni uspel"
 for veja in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -v -e '/HEAD$' -e '/main$'); do
   [ -n "$(git log -1 --since="$DNI days ago" --format=%h "$veja")" ] || continue
