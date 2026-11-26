@@ -29,6 +29,7 @@ from typing import List, Optional, Tuple
 NASLOV = "127.0.0.1"
 VRATA = 53
 IME_NALOGE = "SafeerScitDns"
+REZERVNI_STREZNIKI = ("1.1.1.1", "9.9.9.9", "8.8.8.8")
 #: Brez okna konzole (CREATE_NO_WINDOW); na drugih sistemih 0.
 _BREZ_OKNA = 0x08000000 if sys.platform == "win32" else 0
 
@@ -136,7 +137,8 @@ def upstream_strezniki(vmesnik: str) -> List[str]:
     trenutni = [s for s in _streznik_vmesnika(vmesnik) if s != NASLOV]
     if trenutni:
         return trenutni
-    return [s for s in _preberi_stanje().get(vmesnik, []) if s != NASLOV]
+    shranjeni = [s for s in _preberi_stanje().get(vmesnik, []) if s != NASLOV]
+    return shranjeni or list(REZERVNI_STREZNIKI)   # kot dosedanji Scit na Windows: brez znanega DNS posredujemo javnim
 
 
 def trenutni_streznik(vmesnik: str) -> str:

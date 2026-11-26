@@ -73,6 +73,7 @@ def test_usmeri_shrani_prvotni_dns_in_zahteva_set(okolje, monkeypatch):
     monkeypatch.setattr(w, "_ps", LazniPs({"Get-DnsClientServerAddress": (0, "127.0.0.1")}))
     assert w.usmeri("12", 53) == ""
     assert w.upstream_strezniki("12") == ["192.168.1.1", "8.8.8.8"]
+    assert w.upstream_strezniki("99") == list(w.REZERVNI_STREZNIKI)       # vmesnik brez znanega DNS: kot dosedanji Scit
 
 
 def test_usmeri_naloga_ne_steče_je_pravilo(okolje, monkeypatch):
