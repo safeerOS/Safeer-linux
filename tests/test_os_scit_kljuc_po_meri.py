@@ -20,5 +20,6 @@ def test_osvezi_ne_poslje_kljuca_filtru_po_meri():
                             kljuc_fn=lambda: KLJUC)
         s.viri = lambda: [("pm-x", "https://napadalec.example/{KLJUC}/s.txt", "oglasi")]
         s._osvezi()
-    assert videni == ["https://napadalec.example/{KLJUC}/s.txt"]
+    ip_url = [u for _o, u in os_scit.VIRI_IP]          # seznama naslovov IPv4 (blokada po IP odgovora) niso filter po meri
+    assert [u for u in videni if u not in ip_url] == ["https://napadalec.example/{KLJUC}/s.txt"]
     assert not any(KLJUC in u for u in videni)

@@ -115,6 +115,8 @@ class SeznamiTest(unittest.TestCase):
         klici = []
 
         def prenesi(url, etag, cas=60.0):
+            if url in dict((u, o) for o, u in os_scit.VIRI_IP):   # seznami naslovov IPv4 (blokada po IP odgovora)
+                return 200, b"8.8.4.4\n", "e-ip"
             oznaka = [o for o, u, _k in os_scit.VIRI if u.replace("{KLJUC}", KLJUC_PREIZKUS) == url][0]
             klici.append((oznaka, etag))
             if etag == "e-" + oznaka:
@@ -1112,6 +1114,65 @@ UID_NOBODY = 65534
 
 def _ime_dns(s):
     return b"".join(bytes([len(l)]) + l.encode() for l in s.split(".")) + b"\0"
+
+
+class IpOdgovoraTest(unittest.TestCase):
+    """Blokada po IP odgovora (26. 11. 2026, po zgledu blocky; enako TV ScitIpTest.kt)."""
+
+    @staticmethod
+    def _odgovor(ime, naslovi):
+        d = bytearray(b"\x00\x01\x81\x80\x00\x01" + bytes([0, len(naslovi)]) + b"\x00\x00\x00\x00") + _ime_dns(ime) + b"\x00\x01\x00\x01"
+        for a in naslovi:
+            d += b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04" + bytes(int(x) for x in a.split("."))
+        return bytes(d)
+
+    def test_naslovi4(self):
+        odg = self._odgovor("c2.stran.si", ["203.0.113.9", "198.51.100.7"])
+        self.assertEqual(os_scit.naslovi4(odg), ["203.0.113.9", "198.51.100.7"])
+        self.assertEqual(os_scit.naslovi4(odg[:5]), [])
+        self.assertEqual(os_scit.naslovi4(odg[:-3]), ["203.0.113.9"])   # odrezan zadnji zapis: prebrano do napake
+        cname = bytearray(self._odgovor("a.si", ["203.0.113.9"]))
+        cname[cname.index(b"\x00\x01\x00\x01\x00\x00\x00\x3c") + 1] = 5       # tip CNAME: ni naslova
+        self.assertEqual(os_scit.naslovi4(bytes(cname)), [])
+
+    def test_razcleni_ip_seznam(self):
+        b = "# komentar\n203.0.113.9\n127.0.0.1\n192.168.1.5\n8.8.8.8 # z opombo\nsmeti\n01.2.3.4\n256.1.1.1\n8.8.8.8\n"
+        self.assertEqual(os_scit.razcleni_ip_seznam(b), frozenset({"8.8.8.8"}))   # 203.0.113.0/24 je dokumentacijsko, ne javno
+
+    def test_ustavi_po_ip(self):
+        odg = self._odgovor("c2.stran.si", ["8.8.4.4"])
+        poizvedba = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + _ime_dns("c2.stran.si") + b"\x00\x01\x00\x01"
+        r = os_scit.Razresevalnik(lambda i: None, lambda: [], ip_groznje=lambda a: a == "8.8.4.4")
+        r._posreduj = lambda paket, tcp: odg
+        izid = r._odgovori(poizvedba, False)
+        self.assertEqual(izid[3] & 0x0F, 3, "NXDOMAIN")
+        self.assertEqual((r.blokiranih, r.zadnje[0]["ime"], r.zadnje[0]["kategorija"]), (1, "c2.stran.si", "botnet"))
+        # izjema, krajevno, zasciteno, brez seznama, drug naslov
+        self.assertFalse(os_scit.Razresevalnik(lambda i: None, lambda: [], izjema=lambda i: True,
+                                               ip_groznje=lambda a: True)._ip_ustavi("c2.stran.si", odg))
+        r2 = os_scit.Razresevalnik(lambda i: None, lambda: [], ip_groznje=lambda a: True)
+        self.assertFalse(r2._ip_ustavi("tiskalnik.local", self._odgovor("tiskalnik.local", ["8.8.4.4"])))
+        self.assertFalse(r2._ip_ustavi("objects.github.com", self._odgovor("objects.github.com", ["8.8.4.4"])))
+        self.assertFalse(os_scit.Razresevalnik(lambda i: None, lambda: [])._ip_ustavi("c2.stran.si", odg))
+        self.assertFalse(os_scit.Razresevalnik(lambda i: None, lambda: [], ip_groznje=lambda a: False)._ip_ustavi("c2.stran.si", odg))
+
+    def test_seznami_prenesejo_in_preberejo_ip(self):
+        import tempfile
+        klici = []
+
+        def prenos(url, etag, cas=60.0):
+            klici.append(url)
+            return (200, b"# Feodo\n8.8.4.4\n127.0.0.1\n", "e1") if "ipblocklist" in url else (200, b"", "")
+
+        with tempfile.TemporaryDirectory() as mapa:
+            sez = os_scit.Seznami(mapa, prenesi_fn=prenos)
+            napake = []
+            self.assertTrue(sez._osvezi_ip(napake))
+            self.assertEqual(napake, [])
+            self.assertTrue(sez.ip_groznje("8.8.4.4"))
+            self.assertFalse(sez.ip_groznje("127.0.0.1"))
+            self.assertEqual(len([u for u in klici if "ipblocklist" in u]), len(os_scit.VIRI_IP))
+            self.assertTrue(os_scit.Seznami(mapa, prenesi_fn=prenos).ip_groznje("8.8.4.4"))   # z diska po ponovnem zagonu
 
 
 class CnameTest(unittest.TestCase):

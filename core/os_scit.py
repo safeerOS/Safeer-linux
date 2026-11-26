@@ -107,6 +107,52 @@ VIRI: Tuple[Tuple[str, str, str], ...] = (
     ("phishing-army", "https://phishing.army/download/phishing_army_blocklist_extended.txt", "phishing"),
     ("si-cert", "https://www.cert.si/misp/rpz/last.txt", "phishing"),
 )
+#: Seznami naslovov IPv4 botnet C2 (Feodo Tracker, CC0) za blokado po IP odgovora (lastnik 26. 11. 2026, po zgledu
+#: blocky; enako na TV: ScitIpSeznam.kt). Ne gredo v nabor domen. »aggressive« ima tudi starejse naslove (ok. 7600).
+VIRI_IP = (("feodo", "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"),
+           ("feodo-aggressive", "https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.txt"))
+NAJVEC_BAJTOV_IP = 1 << 20
+_IPV4 = re.compile(r"^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$")
+
+
+def razcleni_ip_seznam(besedilo: str) -> frozenset:
+    """Javni naslovi IPv4 (en v vrstici, # komentar). Neveljavni in ne-javni (zasebni, krajevni, rezervirani) se zavrzejo:
+    zastrupljen vnos 127.0.0.1 ali 192.168.x.x ne sme ustaviti krajevnih imen (enako TV ScitIpSeznam.razclani)."""
+    izhod = set()
+    for vrstica in besedilo.splitlines():
+        v = vrstica.split("#", 1)[0].strip()
+        if v and _IPV4.match(v) and ipaddress.IPv4Address(v).is_global:
+            izhod.add(v)
+    return frozenset(izhod)
+
+
+def naslovi4(d: bytes) -> List[str]:
+    """Naslovi IPv4 iz zapisov A (razred IN, 4 bajti) v odgovoru DNS, najvec 64 zapisov; pokvarjen odgovor vrne, kar je
+    do napake prebral (enako kot cname_cilji; TV DnsPaket.naslovi4)."""
+    if len(d) < 12:
+        return []
+    qd, an = struct.unpack("!HH", d[4:8])
+    i = 12
+    for _ in range(min(qd, 4)):
+        r = _ime_odgovora(d, i)
+        if r is None:
+            return []
+        i = r[1] + 4
+    izhod: List[str] = []
+    for _ in range(min(an, 64)):
+        r = _ime_odgovora(d, i)
+        if r is None or r[1] + 10 > len(d):
+            return izhod
+        k = r[1]
+        vrsta, razred, rdl = struct.unpack("!HH", d[k:k + 4]) + (struct.unpack("!H", d[k + 8:k + 10])[0],)
+        if k + 10 + rdl > len(d):
+            return izhod
+        if vrsta == 1 and razred == 1 and rdl == 4:
+            izhod.append(".".join(str(b) for b in d[k + 10:k + 14]))
+        i = k + 10 + rdl
+    return izhod
+
+
 VIRI_URLHAUS = dict((o, u) for o, u, _k in VIRI)["urlhaus"]
 KATEGORIJE = ("oglasi", "groznje", "prevare", "malware", "phishing", "botnet")
 #: Premor ustavi samo to kategorijo (oglasi in sledenje); vse druge so nevarne strani in ostanejo blokirane.
@@ -446,8 +492,11 @@ class Razresevalnik:
     def __init__(self, blokiraj: Callable[[str], Optional[str]], upstream: Callable[[], List[str]],
                  naprej: Optional[Callable[[bytes], Optional[bytes]]] = None,
                  zagonsko: Optional[Callable[[str], bool]] = None,
-                 izjema: Optional[Callable[[str], bool]] = None) -> None:
+                 izjema: Optional[Callable[[str], bool]] = None,
+                 ip_groznje: Optional[Callable[[str], bool]] = None) -> None:
         self.blokiraj = blokiraj
+        #: Ali je naslov IPv4 na seznamu groznj z naslovi (Feodo): odgovor z njim se zavrne (blokada po IP odgovora).
+        self.ip_groznje = ip_groznje
         #: Uporabnikova izjema na vprasanem imenu velja tudi za njegovo verigo CNAME (kot Pi-hole).
         self.izjema = izjema
         self.upstream = upstream
@@ -569,9 +618,30 @@ class Razresevalnik:
             if self.naprej is not None and self.zagonsko is not None and self.zagonsko(ime):
                 return self._vprasaj_usmerjevalnik(paket, tcp)
         odgovor = self._posreduj(paket, tcp)
-        if odgovor and ime and self._cname_ustavi(ime, odgovor):
+        if odgovor and ime and (self._cname_ustavi(ime, odgovor) or self._ip_ustavi(ime, odgovor)):
             return odgovor_zavrnjeno(paket)
         return odgovor
+
+    def _ip_ustavi(self, ime: str, odgovor: bytes) -> bool:
+        """Odgovor vsebuje naslov IPv4 botnet C2 (Feodo): ime menja naslove, naslov pa je na seznamu. Ne ustavi imena z
+        uporabnikovo izjemo, krajevnega, zascitenega in korena skupnega gostitelja (isto kot TV ScitOdlocitev.ipUstavi);
+        zabelezi se ime, da ga uporabnik lahko spusti."""
+        if self.ip_groznje is None:
+            return False
+        try:
+            d = ime.lower().rstrip(".")
+            if (not d or (self.izjema is not None and self.izjema(d)) or je_krajevno(d) or je_zasciten(d)
+                    or scit_gostitelji.vrsta(d) == scit_gostitelji.KOREN):
+                return False
+            if not any(self.ip_groznje(a) for a in naslovi4(odgovor)):
+                return False
+        except Exception:  # noqa: BLE001 - pokvarjen odgovor gre naprej kot doslej
+            return False
+        with self._kljuc:
+            self.blokiranih += 1
+            if not self.zadnje or self.zadnje[0]["ime"] != d:
+                self.zadnje = ([{"ime": d, "kategorija": "botnet", "cas": time.time()}] + self.zadnje)[:20]
+        return True
 
     def _cname_ustavi(self, ime: str, odgovor: bytes) -> bool:
         """Odgovor vsebuje CNAME na ustavljeno domeno (prikrit sledilec; lastnik 9. 11. 2026, Scit kot Pi-hole).
@@ -1187,6 +1257,8 @@ class Seznami:
         self.nabor: Nabor = Nabor.nalozi(os.path.join(mapa, "domene.bin")) or Nabor()
         self.meta: dict = self._preberi_meta()
         self.napaka = ""
+        #: Naslovi IPv4 groznj (Feodo) za blokado po IP odgovora; z diska, osvezi jih _osvezi_ip.
+        self.ip_nabor: frozenset = self._preberi_ip()
         self.storitev = None
         self._nit: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -1306,6 +1378,10 @@ class Seznami:
             spremenjeno = True
         if spremenjeno or not len(self.nabor):
             self._zgradi()
+        try:
+            self._osvezi_ip(napake)
+        except Exception as e:  # noqa: BLE001 - seznam IP ne sme zrusiti osvezitve domen
+            napake.append("ip: %s" % e.__class__.__name__)
         self.meta["cas"] = time.time()
         self.napaka = "; ".join(napake)
         self.meta["napaka"] = self.napaka
@@ -1314,6 +1390,49 @@ class Seznami:
         except OSError:
             pass
         return not napake
+
+    def _preberi_ip(self) -> frozenset:
+        vsi = set()
+        for oznaka, _url in VIRI_IP:
+            try:
+                pot = os.path.join(self.mapa, oznaka + ".ip.txt")
+                if os.path.getsize(pot) > NAJVEC_BAJTOV_IP:
+                    continue
+                with open(pot, encoding="utf-8", errors="replace") as f:
+                    vsi |= razcleni_ip_seznam(f.read())
+            except OSError:
+                continue
+        return frozenset(vsi)
+
+    def _osvezi_ip(self, napake: List[str]) -> bool:
+        """Prenese sezname naslovov IPv4; ob napaki ostane zadnja kopija."""
+        spremenjeno = False
+        for oznaka, url in VIRI_IP:
+            kljuc = "ip-" + oznaka
+            m = self.meta.get(kljuc, {})
+            try:
+                koda, telo, etag = self.prenesi(url, m.get("etag", ""))
+            except Exception as e:  # noqa: BLE001
+                napake.append("%s: %s" % (oznaka, e.__class__.__name__))
+                continue
+            if koda == 304 and os.path.exists(os.path.join(self.mapa, oznaka + ".ip.txt")):
+                continue
+            if koda != 200 or len(telo) > NAJVEC_BAJTOV_IP:
+                napake.append("%s: %s" % (oznaka, koda))
+                continue
+            glava = telo[:2048].decode("utf-8", "replace").lower()
+            if "<html" in glava or "<!doctype" in glava:
+                napake.append("%s: html" % oznaka)
+                continue
+            _atomic_write(Path(self.mapa, oznaka + ".ip.txt"), telo)
+            self.meta[kljuc] = {"etag": etag, "cas": time.time()}
+            spremenjeno = True
+        if spremenjeno:
+            self.ip_nabor = self._preberi_ip()
+        return spremenjeno
+
+    def ip_groznje(self, naslov: str) -> bool:
+        return naslov in self.ip_nabor
 
     def _zgradi(self) -> None:
         def domene():
@@ -2518,7 +2637,8 @@ class Scit:
                 self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej,
                                                    zagonsko=self._zagonsko,
                                                    izjema=lambda i: self._izjeme.get(i, 0) > self._ura()
-                                                   or webtor.je_stalna_izjema_scita(i))
+                                                   or webtor.je_stalna_izjema_scita(i),
+                                                   ip_groznje=self.seznami.ip_groznje)
                 self.razresevalnik.sifrirano_naprej = lambda: self.naprej()[0] != "router"
             vrata = self.razresevalnik.zazeni()
             if not vrata:
