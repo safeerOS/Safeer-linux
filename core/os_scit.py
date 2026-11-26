@@ -41,6 +41,7 @@ import socket
 import stat as _stat
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -55,8 +56,15 @@ from core import scit_gostitelji
 from core import root_ukaz, webtor
 from core.signed_feed import _atomic_write, isti_gostitelj
 
+
+def _windows():
+    """Platformni sloj za Windows (PowerShell, Task Scheduler); na Linuxu se ne nalozi."""
+    from core import os_scit_windows
+    return os_scit_windows
+
 NASLOV = "127.0.0.1"
-VRATA = (5354, 5355, 5356, 5357)
+#: Windows: sistemski DNS ne pozna vrat, zato razresevalnik poslusa na 127.0.0.1:53 (core/os_scit_windows.py).
+VRATA = (53,) if sys.platform == "win32" else (5354, 5355, 5356, 5357)
 PRAVILO_POT = "/etc/polkit-1/rules.d/49-safeer-os-scit.rules"
 #: STARO siroko pravilo (do 4. 11. 2026): ne namesca se vec in ne velja kot dovoljenje; pomocnik (scit-dns dovoli) ga
 #: na gostitelju odstrani. Ostane samo za prepoznavo v preizkusih.
@@ -425,6 +433,8 @@ def _vrednosti_nmcli(izpis: str) -> List[str]:
 def upstream_strezniki(vmesnik: str) -> List[str]:
     """Strezniki DNS, ki jih je za ta vmesnik dolocil NetworkManager (DHCP, oglas usmerjevalnika ali rocna
     nastavitev), IPv4 in IPv6 - ne glede na to, kaj je trenutno nastavljeno v systemd-resolved."""
+    if sys.platform == "win32":
+        return _windows().upstream_strezniki(vmesnik)
     koda, izpis = _zazeni(["nmcli", "-g", "IP4.DNS,IP6.DNS", "device", "show", vmesnik])
     strezniki: List[str] = []
     for v in _vrednosti_nmcli(izpis) if koda == 0 else []:
@@ -464,6 +474,8 @@ def _dhcp_strezniki(vmesnik: str) -> List[str]:
 
 def za_vticnico(streznik: str, vmesnik: str) -> str:
     """Naslov za nase posredovanje: povezavno-lokalni IPv6 (fe80::) potrebuje se ime vmesnika."""
+    if sys.platform == "win32":
+        return streznik
     try:
         if ":" in streznik and ipaddress.ip_address(streznik).is_link_local:
             return streznik + "%" + vmesnik
@@ -474,6 +486,8 @@ def za_vticnico(streznik: str, vmesnik: str) -> str:
 
 def nm_domene(vmesnik: str) -> List[str]:
     """Iskalne domene, ki jih je za vmesnik dolocil NetworkManager (iz DHCP ali nastavitev povezave)."""
+    if sys.platform == "win32":
+        return []
     koda, izpis = _zazeni(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN,IP4.SEARCHES,IP6.SEARCHES", "device", "show", vmesnik])
     if koda != 0:     # starejsi NetworkManager polja SEARCHES ne pozna
         koda, izpis = _zazeni(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN", "device", "show", vmesnik])
@@ -1555,6 +1569,8 @@ def tekoci_scit(cas: float = 0.3) -> int:
 
 # ---------------------------------------------------------------------- systemd-resolved
 def vmesniki_povezani() -> List[str]:
+    if sys.platform == "win32":
+        return _windows().vmesniki_povezani()
     koda, izpis = _zazeni(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"])
     izhod = []
     if koda != 0:
@@ -1610,6 +1626,8 @@ POPRAVI_PIHOLE_UKAZ = ("mkdir -p " + PIHOLE_ODLOZENO + " && for f in " + " ".joi
 def razlog_nemoznosti() -> str:
     """'' = Scit lahko dela; 'ni_resolved' = ni systemd-resolved ali NetworkManagerja; 'lastni_dns' = programi
     sprasujejo drug streznik DNS (ne systemd-resolved)."""
+    if sys.platform == "win32":
+        return _windows().razlog_nemoznosti()
     if shutil.which("resolvectl") is None or shutil.which("nmcli") is None or \
             _zazeni(["systemctl", "is-active", "systemd-resolved"])[1].strip() != "active":
         return "ni_resolved"
@@ -1624,6 +1642,8 @@ def razlog_nemoznosti() -> str:
 
 
 def dns_vmesnika(vmesnik: str) -> str:
+    if sys.platform == "win32":
+        return _windows().dns_vmesnika(vmesnik)
     koda, izpis = _zazeni(["resolvectl", "dns", vmesnik])
     return izpis.split(":", 1)[1].strip() if koda == 0 and ":" in izpis else ""
 
@@ -1637,6 +1657,8 @@ def uredi_domene(vmesnik: str) -> None:
     """Iskalne domene vmesnika naj bodo taksne, kot jih je dolocil NetworkManager. Razlicice do 0.4.42 so jih
     zamenjale z usmerjevalno domeno »~.« (kratka domaca imena, npr. »nas«, se potem niso razresila), ob izklopu pa z
     `resolvectl revert` pobrisale; kdor posodobi sredi seje, ima na vmesniku se to stanje - tu ga popravimo."""
+    if sys.platform == "win32":
+        return _windows().uredi_domene(vmesnik)
     trenutne = domene_vmesnika(vmesnik)
     if trenutne and trenutne != ["~."]:
         return
@@ -1663,6 +1685,8 @@ UTRIP_S = 2.0
 def znak_dns() -> Tuple[int, int]:
     """Casa zadnje spremembe nastavitev DNS: datoteka systemd-resolved in /etc/resolv.conf (0, ce datoteke ni). V
     peskovniku Flatpak prve ni; druga je tam zrcalo gostiteljeve in se ob menjavi omrezja prav tako spremeni."""
+    if sys.platform == "win32":
+        return _windows().znak_dns()
     def cas(pot: str) -> int:
         try:
             return os.stat(pot).st_mtime_ns
@@ -1673,6 +1697,8 @@ def znak_dns() -> Tuple[int, int]:
 
 def nekdo_poslusa(vrata: int) -> bool:
     """Ali na nasih vratih tece razresevalnik (tega ali drugega prijavljenega uporabnika)."""
+    if sys.platform == "win32":
+        return _windows().nekdo_poslusa(vrata)
     try:
         with socket.create_connection((NASLOV, vrata), timeout=0.5):
             return True
@@ -1743,6 +1769,8 @@ def lastniki_vrat(vrata: int, mapa: str = "/proc/net") -> Optional[set]:
 
 def vrata_nasa(vrata: int) -> bool:
     """Na vratih poslusa samo nas uporabnik (ta ali drug nas proces, npr. Safeer OS ob Safeer Browserju)."""
+    if sys.platform == "win32":
+        return _windows().vrata_nasa(vrata)
     lastniki = lastniki_vrat(vrata)
     return bool(lastniki) and lastniki == {os.getuid()}
 
@@ -1798,6 +1826,8 @@ def tuj_scit(dns: str, nasa_vrata: int) -> bool:
 
     Samo, ce vrata drzi en sam drug clovek (uid >= 1000, ne nobody) in odgovori kot Scit: proces, ki je vrata zasedel
     po sesutju Scita (ali sistemski uporabnik), vmesnika ne obdrzi - prevzamemo ga."""
+    if sys.platform == "win32":
+        return _windows().tuj_scit(dns, nasa_vrata)
     m = re.fullmatch(re.escape(NASLOV) + r":(\d+)", (dns.split() or [""])[0])
     if not m or int(m.group(1)) == nasa_vrata or int(m.group(1)) not in VRATA:
         return False
@@ -1815,6 +1845,8 @@ def je_ostanek(vmesnik: str) -> bool:
     """Vmesnik je v stanju, ki ga je za sabo pustil Scit: brez streznikov DNS (stari `resolvectl revert`) ali z nasim
     streznikom na prvem mestu, na katerem nihce vec ne poslusa (sesutje) - ali ga je zasedel proces, ki ni Scit
     (nas ali drugega prijavljenega uporabnika): tak ne sme dobivati vseh imen racunalnika."""
+    if sys.platform == "win32":
+        return _windows().je_ostanek(vmesnik)
     deli = dns_vmesnika(vmesnik).split()
     if not deli:
         return True
@@ -1829,11 +1861,15 @@ def je_ostanek(vmesnik: str) -> bool:
 
 def izprazni_predpomnilnik() -> None:
     """systemd-resolved razresena imena hrani; po spremembi (vklop, izjema, premor) naj vprasa znova."""
+    if sys.platform == "win32":
+        return _windows().izprazni_predpomnilnik()
     _zazeni(["resolvectl", "flush-caches"], cas=10.0)
 
 
 def trenutni_streznik(vmesnik: str) -> str:
     """Streznik, ki ga systemd-resolved za ta vmesnik trenutno uporablja (»Current DNS Server«)."""
+    if sys.platform == "win32":
+        return _windows().trenutni_streznik(vmesnik)
     koda, izpis = _zazeni(["resolvectl", "status", vmesnik])
     if koda != 0:
         return ""
@@ -2008,6 +2044,8 @@ def pravilo_namesceno() -> bool:
     """Ali smemo nastaviti DNS brez gesla. Mape /etc/polkit-1/rules.d uporabnik ne more brati (0750
     root:polkitd), zato pravila ne iscemo po datoteki, ampak polkit vprasamo naravnost (pkcheck brez
     interakcije: 0 = dovoljeno, sicer bi zahteval geslo). Staro siroko pravilo za resolve1 ne velja vec."""
+    if sys.platform == "win32":
+        return _windows().pravilo_namesceno()
     pot = pot_pomocnika()
     if pot is None:
         return False
@@ -2057,6 +2095,8 @@ def siroko_pravilo_velja() -> bool:
 def dovoljenje_za_posodobitev() -> str:
     """Kaj Scit ponudi posodobiti (geslo enkrat, Scit.posodobi_dovoljenje): »siroko« = staro siroko pravilo se velja,
     »pomocnik« = pomocnik na gostitelju je star (druga SHA_POMOCNIKA); »« = nic. Oboje resi namestitev pomocnika."""
+    if sys.platform == "win32":
+        return _windows().dovoljenje_za_posodobitev()
     if siroko_pravilo_velja():
         return "siroko"
     if pot_pomocnika() is None and _stanje_gostitelja() == "star":
@@ -2088,6 +2128,8 @@ def namesti_pravilo() -> bool:
     Kaj vsota SHA-256 dokazuje: da root namesti natanko pomocnika iz tega paketa (celovitost prenosa od nas do roota,
     mimo uporabnikovih datotek). Izvora NE dokazuje - vsota je vgrajena v isti paket; izvor jamci podpis paketa
     (Flatpak, AppImage, .deb), ne ta preverba."""
+    if sys.platform == "win32":
+        return _windows().namesti_pravilo()
     global _gostitelj_pomocnik, _siroko
     pot = pot_pomocnika()
     if pot is not None:
@@ -2119,6 +2161,8 @@ def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> str
 
     Vrne napako: "" = uspeh, "pravilo" = DNS ni nastavljen, BREZ_REZERVE = Scit je usmerjen, rezerve pa ni (drugi
     korak je padel). Prej je to vrnilo uspeh in rezerva se je tiho izgubila (pregled 4. 11. 2026)."""
+    if sys.platform == "win32":
+        return _windows().usmeri(vmesnik, vrata, rezerva)
     if pomocnik():
         koda = _pomocnik_koda("usmeri", vmesnik, str(int(vrata)))
         return "" if koda == 0 else BREZ_REZERVE if koda == KODA_BREZ_REZERVE else "pravilo"
@@ -2135,6 +2179,8 @@ def povrni(vmesnik: str) -> bool:
 
     Samo `resolvectl revert` NI dovolj: pobrise tudi streznike, ki jih je systemd-resolved dobil od NetworkManagerja,
     ta pa jih znova poslje sele ob naslednji povezavi - racunalnik bi do takrat ostal brez DNS."""
+    if sys.platform == "win32":
+        return _windows().povrni(vmesnik)
     if pomocnik():
         return _pomocnik("povrni", vmesnik)
     strezniki = upstream_strezniki(vmesnik)
